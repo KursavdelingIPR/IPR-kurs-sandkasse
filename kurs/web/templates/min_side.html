@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block tittel %}Min side – IPR Påmeldingssystem{% endblock %}
+{% block innhold %}
+<h1>Hei, {{ deltaker.navn }}</h1>
+<p class="sub">{{ deltaker.epost }}{% if deltaker.arbeidssted %} · {{ deltaker.arbeidssted }}{% endif %}</p>
+
+{% for lopnavn, timer in lop.items() %}
+<div class="kort" style="display:flex; gap:24px; align-items:center; flex-wrap:wrap">
+  <div><div class="liten dempet">{{ lopnavn }}-spesialistløp · dokumenterte timer</div><div class="stat">{{ '%g' % timer }}</div></div>
+  <div class="liten dempet" style="flex:1; min-width:200px">Summert fra registrert oppmøte på alle samlinger. Timekrav for godkjenning avklares med IPR.</div>
+</div>
+{% endfor %}
+
+<h2>Mine kurs</h2>
+{% for x in kursliste %}{% set p = x.p %}
+<div class="kort">
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap">
+    <div><strong>{{ p.navn }}</strong>
+      <div class="liten dempet">{{ {'digital':'Digitalt','fysisk':p.sted or 'Fysisk','hybrid':'Hybrid'}[p.type] }}</div></div>
+    <div>
+      {% if p.status == 'venteliste' %}<span class="merke gul">Venteliste</span>
+      {% elif p.kursstatus == 'avsluttet' %}<span class="merke gra">Gjennomført</span>
+      {% else %}<span class="merke ok">Påmeldt</span>{% endif %}
+      {% if p.betaling == 'per_samling' %}<span class="merke">Delt betaling</span>{% endif %}
+    </div>
+  </div>
+  {% if p.status == 'bekreftet' %}
+  <div style="margin-top:12px; display:flex; gap:6px; flex-wrap:wrap">
+    {% for d in x.dager %}<span class="merke {{ 'ok' if d.kilde else ('gra' if d.dato >= idag else 'feil') }}" title="{{ d.kilde or '' }}">{{ d.dato }} {{ '✓' if d.kilde else ('' if d.dato >= idag else '✗') }}</span>{% endfor %}
+  </div>
+  {% if x.fakturaer %}
+  <p class="liten" style="margin:12px 0 4px"><strong>Fakturaer</strong></p>
+  <ul class="liten" style="margin:0; padding-left:18px">
+    {% for fak in x.fakturaer %}<li>Faktura {{ fak.faktura_nr }}{% if fak.dato %} – samling {{ fak.dato }}{% endif %} ·
+      {{ '{:,}'.format(fak.belop_nok).replace(',', ' ') }} kr · <span class="merke {{ 'ok' if fak.status == 'betalt' }}">{{ fak.status }}</span></li>{% endfor %}
+    {% if p.betaling == 'per_samling' %}<li class="dempet">Resterende samlinger faktureres fortløpende før hver samling.</li>{% endif %}
+  </ul>
+  {% endif %}
+  {% if p.zoom_url and p.kursstatus != 'avsluttet' %}<p class="liten" style="margin-top:10px">Zoom: <a href="{{ p.zoom_url }}">{{ p.zoom_url }}</a></p>{% endif %}
+  {% if x.filer %}<p class="liten" style="margin:12px 0 4px"><strong>Kursmateriell</strong></p>
+    <ul class="liten" style="margin:0; padding-left:18px">{% for fil in x.filer %}<li><a href="{{ url_for('materiell', kurs_id=p.kurs_id, navn=fil.navn) }}">{{ fil.navn }}</a></li>{% endfor %}</ul>{% endif %}
+  {% endif %}
+</div>
+{% else %}<p class="dempet">Du har ingen påmeldinger.</p>{% endfor %}
+
+<h2>Dokumenter</h2>
+<div class="tabellboks"><table>
+  <tr><th>Dokument</th><th>Type</th><th>Kurs</th><th>Dato</th></tr>
+  {% for d in dokumenter %}
+  <tr><td><a href="{{ url_for('dokument', dok_id=d.id) }}" target="_blank">{{ d.tittel }}</a></td>
+      <td><span class="merke">{{ d.type }}</span></td><td>{{ d.kursnavn or '' }}</td><td class="dempet">{{ d.opprettet[:10] }}</td></tr>
+  {% else %}<tr><td colspan="4" class="dempet">Ingen dokumenter ennå.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

@@ -1,0 +1,6 @@
+Emne: {% if igjen > 0 %}Påminnelse: {{ m.beskrivelse }} til {{ m.kursnavn }} – frist om {{ igjen }} dager{% else %}Frist i dag: {{ m.beskrivelse }} til {{ m.kursnavn }}{% endif %}
+{% extends "_ramme.html" %}{% block innhold %}
+<p>Hei {{ m.ansvarlig_navn }},</p>
+<p>Vi minner om at <strong>{{ m.beskrivelse | lower }}</strong> til <strong>{{ m.kursnavn }}</strong> skal leveres innen <strong>{{ m.frist }}</strong>.</p>
+<p><a href="{{ base_url }}/lever/{{ m.id }}">Last opp her</a> – så blir materiellet automatisk tilgjengelig for deltakerne.</p>
+{% endblock %}

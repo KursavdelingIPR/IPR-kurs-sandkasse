@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block innhold %}
+<h1>Kurs og utdanning</h1>
+<p class="sub">Institutt for Psykologisk Rådgivning</p>
+<div class="rutenett">
+{% for k in kurs %}
+  <div class="kort">
+    <div class="liten dempet">{{ k.start }} · {{ k.dager }} dag{{ 'er' if k.dager > 1 }} · {{ {'digital':'Digitalt','fysisk':k.sted or 'Fysisk','hybrid':'Hybrid'}[k.type] }}</div>
+    <h2 style="margin:6px 0 8px">{{ k.navn }}</h2>
+    <p class="liten">{% if k.pris_nok %}{{ '{:,}'.format(k.pris_nok).replace(',', ' ') }} kr{% else %}Gratis{% endif %}
+      {% if k.status == 'full' %} · <span class="merke gul">Fullt – venteliste</span>{% endif %}</p>
+    <a class="knapp" href="{{ url_for('kursside', kode=k.kode) }}">Les mer og meld deg på</a>
+  </div>
+{% else %}
+  <p class="dempet">Ingen kurs er åpne for påmelding nå.</p>
+{% endfor %}
+</div>
+{% endblock %}

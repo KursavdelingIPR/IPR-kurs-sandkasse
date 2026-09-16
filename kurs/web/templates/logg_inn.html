@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block innhold %}
+<div class="kort" style="max-width:440px; margin:0 auto">
+  <h1>Min side</h1>
+  {% if sendt %}
+  <p>Hvis e-postadressen er registrert hos oss, har vi sendt deg en innloggingslenke. Sjekk innboksen (og søppelpost).</p>
+  {% else %}
+  <p class="sub">Ingen passord – vi sender deg en innloggingslenke på e-post.</p>
+  <form method="post">
+    <label>E-post</label><input name="epost" type="email" required autocomplete="email">
+    <p style="margin-top:16px"><button style="width:100%">Send innloggingslenke</button></p>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

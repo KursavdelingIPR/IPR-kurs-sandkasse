@@ -1,0 +1,125 @@
+{
+  "tittel": "IPR kursautomasjon - referansearkitektur + forslag",
+  "versjon": "1.0",
+  "dato": "2026-09-14",
+  "til": "Jan Reidar Stiegler (teknisk oppsett for IPR)",
+  "fra": "Stian Midtgard, via assistent",
+  "hensikt": "IPR (psykologkontor, driver bl.a. EFT-spesialistutdanning + digitale enkeltstaende kurs) vil automatisere kursadministrasjonen, inspirert av Stians oppsett. Admin gjor i dag alt manuelt i et kursprogram de er misfornoyd med. Del A beskriver systemet Stian allerede har i drift (mal a gjenskape). Del B er forslag til de bitene som ikke finnes ennaa.",
+
+  "viktige_forbehold": {
+    "eget_miljo": "Referansen kjorer paa Stians personlige agent-server. IPR maa ha SITT EGET oppsett: egen database, egen e-postkonto, egen Zoom-konto/app, eget nettskjema. Ikke del Stians nokler/servere.",
+    "personvern": "Deltakerdata (navn, e-post, allergier/helseopplysninger, sporsmaal) er personopplysninger, allergi er sensitivt. Alt maa ligge paa IPR sin egen infrastruktur med databehandleravtaler der tredjeparter brukes (Zoom, Google, e-postleverandor). Lag sletterutiner.",
+    "bekreft_detaljer": "Enkelte implementasjonsdetaljer i del A (spesielt hvordan nettskjemaet fanges inn) er beskrevet paa arkitekturnivaa. Jan bor bekrefte konkret plugin/endepunkt naar han bygger."
+  },
+
+  "A_referansearkitektur_eksisterende": {
+    "oversikt": "Kjede: nettskjema -> fangst til database -> automatisk Zoom-mote -> tidsstyrte innkallinger/infomail -> oppmoteregistrering fra Zoom -> fakturering i Tripletex. Alt drives av smaa Python-skript + en daglig cron. Lav kompleksitet, lett aa vedlikeholde.",
+    "teknologi": {
+      "database": "SQLite (fil: kurs.db). Holder kurs, paameldinger og logg.",
+      "kjoring": "Python 3.12 i venv. Ett innkallingsskript kjort av cron daglig kl 07:00. Idempotent (kan kjores hver dag uten dobbeltsending).",
+      "e_post": "SMTP via one.com (send.one.com). Sender FRA kurskontorets adresse. Egen send-funksjon med vedlegg-stotte.",
+      "zoom": "Server-to-Server OAuth (S2S). Token hentes med account_credentials. REST-API for aa opprette mote og hente deltakerliste.",
+      "nettside": "WordPress. Paameldingsskjema paa kurssidene."
+    },
+    "datamodell": {
+      "tabell_kurs": ["id", "navn", "status (aapen/aktiv)", "kursdager (komma-separerte ISO-datoer)", "start_kl", "slutt_kl", "zoom_url", "zoom_id", "zoom_pw", "notat"],
+      "tabell_paameldinger": ["id", "kurs_id", "navn", "epost", "faktura_nr (settes naar fakturert)", "(utvides: allergier, organisasjon, fakturaadresse/EHF)"],
+      "tabell_innkalling_logg": ["kurs_id", "epost", "type (ukefor / dagfor-<dato>)", "sendt_ts", "UNIQUE(kurs_id,epost,type) for dedup"]
+    },
+    "flyt_paamelding_til_faktura": [
+      "1. Deltaker fyller ut paameldingsskjema paa kurssiden (navn, e-post, kurs).",
+      "2. Innsendingen fanges inn og skrives som rad i paameldinger (kurs_id + kontaktinfo).",
+      "3. Cron plukker opp nye paameldte automatisk ved neste kjoring (ingen manuell import).",
+      "4. Fakturering: pr deltaker i Tripletex (Stian: 6200/deltaker for MI-kurs, 500 rabatt for abonnenter). faktura_nr lagres paa raden slik at samme deltaker ikke faktureres to ganger. (Enkelte kurs faktureres samlet til en organisasjon, ikke pr person - styres pr kurs.)"
+    ],
+    "zoom_integrasjon": {
+      "opprettelse": "Ett fast, gjentakende mote pr kurs (type 3 - recurring uten fast tid). Opprettes automatisk ca 8 dager for start hvis kurset mangler mote. Innstillinger: venterom AV, join_before_host PAA.",
+      "lagring": "join_url + mote-id + passord lagres paa kurs-raden og gjenbrukes for alle kursdager.",
+      "scopes_som_trengs": ["meeting:write", "meeting:read", "meeting:write:registrant", "report:read:list_meeting_participants"],
+      "merknad": "Etter aa ha lagt til scopes maa Zoom-appen deaktiveres+reaktiveres for at token skal faa dem."
+    },
+    "innkallinger_og_infomail": {
+      "uke_for": "7 dager for forste kursdag: velkomst + praktisk info til alle paameldte.",
+      "dagen_for_hver_kursdag": "Dagen for HVER kursdag: Zoom-lenke + praktisk info. Teksten tilpasses (dag 1 = 'starter i morgen', siste = 'siste kursdag', ellers 'dag N').",
+      "dedup": "Alt logges i innkalling_logg slik at ingen faar samme mail to ganger. Nye paameldte kommer automatisk med ved neste cron.",
+      "testmodus": "Skriptet kan kjores i tor-modus (viser hva som ville blitt sendt) og med overstyrt dato for testing."
+    },
+    "oppmoteregistrering": {
+      "kilde": "Zoom rapport-API (report:read:list_meeting_participants) gir deltakerliste (navn/e-post/tid) etter hvert mote.",
+      "bruk": "Matches mot paameldte paa e-post/navn for aa markere oppmote pr kursdag. Grunnlag for kursbevis (se del B) og for oppfolging av fravaer."
+    },
+    "tripletex_kobling": {
+      "i_dag": "Fakturering skjer i Tripletex (delvis manuelt/via API). faktura_nr tilbake i paameldinger lukker sirkelen.",
+      "prinsipp": "Databasen er fasit for hvem som skal faktureres; Tripletex er der selve fakturaen lages og sendes (EHF der det er org.kunde)."
+    }
+  },
+
+  "B_forslag_ikke_bygget": {
+    "kursbevis": {
+      "behov": "Automatisk kursbevis til deltakere som har mott (viktig for EFT-spesialistutdanning der timer maa dokumenteres over tid).",
+      "forslag": "HTML-mal -> PDF (weasyprint eller wkhtmltopdf). Felter: navn, kurs, datoer, timetall, evt akkumulert timetall for spesialistlop. Trigges naar oppmote er bekreftet. Lagres pr deltaker + sendes paa e-post automatisk.",
+      "for_spesialistutdanning": "Egen tabell som summerer godkjente timer pr deltaker paa tvers av samlinger, slik at beviset kan vise total progresjon mot spesialistkravet."
+    },
+    "allergi_og_spesialbehov": {
+      "behov": "Registrere allergier/spesialkost paa fysiske kurs.",
+      "forslag": "Ekstra felt paa paameldingsskjemaet KUN for fysiske kurs (allergier/spesialkost/tilrettelegging). Lagres i egen kolonne. Auto-generert oppsummeringsliste til kursholder/cateringansvarlig for pr kurs. Behandles som sensitivt: begrenset tilgang + sletting etter kurset.",
+      "personvern": "Helseopplysninger krever ekstra forsiktighet - lagres adskilt og slettes naar kurset er gjennomfort."
+    },
+    "faq_ai_triage": {
+      "behov": "Admin faar mange gjentakende sporsmaal fra deltakere. Hun har sannsynligvis en stor historikk med sporsmaal+svar.",
+      "forslag": [
+        "1. Eksporter historikk (sporsmaal + svar) til CSV.",
+        "2. Kategoriser automatisk (embeddings/klynging) for aa finne de vanligste temaene.",
+        "3. Bygg en AI-assistent (RAG paa IPR sin egen kunnskapsbase) som svarer automatisk paa hoy-sikkerhets-kategorier (praktisk info, lenker, tidspunkt, teknisk Zoom-hjelp).",
+        "4. Konfidensterskel: usikre eller sensitive sporsmaal (klinisk innhold, klager, betaling/refusjon) loftes til admin med forslag til svar, ikke auto-sendt.",
+        "5. Kan leveres som e-post-autosvar eller chat-widget paa deltakerportalen."
+      ],
+      "gevinst": "Fjerner rutinesvar, admin bruker tid kun paa det som faktisk krever menneske."
+    },
+    "purring_psykologer_og_distribusjon": {
+      "behov": "Admin maa mase paa psykologene om aa levere kurspresentasjoner til digitale kurs, og sende dem ut til deltakerne.",
+      "forslag": [
+        "Samme monster som innkallingsskriptet, men rettet innover: pr digitalt kurs registreres hvilken psykolog som skylder presentasjon + frist.",
+        "Automatiske paaminnelser til psykologen (f.eks. 7 og 2 dager for), eskalering til admin hvis ikke levert innen frist.",
+        "Innlevering via en opplastingslenke/mappe. Naar presentasjon er mottatt, distribueres den automatisk til paameldte (e-post + lagt i deltakerportalen).",
+        "Status-dashboard: hvilke kurs mangler materiell."
+      ]
+    },
+    "deltakerportal": {
+      "behov": "Deltakerne skal ha egen side for aa hente presentasjoner, se veiledninger osv. Dagens losning (i kursprogrammet) oppleves som daarlig. IPR vurderer et Google-verktoy.",
+      "alternativer": [
+        {"navn": "Google Sites + Drive (enklest)", "hvordan": "En side pr kurs, materiell i en Drive-mappe pr kurs, tilgang styrt paa deltakernes e-post. Rask aa sette opp, ingen drift, gjenkjennelig for admin.", "ulempe": "Mindre kontroll paa design/paalogging, manuelt aa knytte tilgang med mindre det automatiseres."},
+        {"navn": "Lett egen webside (mer kontroll)", "hvordan": "Enkel side som leser fra samme database som resten (kurs, deltakere, materiell). Innlogging via engangslenke paa e-post. Kan vise oppmote, kursbevis, presentasjoner, veiledninger samlet.", "ulempe": "Krever litt utvikling + drift."}
+      ],
+      "anbefaling": "Start med Google Sites + Drive for aa komme raskt i gang og teste behovet. Automatiser tilgangstildeling (deltaker lagt i database -> faar Drive-tilgang + lenke). Bygg egen side senere kun hvis Google-losningen ikke strekker til.",
+      "assistent_kan_bygge": "En eksempel-/prototypeportal kan lages som eget leveranse (var 'del D') hvis dere vil se den for dere velger."
+    },
+    "automatiske_sveiper_ved_paamelding": {
+      "behov": "Kjede av handlinger som skal skje automatisk naar noen melder seg paa.",
+      "forslag": "Trigger pr ny paamelding: (1) velkomst-/bekreftelsesmail, (2) opprett faktura i Tripletex, (3) legg deltaker som Zoom-registrant, (4) gi tilgang til deltakerportal/Drive, (5) legg i innkallingsloypa. Kjores av samme cron eller en webhook fra skjemaet."
+    }
+  },
+
+  "personvern_og_drift": {
+    "hosting": "Alt paa IPR sin egen infrastruktur. Databehandleravtaler med Zoom/Google/e-postleverandor.",
+    "sensitivt": "Allergier/helse og kliniske sporsmaal handteres adskilt, begrenset tilgang, sletterutiner.",
+    "robusthet": "Idempotente skript + dedup-logg (som i referansen) hindrer dobbeltsending. Tor-modus for testing for produksjon."
+  },
+
+  "anbefalt_rekkefolge": [
+    "1. Gjenskap kjernen (skjema -> database -> Zoom -> innkallinger -> oppmote) for IPR. Storst gevinst, lavest risiko.",
+    "2. Legg paa fakturakobling + automatiske sveiper ved paamelding.",
+    "3. Kursbevis + allergiregistrering.",
+    "4. Deltakerportal (start Google Sites/Drive).",
+    "5. Purring paa psykologer + auto-distribusjon av presentasjoner.",
+    "6. FAQ AI-triage (naar historikk-eksport finnes)."
+  ],
+
+  "til_jan_neste_steg": [
+    "Bekreft IPR sitt tekniske grunnlag: nettside/CMS (skjema-mulighet), e-postleverandor, Zoom-konto (kan de lage S2S-app?), regnskapssystem (Tripletex eller annet).",
+    "Sett opp en tom database + ett innkallingsskript etter samme monster som referansen (kan gjenbrukes nesten 1:1).",
+    "Avklar med IPR-admin hvilke kurstyper som faktureres pr person vs samlet.",
+    "Be om FAQ-historikk-eksport (CSV) for aa kunne planlegge AI-triage.",
+    "Si fra hvis dere vil ha en prototype-deltakerportal fra assistenten som utgangspunkt."
+  ]
+}

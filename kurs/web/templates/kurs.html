@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block tittel %}{{ kurs.navn }} – IPR Påmeldingssystem{% endblock %}
+{% block innhold %}
+<h1>{{ kurs.navn }}</h1>
+<p class="sub">{{ {'digital':'Digitalt kurs (Zoom)','fysisk':'Fysisk kurs','hybrid':'Hybrid'}[kurs.type] }}{% if kurs.sted %} · {{ kurs.sted }}{% endif %}
+  · {% if kurs.pris_nok %}{{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr eks. mva{% else %}Gratis{% endif %}</p>
+
+<div class="rad" style="align-items:start; gap:20px">
+<div class="kort">
+  <strong>Kursdager</strong>
+  <ul style="padding-left:18px">{% for d in dager %}<li>{{ d.dato }} kl. {{ d.start_kl or kurs.start_kl }}–{{ d.slutt_kl or kurs.slutt_kl }}</li>{% endfor %}</ul>
+  {% if kurs.notat %}<p class="liten">{{ kurs.notat }}</p>{% endif %}
+  {% if plasser_igjen is not none %}<p class="liten">{% if plasser_igjen > 0 %}{{ plasser_igjen }} plasser igjen{% else %}<span class="merke gul">Fullt – du settes på venteliste</span>{% endif %}</p>{% endif %}
+</div>
+
+<form method="post" class="kort" style="grid-column: span 2">
+  <strong>Påmelding</strong>
+  <div class="rad">
+    <div><label>Navn *</label><input name="navn" required value="{{ f.navn }}"></div>
+    <div><label>E-post *</label><input name="epost" type="email" required value="{{ f.epost }}"></div>
+    <div><label>Telefon</label><input name="telefon" value="{{ f.telefon }}"></div>
+    <div><label>Arbeidssted</label><input name="arbeidssted" value="{{ f.arbeidssted }}"></div>
+    {% if kurs.spesialistlop %}<div><label>HPR-nummer</label><input name="hpr_nr" value="{{ f.hpr_nr }}"></div>{% endif %}
+  </div>
+
+  {% if kurs.fakturering == 'person' and kurs.pris_nok %}
+  <label style="margin-top:18px">Hvem betaler?</label>
+  <label style="font-weight:normal"><input type="radio" name="betaler" value="person" {{ 'checked' if f.betaler != 'organisasjon' }} onchange="org.classList.add('skjul')">Jeg betaler selv</label>
+  <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} onchange="org.classList.remove('skjul')">Arbeidsgiver betaler</label>
+  <div id="org" class="{{ '' if f.betaler == 'organisasjon' else 'skjul' }}">
+    <div class="rad">
+      <div><label>Organisasjon</label><input name="org_navn" value="{{ f.org_navn }}"></div>
+      <div><label>Org.nr.</label><input name="org_nr" value="{{ f.org_nr }}"></div>
+      <div><label>Fakturareferanse / bestillernr.</label><input name="faktura_ref" value="{{ f.faktura_ref }}"></div>
+      <div><label>E-post for faktura</label><input name="faktura_epost" value="{{ f.faktura_epost }}"></div>
+    </div>
+    <label style="font-weight:normal"><input type="checkbox" name="ehf" {{ 'checked' if f.ehf }}>Send som EHF (elektronisk faktura)</label>
+  </div>
+  {% if kurs.betaling == 'deltaker_velger' %}
+  <label style="margin-top:18px">Betaling</label>
+  <label style="font-weight:normal"><input type="radio" name="betaling" value="samlet" {{ 'checked' if f.betaling != 'per_samling' }}>
+    Hele beløpet i én faktura ({{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr)</label>
+  <label style="font-weight:normal"><input type="radio" name="betaling" value="per_samling" {{ 'checked' if f.betaling == 'per_samling' }}>
+    Delt opp – én faktura før hver samling (ca. {{ '{:,}'.format((kurs.pris_nok / dager|length)|round(0,'floor')|int).replace(',', ' ') }} kr × {{ dager|length }})</label>
+  {% elif kurs.betaling == 'per_samling' %}
+  <p class="liten" style="margin-top:18px">Kurset faktureres per samling: ca. {{ '{:,}'.format((kurs.pris_nok / dager|length)|round(0,'floor')|int).replace(',', ' ') }} kr før hver av de {{ dager|length }} samlingene.</p>
+  {% endif %}
+
+  <div class="rad">
+    <div><label>Fakturaadresse</label><input name="faktura_adresse" value="{{ f.faktura_adresse }}"></div>
+    <div><label>Postnr.</label><input name="faktura_postnr" value="{{ f.faktura_postnr }}"></div>
+    <div><label>Sted</label><input name="faktura_sted" value="{{ f.faktura_sted }}"></div>
+  </div>
+  {% endif %}
+
+  {% if kurs.type != 'digital' %}
+  <div class="rad">
+    <div><label>Allergier / spesialkost</label><input name="allergier" value="{{ f.allergier }}"></div>
+    <div><label>Behov for tilrettelegging</label><input name="tilrettelegging" value="{{ f.tilrettelegging }}"></div>
+  </div>
+  <p class="liten dempet">Opplysningene brukes kun til å planlegge kurset og slettes automatisk etter at kurset er gjennomført.</p>
+  {% endif %}
+
+  <label style="font-weight:normal; margin-top:16px"><input type="checkbox" name="samtykke" required>
+    Jeg godtar <a href="#">vilkår for kurs</a> og <a href="#">personvernerklæringen</a> *</label>
+  <p style="margin-top:16px"><button>Meld meg på</button></p>
+</form>
+</div>
+{% endblock %}

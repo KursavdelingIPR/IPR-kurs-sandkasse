@@ -1,0 +1,7 @@
+flask>=3.1
+werkzeug>=3.1          # passordhashing for admin-brukere (installeres allerede med flask)
+qrcode>=8.0
+requests>=2.32
+pytest>=8.0
+anthropic>=1.0          # KI-assistent (kun brukt når MODUS=prod og ANTHROPIC_API_KEY er satt)
+# valgfritt: weasyprint (PDF-kursbevis), gunicorn/waitress (drift)

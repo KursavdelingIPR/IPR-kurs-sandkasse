@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ipr-kurs",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", ".venv\\Scripts\\python.exe", "kjor.py"],
+      "port": 5000
+    }
+  ]
+}

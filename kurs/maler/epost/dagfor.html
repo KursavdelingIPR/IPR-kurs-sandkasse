@@ -1,0 +1,12 @@
+Emne: {% if nr == 1 %}I morgen starter{% elif nr == antall %}Siste kursdag i morgen:{% else %}I morgen, dag {{ nr }}:{% endif %} {{ kurs.navn }}
+{% extends "_ramme.html" %}{% block innhold %}
+<p>Hei {{ d.navn }},</p>
+<p>{% if nr == 1 %}I morgen starter <strong>{{ kurs.navn }}</strong>!{% elif nr == antall %}I morgen er siste kursdag på <strong>{{ kurs.navn }}</strong>.{% else %}I morgen er dag {{ nr }} av {{ antall }} på <strong>{{ kurs.navn }}</strong>.{% endif %}</p>
+<p>Tid: {{ dag.dato }} kl. {{ dag.start_kl or kurs.start_kl }}–{{ dag.slutt_kl or kurs.slutt_kl }}</p>
+{% if kurs.type != 'fysisk' and kurs.zoom_url %}
+<p style="margin:20px 0"><a href="{{ kurs.zoom_url }}" style="background:#1f5c73;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Bli med på Zoom</a></p>
+<p style="font-size:13px;color:#667">Møte-ID: {{ kurs.zoom_id }}{% if kurs.zoom_pw %} · Passord: {{ kurs.zoom_pw }}{% endif %}<br>
+Bruk samme navn og e-post som ved påmelding – da registreres oppmøtet ditt automatisk.</p>
+{% endif %}
+{% if kurs.type != 'digital' %}<p>Sted: {{ kurs.sted }}. Husk å registrere oppmøte med QR-koden når du kommer.</p>{% endif %}
+{% endblock %}

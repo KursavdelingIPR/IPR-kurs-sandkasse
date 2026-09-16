@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="no"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Innsjekk – {{ kd.navn }}</title>
+<meta http-equiv="refresh" content="20">
+<style>
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:#fff; color:#1d2a33; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; box-sizing:border-box; }
+  .wrap { display:flex; gap:6vw; align-items:center; flex-wrap:wrap; justify-content:center; }
+  .qr svg { width:min(60vh, 80vw); height:auto; display:block; }
+  h1 { font-size:clamp(24px,4vw,48px); margin:0 0 8px; font-weight:600; }
+  .dato { color:#5d6b75; font-size:clamp(16px,2vw,24px); }
+  .kode { font-size:clamp(40px,7vw,96px); letter-spacing:.15em; font-weight:700; color:#1f5c73; margin:4px 0; font-family:Consolas,monospace; }
+  .liten { color:#5d6b75; font-size:clamp(14px,1.6vw,20px); }
+  .teller { margin-top:32px; font-size:clamp(16px,2vw,24px); }
+</style></head>
+<body><div class="wrap">
+  <div class="qr">{{ svg }}</div>
+  <div>
+    <h1>{{ kd.navn }}</h1>
+    <div class="dato">{{ kd.dato }}</div>
+    <p class="liten" style="margin-top:36px">Skann QR-koden med mobilkameraet.<br>Får du ikke skannet? Gå til <strong>{{ kode_url }}</strong> og tast:</p>
+    <div class="kode">{{ kd.innsjekk_kode }}</div>
+    <div class="teller">✓ {{ antall }} sjekket inn</div>
+  </div>
+</div></body></html>

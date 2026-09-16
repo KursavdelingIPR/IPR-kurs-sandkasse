@@ -1,0 +1,11 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<h1>Utboks (demo)</h1>
+<p class="sub">E-post som ville blitt sendt. I drift går disse fra kurs-postboksen via Microsoft 365.</p>
+{% for m in meldinger %}
+<details class="kort">
+  <summary style="cursor:pointer"><strong>{{ m.emne }}</strong> <span class="dempet liten">→ {{ m.til }} · {{ m.tid }}</span></summary>
+  <div style="margin-top:14px; border-top:1px solid var(--linje); padding-top:14px">{{ m.html | safe }}</div>
+</details>
+{% else %}<p class="dempet">Ingen e-post sendt ennå.</p>{% endfor %}
+{% endblock %}

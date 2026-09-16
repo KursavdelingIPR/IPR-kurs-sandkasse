@@ -1,0 +1,14 @@
+Emne: Bekreftelse: {{ kurs.navn }}
+{% extends "_ramme.html" %}{% block innhold %}
+<p>Hei {{ p.navn }},</p>
+<p>Takk for påmeldingen! Du har fått plass på <strong>{{ kurs.navn }}</strong>.</p>
+<ul>
+{% for d in dager %}<li>{{ d.dato }} kl. {{ d.start_kl or kurs.start_kl }}–{{ d.slutt_kl or kurs.slutt_kl }}</li>{% endfor %}
+</ul>
+<p>{% if kurs.type == 'digital' %}Kurset er digitalt. Zoom-lenke kommer på e-post dagen før hver kursdag.
+{% else %}Sted: {{ kurs.sted or 'kommer' }}.{% endif %}</p>
+{% if kurs.pris_nok and kurs.fakturering == 'person' %}
+<p>{% if p.betaling == 'per_samling' %}Kursavgiften på {{ kurs.pris_nok }} kr deles på {{ dager | length }} samlinger, og faktura for hver samling sendes {{ kurs.faktura_dager_for }} dager før samlingen{% else %}Faktura på {{ kurs.pris_nok }} kr sendes{% endif %}
+{% if p.betaler == 'organisasjon' %}til {{ p.org_navn }}{% else %}til deg{% endif %}.</p>{% endif %}
+<p>Du kan når som helst logge inn på <a href="{{ base_url }}/min-side">Min side</a> med e-postadressen din.</p>
+{% endblock %}

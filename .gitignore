@@ -1,0 +1,6 @@
+.env
+data/
+utboks/
+__pycache__/
+.pytest_cache/
+.venv/

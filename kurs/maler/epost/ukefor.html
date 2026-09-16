@@ -1,0 +1,14 @@
+Emne: Velkommen til {{ kurs.navn }} – praktisk informasjon
+{% extends "_ramme.html" %}{% block innhold %}
+<p>Hei {{ d.navn }},</p>
+<p>Nå er det snart tid for <strong>{{ kurs.navn }}</strong>, som starter {{ dager[0].dato }}.</p>
+<p><strong>Kursdager</strong></p>
+<ul>{% for dag in dager %}<li>{{ dag.dato }} kl. {{ dag.start_kl or kurs.start_kl }}–{{ dag.slutt_kl or kurs.slutt_kl }}</li>{% endfor %}</ul>
+{% if kurs.type == 'digital' %}
+<p>Kurset holdes på Zoom. Du får lenken på e-post dagen før hver kursdag. Test gjerne lyd og bilde på forhånd.</p>
+{% else %}
+<p><strong>Sted:</strong> {{ kurs.sted }}<br>
+Ved ankomst registrerer du oppmøte ved å skanne QR-koden på skjermen (eller taste koden på {{ base_url }}/innsjekk).</p>
+{% endif %}
+{% if kurs.notat %}<p>{{ kurs.notat }}</p>{% endif %}
+{% endblock %}

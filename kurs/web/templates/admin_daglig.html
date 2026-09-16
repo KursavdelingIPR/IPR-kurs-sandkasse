@@ -1,0 +1,11 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<h1>Daglig kjøring</h1>
+<p class="sub">I drift går denne automatisk hver morgen kl. 07. Her kan du kjøre den manuelt – og i demo «spole» til en annen dato for å se hva som skjer.</p>
+<form method="post" class="kort" style="max-width:520px">
+  <label>Dato</label><input type="date" name="dato" value="{{ idag }}">
+  <label style="font-weight:normal"><input type="checkbox" name="tor">Tørrkjøring (vis hva som ville skjedd, uten å sende/lagre)</label>
+  <p style="margin-top:14px"><button>Kjør</button></p>
+</form>
+{% if utskrift %}<h2>Resultat</h2><pre>{{ utskrift }}</pre>{% endif %}
+{% endblock %}

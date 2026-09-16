@@ -1,0 +1,32 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<h1>Brukere</h1>
+<p class="sub">Alle som skal logge inn i administrasjonen må ha sin egen bruker. Del aldri passord mellom flere personer.</p>
+
+<div class="tabellboks">
+<table>
+<tr><th>Navn</th><th>Brukernavn</th><th>Status</th><th>Opprettet</th><th></th></tr>
+{% for b in brukere %}
+<tr>
+  <td>{{ b.navn }}</td>
+  <td>{{ b.brukernavn }}</td>
+  <td><span class="merke {{ 'ok' if b.aktiv else 'gra' }}">{{ 'Aktiv' if b.aktiv else 'Deaktivert' }}</span></td>
+  <td>{{ b.opprettet[:10] }}</td>
+  <td>
+    <form method="post" action="{{ url_for('admin_bruker_deaktiver', bid=b.id) }}">
+      <button class="liten sekundar">{{ 'Deaktiver' if b.aktiv else 'Aktiver' }}</button>
+    </form>
+  </td>
+</tr>
+{% endfor %}
+</table>
+</div>
+
+<h2>Ny bruker</h2>
+<form method="post" class="kort" style="max-width:420px">
+  <label>Navn *</label><input name="navn" required>
+  <label>Brukernavn *</label><input name="brukernavn" required autocapitalize="off">
+  <label>Passord * (minst 8 tegn)</label><input type="password" name="passord" minlength="8" required>
+  <p style="margin-top:14px"><button>Opprett bruker</button></p>
+</form>
+{% endblock %}

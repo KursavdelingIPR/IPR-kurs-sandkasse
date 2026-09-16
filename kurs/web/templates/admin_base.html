@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block nav %}
+<a href="{{ url_for('admin') }}">Oversikt</a>
+<a href="{{ url_for('admin_ny_kurs') }}">Nytt kurs</a>
+<a href="{{ url_for('admin_kunnskap') }}">Kunnskapsbase</a>
+<a href="{{ url_for('admin_daglig') }}">Daglig kjøring</a>
+<a href="{{ url_for('admin_brukere') }}">Brukere</a>
+{% if demo %}<a href="{{ url_for('admin_utboks') }}">Utboks</a>{% endif %}
+<a href="{{ url_for('forside') }}">Offentlig side</a>
+<a href="{{ url_for('admin_logg_ut') }}">Logg ut{% if session.admin_navn %} ({{ session.admin_navn }}){% endif %}</a>
+{% endblock %}

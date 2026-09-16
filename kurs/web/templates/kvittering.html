@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block innhold %}
+<div class="kort" style="max-width:560px">
+{% if status == 'bekreftet' %}
+  <h1>Du er påmeldt!</h1>
+  <p>Takk, {{ navn }}. Du har fått plass på <strong>{{ kurs.navn }}</strong>. Bekreftelse er sendt på e-post{% if kurs.pris_nok and kurs.fakturering == 'person' %}, og faktura kommer separat{% endif %}.</p>
+{% else %}
+  <h1>Du står på venteliste</h1>
+  <p>Takk, {{ navn }}. <strong>{{ kurs.navn }}</strong> er fullt, men du får automatisk plass og beskjed på e-post hvis noen melder seg av.</p>
+{% endif %}
+  <p><a class="knapp sekundar" href="{{ url_for('logg_inn') }}">Gå til Min side</a></p>
+</div>
+{% endblock %}

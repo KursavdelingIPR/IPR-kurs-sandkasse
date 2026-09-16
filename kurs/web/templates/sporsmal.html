@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block tittel %}Spør oss – IPR Påmeldingssystem{% endblock %}
+{% block innhold %}
+<div style="max-width:640px">
+  <h1>Spør om kurs</h1>
+  <p class="sub">Svarene kommer fra kursadministrasjonens godkjente informasjon{% if session.deltaker_id %} og din egen påmelding{% else %}. <a href="{{ url_for('logg_inn') }}">Logg inn</a> for svar om din påmelding{% endif %}.
+    Finner vi ikke et sikkert svar, går spørsmålet til en person i administrasjonen.</p>
+
+  {% if resultat %}
+  <div class="kort" style="border-left:4px solid {{ 'var(--ok)' if resultat.besvart else 'var(--gul)' }}">
+    <div class="liten dempet" style="margin-bottom:6px">Du spurte: «{{ tekst }}»</div>
+    {% if resultat.besvart %}
+      {% for t in resultat.tekster %}<p style="margin:8px 0">{{ t }}</p>{% endfor %}
+      <p class="liten dempet" style="margin-top:12px">Svaret er hentet ordrett fra godkjent informasjon ({{ resultat.kilder | join(', ') }}). Stemmer det ikke med det du lurer på? Skriv spørsmålet mer konkret, eller kontakt oss.</p>
+    {% elif resultat.henvendelse_id %}
+      <p><strong>Vi har ikke et sikkert svar på dette automatisk.</strong></p>
+      <p>Spørsmålet er sendt til kursadministrasjonen{% if session.deltaker_id %}, og du får svar på e-post{% endif %}.</p>
+      {% if demo %}<p class="liten dempet">Demo – årsak: {{ resultat.grunn }}</p>{% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="post" class="kort">
+    <label>Spørsmål</label>
+    <textarea name="sporsmal" rows="3" required maxlength="2000" placeholder="F.eks. «Hva er fristen for å melde seg av?»"></textarea>
+    {% if not session.deltaker_id %}<label>E-post (hvis du vil ha svar fra oss)</label><input name="epost" type="email">{% endif %}
+    <p class="liten dempet">Ikke skriv helseopplysninger eller andre sensitive opplysninger her.</p>
+    <p style="margin-top:12px"><button>Send</button></p>
+  </form>
+</div>
+{% endblock %}

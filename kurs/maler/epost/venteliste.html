@@ -1,0 +1,6 @@
+Emne: Venteliste: {{ kurs.navn }}
+{% extends "_ramme.html" %}{% block innhold %}
+<p>Hei {{ p.navn }},</p>
+<p><strong>{{ kurs.navn }}</strong> er dessverre fullt, men du står nå på venteliste.
+Blir det en ledig plass, får du automatisk plassen og en bekreftelse på e-post.</p>
+{% endblock %}

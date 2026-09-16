@@ -1,0 +1,7 @@
+Emne: Logg inn på Min side – IPR Påmeldingssystem
+{% extends "_ramme.html" %}{% block innhold %}
+<p>Hei {{ navn }},</p>
+<p>Klikk på knappen for å logge inn. Lenken virker i 30 minutter og kan bare brukes én gang.</p>
+<p style="margin:20px 0"><a href="{{ lenke }}" style="background:#1f5c73;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Logg inn</a></p>
+<p style="font-size:13px;color:#667">Ba du ikke om dette? Da kan du se bort fra e-posten.</p>
+{% endblock %}

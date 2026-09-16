@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block innhold %}
+<div class="kort" style="max-width:440px; margin:0 auto; text-align:center; padding:36px 24px">
+  <div style="font-size:54px; line-height:1; color:{{ 'var(--ok)' if status == 'ok' else 'var(--feil)' }}">{{ '✓' if status == 'ok' else '!' }}</div>
+  <h1 style="margin-top:12px">{{ tekst }}</h1>
+  <p class="sub">{{ kurs.navn }} · {{ kurs.dato }}</p>
+  {% if status == 'ok' %}<a class="knapp sekundar" href="{{ url_for('min_side') }}">Min side</a>{% endif %}
+</div>
+{% endblock %}

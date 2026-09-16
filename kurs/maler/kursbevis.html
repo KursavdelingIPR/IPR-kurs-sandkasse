@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="no"><head><meta charset="utf-8"><title>Kursbevis – {{ navn }}</title>
+<style>
+  @page { size: A4; margin: 2.5cm; }
+  body { font-family: Georgia, "Times New Roman", serif; color: #1d2a33; max-width: 680px; margin: 3rem auto; padding: 0 1rem; }
+  .ramme { border: 2px solid #1f5c73; padding: 3rem 2.5rem; text-align: center; }
+  .liten { font-family: system-ui, sans-serif; letter-spacing: .15em; text-transform: uppercase; font-size: .8rem; color: #1f5c73; }
+  h1 { font-size: 2.4rem; margin: .6rem 0 2rem; font-weight: normal; }
+  .navn { font-size: 1.8rem; border-bottom: 1px solid #aab; display: inline-block; padding: 0 2rem .3rem; }
+  table { margin: 2rem auto 0; font-family: system-ui, sans-serif; font-size: .9rem; text-align: left; border-collapse: collapse; }
+  td { padding: .25rem 1rem; }
+  .signatur { margin-top: 3.5rem; font-family: system-ui, sans-serif; font-size: .85rem; }
+  @media print { body { margin: 0; } }
+</style></head>
+<body><div class="ramme">
+  <div class="liten">Institutt for Psykologisk Rådgivning</div>
+  <h1>Kursbevis</h1>
+  <p>Dette bekrefter at</p>
+  <p class="navn">{{ navn }}</p>
+  <p>har gjennomført</p>
+  <p style="font-size:1.3rem"><strong>{{ kurs.navn }}</strong></p>
+  <table>
+    <tr><td>Kursdager</td><td>{{ dager | join(', ') }}</td></tr>
+    <tr><td>Timer</td><td>{{ '%g' % timer }}</td></tr>
+    {% if kurs.sted %}<tr><td>Sted</td><td>{{ kurs.sted }}</td></tr>{% endif %}
+    {% if lop_timer is not none %}<tr><td>Akkumulert i {{ kurs.spesialistlop }}-løpet</td><td>{{ '%g' % lop_timer }} timer</td></tr>{% endif %}
+  </table>
+  <div class="signatur">______________________________<br>Kursansvarlig, IPR</div>
+</div></body></html>

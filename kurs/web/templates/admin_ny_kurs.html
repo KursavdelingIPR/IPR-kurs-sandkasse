@@ -1,0 +1,43 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<h1>Nytt kurs</h1>
+<p class="sub">Når kurset lagres, lages kurskode, påmeldingsside, SharePoint-mappe og innsjekkkoder automatisk. Zoom-møte lages ~8 dager før start.</p>
+<form method="post" class="kort" style="max-width:820px">
+  <div class="rad">
+    <div style="grid-column:span 3"><label>Kursnavn *</label><input name="navn" required></div>
+  </div>
+  <div class="rad">
+    <div><label>Type</label><select name="type"><option value="fysisk">Fysisk</option><option value="digital">Digitalt</option><option value="hybrid">Hybrid</option></select></div>
+    <div><label>Sted</label><input name="sted"></div>
+    <div><label>Kapasitet</label><input name="kapasitet" type="number" min="1"></div>
+  </div>
+  <div class="rad">
+    <div><label>Kursdatoer * (én per linje, ÅÅÅÅ-MM-DD)</label><textarea name="datoer" rows="4" required></textarea></div>
+    <div><label>Fra kl.</label><input name="start_kl" value="09:00"><label>Til kl.</label><input name="slutt_kl" value="16:00"></div>
+    <div><label>Timer per dag (kursbevis)</label><input name="timer_pr_dag" type="number" step="0.5" value="6">
+         <label>Spesialistløp (valgfritt)</label><input name="spesialistlop" placeholder="EFT"></div>
+  </div>
+  <div class="rad">
+    <div><label>Pris eks. mva (kr)</label><input name="pris_nok" type="number" min="0" value="0"></div>
+    <div><label>Fakturering</label><select name="fakturering"><option value="person">Per deltaker (automatisk)</option><option value="organisasjon">Samlet til organisasjon</option><option value="ingen">Ingen</option></select></div>
+  </div>
+  <div class="rad">
+    <div><label>Betaling</label>
+      <select name="betaling" id="betaling" onchange="document.getElementById('delfelt').classList.toggle('skjul', this.value === 'samlet')">
+        <option value="samlet">Hele beløpet i én faktura</option>
+        <option value="per_samling">Delt opp – én faktura før hver samling</option>
+        <option value="deltaker_velger">La deltakeren velge ved påmelding</option>
+      </select></div>
+    <div id="delfelt" class="skjul"><label>Delfaktura sendes (dager før hver samling)</label>
+      <input name="faktura_dager_for" type="number" min="0" max="180" value="14"></div>
+  </div>
+  <p class="liten dempet">Ved oppdelt betaling lages én faktura per kursdag. Beløpet deles likt, og eventuell rest legges på den første fakturaen.</p>
+  <div class="rad">
+    <div><label>Kursholder navn</label><input name="kursholder_navn"></div>
+    <div><label>Kursholder e-post</label><input name="kursholder_epost" type="email"></div>
+    <div><label>Frist for presentasjon</label><input name="materiell_frist" type="date"></div>
+  </div>
+  <label>Praktisk info (tas med i velkomst-e-post)</label><textarea name="notat" rows="3"></textarea>
+  <p style="margin-top:16px"><button>Opprett kurs</button></p>
+</form>
+{% endblock %}

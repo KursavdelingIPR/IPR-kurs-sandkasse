@@ -1,0 +1,5 @@
+Emne: Mangler materiell: {{ m.kursnavn }} ({{ -igjen }} dager over frist)
+{% extends "_ramme.html" %}{% block innhold %}
+<p>{{ m.ansvarlig_navn }} ({{ m.ansvarlig_epost }}) har ikke levert <strong>{{ m.beskrivelse | lower }}</strong>
+til <strong>{{ m.kode }} {{ m.kursnavn }}</strong>. Fristen var {{ m.frist }}. Automatiske påminnelser er sendt.</p>
+{% endblock %}
