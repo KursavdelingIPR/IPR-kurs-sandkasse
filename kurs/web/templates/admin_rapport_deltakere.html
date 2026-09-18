@@ -1,0 +1,33 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_rapporter') }}">← Rapporter</a></p>
+<h1>Deltakerregister</h1>
+<p class="sub">Alle personer i systemet, på tvers av kurs.</p>
+
+<form method="get" class="rad" style="align-items:end; margin-bottom:10px">
+  <div><label>Søk (navn/e-post/arbeidssted)</label><input type="search" name="sok" value="{{ sok }}"></div>
+  <div style="padding-bottom:9px">
+    <label style="font-weight:normal; display:flex; align-items:center; gap:6px; margin:0">
+      <input type="checkbox" name="kun_flere_kurs" value="1" {{ 'checked' if kun_flere_kurs }} onchange="this.form.submit()"> Kun de med flere kurs
+    </label>
+  </div>
+  <div><button class="sekundar">Søk</button></div>
+</form>
+<p class="liten" style="margin-bottom:10px">
+  <a href="{{ url_for('admin_rapport_deltakere_csv', sok=sok, kun_flere_kurs=1 if kun_flere_kurs else None) }}">Eksporter CSV</a>
+  · Viser {{ rader|length }} person{{ 'er' if rader|length != 1 }}
+</p>
+
+<div class="tabellboks"><table>
+  <tr><th>Navn</th><th>E-post</th><th>Telefon</th><th>Arbeidssted</th><th>Antall kurs (bekreftet)</th></tr>
+  {% for d in rader %}
+  <tr>
+    <td><a href="{{ url_for('admin_rapport_deltaker', deltaker_id=d.id) }}"><strong>{{ d.navn }}</strong></a></td>
+    <td class="liten">{{ d.epost }}</td>
+    <td class="liten">{{ d.telefon or '' }}</td>
+    <td class="liten">{{ d.arbeidssted or '' }}</td>
+    <td>{{ d.antall_kurs }}</td>
+  </tr>
+  {% else %}<tr><td colspan="5" class="dempet">Ingen treff.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

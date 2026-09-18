@@ -964,6 +964,167 @@ def admin_csv(kurs_id):
                     headers={"Content-Disposition": f"attachment; filename=deltakere_{kurs_id}.csv"})
 
 
+# ======================= rapporter (fase 6) =======================
+# Personvern: ingen av spørringene her rører "sensitivt" (allergi/tilrettelegging) - hverken i
+# visning eller eksport. Eksport logges i hendelsesloggen med hvilke FILTRE som var i bruk
+# (datoer/status/ansvarlig/om det var søkt), aldri med selve søketeksten eller andre personopplysninger.
+
+KURS_STATUSVERDIER = ("utkast", "aapen", "full", "aktiv", "avsluttet", "avlyst")
+
+
+def _kurs_rapport_rader():
+    """Felles spørring for baade HTML-visning og CSV-eksport, slik at eksporten aldri kan
+    avvike fra det som faktisk vises/filtreres paa siden."""
+    fra = request.args.get("fra") or ""
+    til = request.args.get("til") or ""
+    status = request.args.get("status") or ""
+    ansvarlig = request.args.get("ansvarlig", type=int) or 0
+    sok = request.args.get("sok", "").strip()
+
+    sql = """SELECT k.*, ab.navn AS ansvarlig_navn, MIN(kd.dato) AS start, MAX(kd.dato) AS slutt,
+                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='bekreftet') AS bekreftet,
+                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='venteliste') AS venteliste,
+                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='avmeldt') AS avmeldt,
+                    (SELECT COALESCE(SUM(f.belop_nok),0) FROM faktura f JOIN paamelding p ON p.id=f.paamelding_id
+                        WHERE p.kurs_id=k.id) AS fakturert
+             FROM kurs k
+             LEFT JOIN kursdag kd ON kd.kurs_id=k.id
+             LEFT JOIN admin_bruker ab ON ab.id=k.ansvarlig_admin_id
+             WHERE (? = '' OR LOWER(k.navn) LIKE ?) AND (? = 0 OR k.ansvarlig_admin_id = ?)
+                   AND (? = '' OR k.status = ?)
+             GROUP BY k.id
+             HAVING (? = '' OR MAX(kd.dato) >= ?) AND (? = '' OR MIN(kd.dato) <= ?)
+             ORDER BY start"""
+    args = (sok.lower(), f"%{sok.lower()}%", ansvarlig, ansvarlig, status, status, fra, fra, til, til)
+    rader = con().execute(sql, args).fetchall()
+    filtre = {"fra": fra or None, "til": til or None, "status": status or None,
+             "ansvarlig_admin_id": ansvarlig or None, "har_sok": bool(sok)}
+    return rader, filtre
+
+
+@app.get("/admin/rapporter/kurs")
+@krever_admin
+def admin_rapport_kurs():
+    rader, _ = _kurs_rapport_rader()
+    admins = con().execute("SELECT id, navn FROM admin_bruker WHERE aktiv=1 ORDER BY navn").fetchall()
+    return render_template(
+        "admin_rapport_kurs.html", rader=rader, admins=admins, kurs_statusverdier=KURS_STATUSVERDIER,
+        fra=request.args.get("fra", ""), til=request.args.get("til", ""), status=request.args.get("status", ""),
+        ansvarlig=request.args.get("ansvarlig", type=int), sok=request.args.get("sok", ""))
+
+
+@app.get("/admin/rapporter/kurs.csv")
+@krever_admin
+def admin_rapport_kurs_csv():
+    rader, filtre = _kurs_rapport_rader()
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["Kode", "Tittel", "Start", "Slutt", "Status", "Ansvarlig", "Bekreftet", "Kapasitet",
+                "Fyllingsgrad (%)", "Venteliste", "Avmeldt", "Fakturert (kr)"])
+    for k in rader:
+        fyllingsgrad = round(k["bekreftet"] / k["kapasitet"] * 100) if k["kapasitet"] else ""
+        w.writerow([k["kode"], k["navn"], k["start"] or "", k["slutt"] or "", k["status"], k["ansvarlig_navn"] or "",
+                   k["bekreftet"], k["kapasitet"] or "", fyllingsgrad, k["venteliste"], k["avmeldt"], k["fakturert"]])
+    db.logg(con(), "rapport_eksportert", {"rapport": "kurs", **filtre, "antall_rader": len(rader)}, aktor=_aktor())
+    con().commit()
+    return Response("﻿" + buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=kursrapport.csv"})
+
+
+def _deltakere_rapport_rader():
+    sok = request.args.get("sok", "").strip()
+    kun_flere = request.args.get("kun_flere_kurs") == "1"
+    sql = """SELECT d.id, d.navn, d.epost, d.telefon, d.arbeidssted,
+                    COUNT(DISTINCT CASE WHEN p.status='bekreftet' THEN p.kurs_id END) AS antall_kurs
+             FROM deltaker d LEFT JOIN paamelding p ON p.deltaker_id=d.id
+             WHERE (? = '' OR LOWER(d.navn) LIKE ? OR LOWER(d.epost) LIKE ? OR LOWER(COALESCE(d.arbeidssted,'')) LIKE ?)
+             GROUP BY d.id
+             HAVING (? = 0 OR antall_kurs > 1)
+             ORDER BY d.navn"""
+    likemal = f"%{sok.lower()}%"
+    args = (sok.lower(), likemal, likemal, likemal, 1 if kun_flere else 0)
+    rader = con().execute(sql, args).fetchall()
+    filtre = {"har_sok": bool(sok), "kun_flere_kurs": kun_flere}
+    return rader, filtre
+
+
+@app.get("/admin/rapporter/deltakere")
+@krever_admin
+def admin_rapport_deltakere():
+    rader, _ = _deltakere_rapport_rader()
+    return render_template("admin_rapport_deltakere.html", rader=rader, sok=request.args.get("sok", ""),
+                           kun_flere_kurs=request.args.get("kun_flere_kurs") == "1")
+
+
+@app.get("/admin/rapporter/deltakere.csv")
+@krever_admin
+def admin_rapport_deltakere_csv():
+    rader, filtre = _deltakere_rapport_rader()
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["Navn", "E-post", "Telefon", "Arbeidssted", "Antall kurs (bekreftet)"])
+    for d in rader:
+        w.writerow([d["navn"], d["epost"], d["telefon"] or "", d["arbeidssted"] or "", d["antall_kurs"]])
+    db.logg(con(), "rapport_eksportert", {"rapport": "deltakere", **filtre, "antall_rader": len(rader)}, aktor=_aktor())
+    con().commit()
+    return Response("﻿" + buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=deltakerregister.csv"})
+
+
+@app.get("/admin/rapporter/deltaker/<int:deltaker_id>")
+@krever_admin
+def admin_rapport_deltaker(deltaker_id):
+    deltaker = con().execute("SELECT * FROM deltaker WHERE id=?", (deltaker_id,)).fetchone() or abort(404)
+    paameldinger = con().execute(
+        """SELECT p.id AS paamelding_id, p.kurs_id, p.status, p.opprettet, k.navn AS kurs_navn, k.kode,
+                  k.status AS kurs_status
+           FROM paamelding p JOIN kurs k ON k.id=p.kurs_id WHERE p.deltaker_id=? ORDER BY p.opprettet DESC""",
+        (deltaker_id,)).fetchall()
+    return render_template("admin_rapport_deltaker.html", deltaker=deltaker, paameldinger=paameldinger)
+
+
+@app.get("/admin/rapporter")
+@krever_admin
+def admin_rapporter():
+    fra = request.args.get("fra") or ""
+    til = request.args.get("til") or ""
+    periode_args = (fra, fra, til, til)
+
+    deltakelser = con().execute(
+        """SELECT COUNT(*) FROM paamelding p WHERE p.status='bekreftet' AND p.kurs_id IN (
+             SELECT kurs_id FROM kursdag GROUP BY kurs_id
+             HAVING (? = '' OR MAX(dato) >= ?) AND (? = '' OR MIN(dato) <= ?))""", periode_args).fetchone()[0]
+
+    venteliste_kurs = con().execute(
+        """SELECT k.id, k.navn, k.kode, COUNT(*) AS antall FROM paamelding p JOIN kurs k ON k.id=p.kurs_id
+           WHERE p.status='venteliste' AND k.id IN (
+             SELECT kurs_id FROM kursdag GROUP BY kurs_id
+             HAVING (? = '' OR MAX(dato) >= ?) AND (? = '' OR MIN(dato) <= ?))
+           GROUP BY k.id ORDER BY antall DESC""", periode_args).fetchall()
+
+    avlyste_kurs = con().execute(
+        """SELECT k.id, k.navn, k.kode FROM kurs k WHERE k.status='avlyst' AND k.id IN (
+             SELECT kurs_id FROM kursdag GROUP BY kurs_id
+             HAVING (? = '' OR MAX(dato) >= ?) AND (? = '' OR MIN(dato) <= ?))""", periode_args).fetchall()
+
+    avmeldt_antall = con().execute(
+        """SELECT COUNT(*) FROM hendelse WHERE handling='avmelding'
+           AND (? = '' OR date(ts) >= ?) AND (? = '' OR date(ts) <= ?)""", periode_args).fetchone()[0]
+
+    fakturert_sum = con().execute(
+        """SELECT COALESCE(SUM(belop_nok),0) FROM faktura
+           WHERE (? = '' OR date(opprettet) >= ?) AND (? = '' OR date(opprettet) <= ?)""", periode_args).fetchone()[0]
+
+    flere_kurs_antall = con().execute(
+        """SELECT COUNT(*) FROM (SELECT deltaker_id FROM paamelding WHERE status='bekreftet'
+             GROUP BY deltaker_id HAVING COUNT(DISTINCT kurs_id) > 1)""").fetchone()[0]
+
+    return render_template(
+        "admin_rapporter.html", fra=fra, til=til, deltakelser=deltakelser, venteliste_kurs=venteliste_kurs,
+        avlyste_kurs=avlyste_kurs, avmeldt_antall=avmeldt_antall, fakturert_sum=fakturert_sum,
+        flere_kurs_antall=flere_kurs_antall)
+
+
 @app.route("/admin/kurs/ny", methods=["GET", "POST"])
 @krever_admin
 def admin_ny_kurs():
