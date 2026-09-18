@@ -58,6 +58,9 @@ def _migrer(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE paamelding ADD COLUMN intern_kommentar TEXT")
     if not har_kolonne("kurs", "paameldingsfrist"):
         con.execute("ALTER TABLE kurs ADD COLUMN paameldingsfrist TEXT")
+    if not har_kolonne("paamelding", "sveiper_utsatt"):
+        # Konstant default (0) - trygt aa legge til selv om tabellen har rader fra for.
+        con.execute("ALTER TABLE paamelding ADD COLUMN sveiper_utsatt INTEGER NOT NULL DEFAULT 0")
 
 
 @contextmanager
@@ -271,7 +274,10 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
             raise Paameldingsfeil("Kurset er avlyst – kan ikke bekrefte flere.")
         if kurs["kapasitet"] is not None and antall_bekreftet(con, p["kurs_id"]) >= kurs["kapasitet"]:
             raise Paameldingsfeil("Kurset er fullt – kan ikke bekrefte flere uten å melde av noen først.")
-        con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, oppdatert=? WHERE id=?",
+        # sveiper_utsatt nullstilles ogsaa: en administrativ bekreftelse er en bevisst handling som
+        # skal fore til faktisk sending/fakturering naa - en tidligere "vent"-markering fra en manuell
+        # registrering skal ikke stille denne handlingen ut av spill.
+        con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, sveiper_utsatt=0, oppdatert=? WHERE id=?",
                    (na, paamelding_id))
         logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "bekreftet"}, aktor=aktor)
         return paamelding_id
@@ -279,7 +285,7 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
     if ny_status == "venteliste":
         if gammel_status == "bekreftet":
             raise Paameldingsfeil("Kan ikke sette en bekreftet deltaker til venteliste direkte – meld av i stedet.")
-        con.execute("UPDATE paamelding SET status='venteliste', sveiper_kjort=0, oppdatert=? WHERE id=?",
+        con.execute("UPDATE paamelding SET status='venteliste', sveiper_kjort=0, sveiper_utsatt=0, oppdatert=? WHERE id=?",
                    (na, paamelding_id))
         logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "venteliste"}, aktor=aktor)
         return None
@@ -410,15 +416,23 @@ def gjenaapne_kurs(con, kurs_id: int, aktor: str = "admin") -> None:
 
 
 def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None = None,
-             paamelding: dict | None = None, sensitivt: dict | None = None, idag: date | None = None) -> tuple[int, str]:
-    """Registrer paamelding. Returnerer (paamelding_id, status). Setter venteliste naar kurset er fullt."""
+             paamelding: dict | None = None, sensitivt: dict | None = None, idag: date | None = None,
+             aktor: str | None = None, tillat_utkast: bool = False, ignorer_frist: bool = False) -> tuple[int, str]:
+    """Registrer paamelding. Returnerer (paamelding_id, status). Setter venteliste naar kurset er fullt.
+
+    `aktor`, `tillat_utkast` og `ignorer_frist` er kun ment for administrativ, manuell paamelding
+    (fase 9) - offentlig paamelding/webhook/gruppepaamelding bruker aldri disse, og faar dermed
+    uendret oppforsel. `avlyst` og `avsluttet` kan IKKE overstyres av noen - se KURS_STATUSVERDIER-
+    bruken andre steder; det finnes bevisst ingen parameter for det.
+    """
     idag = idag or date.today()
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone()
     if not kurs:
         raise Paameldingsfeil("Ukjent kurs")
-    if kurs["status"] not in ("aapen", "full", "aktiv"):
+    tillatte_statuser = ("aapen", "full", "aktiv") + (("utkast",) if tillat_utkast else ())
+    if kurs["status"] not in tillatte_statuser:
         raise Paameldingsfeil("Kurset er ikke åpent for påmelding")
-    if kurs["paameldingsfrist"] and idag > date.fromisoformat(kurs["paameldingsfrist"]):
+    if not ignorer_frist and kurs["paameldingsfrist"] and idag > date.fromisoformat(kurs["paameldingsfrist"]):
         raise Paameldingsfeil(f"Påmeldingsfristen ({kurs['paameldingsfrist']}) er passert.")
 
     deltaker_id = finn_eller_opprett_deltaker(con, epost, navn, **(deltaker or {}))
@@ -431,7 +445,11 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
     fullt = kurs["kapasitet"] is not None and antall_bekreftet(con, kurs_id) >= kurs["kapasitet"]
     status = "venteliste" if fullt else "bekreftet"
     na = datetime.now().isoformat(timespec="seconds")
-    felter = {"status": status, "samtykke_ts": na, "oppdatert": na, **(paamelding or {})}
+    # sveiper_utsatt=0 er default her (ikke bare ved ny INSERT) fordi UPDATE-en under ved
+    # REAKTIVERING ellers ville latt en gammel, avmeldt rad sin tidligere sveiper_utsatt-verdi
+    # staa ubrukt igjen paa den nye paameldingen. Kaller (fase 9-adminrute) kan overstyre via
+    # paamelding={"sveiper_utsatt": 1}.
+    felter = {"status": status, "samtykke_ts": na, "oppdatert": na, "sveiper_utsatt": 0, **(paamelding or {})}
     # Betalingsmåte: deltakeren bestemmer bare når kurset er satt til 'deltaker_velger'
     if kurs["betaling"] == "deltaker_velger":
         felter["betaling"] = "per_samling" if felter.get("betaling") == "per_samling" else "samlet"
@@ -459,7 +477,8 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
         )
     if fullt and kurs["status"] == "aapen":
         con.execute("UPDATE kurs SET status='full' WHERE id=?", (kurs_id,))
-    logg(con, "paamelding", {"paamelding_id": pid, "kurs_id": kurs_id, "status": status}, aktor=f"deltaker:{deltaker_id}")
+    logg(con, "paamelding", {"paamelding_id": pid, "kurs_id": kurs_id, "status": status},
+        aktor=aktor or f"deltaker:{deltaker_id}")
     return pid, status
 
 
@@ -476,7 +495,10 @@ def meld_av(con, paamelding_id: int, aktor: str = "admin") -> int | None:
         (p["kurs_id"],),
     ).fetchone()
     if neste:
-        con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, oppdatert=? WHERE id=?", (na, neste["id"]))
+        # sveiper_utsatt nullstilles av samme grunn som i sett_paamelding_status(): et automatisk
+        # opprykk skal faktisk fore til bekreftelse/fakturering, ikke stille forbli utsatt.
+        con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, sveiper_utsatt=0, oppdatert=? WHERE id=?",
+                   (na, neste["id"]))
         logg(con, "flyttet_fra_venteliste", {"paamelding_id": neste["id"]})
         return neste["id"]
     con.execute("UPDATE kurs SET status='aapen' WHERE id=? AND status='full'", (p["kurs_id"],))

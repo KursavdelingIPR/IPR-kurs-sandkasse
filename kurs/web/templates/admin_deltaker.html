@@ -20,6 +20,24 @@
 
 <h2>Denne påmeldingen <span class="liten dempet" style="font-weight:400">– {{ kurs.navn }} ({{ kurs.kode }})</span></h2>
 
+{% if p.sveiper_utsatt and p.status in ('bekreftet', 'venteliste') %}
+<div class="kort" style="margin-bottom:16px; border-left:4px solid var(--bla)">
+  <strong>Behandling holdt tilbake</strong>
+  <p class="liten dempet" style="margin:6px 0 10px">Denne påmeldingen ble registrert manuelt. {% if p.status == 'venteliste' %}Ventelistebeskjeden{% else %}Bekreftelsen og faktureringen{% endif %}
+    er bevisst ikke sendt/opprettet ennå.</p>
+  {% if kurs.status == 'utkast' %}
+  <p class="liten dempet" style="margin:0">Kurset er ikke publisert ennå. Behandlingen kan først utløses når kurset er åpnet.</p>
+  {% elif kurs.status == 'avlyst' %}
+  <p class="liten dempet" style="margin:0">Kurset er avlyst og kan ikke behandles.</p>
+  {% else %}
+  <form method="post" action="{{ url_for('admin_deltaker_behandle', kurs_id=kurs.id, paamelding_id=p.id) }}"
+        onsubmit="return confirm('{{ 'Send ventelistebeskjed nå?' if p.status == 'venteliste' else 'Send bekreftelse og behandle fakturering nå?' }}')">
+    <button>{{ 'Send ventelistebeskjed nå' if p.status == 'venteliste' else 'Send bekreftelse og behandle fakturering nå' }}</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); margin-bottom:16px">
   <div class="kort">
     <div class="liten dempet">Påmeldingsstatus</div>

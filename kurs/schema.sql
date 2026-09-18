@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS paamelding (
     samtykke_ts     TEXT,                           -- tidspunkt for aksept av vilkaar/personvern
     kilde           TEXT NOT NULL DEFAULT 'skjema',
     sveiper_kjort   INTEGER NOT NULL DEFAULT 0,     -- 1 naar "ved paamelding"-kjeden er fullfort
+    sveiper_utsatt  INTEGER NOT NULL DEFAULT 0,     -- 1 = registrert (typisk manuelt av admin), men bevisst
+                                                     -- IKKE klar for automatisk e-post/fakturering ennaa
     faktura_kommentar TEXT,                         -- merknad om registreringen/fakturaen
     intern_kommentar  TEXT,                         -- kun synlig for administratorer
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),

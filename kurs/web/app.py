@@ -859,6 +859,61 @@ def admin_kurs_deltakere(kurs_id):
                            sok=sok, status=status, fane="deltakere")
 
 
+@app.route("/admin/kurs/<int:kurs_id>/deltaker/ny", methods=["GET", "POST"])
+@krever_admin
+def admin_deltaker_ny(kurs_id):
+    """Manuell paamelding (fase 9) - for deltakere som melder seg paa via telefon/e-post i stedet
+    for nettskjemaet. Bruker db.meld_paa() ubeskaaret (samme datamodell/logikk/dublett-haandtering
+    som offentlig paamelding), bare med aktor/tillat_utkast/ignorer_frist satt for administrativ bruk.
+
+    sveiper_utsatt=1 settes ALLTID her, uansett kursstatus: ingen bekreftelse/faktura skal sendes
+    automatisk foer en administrator eksplisitt utloeser det (trinn 3) - ogsaa hvis kurset senere
+    gaar fra utkast til aapent uten at noen har trykket paa den knappen.
+    """
+    kurs = _hent_kurs(kurs_id)
+    dager = db.kursdager(con(), kurs_id)
+    plasser_igjen = None if kurs["kapasitet"] is None else kurs["kapasitet"] - db.antall_bekreftet(con(), kurs_id)
+    if request.method == "GET":
+        return render_template("admin_deltaker_ny.html", kurs=kurs, dager=dager, f={},
+                               plasser_igjen=plasser_igjen, fane="deltakere")
+
+    f = request.form
+    feil = []
+    if not f.get("navn", "").strip() or "@" not in f.get("epost", ""):
+        feil.append("Fyll inn navn og en gyldig e-postadresse.")
+    org = f.get("betaler") == "organisasjon"
+    if org and not (f.get("org_navn", "").strip() and f.get("org_nr", "").strip()):
+        feil.append("Fyll inn firmanavn og organisasjonsnummer når arbeidsgiver betaler.")
+    if feil:
+        for x in feil:
+            flash(x, "feil")
+        return render_template("admin_deltaker_ny.html", kurs=kurs, dager=dager, f=f,
+                               plasser_igjen=plasser_igjen, fane="deltakere"), 400
+
+    try:
+        with db.transaksjon(con()):
+            pid, status = db.meld_paa(
+                con(), kurs_id, epost=f["epost"], navn=f["navn"],
+                deltaker={"telefon": f.get("telefon"), "arbeidssted": f.get("arbeidssted"),
+                         "hpr_nr": f.get("hpr_nr"), "yrkestittel": f.get("yrkestittel")},
+                paamelding={k: f.get(k) or None for k in (
+                    "org_navn", "org_nr", "faktura_epost", "faktura_ref", "faktura_adresse",
+                    "faktura_postnr", "faktura_sted", "faktura_kommentar")}
+                | {"betaler": "organisasjon" if org else "person", "ehf": 1 if f.get("ehf") else 0,
+                   "betaling": f.get("betaling", "samlet"), "kilde": "admin", "sveiper_utsatt": 1},
+                sensitivt={"allergier": f.get("allergier"), "tilrettelegging": f.get("tilrettelegging")},
+                idag=_idag(), aktor=_aktor(), tillat_utkast=True, ignorer_frist=True,
+            )
+    except db.Paameldingsfeil as e:
+        flash(str(e), "feil")
+        return render_template("admin_deltaker_ny.html", kurs=kurs, dager=dager, f=f,
+                               plasser_igjen=plasser_igjen, fane="deltakere"), 400
+
+    flash(f"{f['navn']} er registrert og satt til «{status}». "
+         "Ingen bekreftelse eller faktura er sendt ennå.", "ok")
+    return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=pid))
+
+
 def _hent_paamelding(kurs_id: int, paamelding_id: int):
     return con().execute(
         """SELECT p.*, d.navn, d.epost, d.telefon, d.yrkestittel, d.arbeidssted,
@@ -976,6 +1031,56 @@ def admin_deltaker_status(kurs_id, paamelding_id):
         sveiper.kjor(Kjoring(con(), idag=_idag()), kjor_sveiper_for)
         con().commit()
     flash(f"Status endret til «{ny_status}».", "ok")
+    return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/behandle")
+@krever_admin
+def admin_deltaker_behandle(kurs_id, paamelding_id):
+    """Fase 9, trinn 3: utloeser den e-post/fakturering som bevisst ble holdt tilbake
+    (sveiper_utsatt=1) ved manuell registrering. Bruker eksisterende sveiper.kjor() ubeskaaret -
+    ingen ny utsendelses- eller fakturalogikk. POST-only (GET skal ikke kunne utlose noe).
+
+    utkast og avlyst blokkeres HER, foer noe roeres, slik at et forsok (f.eks. via direkte
+    POST utenom knappen) aldri nullstiller sveiper_utsatt eller kaller sveiper for disse.
+    """
+    kurs = _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)
+
+    if kurs["status"] == "utkast":
+        flash("Kurset er ikke publisert ennå. Behandlingen kan først utløses når kurset er åpnet.", "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    if kurs["status"] == "avlyst":
+        flash("Kurset er avlyst og kan ikke behandles.", "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    if not p["sveiper_utsatt"] or p["status"] not in ("bekreftet", "venteliste"):
+        flash("Denne påmeldingen er ikke lenger holdt tilbake (allerede behandlet, eller under "
+             "automatisk gjenoppretting).", "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+
+    con().execute("UPDATE paamelding SET sveiper_utsatt=0 WHERE id=?", (paamelding_id,))
+    con().commit()
+    sveiper.kjor(Kjoring(con(), idag=_idag()), paamelding_id)
+    con().commit()
+
+    if p["status"] == "bekreftet":
+        fullfort = con().execute(
+            "SELECT sveiper_kjort FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()[0] == 1
+    else:  # venteliste: sveiper_kjort settes med vilje ikke - bruk utsendelsesloggen i stedet
+        fullfort = db.allerede_sendt(con(), f"kurs:{kurs_id}", p["epost"], "venteliste")
+
+    db.logg(con(), "manuell_behandling_utlost",
+           {"paamelding_id": paamelding_id, "kurs_id": kurs_id, "resultat": "fullfort" if fullfort else "feilet"},
+           aktor=_aktor())
+    con().commit()
+
+    if fullfort and p["status"] == "bekreftet":
+        flash("Bekreftelse er sendt og fakturering er behandlet.", "ok")
+    elif fullfort:
+        flash("Ventelistebeskjed er sendt.", "ok")
+    else:
+        flash("Behandlingen ble ikke fullført (feil ved sending eller fakturering). Den fanges "
+             "opp automatisk igjen ved neste daglige kjøring.", "feil")
     return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
 
 

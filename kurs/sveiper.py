@@ -19,9 +19,21 @@ SQL_DELTAKER = """SELECT p.*, d.navn, d.epost, d.id AS did, k.navn AS kursnavn, 
 
 
 def kjor(k: Kjoring, paamelding_id: int | None = None) -> None:
-    # k.status != 'avlyst': et avlyst kurs skal aldri faa nye bekreftelser, fakturaer eller opprykk.
+    # avlyst: skal aldri faa e-post/faktura. utkast: ikke publisert ennaa, skal aldri behandles
+    # automatisk (fase 9 - admin kan registrere med tillat_utkast, men det skal ikke sendes noe
+    # for kurset er aapnet). sveiper_utsatt=1: admin har bevisst bedt om AA VENTE (fase 9) - skal
+    # ikke plukkes opp automatisk uansett kursstatus.
+    #
+    # "avsluttet" er BEVISST IKKE utelatt her, av samme grunn som i forfalte_delfakturaer(): en
+    # rad med sveiper_kjort=0 kan skyldes at forrige forsok feilet (Visma nede, e-postfeil,
+    # driftsstans) mens kurset fortsatt var aapen/aktiv - kurset kan naa rekke aa bli avsluttet
+    # (siste kursdag passert) FOR feilen er rettet. "avsluttet" betyr bare at kursdatoene er
+    # passert, ikke at all behandling er ferdig. Utkast kan derimot IKKE naa "avsluttet" uten aa
+    # ha vaert aapen forst (daglig.kjor() sin statusovergang gjelder bare aapen/full/aktiv-kurs),
+    # saa et rent utkast-kurs har aldri en legitim "recovery"-rad aa ta igjen paa denne maaten.
     rader = k.con.execute(
-        SQL_DELTAKER + " WHERE p.sveiper_kjort=0 AND p.status IN ('bekreftet','venteliste') AND k.status!='avlyst'"
+        SQL_DELTAKER + """ WHERE p.sveiper_kjort=0 AND p.sveiper_utsatt=0 AND p.status IN ('bekreftet','venteliste')
+                           AND k.status NOT IN ('avlyst','utkast')"""
         + (" AND p.id=?" if paamelding_id else ""),
         (paamelding_id,) if paamelding_id else ()).fetchall()
     for p in rader:
@@ -76,7 +88,17 @@ def _forfalt(idag: date, dato: str, dager_for: int) -> bool:
 
 
 def forfalte_delfakturaer(k: Kjoring) -> None:
-    """Daglig: lager delfakturaer som har blitt forfalt siden sist. Idempotent."""
+    """Daglig: lager delfakturaer som har blitt forfalt siden sist. Idempotent.
+
+    Statussjekken her er bevisst BREDERE enn i kjor() (kun "!= avlyst", ikke begrenset til
+    aapen/full/aktiv): en delfaktura for en samling som allerede har vaert, forblir "forfalt"
+    (se _forfalt) inntil den faktisk opprettes - ogsaa etter at kurset er blitt avsluttet. Det
+    er den eneste eksisterende gjenopprettingsveien etter f.eks. driftsstans i Visma, siden
+    "avsluttet" kun betyr at siste kursdag har passert, ikke at all fakturering er ferdig.
+    IKKE stram inn til IN ('aapen','full','aktiv') her - se undersokelsen i fase 9.
+    (sveiper_utsatt er ikke relevant her: en tilbakeholdt rad naar aldri sveiper_kjort=1
+    i utgangspunktet, siden det kravet haandheves i kjor().)
+    """
     for p in k.con.execute(SQL_DELTAKER + """ WHERE p.status='bekreftet' AND p.betaling='per_samling'
                                               AND p.sveiper_kjort=1 AND k.fakturering='person' AND k.pris_nok > 0
                                               AND k.status!='avlyst'"""):
