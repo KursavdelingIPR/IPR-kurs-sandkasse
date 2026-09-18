@@ -78,6 +78,22 @@ def qr_svg(tekst: str) -> Markup:
     return Markup(img.to_string(encoding="unicode"))
 
 
+def _fakturastatus(kurs, p) -> str:
+    """Utleder en lesbar fakturastatus fra fakturaradene til paameldingen. Ingen egen kolonne trengs.
+
+    NB: "Fakturert" betyr bare at fakturaen er sendt, ikke at den er betalt.
+    """
+    if kurs["fakturering"] != "person" or not kurs["pris_nok"]:
+        return "–"
+    if p["faktura_antall"] == 0:
+        return "Ikke fakturert"
+    if p["faktura_ubetalt"] == 0:
+        return "Betalt"
+    if p["faktura_ubetalt"] == p["faktura_antall"]:
+        return "Fakturert"
+    return "Delvis betalt"
+
+
 # ======================= offentlig =======================
 
 @app.get("/")
@@ -371,24 +387,149 @@ def admin():
     return render_template("admin.html", kurs=kurs, mangler=mangler, hendelser=hendelser, feil=feil)
 
 
+# ------- aktivitetsoversikt -------
+
+AKTIVITET_SORTER = {
+    "kode": "k.kode", "tittel": "k.navn", "start": "start", "status": "k.status",
+    "paameldte": "bekreftet", "ansvarlig": "ansvarlig_navn",
+}
+
+
+@app.get("/admin/aktiviteter")
+@krever_admin
+def admin_aktiviteter():
+    sok = request.args.get("sok", "").strip()
+    mine = request.args.get("mine") == "1"
+    sorter = request.args.get("sorter") or ""
+    sorter = sorter if sorter in AKTIVITET_SORTER else None
+    retning = "desc" if request.args.get("retning") == "desc" else "asc"
+    antall = request.args.get("antall", type=int) or 25
+    antall = antall if antall in (10, 25, 50, 100) else 25
+    side = max(1, request.args.get("side", type=int) or 1)
+
+    # Uten eksplisitt valgt sortering: aktuelle/fremtidige kurs forst (snarest forst), avsluttede sist.
+    order_sql = (f"{AKTIVITET_SORTER[sorter]} {retning.upper()}" if sorter
+                else "CASE WHEN k.status='avsluttet' THEN 1 ELSE 0 END ASC, start ASC")
+    sql = f"""SELECT k.*, ab.navn AS ansvarlig_navn, MIN(kd.dato) AS start,
+                     COALESCE(k.sted, CASE WHEN k.type='digital' THEN 'Online' END) AS sted_visning,
+                     (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='bekreftet') AS bekreftet,
+                     (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id) AS totalt_registrert
+              FROM kurs k
+              LEFT JOIN kursdag kd ON kd.kurs_id=k.id
+              LEFT JOIN admin_bruker ab ON ab.id=k.ansvarlig_admin_id
+              WHERE (? = '' OR LOWER(k.navn) LIKE ?) AND (? = 0 OR k.ansvarlig_admin_id = ?)
+              GROUP BY k.id ORDER BY {order_sql}"""
+    rader = con().execute(sql, (sok, f"%{sok.lower()}%", 1 if mine else 0, session.get("admin_id"))).fetchall()
+
+    totalt = len(rader)
+    siste_side = max(1, -(-totalt // antall))
+    side = min(side, siste_side)
+    start_i = (side - 1) * antall
+    kurs = rader[start_i:start_i + antall]
+
+    def sidelenke(n):
+        return url_for("admin_aktiviteter", sok=sok or None, mine=1 if mine else None,
+                       antall=antall, sorter=sorter, retning=retning, side=n)
+
+    def sorterlenke(felt, tekst):
+        ny_retning = "desc" if sorter == felt and retning == "asc" else "asc"
+        pil = (" ↑" if retning == "asc" else " ↓") if sorter == felt else ""
+        lenke = url_for("admin_aktiviteter", sok=sok or None, mine=1 if mine else None,
+                        antall=antall, sorter=felt, retning=ny_retning)
+        return Markup(f'<a href="{lenke}">{Markup.escape(tekst)}{pil}</a>')
+
+    return render_template("admin_aktiviteter.html", kurs=kurs, sok=sok, mine=mine, antall=antall,
+                           side=side, totalt=totalt, siste_side=siste_side,
+                           sidelenke=sidelenke, sorterlenke=sorterlenke)
+
+
+# ------- kursadministrasjon: faner -------
+
 @app.get("/admin/kurs/<int:kurs_id>")
 @krever_admin
 def admin_kurs(kurs_id):
-    kurs = con().execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone() or abort(404)
+    return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+
+
+def _hent_kurs(kurs_id: int):
+    return con().execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone() or abort(404)
+
+
+@app.get("/admin/kurs/<int:kurs_id>/oppsett")
+@krever_admin
+def admin_kurs_oppsett(kurs_id):
+    kurs = _hent_kurs(kurs_id)
     dager = db.kursdager(con(), kurs_id)
-    deltakere = con().execute(
-        """SELECT p.*, d.navn, d.epost, d.telefon, d.arbeidssted, s.allergier, s.tilrettelegging,
-                  (SELECT GROUP_CONCAT(faktura_nr, ', ') FROM faktura WHERE paamelding_id=p.id) AS faktura_nr,
-                  (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id) AS antall_faktura,
-                  (SELECT COALESCE(SUM(belop_nok),0) FROM faktura WHERE paamelding_id=p.id) AS fakturert_belop
-           FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
-           LEFT JOIN sensitivt s ON s.paamelding_id=p.id
-           WHERE p.kurs_id=? ORDER BY CASE p.status WHEN 'bekreftet' THEN 0 WHEN 'venteliste' THEN 1 ELSE 2 END, p.opprettet""",
-        (kurs_id,)).fetchall()
+    filer = sharepoint.list_filer(f"{kurs['sharepoint_mappe']}/Presentasjoner") if kurs["sharepoint_mappe"] else []
+    admins = con().execute("SELECT id, navn FROM admin_bruker WHERE aktiv=1 ORDER BY navn").fetchall()
+    oppmote_antall = {r["kursdag_id"]: r["antall"] for r in con().execute(
+        """SELECT o.kursdag_id, COUNT(*) AS antall FROM oppmote o JOIN kursdag kd ON kd.id=o.kursdag_id
+           WHERE kd.kurs_id=? GROUP BY o.kursdag_id""", (kurs_id,))}
+    return render_template("admin_kurs_oppsett.html", kurs=kurs, dager=dager, filer=filer, admins=admins,
+                           oppmote_antall=oppmote_antall, bekreftet_antall=db.antall_bekreftet(con(), kurs_id),
+                           fane="oppsett")
+
+
+@app.post("/admin/kurs/<int:kurs_id>/ansvarlig")
+@krever_admin
+def admin_sett_ansvarlig(kurs_id):
+    _hent_kurs(kurs_id)
+    verdi = request.form.get("ansvarlig_admin_id") or None
+    con().execute("UPDATE kurs SET ansvarlig_admin_id=? WHERE id=?", (int(verdi) if verdi else None, kurs_id))
+    db.logg(con(), "kurs_ansvarlig_endret", {"kurs_id": kurs_id, "ansvarlig_admin_id": verdi}, aktor=_aktor())
+    con().commit()
+    flash("Ansvarlig oppdatert.", "ok")
+    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
+
+
+@app.get("/admin/kurs/<int:kurs_id>/nettside")
+@krever_admin
+def admin_kurs_nettside(kurs_id):
+    return render_template("admin_kurs_nettside.html", kurs=_hent_kurs(kurs_id), fane="nettside")
+
+
+@app.get("/admin/kurs/<int:kurs_id>/deltakere")
+@krever_admin
+def admin_kurs_deltakere(kurs_id):
+    kurs = _hent_kurs(kurs_id)
+    dager = db.kursdager(con(), kurs_id)
+    sok = request.args.get("sok", "").strip()
+    status = request.args.get("status", "")
+    if status not in ("", "bekreftet", "venteliste", "avmeldt"):
+        status = ""
+
+    sql = """SELECT p.*, d.navn, d.epost, d.telefon, d.arbeidssted,
+                    (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id) AS faktura_antall,
+                    (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id AND status!='betalt') AS faktura_ubetalt
+             FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+             WHERE p.kurs_id=?"""
+    args = [kurs_id]
+    if sok:
+        sql += " AND (LOWER(d.navn) LIKE ? OR LOWER(d.epost) LIKE ?)"
+        args += [f"%{sok.lower()}%", f"%{sok.lower()}%"]
+    if status:
+        sql += " AND p.status=?"
+        args.append(status)
+    sql += " ORDER BY CASE p.status WHEN 'bekreftet' THEN 0 WHEN 'venteliste' THEN 1 ELSE 2 END, d.navn"
+    deltakere = [dict(r, fakturastatus=_fakturastatus(kurs, r)) for r in con().execute(sql, args)]
+
+    tellere = {r["status"]: r["antall"] for r in con().execute(
+        "SELECT status, COUNT(*) AS antall FROM paamelding WHERE kurs_id=? GROUP BY status", (kurs_id,))}
     oppmote = {(r["paamelding_id"], r["kursdag_id"]): r["kilde"] for r in con().execute(
         "SELECT o.* FROM oppmote o JOIN kursdag kd ON kd.id=o.kursdag_id WHERE kd.kurs_id=?", (kurs_id,))}
-    filer = sharepoint.list_filer(f"{kurs['sharepoint_mappe']}/Presentasjoner") if kurs["sharepoint_mappe"] else []
-    return render_template("admin_kurs.html", kurs=kurs, dager=dager, deltakere=deltakere, oppmote=oppmote, filer=filer)
+    return render_template("admin_kurs_deltakere.html", kurs=kurs, dager=dager, deltakere=deltakere,
+                           tellere=tellere, totalt=sum(tellere.values()), oppmote=oppmote,
+                           sok=sok, status=status, fane="deltakere")
+
+
+@app.get("/admin/kurs/<int:kurs_id>/kommunikasjon")
+@krever_admin
+def admin_kurs_kommunikasjon(kurs_id):
+    kurs = _hent_kurs(kurs_id)
+    meldinger = con().execute(
+        "SELECT * FROM utsending_logg WHERE nokkel=? ORDER BY sendt_ts DESC LIMIT 300", (f"kurs:{kurs_id}",)
+    ).fetchall()
+    return render_template("admin_kurs_kommunikasjon.html", kurs=kurs, meldinger=meldinger, fane="kommunikasjon")
 
 
 @app.post("/admin/kurs/<int:kurs_id>/oppmote")
@@ -399,7 +540,7 @@ def admin_oppmote(kurs_id):
         con().execute("DELETE FROM oppmote WHERE paamelding_id=? AND kursdag_id=?", (pid, kdid))
     db.logg(con(), "oppmote_manuell", {"paamelding_id": pid, "kursdag_id": kdid}, aktor=_aktor())
     con().commit()
-    return redirect(url_for("admin_kurs", kurs_id=kurs_id) + "#oppmote")
+    return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id) + "#oppmote")
 
 
 @app.post("/admin/paamelding/<int:pid>/meld-av")
@@ -413,7 +554,7 @@ def admin_meld_av(pid):
     else:
         flash("Avmeldt.", "ok")
     con().commit()
-    return redirect(url_for("admin_kurs", kurs_id=kurs_id))
+    return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
 
 
 @app.get("/admin/kurs/<int:kurs_id>/qr/<int:dag_id>")
@@ -483,7 +624,7 @@ def admin_ny_kurs():
                     con().execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
                                   (kid, f.get("kursholder_navn") or f["kursholder_epost"], f["kursholder_epost"], f["materiell_frist"]))
             flash(f"Kurset er opprettet med koden «{kode}», og har fått påmeldingsside, SharePoint-mappe og innsjekkkoder.", "ok")
-            return redirect(url_for("admin_kurs", kurs_id=kid))
+            return redirect(url_for("admin_kurs_oppsett", kurs_id=kid))
         except (ValueError, KeyError) as e:
             flash(f"Kunne ikke opprette kurs: {e}", "feil")
     return render_template("admin_ny_kurs.html")

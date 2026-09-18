@@ -1,0 +1,38 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px">
+  {% if kurs.zoom_url %}<a class="knapp sekundar liten" href="{{ kurs.zoom_url }}" target="_blank">Zoom</a>{% endif %}
+</div>
+
+<div class="kort" style="max-width:420px">
+  <strong>Ansvarlig</strong>
+  <p class="liten dempet" style="margin:4px 0 10px">Brukes til «vis bare mine aktiviteter» i aktivitetsoversikten.</p>
+  <form method="post" action="{{ url_for('admin_sett_ansvarlig', kurs_id=kurs.id) }}">
+    <select name="ansvarlig_admin_id">
+      <option value="">– Ikke satt –</option>
+      {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if kurs.ansvarlig_admin_id == a.id }}>{{ a.navn }}</option>{% endfor %}
+    </select>
+    <p style="margin-top:10px"><button class="liten">Lagre</button></p>
+  </form>
+</div>
+
+<h2>Kursdager og innsjekk</h2>
+<div class="tabellboks"><table>
+  <tr><th>Dato</th><th>Kode</th><th>Oppmøte</th><th></th></tr>
+  {% for d in dager %}
+  <tr><td>{{ d.dato }}{% if d.dato == idag %} <span class="merke ok">i dag</span>{% endif %}</td>
+      <td><code style="font-size:15px; letter-spacing:.1em">{{ d.innsjekk_kode }}</code></td>
+      <td>{{ oppmote_antall.get(d.id, 0) }} / {{ bekreftet_antall }}</td>
+      <td><a class="knapp liten" href="{{ url_for('admin_qr', kurs_id=kurs.id, dag_id=d.id) }}" target="_blank">Vis QR på skjerm</a></td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>Kursmateriell (SharePoint: {{ kurs.sharepoint_mappe }}/Presentasjoner)</h2>
+{% if filer %}<ul>{% for f in filer %}<li>{{ f.navn }} <span class="dempet liten">({{ (f.storrelse / 1024) | round(0) | int }} kB)</span></li>{% endfor %}</ul>
+{% else %}<p class="dempet">Ingen filer ennå. Kursholder laster opp via opplastingslenken i purre-e-posten.</p>{% endif %}
+
+{% if kurs.notat %}<h2>Praktisk info</h2><p>{{ kurs.notat }}</p>{% endif %}
+{% endblock %}

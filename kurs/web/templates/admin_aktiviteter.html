@@ -1,0 +1,57 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<h1>Aktiviteter</h1>
+<p class="sub">Oversikt over alle kurs/aktiviteter.</p>
+
+<form method="get" class="rad" style="align-items:end; margin-bottom:16px">
+  <div><label>Søk på kursnavn</label><input type="search" name="sok" value="{{ sok }}" placeholder="Søk…"></div>
+  <div><label>Antall rader</label>
+    <select name="antall" onchange="this.form.submit()">
+      {% for n in (10, 25, 50, 100) %}<option value="{{ n }}" {{ 'selected' if antall == n }}>{{ n }}</option>{% endfor %}
+    </select>
+  </div>
+  <div style="padding-bottom:9px">
+    <label style="font-weight:normal; display:flex; align-items:center; gap:6px; margin:0">
+      <input type="checkbox" name="mine" value="1" {{ 'checked' if mine }} onchange="this.form.submit()"> Vis bare mine aktiviteter
+    </label>
+  </div>
+  <div><button class="sekundar">Søk</button></div>
+</form>
+
+<div class="tabellboks"><table>
+  <tr>
+    <th>{{ sorterlenke('kode', 'Kode') }}</th>
+    <th>{{ sorterlenke('tittel', 'Tittel') }}</th>
+    <th>{{ sorterlenke('start', 'Start') }}</th>
+    <th>Sted / Online</th>
+    <th>Påmeldte / kapasitet</th>
+    <th>Totalt registrert</th>
+    <th>{{ sorterlenke('status', 'Status') }}</th>
+    <th>{{ sorterlenke('ansvarlig', 'Ansvarlig') }}</th>
+    <th></th>
+  </tr>
+  {% for k in kurs %}
+  <tr>
+    <td><code>{{ k.kode }}</code></td>
+    <td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a></td>
+    <td class="liten">{{ k.start }}{% if k.start_kl %} kl. {{ k.start_kl }}{% endif %}</td>
+    <td class="liten">{{ k.sted_visning or '–' }}</td>
+    <td>{{ k.bekreftet }}{% if k.kapasitet %} / {{ k.kapasitet }}{% endif %}</td>
+    <td>{{ k.totalt_registrert }}</td>
+    <td><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','avlyst':'feil','utkast':'gra'}.get(k.status,'gra') }}">{{ k.status }}</span></td>
+    <td class="liten">{{ k.ansvarlig_navn or '–' }}</td>
+    <td class="liten" style="white-space:nowrap">
+      <a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}">Åpne</a> ·
+      <a href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}" title="Rediger">✎</a>
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="9" class="dempet">Ingen kurs matcher søket.</td></tr>{% endfor %}
+</table></div>
+
+<p class="liten dempet" style="margin-top:10px">
+  Viser {{ kurs|length }} av {{ totalt }} kurs.
+  {% if side > 1 %}<a href="{{ sidelenke(side - 1) }}">« Forrige</a>{% endif %}
+  Side {{ side }} av {{ siste_side }}
+  {% if side < siste_side %}<a href="{{ sidelenke(side + 1) }}">Neste »</a>{% endif %}
+</p>
+{% endblock %}

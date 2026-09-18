@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS kurs (
     zoom_pw         TEXT,
     sharepoint_mappe TEXT,                          -- sti/URL til kursmappe i SharePoint
     notat           TEXT,
+    ansvarlig_admin_id INTEGER REFERENCES admin_bruker(id),  -- intern eier i adm, brukes av "vis bare mine aktiviteter"
     opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS deltaker (
     navn            TEXT NOT NULL,
     telefon         TEXT,
     arbeidssted     TEXT,
+    yrkestittel     TEXT,
     hpr_nr          TEXT,                           -- helsepersonellnr (aktuelt for spesialistutdanning)
     visma_kunde_id  TEXT,
     opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
@@ -76,6 +78,7 @@ CREATE TABLE IF NOT EXISTS paamelding (
     kilde           TEXT NOT NULL DEFAULT 'skjema',
     sveiper_kjort   INTEGER NOT NULL DEFAULT 0,     -- 1 naar "ved paamelding"-kjeden er fullfort
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver endring
     UNIQUE (kurs_id, deltaker_id)
 );
 

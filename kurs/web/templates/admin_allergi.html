@@ -1,6 +1,6 @@
 {% extends "admin_base.html" %}
 {% block innhold %}
-<p class="liten"><a href="{{ url_for('admin_kurs', kurs_id=kurs.id) }}">← {{ kurs.navn }}</a></p>
+<p class="liten"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">← {{ kurs.navn }}</a></p>
 <h1>Allergier og tilrettelegging</h1>
 <p class="sub">{{ kurs.navn }} · Sensitive opplysninger – visning logges, og dataene slettes automatisk etter kurset.</p>
 <div class="tabellboks"><table>

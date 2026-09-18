@@ -28,9 +28,29 @@ def koble(sti: Path | None = None) -> sqlite3.Connection:
 
 def init(con: sqlite3.Connection) -> None:
     con.executescript(_SCHEMA.read_text(encoding="utf-8"))
+    _migrer(con)
     if not con.execute("SELECT 1 FROM admin_bruker").fetchone():
         opprett_admin_bruker(con, config.ADMIN_BRUKERNAVN, "Standardbruker", config.ADMIN_PASSORD)
     con.commit()
+
+
+def _migrer(con: sqlite3.Connection) -> None:
+    """Legger til kolonner fra nyere versjoner av schema.sql i eksisterende databaser, uten aa miste data.
+
+    SQLite tillater ikke ALTER TABLE ... ADD COLUMN med en ikke-konstant DEFAULT (som datetime('now'))
+    naar tabellen har rader fra for. Vi legger derfor til kolonnen uten default og etterfyller (backfill)
+    med en vanlig UPDATE i stedet.
+    """
+    def har_kolonne(tabell: str, kolonne: str) -> bool:
+        return any(r["name"] == kolonne for r in con.execute(f"PRAGMA table_info({tabell})"))
+
+    if not har_kolonne("kurs", "ansvarlig_admin_id"):
+        con.execute("ALTER TABLE kurs ADD COLUMN ansvarlig_admin_id INTEGER REFERENCES admin_bruker(id)")
+    if not har_kolonne("deltaker", "yrkestittel"):
+        con.execute("ALTER TABLE deltaker ADD COLUMN yrkestittel TEXT")
+    if not har_kolonne("paamelding", "oppdatert"):
+        con.execute("ALTER TABLE paamelding ADD COLUMN oppdatert TEXT")
+        con.execute("UPDATE paamelding SET oppdatert = opprettet WHERE oppdatert IS NULL")
 
 
 @contextmanager
@@ -159,7 +179,8 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
 
     fullt = kurs["kapasitet"] is not None and antall_bekreftet(con, kurs_id) >= kurs["kapasitet"]
     status = "venteliste" if fullt else "bekreftet"
-    felter = {"status": status, "samtykke_ts": datetime.now().isoformat(timespec="seconds"), **(paamelding or {})}
+    na = datetime.now().isoformat(timespec="seconds")
+    felter = {"status": status, "samtykke_ts": na, "oppdatert": na, **(paamelding or {})}
     # Betalingsmåte: deltakeren bestemmer bare når kurset er satt til 'deltaker_velger'
     if kurs["betaling"] == "deltaker_velger":
         felter["betaling"] = "per_samling" if felter.get("betaling") == "per_samling" else "samlet"
@@ -194,7 +215,8 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
 def meld_av(con, paamelding_id: int, aktor: str = "admin") -> int | None:
     """Avmelder og flytter forste paa ventelisten opp. Returnerer paamelding_id som ble flyttet opp."""
     p = con.execute("SELECT * FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()
-    con.execute("UPDATE paamelding SET status='avmeldt' WHERE id=?", (paamelding_id,))
+    na = datetime.now().isoformat(timespec="seconds")
+    con.execute("UPDATE paamelding SET status='avmeldt', oppdatert=? WHERE id=?", (na, paamelding_id))
     logg(con, "avmelding", {"paamelding_id": paamelding_id}, aktor=aktor)
     if p["status"] != "bekreftet":
         return None
@@ -203,7 +225,7 @@ def meld_av(con, paamelding_id: int, aktor: str = "admin") -> int | None:
         (p["kurs_id"],),
     ).fetchone()
     if neste:
-        con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0 WHERE id=?", (neste["id"],))
+        con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, oppdatert=? WHERE id=?", (na, neste["id"]))
         logg(con, "flyttet_fra_venteliste", {"paamelding_id": neste["id"]})
         return neste["id"]
     con.execute("UPDATE kurs SET status='aapen' WHERE id=? AND status='full'", (p["kurs_id"],))

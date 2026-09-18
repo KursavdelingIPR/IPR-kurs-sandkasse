@@ -39,5 +39,5 @@ $py = ".\.venv\Scripts\python.exe"   # lages av oppsett.bat
 ## Vanlige oppgaver
 
 - **Endre tekst i en e-post:** rediger fila i `kurs/maler/epost/`. Første linje er `Emne: ...`.
-- **Nytt felt i påmeldingsskjema:** `schema.sql` → `db.meld_paa`-kall i `web/app.py` (`kursside`) → `web/templates/kurs.html` → evt. `admin_kurs.html`.
+- **Nytt felt i påmeldingsskjema:** `schema.sql` → `db.meld_paa`-kall i `web/app.py` (`kursside`) → `web/templates/kurs.html` → evt. `admin_kurs_deltakere.html`.
 - **Ny påminnelse:** legg til i `daglig.py` etter samme mønster som `_innkallinger` / `_purring`, og skriv test i `tests/test_flyt.py`.

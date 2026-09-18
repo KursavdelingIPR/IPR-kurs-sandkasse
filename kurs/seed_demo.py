@@ -35,18 +35,21 @@ def main():
     db.init(con)
     i = date.today()
     d = lambda n: (i + timedelta(days=n)).isoformat()  # noqa: E731
+    standardadmin = con.execute("SELECT id FROM admin_bruker WHERE brukernavn=?", (config.ADMIN_BRUKERNAVN,)).fetchone()["id"]
 
     # 1) Avsluttet EFT-samling (for 3 uker siden) – gir kursbevis + timer i spesialistlop
     k1 = db.opprett_kurs(con, kode="EFT-S1", navn="EFT spesialistutdanning – samling 1", datoer=[d(-22), d(-21)],
                          type="fysisk", sted="IPR, Bergen", pris_nok=14500, spesialistlop="EFT", timer_pr_dag=7,
-                         kapasitet=16, status="aktiv", sharepoint_mappe=sharepoint.opprett_kursmappe("EFT-S1"))
+                         kapasitet=16, status="aktiv", sharepoint_mappe=sharepoint.opprett_kursmappe("EFT-S1"),
+                         ansvarlig_admin_id=standardadmin)
     # 2) EFT samling 2 – starter om 6 dager (ukefor-mail), 2 dager
     k2 = db.opprett_kurs(con, kode="EFT-S2", navn="EFT spesialistutdanning – samling 2", datoer=[d(6), d(7)],
                          type="fysisk", sted="IPR, Bergen", pris_nok=14500, spesialistlop="EFT", timer_pr_dag=7,
                          kapasitet=16, kursholder_epost="psykolog.a@ipr.no",
                          betaling="deltaker_velger", faktura_dager_for=14,
                          notat="Lunsj er inkludert. Ta med egne case-notater (anonymisert).",
-                         sharepoint_mappe=sharepoint.opprett_kursmappe("EFT-S2"))
+                         sharepoint_mappe=sharepoint.opprett_kursmappe("EFT-S2"),
+                         ansvarlig_admin_id=standardadmin)
     # 3) Digitalt kurs med kursdag I DAG (QR/kode-demo + Zoom)
     k3 = db.opprett_kurs(con, kode="PAR-DIG", navn="Parterapi i praksis – digitalt fordypningskurs",
                          datoer=[d(-7), d(0), d(7)], type="hybrid", sted="Zoom / IPR Bergen", pris_nok=4900,

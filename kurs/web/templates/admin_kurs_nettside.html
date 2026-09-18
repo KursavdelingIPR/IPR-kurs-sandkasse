@@ -1,0 +1,11 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<div class="kort" style="max-width:520px">
+  <p>Dette er den offentlige påmeldingssiden deltakerne ser for dette kurset.</p>
+  <a class="knapp" href="{{ url_for('kursside', kode=kurs.kode) }}" target="_blank">Åpne offentlig side ↗</a>
+  <p class="liten dempet" style="margin-top:16px">Redigering av tekst og innhold på nettsiden kommer i en senere fase.</p>
+</div>
+{% endblock %}

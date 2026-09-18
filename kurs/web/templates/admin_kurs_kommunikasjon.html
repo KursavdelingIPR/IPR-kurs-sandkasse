@@ -1,0 +1,13 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<p class="liten dempet">Automatisk e-post sendt for dette kurset. Å sende e-post til enkeltdeltakere eller flere valgte kommer i en senere fase.</p>
+<div class="tabellboks"><table>
+  <tr><th>Type</th><th>Mottaker</th><th>Sendt</th></tr>
+  {% for m in meldinger %}
+  <tr><td>{{ m.type }}</td><td>{{ m.mottaker }}</td><td class="liten dempet">{{ m.sendt_ts }}</td></tr>
+  {% else %}<tr><td colspan="3" class="dempet">Ingen e-post sendt for dette kurset ennå.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

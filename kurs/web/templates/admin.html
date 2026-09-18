@@ -15,7 +15,7 @@
   <tr><th>Kurs</th><th>Datoer</th><th>Type</th><th>Status</th><th>Påmeldt</th><th>Venteliste</th><th>Fakturert</th></tr>
   {% for k in kurs %}
   <tr>
-    <td><a href="{{ url_for('admin_kurs', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a><div class="liten dempet">{{ k.kode }}</div></td>
+    <td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a><div class="liten dempet">{{ k.kode }}</div></td>
     <td class="liten">{{ k.start }}{% if k.slutt != k.start %} – {{ k.slutt }}{% endif %}</td>
     <td>{{ k.type }}</td>
     <td><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra'}.get(k.status,'gra') }}">{{ k.status }}</span></td>
