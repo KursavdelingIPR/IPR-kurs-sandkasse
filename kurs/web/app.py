@@ -2,6 +2,7 @@
 
     python -m kurs.web.app        # http://127.0.0.1:5000
 """
+import calendar
 import csv
 import io
 import secrets
@@ -539,12 +540,36 @@ AKTIVITET_SORTER = {
 def admin_aktiviteter():
     sok = request.args.get("sok", "").strip()
     mine = request.args.get("mine") == "1"
+    ansvarlig = request.args.get("ansvarlig", type=int) or 0
+    status = request.args.get("status") or ""
+    if status not in KURS_STATUSVERDIER:
+        status = ""
+    sted = request.args.get("sted") or ""
+    if sted not in ("bergen", "oslo", "online"):
+        sted = ""
     sorter = request.args.get("sorter") or ""
     sorter = sorter if sorter in AKTIVITET_SORTER else None
     retning = "desc" if request.args.get("retning") == "desc" else "asc"
     antall = request.args.get("antall", type=int) or 25
     antall = antall if antall in (10, 25, 50, 100) else 25
     side = max(1, request.args.get("side", type=int) or 1)
+
+    # Samme sted-heuristikk og statusverdier som kurskalenderen (admin_kalender) - se den for begrunnelse.
+    vilkar = ["(? = '' OR LOWER(k.navn) LIKE ?)", "(? = 0 OR k.ansvarlig_admin_id = ?)"]
+    parametre = [sok.lower(), f"%{sok.lower()}%", 1 if mine else 0, session.get("admin_id")]
+    if ansvarlig:
+        vilkar.append("k.ansvarlig_admin_id = ?")
+        parametre.append(ansvarlig)
+    if status:
+        vilkar.append("k.status = ?")
+        parametre.append(status)
+    if sted == "bergen":
+        vilkar.append("LOWER(COALESCE(k.sted,'')) LIKE '%bergen%'")
+    elif sted == "oslo":
+        vilkar.append("LOWER(COALESCE(k.sted,'')) LIKE '%oslo%'")
+    elif sted == "online":
+        vilkar.append("(k.type IN ('digital','hybrid') OR LOWER(COALESCE(k.sted,'')) LIKE '%zoom%' "
+                      "OR LOWER(COALESCE(k.sted,'')) LIKE '%online%')")
 
     # Uten eksplisitt valgt sortering: aktuelle/fremtidige kurs forst (snarest forst), avsluttede sist.
     order_sql = (f"{AKTIVITET_SORTER[sorter]} {retning.upper()}" if sorter
@@ -556,9 +581,9 @@ def admin_aktiviteter():
               FROM kurs k
               LEFT JOIN kursdag kd ON kd.kurs_id=k.id
               LEFT JOIN admin_bruker ab ON ab.id=k.ansvarlig_admin_id
-              WHERE (? = '' OR LOWER(k.navn) LIKE ?) AND (? = 0 OR k.ansvarlig_admin_id = ?)
+              WHERE {' AND '.join(vilkar)}
               GROUP BY k.id ORDER BY {order_sql}"""
-    rader = con().execute(sql, (sok, f"%{sok.lower()}%", 1 if mine else 0, session.get("admin_id"))).fetchall()
+    rader = con().execute(sql, parametre).fetchall()
 
     totalt = len(rader)
     siste_side = max(1, -(-totalt // antall))
@@ -566,20 +591,87 @@ def admin_aktiviteter():
     start_i = (side - 1) * antall
     kurs = rader[start_i:start_i + antall]
 
+    def _felles_parametre():
+        return dict(sok=sok or None, mine=1 if mine else None, ansvarlig=ansvarlig or None,
+                   status=status or None, sted=sted or None)
+
     def sidelenke(n):
-        return url_for("admin_aktiviteter", sok=sok or None, mine=1 if mine else None,
-                       antall=antall, sorter=sorter, retning=retning, side=n)
+        return url_for("admin_aktiviteter", **_felles_parametre(), antall=antall, sorter=sorter,
+                       retning=retning, side=n)
 
     def sorterlenke(felt, tekst):
         ny_retning = "desc" if sorter == felt and retning == "asc" else "asc"
         pil = (" ↑" if retning == "asc" else " ↓") if sorter == felt else ""
-        lenke = url_for("admin_aktiviteter", sok=sok or None, mine=1 if mine else None,
-                        antall=antall, sorter=felt, retning=ny_retning)
+        lenke = url_for("admin_aktiviteter", **_felles_parametre(), antall=antall, sorter=felt, retning=ny_retning)
         return Markup(f'<a href="{lenke}">{Markup.escape(tekst)}{pil}</a>')
 
-    return render_template("admin_aktiviteter.html", kurs=kurs, sok=sok, mine=mine, antall=antall,
-                           side=side, totalt=totalt, siste_side=siste_side,
-                           sidelenke=sidelenke, sorterlenke=sorterlenke)
+    admins = con().execute("SELECT id, navn FROM admin_bruker WHERE aktiv=1 ORDER BY navn").fetchall()
+    return render_template(
+        "admin_aktiviteter.html", kurs=kurs, sok=sok, mine=mine, ansvarlig=ansvarlig, status=status, sted=sted,
+        antall=antall, side=side, totalt=totalt, siste_side=siste_side, sidelenke=sidelenke,
+        sorterlenke=sorterlenke, admins=admins, kurs_statusverdier=KURS_STATUSVERDIER,
+        nullstill_lenke=url_for("admin_aktiviteter"))
+
+
+@app.get("/admin/aktiviteter/kalender")
+@krever_admin
+def admin_kalender():
+    idag = date.today()
+    aar = request.args.get("aar", type=int) or 0
+    maned = request.args.get("maned", type=int) or 0
+    if not (1 <= maned <= 12) or not (1 <= aar <= 9999):
+        aar, maned = idag.year, idag.month
+
+    ansvarlig = request.args.get("ansvarlig", type=int) or 0
+    status = request.args.get("status") or ""
+    if status not in KURS_STATUSVERDIER:
+        status = ""
+    sted = request.args.get("sted") or ""
+    if sted not in ("bergen", "oslo", "online"):
+        sted = ""
+
+    uker = calendar.Calendar(firstweekday=0).monthdatescalendar(aar, maned)  # mandag = 0
+
+    vilkar = ["kd.dato BETWEEN ? AND ?"]
+    parametre = [uker[0][0].isoformat(), uker[-1][-1].isoformat()]
+    if ansvarlig:
+        vilkar.append("k.ansvarlig_admin_id = ?")
+        parametre.append(ansvarlig)
+    if status:
+        vilkar.append("k.status = ?")
+        parametre.append(status)
+    if sted == "bergen":
+        vilkar.append("LOWER(COALESCE(k.sted,'')) LIKE '%bergen%'")
+    elif sted == "oslo":
+        vilkar.append("LOWER(COALESCE(k.sted,'')) LIKE '%oslo%'")
+    elif sted == "online":
+        vilkar.append("(k.type IN ('digital','hybrid') OR LOWER(COALESCE(k.sted,'')) LIKE '%zoom%' "
+                      "OR LOWER(COALESCE(k.sted,'')) LIKE '%online%')")
+
+    sql = f"""SELECT kd.dato, k.id, k.kode, k.navn, k.status,
+                     COALESCE(k.sted, CASE WHEN k.type='digital' THEN 'Online' END) AS sted_visning
+              FROM kursdag kd JOIN kurs k ON k.id=kd.kurs_id
+              WHERE {' AND '.join(vilkar)}
+              ORDER BY kd.dato, k.navn"""
+    per_dag: dict[str, list] = {}
+    for rad in con().execute(sql, parametre):
+        per_dag.setdefault(rad["dato"], []).append(rad)
+
+    forrige_aar, forrige_maned = (aar - 1, 12) if maned == 1 else (aar, maned - 1)
+    neste_aar, neste_maned = (aar + 1, 1) if maned == 12 else (aar, maned + 1)
+
+    def maanedlenke(aar_, maned_):
+        return url_for("admin_kalender", aar=aar_, maned=maned_, ansvarlig=ansvarlig or None,
+                       status=status or None, sted=sted or None)
+
+    admins = con().execute("SELECT id, navn FROM admin_bruker WHERE aktiv=1 ORDER BY navn").fetchall()
+    return render_template(
+        "admin_kalender.html", uker=uker, per_dag=per_dag, idag=idag, aar=aar, maned=maned,
+        maaned_navn=["", "Januar", "Februar", "Mars", "April", "Mai", "Juni", "Juli", "August",
+                    "September", "Oktober", "November", "Desember"][maned],
+        forrige_lenke=maanedlenke(forrige_aar, forrige_maned), neste_lenke=maanedlenke(neste_aar, neste_maned),
+        nullstill_lenke=url_for("admin_kalender", aar=aar, maned=maned),
+        ansvarlig=ansvarlig, status=status, sted=sted, admins=admins, kurs_statusverdier=KURS_STATUSVERDIER)
 
 
 # ------- kursadministrasjon: faner -------
@@ -1269,29 +1361,49 @@ def admin_ny_kurs():
     if request.method == "POST":
         f = request.form
         datoer = sorted({d.strip() for d in f.get("datoer", "").replace(",", "\n").splitlines() if d.strip()})
+        er_duplikat = bool(f.get("fra"))
         try:
             for d in datoer:
                 date.fromisoformat(d)
+            paameldingsfrist = f.get("paameldingsfrist") or None
+            if paameldingsfrist:
+                date.fromisoformat(paameldingsfrist)
             with db.transaksjon(con()):
                 kode = db.generer_kode(con(), f["navn"].strip(), datoer)
-                kid = db.opprett_kurs(
-                    con(), kode=kode, navn=f["navn"].strip(), datoer=datoer, aktor=_aktor(),
+                felter = dict(
                     type=f["type"], sted=f.get("sted") or None, start_kl=f["start_kl"], slutt_kl=f["slutt_kl"],
                     timer_pr_dag=float(f.get("timer_pr_dag") or 6), kapasitet=int(f["kapasitet"]) if f.get("kapasitet") else None,
                     pris_nok=int(f.get("pris_nok") or 0), fakturering=f["fakturering"],
                     betaling=f.get("betaling", "samlet"), faktura_dager_for=int(f.get("faktura_dager_for") or 14),
                     spesialistlop=f.get("spesialistlop") or None, kursholder_epost=f.get("kursholder_epost") or None,
-                    notat=f.get("notat") or None,
-                    sharepoint_mappe=sharepoint.opprett_kursmappe(kode),
+                    notat=f.get("notat") or None, ansvarlig_admin_id=f.get("ansvarlig_admin_id", type=int),
+                    paameldingsfrist=paameldingsfrist, sharepoint_mappe=sharepoint.opprett_kursmappe(kode),
                 )
+                if er_duplikat:
+                    # Et duplisert kurs skal gjennomgås og åpnes bevisst - ikke være synlig/åpent for påmelding med en gang.
+                    felter["status"] = "utkast"
+                kid = db.opprett_kurs(con(), kode=kode, navn=f["navn"].strip(), datoer=datoer, aktor=_aktor(), **felter)
                 if f.get("kursholder_epost") and f.get("materiell_frist"):
                     con().execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
                                   (kid, f.get("kursholder_navn") or f["kursholder_epost"], f["kursholder_epost"], f["materiell_frist"]))
             flash(f"Kurset er opprettet med koden «{kode}», og har fått påmeldingsside, SharePoint-mappe og innsjekkkoder.", "ok")
             return redirect(url_for("admin_kurs_oppsett", kurs_id=kid))
-        except (ValueError, KeyError) as e:
+        except (ValueError, KeyError, sqlite3.IntegrityError) as e:
             flash(f"Kunne ikke opprette kurs: {e}", "feil")
-    return render_template("admin_ny_kurs.html")
+
+    fra_kurs = None
+    kursholder_navn_forslag = ""
+    kildedatoer = []
+    fra_id = request.args.get("fra", type=int)
+    if fra_id:
+        fra_kurs = _hent_kurs(fra_id)
+        siste_krav = con().execute(
+            "SELECT ansvarlig_navn FROM materiell_krav WHERE kurs_id=? ORDER BY id DESC LIMIT 1", (fra_id,)).fetchone()
+        kursholder_navn_forslag = siste_krav["ansvarlig_navn"] if siste_krav else ""
+        kildedatoer = [d["dato"] for d in db.kursdager(con(), fra_id)]
+    admins = con().execute("SELECT id, navn FROM admin_bruker WHERE aktiv=1 ORDER BY navn").fetchall()
+    return render_template("admin_ny_kurs.html", fra_kurs=fra_kurs, kursholder_navn_forslag=kursholder_navn_forslag,
+                           kildedatoer=kildedatoer, admins=admins)
 
 
 @app.route("/admin/daglig", methods=["GET", "POST"])

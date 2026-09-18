@@ -1,0 +1,67 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<h1>Kurskalender</h1>
+<p class="sub">Kursdager på tvers av alle kurs.</p>
+{% set visning = 'kalender' %}
+{% include "admin_aktivitet_faner.html" %}
+
+<form method="get" class="rad" style="align-items:end; margin-bottom:14px">
+  <input type="hidden" name="aar" value="{{ aar }}">
+  <input type="hidden" name="maned" value="{{ maned }}">
+  <div><label>Sted</label>
+    <select name="sted">
+      <option value="" {{ 'selected' if not sted }}>Alle steder</option>
+      <option value="bergen" {{ 'selected' if sted == 'bergen' }}>Bergen</option>
+      <option value="oslo" {{ 'selected' if sted == 'oslo' }}>Oslo</option>
+      <option value="online" {{ 'selected' if sted == 'online' }}>Online</option>
+    </select>
+  </div>
+  <div><label>Ansvarlig</label>
+    <select name="ansvarlig">
+      <option value="">Alle</option>
+      {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if ansvarlig == a.id }}>{{ a.navn }}</option>{% endfor %}
+    </select>
+  </div>
+  <div><label>Status</label>
+    <select name="status">
+      <option value="" {{ 'selected' if not status }}>Alle</option>
+      {% for s in kurs_statusverdier %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ s|capitalize }}</option>{% endfor %}
+    </select>
+  </div>
+  <div style="display:flex; gap:10px; align-items:center">
+    <button class="sekundar">Filtrer</button>
+    <a class="liten" href="{{ nullstill_lenke }}">Nullstill filtre</a>
+  </div>
+</form>
+
+<div style="display:flex; align-items:center; gap:16px; margin-bottom:14px">
+  <a class="knapp sekundar liten" href="{{ forrige_lenke }}">« Forrige</a>
+  <h2 style="margin:0; min-width:180px; text-align:center">{{ maaned_navn }} {{ aar }}</h2>
+  <a class="knapp sekundar liten" href="{{ neste_lenke }}">Neste »</a>
+</div>
+
+<div class="tabellboks">
+<table style="table-layout:fixed; width:100%">
+  <tr>
+    {% for dagnavn in ('Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn') %}<th style="width:14.28%">{{ dagnavn }}</th>{% endfor %}
+  </tr>
+  {% for uke in uker %}
+  <tr>
+    {% for d in uke %}
+    <td style="vertical-align:top; padding:6px; {{ 'background:var(--bla-lys)' if d == idag }}{% if d.month != maned %} opacity:.4{% endif %}">
+      <div class="liten dempet" style="margin-bottom:4px">{{ d.day }}</div>
+      {% for k in per_dag.get(d.isoformat(), []) %}
+      <div style="margin-bottom:5px">
+        <a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}" class="liten" style="display:block; line-height:1.3; word-break:break-word">
+          <code style="font-size:11px">{{ k.kode }}</code> {{ k.navn }}
+        </a>
+        {% if k.sted_visning %}<div class="dempet" style="font-size:11px">{{ k.sted_visning }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

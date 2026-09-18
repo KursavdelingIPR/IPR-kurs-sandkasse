@@ -228,3 +228,93 @@ def test_oppmotefunksjon_er_uendret_paa_ny_side(con):
     assert db.koble(config.DB_STI).execute(
         "SELECT COUNT(*) FROM oppmote WHERE paamelding_id=? AND kursdag_id=?", (pid, dag["id"])
     ).fetchone()[0] == 1
+
+
+# ---------------- fase 8: samme filtre som kalenderen (sted/ansvarlig/status) ----------------
+
+def test_bergen_filter_paavirker_listen(con):
+    _kurs(con, "BGO", navn="Bergenskurs", type="fysisk", sted="IPR, Bergen")
+    _kurs(con, "OSL", navn="Oslokurs", type="fysisk", sted="Oslo, hotell")
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    t = klient.get("/admin/aktiviteter?sted=bergen").get_data(as_text=True)
+    assert "Bergenskurs" in t and "Oslokurs" not in t
+
+
+def test_oslo_filter_paavirker_listen(con):
+    _kurs(con, "BGO", navn="Bergenskurs", type="fysisk", sted="IPR, Bergen")
+    _kurs(con, "OSL", navn="Oslokurs", type="fysisk", sted="Oslo, hotell")
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    t = klient.get("/admin/aktiviteter?sted=oslo").get_data(as_text=True)
+    assert "Oslokurs" in t and "Bergenskurs" not in t
+
+
+def test_online_filter_fanger_digital_type_og_stedtekst_som_i_kalenderen(con):
+    _kurs(con, "DIG", navn="Digitalt kurs", type="digital")
+    _kurs(con, "ZOOMSTED", navn="Kurs med Zoom i stedfelt", type="fysisk", sted="Zoom-rom 1")
+    _kurs(con, "FYS", navn="Fysisk kurs", type="fysisk", sted="IPR, Bergen")
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    t = klient.get("/admin/aktiviteter?sted=online").get_data(as_text=True)
+    assert "Digitalt kurs" in t and "Kurs med Zoom i stedfelt" in t
+    assert "Fysisk kurs" not in t
+
+
+def test_ansvarlig_dropdown_filter_paavirker_listen(con):
+    admin_id = con.execute("SELECT id FROM admin_bruker WHERE brukernavn=?", (config.ADMIN_BRUKERNAVN,)).fetchone()[0]
+    annen_id = db.opprett_admin_bruker(con, "kari", "Kari Admin", "passord123")
+    _kurs(con, "MITT", navn="Mitt kurs", ansvarlig_admin_id=admin_id)
+    _kurs(con, "ANNET", navn="Annet kurs", ansvarlig_admin_id=annen_id)
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    t = klient.get(f"/admin/aktiviteter?ansvarlig={admin_id}").get_data(as_text=True)
+    assert "Mitt kurs" in t and "Annet kurs" not in t
+
+
+def test_statusfilter_paavirker_listen(con):
+    _kurs(con, "AAPEN", navn="Åpent kurs")
+    _kurs(con, "AVLYST", navn="Avlyst kurs", status="avlyst")
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    t = klient.get("/admin/aktiviteter?status=avlyst").get_data(as_text=True)
+    assert "Avlyst kurs" in t and "Åpent kurs" not in t
+
+
+def test_nye_filtre_kan_kombineres_med_soek_og_mine(con):
+    admin_id = con.execute("SELECT id FROM admin_bruker WHERE brukernavn=?", (config.ADMIN_BRUKERNAVN,)).fetchone()[0]
+    annen_id = db.opprett_admin_bruker(con, "kari", "Kari Admin", "passord123")
+    _kurs(con, "TREFF", navn="Bergen mitt kurs", type="fysisk", sted="IPR, Bergen", ansvarlig_admin_id=admin_id)
+    _kurs(con, "FEIL1", navn="Bergen annet kurs", type="fysisk", sted="IPR, Bergen", ansvarlig_admin_id=annen_id)
+    _kurs(con, "FEIL2", navn="Oslo mitt kurs", type="fysisk", sted="Oslo", ansvarlig_admin_id=admin_id)
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    t = klient.get(f"/admin/aktiviteter?sted=bergen&ansvarlig={admin_id}&mine=1&sok=bergen").get_data(as_text=True)
+    assert "Bergen mitt kurs" in t
+    assert "Bergen annet kurs" not in t
+    assert "Oslo mitt kurs" not in t
+
+
+def test_nye_filtre_beholdes_i_sorteringslenker(con):
+    _kurs(con, "BGO", navn="Bergenskurs", type="fysisk", sted="IPR, Bergen")
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    t = klient.get("/admin/aktiviteter?sted=bergen").get_data(as_text=True)
+    assert "sted=bergen" in t
+
+
+def test_nullstill_filtre_paa_aktivitetsoversikten(con):
+    _kurs(con, "BGO", navn="Bergenskurs", type="fysisk", sted="IPR, Bergen")
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    t = klient.get("/admin/aktiviteter?sted=bergen").get_data(as_text=True)
+    assert 'href="/admin/aktiviteter"' in t
+    assert "Nullstill filtre" in t

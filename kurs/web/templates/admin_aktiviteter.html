@@ -2,9 +2,31 @@
 {% block innhold %}
 <h1>Aktiviteter</h1>
 <p class="sub">Oversikt over alle kurs/aktiviteter.</p>
+{% set visning = 'liste' %}
+{% include "admin_aktivitet_faner.html" %}
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:16px">
   <div><label>Søk på kursnavn</label><input type="search" name="sok" value="{{ sok }}" placeholder="Søk…"></div>
+  <div><label>Sted</label>
+    <select name="sted">
+      <option value="" {{ 'selected' if not sted }}>Alle steder</option>
+      <option value="bergen" {{ 'selected' if sted == 'bergen' }}>Bergen</option>
+      <option value="oslo" {{ 'selected' if sted == 'oslo' }}>Oslo</option>
+      <option value="online" {{ 'selected' if sted == 'online' }}>Online</option>
+    </select>
+  </div>
+  <div><label>Ansvarlig</label>
+    <select name="ansvarlig">
+      <option value="">Alle</option>
+      {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if ansvarlig == a.id }}>{{ a.navn }}</option>{% endfor %}
+    </select>
+  </div>
+  <div><label>Status</label>
+    <select name="status">
+      <option value="" {{ 'selected' if not status }}>Alle</option>
+      {% for s in kurs_statusverdier %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ s|capitalize }}</option>{% endfor %}
+    </select>
+  </div>
   <div><label>Antall rader</label>
     <select name="antall" onchange="this.form.submit()">
       {% for n in (10, 25, 50, 100) %}<option value="{{ n }}" {{ 'selected' if antall == n }}>{{ n }}</option>{% endfor %}
@@ -15,7 +37,10 @@
       <input type="checkbox" name="mine" value="1" {{ 'checked' if mine }} onchange="this.form.submit()"> Vis bare mine aktiviteter
     </label>
   </div>
-  <div><button class="sekundar">Søk</button></div>
+  <div style="display:flex; gap:10px; align-items:center">
+    <button class="sekundar">Søk</button>
+    <a class="liten" href="{{ nullstill_lenke }}">Nullstill filtre</a>
+  </div>
 </form>
 
 <div class="tabellboks"><table>
@@ -42,7 +67,8 @@
     <td class="liten">{{ k.ansvarlig_navn or '–' }}</td>
     <td class="liten" style="white-space:nowrap">
       <a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}">Åpne</a> ·
-      <a href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}" title="Rediger">✎</a>
+      <a href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}" title="Rediger">✎</a> ·
+      <a href="{{ url_for('admin_ny_kurs', fra=k.id) }}" title="Dupliser «{{ k.navn }}»">Dupliser</a>
     </td>
   </tr>
   {% else %}<tr><td colspan="9" class="dempet">Ingen kurs matcher søket.</td></tr>{% endfor %}
