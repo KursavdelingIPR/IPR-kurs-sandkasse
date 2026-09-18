@@ -4,29 +4,88 @@
 {% include "admin_deltaker_faner.html" %}
 
 <h2>Person <span class="liten dempet" style="font-weight:400">– gjelder alle kurs {{ p.navn }} er meldt på</span></h2>
-<div class="tabellboks"><table>
-  <tr><th style="width:240px">Navn</th><td>{{ p.navn }}</td></tr>
-  <tr><th>E-post</th><td>{{ p.epost }}</td></tr>
-  <tr><th>Telefon</th><td>{{ p.telefon or '–' }}</td></tr>
-  <tr><th>Yrkestittel</th><td>{{ p.yrkestittel or '–' }}</td></tr>
-  <tr><th>Arbeidssted</th><td>{{ p.arbeidssted or '–' }}</td></tr>
-</table></div>
-<p class="liten dempet" style="margin-top:-8px">Redigering kommer i en senere fase.</p>
+<div class="flash info">Disse feltene gjelder {{ p.navn }} som person, ikke bare dette kurset. Lagrer du en endring her,
+  gjelder den også på {{ andre_paameldinger }} annen{{ 'e' if andre_paameldinger != 1 }} aktiv{{ 'e' if andre_paameldinger != 1 }}
+  påmelding{{ 'er' if andre_paameldinger != 1 }} vedkommende har.</div>
+<form method="post" action="{{ url_for('admin_deltaker_person', kurs_id=kurs.id, paamelding_id=p.id) }}" class="kort" style="max-width:640px">
+  <div class="rad">
+    <div><label>Navn *</label><input name="navn" required value="{{ p.navn }}"></div>
+    <div><label>E-post *</label><input name="epost" type="email" required value="{{ p.epost }}"></div>
+    <div><label>Telefon</label><input name="telefon" value="{{ p.telefon or '' }}"></div>
+    <div><label>Yrkestittel</label><input name="yrkestittel" value="{{ p.yrkestittel or '' }}"></div>
+    <div><label>Arbeidssted</label><input name="arbeidssted" value="{{ p.arbeidssted or '' }}"></div>
+  </div>
+  <p style="margin-top:16px"><button class="liten">Lagre personopplysninger</button></p>
+</form>
 
 <h2>Denne påmeldingen <span class="liten dempet" style="font-weight:400">– {{ kurs.navn }} ({{ kurs.kode }})</span></h2>
-<div class="tabellboks"><table>
-  <tr><th style="width:240px">Påmeldingsstatus</th><td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}[p.status] }}">{{ p.status }}</span></td></tr>
-  <tr><th>Fakturastatus</th><td><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(fakturastatus, 'gra') }}">{{ fakturastatus }}</span></td></tr>
-  <tr><th>Pris</th><td>{{ kurs.pris_nok }} kr</td></tr>
-  <tr><th>Prisvalg</th><td>{{ {'samlet':'Samlet','per_samling':'Per samling'}.get(p.betaling, p.betaling) }}</td></tr>
-  <tr><th>Betaler</th><td>{{ 'Arbeidsgiver' if p.betaler == 'organisasjon' else 'Privat' }}</td></tr>
-  <tr><th>Firmanavn</th><td>{{ p.org_navn or '–' }}</td></tr>
-  <tr><th>Organisasjonsnummer</th><td>{{ p.org_nr or '–' }}</td></tr>
-  <tr><th>Fakturaadresse</th><td>{% if p.faktura_adresse or p.faktura_postnr or p.faktura_sted %}{{ p.faktura_adresse or '' }}{% if p.faktura_postnr or p.faktura_sted %}, {{ p.faktura_postnr or '' }} {{ p.faktura_sted or '' }}{% endif %}{% else %}–{% endif %}</td></tr>
-  <tr><th>Fakturareferanse</th><td>{{ p.faktura_ref or '–' }}</td></tr>
-  <tr><th>Kommentar til faktura/påmelding</th><td>{{ p.faktura_kommentar or '–' }}</td></tr>
-  <tr><th>Allergi/tilrettelegging</th><td>{{ p.allergier or '–' }}{% if p.tilrettelegging %}<br>{{ p.tilrettelegging }}{% endif %}</td></tr>
-  <tr><th>Intern kommentar <span class="liten dempet" style="text-transform:none; letter-spacing:normal">(kun synlig for administratorer)</span></th><td>{{ p.intern_kommentar or '–' }}</td></tr>
-</table></div>
-<p class="liten dempet">Redigering kommer i en senere fase.</p>
+
+<div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); margin-bottom:16px">
+  <div class="kort">
+    <div class="liten dempet">Påmeldingsstatus</div>
+    <p style="margin:6px 0 10px"><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}[p.status] }}">{{ p.status }}</span></p>
+    {% if statusvalg %}
+    <form method="post" action="{{ url_for('admin_deltaker_status', kurs_id=kurs.id, paamelding_id=p.id) }}"
+          onsubmit="return confirm('Endre status til ' + this.status.value + '?')">
+      <select name="status" required>
+        <option value="" selected disabled>Velg ny status</option>
+        {% for s in statusvalg %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
+      </select>
+      <p style="margin-top:8px"><button class="liten sekundar">Endre status</button></p>
+    </form>
+    {% endif %}
+  </div>
+  <div class="kort">
+    <div class="liten dempet">Fakturastatus</div>
+    <p style="margin:6px 0 10px"><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(fakturastatus, 'gra') }}">{{ fakturastatus }}</span></p>
+    <p class="liten dempet" style="margin:0">Styres av fakturasystemet og kan ikke endres her.</p>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('admin_deltaker_paamelding', kurs_id=kurs.id, paamelding_id=p.id) }}" class="kort" style="max-width:720px">
+  <div class="rad">
+    <div><label>Hvem betaler</label>
+      <select name="betaler">
+        <option value="person" {{ 'selected' if p.betaler != 'organisasjon' }}>Privat</option>
+        <option value="organisasjon" {{ 'selected' if p.betaler == 'organisasjon' }}>Firma</option>
+      </select></div>
+    <div><label>Firmanavn</label><input name="org_navn" value="{{ p.org_navn or '' }}"></div>
+    <div><label>Organisasjonsnummer</label><input name="org_nr" value="{{ p.org_nr or '' }}"></div>
+  </div>
+  <div class="rad">
+    <div><label>Fakturaadresse</label><input name="faktura_adresse" value="{{ p.faktura_adresse or '' }}"></div>
+    <div><label>Postnr.</label><input name="faktura_postnr" value="{{ p.faktura_postnr or '' }}"></div>
+    <div><label>Sted</label><input name="faktura_sted" value="{{ p.faktura_sted or '' }}"></div>
+  </div>
+  <div class="rad">
+    <div><label>Fakturareferanse / «Faktura merkes med»</label><input name="faktura_ref" value="{{ p.faktura_ref or '' }}"></div>
+    <div><label>Pris</label><p class="liten dempet" style="margin-top:8px">{{ kurs.pris_nok }} kr – styres av kurset</p></div>
+    <div><label>Prisvalg</label>
+      {% if prisvalg_redigerbar %}
+      <select name="betaling">
+        <option value="samlet" {{ 'selected' if p.betaling != 'per_samling' }}>Samlet</option>
+        <option value="per_samling" {{ 'selected' if p.betaling == 'per_samling' }}>Per samling</option>
+      </select>
+      {% else %}
+      <p class="liten dempet" style="margin-top:8px">{{ {'samlet':'Samlet','per_samling':'Per samling'}.get(p.betaling, p.betaling) }}
+        – {{ 'allerede fakturert' if p.faktura_antall else 'styres av kurset' }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <label>Kommentar til faktura/påmelding</label>
+  <textarea name="faktura_kommentar" rows="2">{{ p.faktura_kommentar or '' }}</textarea>
+
+  {% if kurs.type != 'digital' %}
+  <div class="rad">
+    <div><label>Allergier/spesialkost</label><input name="allergier" value="{{ p.allergier or '' }}"></div>
+    <div><label>Behov for tilrettelegging</label><input name="tilrettelegging" value="{{ p.tilrettelegging or '' }}"></div>
+  </div>
+  {% endif %}
+
+  <label>Intern kommentar <span class="liten dempet" style="text-transform:none; letter-spacing:normal">(kun synlig for administratorer)</span></label>
+  <textarea name="intern_kommentar" rows="2">{{ p.intern_kommentar or '' }}</textarea>
+
+  <p style="margin-top:16px"><button class="liten">Lagre</button></p>
+</form>
 {% endblock %}

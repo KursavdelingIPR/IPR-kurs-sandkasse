@@ -533,6 +533,15 @@ def _hent_paamelding(kurs_id: int, paamelding_id: int):
            WHERE p.id=? AND p.kurs_id=?""", (paamelding_id, kurs_id)).fetchone() or abort(404)
 
 
+# Hvilke statusoverganger vi tilbyr fra adminpanelet. Bekreftet -> venteliste er bevisst utelatt:
+# den ville tatt en bekreftet plass uten aa automatisk tilby den videre (bruk avmelding i stedet).
+STATUS_OVERGANGER = {
+    "bekreftet": ("avmeldt",),
+    "venteliste": ("bekreftet", "avmeldt"),
+    "avmeldt": ("bekreftet", "venteliste"),
+}
+
+
 @app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>")
 @krever_admin
 def admin_deltaker(kurs_id, paamelding_id):
@@ -540,7 +549,97 @@ def admin_deltaker(kurs_id, paamelding_id):
     p = _hent_paamelding(kurs_id, paamelding_id)
     db.logg(con(), "sensitivt_vist", {"paamelding_id": paamelding_id, "kurs_id": kurs_id}, aktor=_aktor())
     con().commit()
-    return render_template("admin_deltaker.html", kurs=kurs, p=p, fakturastatus=_fakturastatus(kurs, p), fane="deltaker")
+    andre_paameldinger = con().execute(
+        "SELECT COUNT(*) FROM paamelding WHERE deltaker_id=? AND id!=? AND status!='avmeldt'",
+        (p["deltaker_id"], paamelding_id)).fetchone()[0]
+    prisvalg_redigerbar = kurs["betaling"] == "deltaker_velger" and p["faktura_antall"] == 0
+    return render_template(
+        "admin_deltaker.html", kurs=kurs, p=p, fakturastatus=_fakturastatus(kurs, p), fane="deltaker",
+        andre_paameldinger=andre_paameldinger, prisvalg_redigerbar=prisvalg_redigerbar,
+        statusvalg=STATUS_OVERGANGER.get(p["status"], ()))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/person")
+@krever_admin
+def admin_deltaker_person(kurs_id, paamelding_id):
+    _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)
+    f = request.form
+    if not f.get("navn", "").strip() or "@" not in f.get("epost", ""):
+        flash("Fyll inn navn og en gyldig e-postadresse.", "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    try:
+        db.oppdater_deltaker(con(), p["deltaker_id"], {
+            "navn": f["navn"].strip(), "epost": f["epost"].strip(),
+            "telefon": f.get("telefon", "").strip() or None,
+            "yrkestittel": f.get("yrkestittel", "").strip() or None,
+            "arbeidssted": f.get("arbeidssted", "").strip() or None,
+        }, aktor=_aktor())
+        con().commit()
+    except db.DeltakerFeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    flash("Personopplysninger oppdatert. Gjelder alle kurs vedkommende er meldt på.", "ok")
+    return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/paamelding")
+@krever_admin
+def admin_deltaker_paamelding(kurs_id, paamelding_id):
+    kurs = _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)
+    f = request.form
+    betaler = f.get("betaler") if f.get("betaler") in ("person", "organisasjon") else p["betaler"]
+    if betaler == "organisasjon" and not (f.get("org_navn", "").strip() and f.get("org_nr", "").strip()):
+        flash("Fyll inn firmanavn og organisasjonsnummer når firma betaler.", "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+
+    felter = {
+        "betaler": betaler,
+        "org_navn": f.get("org_navn", "").strip() or None,
+        "org_nr": f.get("org_nr", "").strip() or None,
+        "faktura_adresse": f.get("faktura_adresse", "").strip() or None,
+        "faktura_postnr": f.get("faktura_postnr", "").strip() or None,
+        "faktura_sted": f.get("faktura_sted", "").strip() or None,
+        "faktura_ref": f.get("faktura_ref", "").strip() or None,
+        "faktura_kommentar": f.get("faktura_kommentar", "").strip() or None,
+        "intern_kommentar": f.get("intern_kommentar", "").strip() or None,
+    }
+    # Prisvalg kan kun endres naar kurset lar deltakeren velge OG ingenting er fakturert ennaa,
+    # selv om noen skulle poste feltet uansett (samme sjekk som avgjor om det vises redigerbart).
+    if kurs["betaling"] == "deltaker_velger" and p["faktura_antall"] == 0 and f.get("betaling") in ("samlet", "per_samling"):
+        felter["betaling"] = f["betaling"]
+
+    db.oppdater_paamelding(con(), paamelding_id, felter, aktor=_aktor())
+    if kurs["type"] != "digital":
+        db.oppdater_sensitivt(con(), paamelding_id, f.get("allergier"), f.get("tilrettelegging"), aktor=_aktor())
+    con().commit()
+    flash("Påmeldingen er oppdatert.", "ok")
+    return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/status")
+@krever_admin
+def admin_deltaker_status(kurs_id, paamelding_id):
+    _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)
+    ny_status = request.form.get("status", "")
+    if ny_status not in STATUS_OVERGANGER.get(p["status"], ()):
+        flash("Ugyldig statusendring.", "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    try:
+        kjor_sveiper_for = db.sett_paamelding_status(con(), paamelding_id, ny_status, aktor=_aktor())
+        con().commit()
+    except db.Paameldingsfeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    if kjor_sveiper_for:
+        sveiper.kjor(Kjoring(con(), idag=_idag()), kjor_sveiper_for)
+        con().commit()
+    flash(f"Status endret til «{ny_status}».", "ok")
+    return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
 
 
 @app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/kommunikasjon")

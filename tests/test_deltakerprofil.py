@@ -31,7 +31,7 @@ def _kurs(con, kode="T1", **kw):
 
 
 def test_deltakerprofil_viser_person_og_paameldingsfelt(con):
-    kid = _kurs(con)
+    kid = _kurs(con, type="fysisk")  # allergifelt vises kun for ikke-digitale kurs
     pid, _ = db.meld_paa(
         con, kid, epost="a@x.no", navn="A Test",
         deltaker={"telefon": "12345678", "arbeidssted": "Sted AS", "yrkestittel": "Psykolog"},

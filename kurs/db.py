@@ -165,6 +165,123 @@ class Paameldingsfeil(Exception):
     pass
 
 
+class DeltakerFeil(Exception):
+    pass
+
+
+# ---------- admin: redigering av deltaker/paamelding (fase 3) ----------
+
+def oppdater_deltaker(con, deltaker_id: int, felter: dict, aktor: str = "admin") -> list[str]:
+    """Oppdaterer person-opplysninger. Disse deles paa tvers av alle kurs personen er meldt paa,
+    saa paamelding.oppdatert settes for ALLE deres paameldinger, ikke bare den man sto paa.
+
+    Returnerer navnene paa feltene som faktisk ble endret. Hendelsesloggen faar kun feltnavnene,
+    aldri gammel/ny verdi (personopplysninger skal ikke ligge i loggen).
+    """
+    gammel = con.execute("SELECT * FROM deltaker WHERE id=?", (deltaker_id,)).fetchone()
+    if not gammel:
+        raise DeltakerFeil("Ukjent deltaker")
+
+    if "epost" in felter:
+        epost = (felter["epost"] or "").strip().lower()
+        if not epost or "@" not in epost:
+            raise DeltakerFeil("Ugyldig e-postadresse.")
+        opptatt = con.execute("SELECT 1 FROM deltaker WHERE epost=? AND id!=?", (epost, deltaker_id)).fetchone()
+        if opptatt:
+            raise DeltakerFeil("E-postadressen er allerede i bruk av en annen deltaker.")
+        felter = {**felter, "epost": epost}
+    if "navn" in felter and not (felter["navn"] or "").strip():
+        raise DeltakerFeil("Navn kan ikke være tomt.")
+
+    endret = [felt for felt, verdi in felter.items() if (gammel[felt] or "") != (verdi or "")]
+    if not endret:
+        return []
+    con.execute(f"UPDATE deltaker SET {','.join(f'{f}=?' for f in felter)} WHERE id=?",
+               [*felter.values(), deltaker_id])
+    na = datetime.now().isoformat(timespec="seconds")
+    con.execute("UPDATE paamelding SET oppdatert=? WHERE deltaker_id=?", (na, deltaker_id))
+    logg(con, "deltaker_endret", {"deltaker_id": deltaker_id, "felt": endret}, aktor=aktor)
+    return endret
+
+
+def oppdater_paamelding(con, paamelding_id: int, felter: dict, aktor: str = "admin") -> list[str]:
+    """Oppdaterer feltene som kun gjelder denne paameldingen (ikke status, se sett_paamelding_status).
+
+    Hendelsesloggen faar kun feltnavnene som ble endret, aldri verdiene.
+    """
+    gammel = con.execute("SELECT * FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()
+    if not gammel:
+        raise Paameldingsfeil("Ukjent påmelding")
+    endret = [felt for felt, verdi in felter.items() if (gammel[felt] or "") != (verdi or "")]
+    if not endret:
+        return []
+    na = datetime.now().isoformat(timespec="seconds")
+    con.execute(f"UPDATE paamelding SET {','.join(f'{f}=?' for f in felter)}, oppdatert=? WHERE id=?",
+               [*felter.values(), na, paamelding_id])
+    logg(con, "paamelding_endret", {"paamelding_id": paamelding_id, "felt": endret}, aktor=aktor)
+    return endret
+
+
+def oppdater_sensitivt(con, paamelding_id: int, allergier: str | None, tilrettelegging: str | None,
+                       aktor: str = "admin") -> bool:
+    """Oppdaterer allergi/tilrettelegging. Innholdet logges ALDRI i hendelsesloggen, kun at det ble endret."""
+    gammel = con.execute("SELECT * FROM sensitivt WHERE paamelding_id=?", (paamelding_id,)).fetchone()
+    ny = ((allergier or "").strip() or None, (tilrettelegging or "").strip() or None)
+    old = ((gammel["allergier"] if gammel else None), (gammel["tilrettelegging"] if gammel else None))
+    if ny == old:
+        return False
+    if any(ny):
+        con.execute("INSERT OR REPLACE INTO sensitivt (paamelding_id, allergier, tilrettelegging) VALUES (?,?,?)",
+                   (paamelding_id, *ny))
+    else:
+        con.execute("DELETE FROM sensitivt WHERE paamelding_id=?", (paamelding_id,))
+    con.execute("UPDATE paamelding SET oppdatert=? WHERE id=?",
+               (datetime.now().isoformat(timespec="seconds"), paamelding_id))
+    logg(con, "sensitivt_endret", {"paamelding_id": paamelding_id}, aktor=aktor)
+    return True
+
+
+def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str = "admin") -> int | None:
+    """Endrer paameldingsstatus fra admin. Bruker eksisterende meld_av() for avmelding, slik at
+    ventelisteopprykk skjer riktig. Bekreftet -> venteliste tilbys bevisst ikke (bruk avmelding).
+
+    Returnerer paamelding_id som boer kjores gjennom sveiper.kjor() naa (nylig bekreftet), ellers None.
+    """
+    p = con.execute("SELECT * FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()
+    if not p:
+        raise Paameldingsfeil("Ukjent påmelding")
+    gammel_status = p["status"]
+    if ny_status == gammel_status:
+        return None
+    na = datetime.now().isoformat(timespec="seconds")
+
+    if ny_status == "avmeldt":
+        opprykket = meld_av(con, paamelding_id, aktor=aktor)
+        logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "avmeldt"}, aktor=aktor)
+        return opprykket
+
+    if ny_status == "bekreftet":
+        if gammel_status == "bekreftet":
+            raise Paameldingsfeil("Ugyldig statusendring.")
+        kurs = con.execute("SELECT * FROM kurs WHERE id=?", (p["kurs_id"],)).fetchone()
+        if kurs["kapasitet"] is not None and antall_bekreftet(con, p["kurs_id"]) >= kurs["kapasitet"]:
+            raise Paameldingsfeil("Kurset er fullt – kan ikke bekrefte flere uten å melde av noen først.")
+        con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, oppdatert=? WHERE id=?",
+                   (na, paamelding_id))
+        logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "bekreftet"}, aktor=aktor)
+        return paamelding_id
+
+    if ny_status == "venteliste":
+        if gammel_status == "bekreftet":
+            raise Paameldingsfeil("Kan ikke sette en bekreftet deltaker til venteliste direkte – meld av i stedet.")
+        con.execute("UPDATE paamelding SET status='venteliste', sveiper_kjort=0, oppdatert=? WHERE id=?",
+                   (na, paamelding_id))
+        logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "venteliste"}, aktor=aktor)
+        return None
+
+    raise Paameldingsfeil("Ugyldig statusendring.")
+
+
 def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None = None,
              paamelding: dict | None = None, sensitivt: dict | None = None) -> tuple[int, str]:
     """Registrer paamelding. Returnerer (paamelding_id, status). Setter venteliste naar kurset er fullt."""
