@@ -522,6 +522,50 @@ def admin_kurs_deltakere(kurs_id):
                            sok=sok, status=status, fane="deltakere")
 
 
+def _hent_paamelding(kurs_id: int, paamelding_id: int):
+    return con().execute(
+        """SELECT p.*, d.navn, d.epost, d.telefon, d.yrkestittel, d.arbeidssted,
+                  s.allergier, s.tilrettelegging,
+                  (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id) AS faktura_antall,
+                  (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id AND status!='betalt') AS faktura_ubetalt
+           FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+           LEFT JOIN sensitivt s ON s.paamelding_id=p.id
+           WHERE p.id=? AND p.kurs_id=?""", (paamelding_id, kurs_id)).fetchone() or abort(404)
+
+
+@app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>")
+@krever_admin
+def admin_deltaker(kurs_id, paamelding_id):
+    kurs = _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)
+    db.logg(con(), "sensitivt_vist", {"paamelding_id": paamelding_id, "kurs_id": kurs_id}, aktor=_aktor())
+    con().commit()
+    return render_template("admin_deltaker.html", kurs=kurs, p=p, fakturastatus=_fakturastatus(kurs, p), fane="deltaker")
+
+
+@app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/kommunikasjon")
+@krever_admin
+def admin_deltaker_kommunikasjon(kurs_id, paamelding_id):
+    kurs = _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)
+    meldinger = con().execute(
+        "SELECT * FROM utsending_logg WHERE nokkel=? AND mottaker=? ORDER BY sendt_ts DESC",
+        (f"kurs:{kurs_id}", p["epost"])).fetchall()
+    return render_template("admin_deltaker_kommunikasjon.html", kurs=kurs, p=p, meldinger=meldinger, fane="kommunikasjon")
+
+
+@app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/logger")
+@krever_admin
+def admin_deltaker_logger(kurs_id, paamelding_id):
+    kurs = _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)
+    prefiks = f'%"paamelding_id": {paamelding_id}'
+    hendelser = con().execute(
+        "SELECT * FROM hendelse WHERE detaljer LIKE ? OR detaljer LIKE ? ORDER BY id DESC",
+        (prefiks + ",%", prefiks + "}%")).fetchall()
+    return render_template("admin_deltaker_logger.html", kurs=kurs, p=p, hendelser=hendelser, fane="logger")
+
+
 @app.get("/admin/kurs/<int:kurs_id>/kommunikasjon")
 @krever_admin
 def admin_kurs_kommunikasjon(kurs_id):

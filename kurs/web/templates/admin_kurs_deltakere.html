@@ -33,7 +33,7 @@
   <tr><th>Navn</th><th>E-post</th><th>Telefon</th><th>Arbeidssted</th><th>Fakturastatus</th><th>Påmeldingsstatus</th><th>Sist oppdatert</th><th></th></tr>
   {% for p in deltakere %}
   <tr style="{{ 'opacity:.5' if p.status == 'avmeldt' }}">
-    <td><strong>{{ p.navn }}</strong></td>
+    <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}"><strong>{{ p.navn }}</strong></a></td>
     <td class="liten">{{ p.epost }}</td>
     <td class="liten">{{ p.telefon or '' }}</td>
     <td class="liten">{{ p.arbeidssted or '' }}</td>

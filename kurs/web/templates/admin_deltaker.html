@@ -1,0 +1,32 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_deltaker_header.html" %}
+{% include "admin_deltaker_faner.html" %}
+
+<h2>Person <span class="liten dempet" style="font-weight:400">– gjelder alle kurs {{ p.navn }} er meldt på</span></h2>
+<div class="tabellboks"><table>
+  <tr><th style="width:240px">Navn</th><td>{{ p.navn }}</td></tr>
+  <tr><th>E-post</th><td>{{ p.epost }}</td></tr>
+  <tr><th>Telefon</th><td>{{ p.telefon or '–' }}</td></tr>
+  <tr><th>Yrkestittel</th><td>{{ p.yrkestittel or '–' }}</td></tr>
+  <tr><th>Arbeidssted</th><td>{{ p.arbeidssted or '–' }}</td></tr>
+</table></div>
+<p class="liten dempet" style="margin-top:-8px">Redigering kommer i en senere fase.</p>
+
+<h2>Denne påmeldingen <span class="liten dempet" style="font-weight:400">– {{ kurs.navn }} ({{ kurs.kode }})</span></h2>
+<div class="tabellboks"><table>
+  <tr><th style="width:240px">Påmeldingsstatus</th><td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}[p.status] }}">{{ p.status }}</span></td></tr>
+  <tr><th>Fakturastatus</th><td><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(fakturastatus, 'gra') }}">{{ fakturastatus }}</span></td></tr>
+  <tr><th>Pris</th><td>{{ kurs.pris_nok }} kr</td></tr>
+  <tr><th>Prisvalg</th><td>{{ {'samlet':'Samlet','per_samling':'Per samling'}.get(p.betaling, p.betaling) }}</td></tr>
+  <tr><th>Betaler</th><td>{{ 'Arbeidsgiver' if p.betaler == 'organisasjon' else 'Privat' }}</td></tr>
+  <tr><th>Firmanavn</th><td>{{ p.org_navn or '–' }}</td></tr>
+  <tr><th>Organisasjonsnummer</th><td>{{ p.org_nr or '–' }}</td></tr>
+  <tr><th>Fakturaadresse</th><td>{% if p.faktura_adresse or p.faktura_postnr or p.faktura_sted %}{{ p.faktura_adresse or '' }}{% if p.faktura_postnr or p.faktura_sted %}, {{ p.faktura_postnr or '' }} {{ p.faktura_sted or '' }}{% endif %}{% else %}–{% endif %}</td></tr>
+  <tr><th>Fakturareferanse</th><td>{{ p.faktura_ref or '–' }}</td></tr>
+  <tr><th>Kommentar til faktura/påmelding</th><td>{{ p.faktura_kommentar or '–' }}</td></tr>
+  <tr><th>Allergi/tilrettelegging</th><td>{{ p.allergier or '–' }}{% if p.tilrettelegging %}<br>{{ p.tilrettelegging }}{% endif %}</td></tr>
+  <tr><th>Intern kommentar <span class="liten dempet" style="text-transform:none; letter-spacing:normal">(kun synlig for administratorer)</span></th><td>{{ p.intern_kommentar or '–' }}</td></tr>
+</table></div>
+<p class="liten dempet">Redigering kommer i en senere fase.</p>
+{% endblock %}

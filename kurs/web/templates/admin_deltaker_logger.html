@@ -1,0 +1,12 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_deltaker_header.html" %}
+{% include "admin_deltaker_faner.html" %}
+
+<div class="tabellboks"><table>
+  <tr><th>Tid</th><th>Hvem</th><th>Hendelse</th><th>Detaljer</th></tr>
+  {% for h in hendelser %}
+  <tr><td class="liten dempet">{{ h.ts }}</td><td class="liten">{{ h.aktor }}</td><td>{{ h.handling }}</td><td class="liten dempet">{{ h.detaljer or '' }}</td></tr>
+  {% else %}<tr><td colspan="4" class="dempet">Ingen hendelser registrert ennå.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

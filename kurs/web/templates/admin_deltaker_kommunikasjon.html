@@ -1,0 +1,13 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_deltaker_header.html" %}
+{% include "admin_deltaker_faner.html" %}
+
+<p class="liten dempet">Automatisk e-post sendt til {{ p.navn }} for dette kurset. Å sende ny e-post herfra kommer i en senere fase.</p>
+<div class="tabellboks"><table>
+  <tr><th>Type</th><th>Sendt</th></tr>
+  {% for m in meldinger %}
+  <tr><td>{{ m.type }}</td><td class="liten dempet">{{ m.sendt_ts }}</td></tr>
+  {% else %}<tr><td colspan="2" class="dempet">Ingen e-post sendt ennå.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

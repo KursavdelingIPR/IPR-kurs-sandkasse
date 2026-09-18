@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS paamelding (
     samtykke_ts     TEXT,                           -- tidspunkt for aksept av vilkaar/personvern
     kilde           TEXT NOT NULL DEFAULT 'skjema',
     sveiper_kjort   INTEGER NOT NULL DEFAULT 0,     -- 1 naar "ved paamelding"-kjeden er fullfort
+    faktura_kommentar TEXT,                         -- merknad om registreringen/fakturaen
+    intern_kommentar  TEXT,                         -- kun synlig for administratorer
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
     oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver endring
     UNIQUE (kurs_id, deltaker_id)

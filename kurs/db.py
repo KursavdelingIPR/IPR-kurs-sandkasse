@@ -51,6 +51,10 @@ def _migrer(con: sqlite3.Connection) -> None:
     if not har_kolonne("paamelding", "oppdatert"):
         con.execute("ALTER TABLE paamelding ADD COLUMN oppdatert TEXT")
         con.execute("UPDATE paamelding SET oppdatert = opprettet WHERE oppdatert IS NULL")
+    if not har_kolonne("paamelding", "faktura_kommentar"):
+        con.execute("ALTER TABLE paamelding ADD COLUMN faktura_kommentar TEXT")
+    if not har_kolonne("paamelding", "intern_kommentar"):
+        con.execute("ALTER TABLE paamelding ADD COLUMN intern_kommentar TEXT")
 
 
 @contextmanager
