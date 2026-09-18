@@ -146,6 +146,144 @@ def kursside(kode):
     return render_template("kvittering.html", kurs=kurs, status=status, navn=f["navn"])
 
 
+# ---------- bedriftspaamelding (fase 7) ----------
+
+MAKS_DELTAKERE_GRUPPE = 30
+
+
+def _grupperad_liste(f) -> list[dict]:
+    """Bygger deltakerraden-listen fra skjemaet, uten aa filtrere bort noe - brukes til aa vise
+    skjemaet paa nytt akkurat slik brukeren skrev det, ved valideringsfeil."""
+    navn = f.getlist("deltaker_navn")
+    epost = f.getlist("deltaker_epost")
+    telefon = f.getlist("deltaker_telefon")
+    arbeidssted = f.getlist("deltaker_arbeidssted")
+    hpr = f.getlist("deltaker_hpr")
+    n = len(navn)
+    return [{"navn": navn[i], "epost": epost[i] if i < len(epost) else "",
+            "telefon": telefon[i] if i < len(telefon) else "",
+            "arbeidssted": arbeidssted[i] if i < len(arbeidssted) else "",
+            "hpr_nr": hpr[i] if i < len(hpr) else ""} for i in range(n)]
+
+
+@app.route("/kurs/<kode>/gruppe", methods=["GET", "POST"])
+def kurs_gruppe(kode):
+    kurs = con().execute("SELECT * FROM kurs WHERE kode=?", (kode,)).fetchone() or abort(404)
+    if request.method == "GET":
+        return render_template("kurs_gruppe.html", kurs=kurs, f={}, deltakere=[{}], maks_deltakere=MAKS_DELTAKERE_GRUPPE)
+
+    f = request.form
+    feil = []
+    if kurs["status"] not in ("aapen", "full", "aktiv"):
+        feil.append("Kurset er ikke åpent for påmelding.")
+    if kurs["paameldingsfrist"] and _idag() > date.fromisoformat(kurs["paameldingsfrist"]):
+        feil.append(f"Påmeldingsfristen ({kurs['paameldingsfrist']}) er passert.")
+    if not f.get("kontakt_navn") or "@" not in f.get("kontakt_epost", ""):
+        feil.append("Fyll inn kontaktpersonens navn og en gyldig e-postadresse.")
+    if not f.get("firmanavn", "").strip():
+        feil.append("Fyll inn firmanavn.")
+    if not f.get("org_nr", "").strip():
+        feil.append("Fyll inn organisasjonsnummer.")
+    if not f.get("samtykke"):
+        feil.append("Dere må godta vilkår og personvernerklæring.")
+
+    rader_visning = _grupperad_liste(f)
+    if len(rader_visning) > MAKS_DELTAKERE_GRUPPE:
+        feil.append(f"Maks {MAKS_DELTAKERE_GRUPPE} deltakere per innsending. Del opp i flere omganger.")
+
+    deltaker_rader = []
+    for i, r in enumerate(rader_visning, start=1):
+        navn, epost = r["navn"].strip(), r["epost"].strip().lower()
+        if not navn and not epost:
+            continue
+        if not navn or "@" not in epost:
+            feil.append(f"Deltaker {i}: fyll inn navn og en gyldig e-postadresse.")
+            continue
+        deltaker_rader.append({"navn": navn, "epost": epost, "telefon": r["telefon"].strip() or None,
+                               "arbeidssted": r["arbeidssted"].strip() or None, "hpr_nr": r["hpr_nr"].strip() or None})
+    if not deltaker_rader:
+        feil.append("Legg til minst én deltaker.")
+    eposter = [d["epost"] for d in deltaker_rader]
+    if len(eposter) != len(set(eposter)):
+        feil.append("Samme e-postadresse er oppgitt flere ganger blant deltakerne.")
+
+    if feil:
+        for x in feil:
+            flash(x, "feil")
+        return render_template("kurs_gruppe.html", kurs=kurs, f=f, deltakere=rader_visning or [{}],
+                               maks_deltakere=MAKS_DELTAKERE_GRUPPE), 400
+
+    kontakt = {
+        "navn": f["kontakt_navn"].strip(), "epost": f["kontakt_epost"].strip().lower(),
+        "telefon": f.get("kontakt_telefon", "").strip() or None, "firmanavn": f["firmanavn"].strip(),
+        "org_nr": f.get("org_nr", "").strip() or None, "faktura_ref": f.get("faktura_ref", "").strip() or None,
+        "faktura_adresse": f.get("faktura_adresse", "").strip() or None,
+        "faktura_postnr": f.get("faktura_postnr", "").strip() or None,
+        "faktura_sted": f.get("faktura_sted", "").strip() or None, "ehf": bool(f.get("ehf")),
+    }
+
+    firma, ny = db.finn_eller_opprett_firmapaamelding(con(), kurs["id"], kontakt, eposter)
+    if not ny:
+        # Samme innsending som fra for (dobbeltklikk/refresh) - ikke behandle paa nytt, bare vis kvitteringen.
+        return redirect(url_for("kurs_gruppe_kvittering", kode=kode, token=firma["kvittering_token"]))
+
+    resultater = []  # (rad, paamelding_id|None, status|None, feilmelding|None)
+    for rad in deltaker_rader:
+        try:
+            with db.transaksjon(con()):
+                pid, status = db.meld_paa(
+                    con(), kurs["id"], epost=rad["epost"], navn=rad["navn"],
+                    deltaker={"telefon": rad["telefon"], "arbeidssted": rad["arbeidssted"], "hpr_nr": rad["hpr_nr"]},
+                    paamelding={"betaler": "organisasjon", "org_navn": kontakt["firmanavn"], "org_nr": kontakt["org_nr"],
+                                "faktura_epost": kontakt["epost"], "faktura_ref": kontakt["faktura_ref"],
+                                "faktura_adresse": kontakt["faktura_adresse"], "faktura_postnr": kontakt["faktura_postnr"],
+                                "faktura_sted": kontakt["faktura_sted"], "ehf": 1 if kontakt["ehf"] else 0,
+                                "kilde": "gruppe"},
+                    idag=_idag())
+            resultater.append((rad, pid, status, None))
+        except db.Paameldingsfeil as e:
+            resultater.append((rad, None, None, str(e)))
+
+    for rad, pid, _status, feilmelding in resultater:
+        db.registrer_firmapaamelding_rad(con(), firma["id"], rad["navn"], rad["epost"], pid, feilmelding)
+    con().commit()
+
+    # Individuell bekreftelse/venteliste-e-post KUN til de som faktisk ble registrert nyaa - en feilet
+    # rad har ingen paamelding_id og faar dermed aldri noen e-post herfra.
+    for _rad, pid, _status, _feilmelding in resultater:
+        if pid:
+            sveiper.kjor(Kjoring(con(), idag=_idag()), pid)
+    con().commit()
+
+    antall_bekreftet = sum(1 for _, _, s, _ in resultater if s == "bekreftet")
+    antall_venteliste = sum(1 for _, _, s, _ in resultater if s == "venteliste")
+    antall_feilet = sum(1 for _, _, _, feil_ in resultater if feil_)
+    kvittering_url = url_for("kurs_gruppe_kvittering", kode=kode, token=firma["kvittering_token"])
+    Kjoring(con(), idag=_idag()).send_en_gang(
+        f"firmapaamelding:{firma['id']}", kontakt["epost"], "firmapaamelding_kvittering", "firmapaamelding_kvittering",
+        kontakt=kontakt, kurs=kurs, kvittering_url=kvittering_url, antall_totalt=len(deltaker_rader),
+        antall_bekreftet=antall_bekreftet, antall_venteliste=antall_venteliste, antall_feilet=antall_feilet)
+    db.logg(con(), "firmapaamelding_opprettet", {
+        "firmapaamelding_id": firma["id"], "kurs_id": kurs["id"], "antall": len(deltaker_rader),
+        "bekreftet": antall_bekreftet, "venteliste": antall_venteliste, "feilet": antall_feilet})
+    con().commit()
+
+    return redirect(kvittering_url)
+
+
+@app.get("/kurs/<kode>/gruppe/kvittering/<token>")
+def kurs_gruppe_kvittering(kode, token):
+    kurs = con().execute("SELECT * FROM kurs WHERE kode=?", (kode,)).fetchone() or abort(404)
+    firma = con().execute(
+        "SELECT * FROM firmapaamelding WHERE kvittering_token=? AND kurs_id=?", (token, kurs["id"])
+    ).fetchone() or abort(404)
+    rader = con().execute(
+        """SELECT r.navn, r.feilmelding, p.status AS paamelding_status FROM firmapaamelding_rad r
+           LEFT JOIN paamelding p ON p.id=r.paamelding_id WHERE r.firmapaamelding_id=? ORDER BY r.id""",
+        (firma["id"],)).fetchall()
+    return render_template("kurs_gruppe_kvittering.html", kurs=kurs, firma=firma, rader=rader)
+
+
 # ---------- innsjekk ----------
 
 def _sjekk_inn(kursdag, epost_: str | None = None, deltaker_id: int | None = None, kilde="qr"):

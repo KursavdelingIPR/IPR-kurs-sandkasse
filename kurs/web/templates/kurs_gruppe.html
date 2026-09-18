@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block tittel %}Bedriftspåmelding – {{ kurs.navn }}{% endblock %}
+{% block innhold %}
+<h1>Bedriftspåmelding – {{ kurs.navn }}</h1>
+<p class="sub">Meld på flere deltakere til dette kurset i én innsending. Maks {{ maks_deltakere or 30 }} deltakere per gang.</p>
+<p class="liten"><a href="{{ url_for('kursside', kode=kurs.kode) }}">← Meld på én person i stedet</a></p>
+
+<form method="post" class="kort" style="max-width:900px">
+  <strong>Kontaktperson og firma</strong>
+  <div class="rad">
+    <div><label>Kontaktperson – navn *</label><input name="kontakt_navn" required value="{{ f.kontakt_navn or '' }}"></div>
+    <div><label>Kontaktperson – e-post *</label><input name="kontakt_epost" type="email" required value="{{ f.kontakt_epost or '' }}"></div>
+    <div><label>Kontaktperson – telefon</label><input name="kontakt_telefon" value="{{ f.kontakt_telefon or '' }}"></div>
+  </div>
+  <div class="rad">
+    <div><label>Firmanavn *</label><input name="firmanavn" required value="{{ f.firmanavn or '' }}"></div>
+    <div><label>Org.nr. *</label><input name="org_nr" required value="{{ f.org_nr or '' }}"></div>
+    <div><label>Fakturareferanse / bestillernr.</label><input name="faktura_ref" value="{{ f.faktura_ref or '' }}"></div>
+  </div>
+  <div class="rad">
+    <div><label>Fakturaadresse</label><input name="faktura_adresse" value="{{ f.faktura_adresse or '' }}"></div>
+    <div><label>Postnr.</label><input name="faktura_postnr" value="{{ f.faktura_postnr or '' }}"></div>
+    <div><label>Sted</label><input name="faktura_sted" value="{{ f.faktura_sted or '' }}"></div>
+  </div>
+  <label style="font-weight:normal"><input type="checkbox" name="ehf" {{ 'checked' if f.ehf }}> Send som EHF (elektronisk faktura)</label>
+
+  <p class="liten dempet" style="margin-top:14px">
+    {% if kurs.fakturering == 'person' and kurs.pris_nok %}Hver bekreftet deltaker faktureres for seg, {{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr, til firmaet over.
+    {% elif kurs.fakturering == 'organisasjon' %}Dere faktureres samlet av kursadministrasjonen i etterkant – ikke automatisk gjennom dette skjemaet.
+    {% else %}Dette kurset faktureres ikke automatisk.{% endif %}
+  </p>
+
+  <strong style="display:block; margin-top:22px">Deltakere</strong>
+  <div id="deltaker-rader">
+    {% for d in deltakere %}
+    <div class="deltaker-rad rad" style="border-top:1px solid var(--linje); padding-top:12px; margin-top:12px">
+      <div><label>Navn *</label><input name="deltaker_navn" value="{{ d.navn or '' }}"></div>
+      <div><label>E-post *</label><input name="deltaker_epost" type="email" value="{{ d.epost or '' }}"></div>
+      <div><label>Telefon</label><input name="deltaker_telefon" value="{{ d.telefon or '' }}"></div>
+      <div><label>Arbeidssted</label><input name="deltaker_arbeidssted" value="{{ d.arbeidssted or '' }}"></div>
+      {% if kurs.spesialistlop %}<div><label>HPR-nummer</label><input name="deltaker_hpr" value="{{ d.hpr_nr or '' }}"></div>{% endif %}
+      <div style="align-self:end"><button type="button" class="sekundar liten fjern-rad" {{ 'hidden' if deltakere|length <= 1 }}>Fjern</button></div>
+    </div>
+    {% endfor %}
+  </div>
+  <p><button type="button" class="sekundar liten" id="legg-til-rad">+ Legg til deltaker</button></p>
+
+  <template id="rad-mal">
+    <div class="deltaker-rad rad" style="border-top:1px solid var(--linje); padding-top:12px; margin-top:12px">
+      <div><label>Navn *</label><input name="deltaker_navn"></div>
+      <div><label>E-post *</label><input name="deltaker_epost" type="email"></div>
+      <div><label>Telefon</label><input name="deltaker_telefon"></div>
+      <div><label>Arbeidssted</label><input name="deltaker_arbeidssted"></div>
+      {% if kurs.spesialistlop %}<div><label>HPR-nummer</label><input name="deltaker_hpr"></div>{% endif %}
+      <div style="align-self:end"><button type="button" class="sekundar liten fjern-rad" hidden>Fjern</button></div>
+    </div>
+  </template>
+
+  <label style="font-weight:normal; margin-top:18px"><input type="checkbox" name="samtykke" required>
+    Jeg bekrefter at jeg har fullmakt til å melde på deltakerne og har gjort dem kjent med
+    <a href="#">vilkår</a> og <a href="#">personvernerklæring</a>. *</label>
+  <p style="margin-top:16px"><button>Meld på gruppen</button></p>
+</form>
+
+<script>
+function oppdaterFjernKnapper() {
+  var flereEnnEn = document.querySelectorAll('.deltaker-rad').length > 1;
+  document.querySelectorAll('.fjern-rad').forEach(function (knapp) { knapp.hidden = !flereEnnEn; });
+}
+document.getElementById('legg-til-rad').addEventListener('click', function () {
+  var mal = document.getElementById('rad-mal');
+  document.getElementById('deltaker-rader').appendChild(mal.content.cloneNode(true));
+  oppdaterFjernKnapper();
+});
+document.getElementById('deltaker-rader').addEventListener('click', function (e) {
+  if (!e.target.classList.contains('fjern-rad')) return;
+  if (document.querySelectorAll('.deltaker-rad').length > 1) {
+    e.target.closest('.deltaker-rad').remove();
+    oppdaterFjernKnapper();
+  }
+});
+oppdaterFjernKnapper();
+</script>
+{% endblock %}

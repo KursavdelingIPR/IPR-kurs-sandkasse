@@ -172,6 +172,41 @@ CREATE TABLE IF NOT EXISTS admin_utsending_mottaker (
     PRIMARY KEY (utsending_id, paamelding_id)
 );
 
+-- Bedriftspaamelding (fase 7): en kontaktperson melder paa flere deltakere til samme kurs i ett skjema.
+-- innsendingsnokkel er utledet av kurs + kontakt-epost + hele deltakerlisten (IKKE tilfeldig) - det er
+-- det som gjor at et dobbeltklikk/refresh gjenkjenner samme innsending i stedet for aa opprette en ny
+-- firmapaamelding og behandle deltakerne paa nytt. kvittering_token er derimot kryptografisk tilfeldig,
+-- og brukes kun i den offentlige kvitteringslenken.
+CREATE TABLE IF NOT EXISTS firmapaamelding (
+    id              INTEGER PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id),
+    innsendingsnokkel TEXT UNIQUE NOT NULL,
+    kvittering_token  TEXT UNIQUE NOT NULL,
+    kontakt_navn    TEXT NOT NULL,
+    kontakt_epost   TEXT NOT NULL,
+    kontakt_telefon TEXT,
+    firmanavn       TEXT NOT NULL,
+    org_nr          TEXT,
+    faktura_ref     TEXT,
+    faktura_adresse TEXT,
+    faktura_postnr  TEXT,
+    faktura_sted    TEXT,
+    ehf             INTEGER NOT NULL DEFAULT 0,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Utfallet for HVER rad som ble sendt inn, ogsaa de som feilet - en feilet meld_paa() oppretter ingen
+-- paamelding-rad og ville ellers ikke etterlatt seg noe spor. Vises paa den offentlige kvitteringssiden,
+-- men KUN navn og status/feilmelding derfra - ikke epost/telefon/HPR, som ikke trengs der.
+CREATE TABLE IF NOT EXISTS firmapaamelding_rad (
+    id                  INTEGER PRIMARY KEY,
+    firmapaamelding_id  INTEGER NOT NULL REFERENCES firmapaamelding(id) ON DELETE CASCADE,
+    navn                TEXT NOT NULL,
+    epost               TEXT NOT NULL,
+    paamelding_id       INTEGER REFERENCES paamelding(id),
+    feilmelding         TEXT
+);
+
 CREATE TABLE IF NOT EXISTS innlogging_token (
     token           TEXT PRIMARY KEY,
     deltaker_id     INTEGER NOT NULL REFERENCES deltaker(id),

@@ -1,4 +1,5 @@
 """Databasetilgang (SQLite). Én fil, ingen server – samme prinsipp som referansen."""
+import hashlib
 import json
 import re
 import secrets
@@ -480,6 +481,50 @@ def meld_av(con, paamelding_id: int, aktor: str = "admin") -> int | None:
         return neste["id"]
     con.execute("UPDATE kurs SET status='aapen' WHERE id=? AND status='full'", (p["kurs_id"],))
     return None
+
+
+# ---------- bedriftspaamelding (fase 7) ----------
+
+def _innsendingsnokkel(kurs_id: int, kontakt_epost: str, deltaker_eposter: list[str]) -> str:
+    """Stabil, INNHOLDSBASERT nokkel (ikke tilfeldig) - identisk gjeninnsending (dobbeltklikk/refresh)
+    gir samme nokkel, slik at den gjenkjennes i stedet for aa behandles paa nytt."""
+    unike = ",".join(sorted({e.strip().lower() for e in deltaker_eposter}))
+    grunnlag = f"{kurs_id}:{kontakt_epost.strip().lower()}:{unike}"
+    return hashlib.sha256(grunnlag.encode()).hexdigest()
+
+
+def finn_eller_opprett_firmapaamelding(con, kurs_id: int, kontakt: dict, deltaker_eposter: list[str]) -> tuple[sqlite3.Row, bool]:
+    """Oppretter en bedriftspaamelding, eller gjenkjenner en identisk gjeninnsending.
+
+    Committer med en gang ved oppretting - det er det som gjor gjenkjenningen paalitelig ogsaa ved to
+    tilnaermet samtidige forsok (det andre forsoket treffer da UNIQUE-indeksen og faar samme rad tilbake
+    i stedet for aa opprette en ny). Returnerer (rad, True hvis nyopprettet / False hvis den fantes fra for -
+    kalleren skal da IKKE behandle deltakerne paa nytt eller sende flere e-poster).
+    """
+    nokkel = _innsendingsnokkel(kurs_id, kontakt["epost"], deltaker_eposter)
+    finnes = con.execute("SELECT * FROM firmapaamelding WHERE innsendingsnokkel=?", (nokkel,)).fetchone()
+    if finnes:
+        return finnes, False
+    try:
+        cur = con.execute(
+            """INSERT INTO firmapaamelding (kurs_id, innsendingsnokkel, kvittering_token, kontakt_navn, kontakt_epost,
+               kontakt_telefon, firmanavn, org_nr, faktura_ref, faktura_adresse, faktura_postnr, faktura_sted, ehf)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (kurs_id, nokkel, secrets.token_urlsafe(32), kontakt["navn"], kontakt["epost"], kontakt.get("telefon"),
+             kontakt["firmanavn"], kontakt.get("org_nr"), kontakt.get("faktura_ref"), kontakt.get("faktura_adresse"),
+             kontakt.get("faktura_postnr"), kontakt.get("faktura_sted"), 1 if kontakt.get("ehf") else 0))
+        con.commit()
+    except sqlite3.IntegrityError:
+        con.rollback()
+        return con.execute("SELECT * FROM firmapaamelding WHERE innsendingsnokkel=?", (nokkel,)).fetchone(), False
+    return con.execute("SELECT * FROM firmapaamelding WHERE id=?", (cur.lastrowid,)).fetchone(), True
+
+
+def registrer_firmapaamelding_rad(con, firmapaamelding_id: int, navn: str, epost: str,
+                                  paamelding_id: int | None, feilmelding: str | None) -> None:
+    con.execute(
+        "INSERT INTO firmapaamelding_rad (firmapaamelding_id, navn, epost, paamelding_id, feilmelding) VALUES (?,?,?,?,?)",
+        (firmapaamelding_id, navn, epost, paamelding_id, feilmelding))
 
 
 # ---------- utsending (dedup) ----------

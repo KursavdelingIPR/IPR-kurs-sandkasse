@@ -64,6 +64,7 @@
   <label style="font-weight:normal; margin-top:16px"><input type="checkbox" name="samtykke" required>
     Jeg godtar <a href="#">vilkår for kurs</a> og <a href="#">personvernerklæringen</a> *</label>
   <p style="margin-top:16px"><button>Meld meg på</button></p>
+  <p class="liten dempet" style="margin-top:10px">Melder du på flere personer samtidig? <a href="{{ url_for('kurs_gruppe', kode=kurs.kode) }}">Bruk bedriftspåmelding →</a></p>
 </form>
 </div>
 {% endblock %}
