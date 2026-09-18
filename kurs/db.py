@@ -55,6 +55,8 @@ def _migrer(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE paamelding ADD COLUMN faktura_kommentar TEXT")
     if not har_kolonne("paamelding", "intern_kommentar"):
         con.execute("ALTER TABLE paamelding ADD COLUMN intern_kommentar TEXT")
+    if not har_kolonne("kurs", "paameldingsfrist"):
+        con.execute("ALTER TABLE kurs ADD COLUMN paameldingsfrist TEXT")
 
 
 @contextmanager
@@ -264,6 +266,8 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
         if gammel_status == "bekreftet":
             raise Paameldingsfeil("Ugyldig statusendring.")
         kurs = con.execute("SELECT * FROM kurs WHERE id=?", (p["kurs_id"],)).fetchone()
+        if kurs["status"] == "avlyst":
+            raise Paameldingsfeil("Kurset er avlyst – kan ikke bekrefte flere.")
         if kurs["kapasitet"] is not None and antall_bekreftet(con, p["kurs_id"]) >= kurs["kapasitet"]:
             raise Paameldingsfeil("Kurset er fullt – kan ikke bekrefte flere uten å melde av noen først.")
         con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, oppdatert=? WHERE id=?",
@@ -282,14 +286,139 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
     raise Paameldingsfeil("Ugyldig statusendring.")
 
 
+# ---------- admin: redigering av kurs (fase 4) ----------
+
+KURS_LAASTE_FELT = ("pris_nok", "fakturering", "betaling", "faktura_dager_for")  # laast etter forste faktura
+
+
+def antall_faktura_for_kurs(con, kurs_id: int) -> int:
+    return con.execute(
+        "SELECT COUNT(*) FROM faktura f JOIN paamelding p ON p.id=f.paamelding_id WHERE p.kurs_id=?",
+        (kurs_id,)).fetchone()[0]
+
+
+def oppdater_kurs_felter(con, kurs_id: int, felter: dict, aktor: str = "admin") -> list[str]:
+    """Oppdaterer kursfelt (ikke kapasitet/status, se egne funksjoner for dem).
+
+    Saa snart minst en faktura finnes for kurset, blir de fakturarelaterte feltene (pris,
+    fakturering, betaling, dager-for-faktura) STRIPPET her ogsaa - ikke bare skjult i UI -
+    slik at de ikke kan endres via en direkte POST selv om skjemaet skulle tillate det.
+    """
+    gammel = con.execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone()
+    if not gammel:
+        raise Paameldingsfeil("Ukjent kurs")
+    if antall_faktura_for_kurs(con, kurs_id) > 0:
+        felter = {k: v for k, v in felter.items() if k not in KURS_LAASTE_FELT}
+    endret = [f for f, v in felter.items() if (gammel[f] if gammel[f] is not None else "") != (v if v is not None else "")]
+    if not endret:
+        return []
+    con.execute(f"UPDATE kurs SET {','.join(f'{f}=?' for f in felter)} WHERE id=?", [*felter.values(), kurs_id])
+    logg(con, "kurs_endret", {"kurs_id": kurs_id, "felt": endret}, aktor=aktor)
+    return endret
+
+
+def synk_materiell_ansvarlig(con, kurs_id: int, ny_epost: str | None, aktor: str = "admin") -> int:
+    """Naar kursholder endres i Oppsett, oppdaterer vi ogsaa e-posten purringer gaar til - materiell_krav
+    er en egen tabell som ellers ville fortsatt aa peke paa den gamle kursholderen. Rorer aldri et krav
+    som allerede er levert (det er historikk)."""
+    if not ny_epost:
+        return 0
+    cur = con.execute(
+        "UPDATE materiell_krav SET ansvarlig_epost=? WHERE kurs_id=? AND levert_ts IS NULL",
+        (ny_epost, kurs_id))
+    if cur.rowcount:
+        logg(con, "materiell_ansvarlig_endret", {"kurs_id": kurs_id, "antall": cur.rowcount}, aktor=aktor)
+    return cur.rowcount
+
+
+def endre_kapasitet(con, kurs_id: int, ny_kapasitet: int | None, aktor: str = "admin") -> list[int]:
+    """Endrer kapasitet. Okes den, rykkes venteliste automatisk opp saa langt det er plass, i samme
+    rekkefolge som ved avmelding. Senkes den under antall bekreftede, fjernes INGEN automatisk -
+    status settes bare til 'full' saa ingen nye slipper inn. Et avlyst kurs rykker aldri opp venteliste.
+
+    Returnerer paamelding_id-ene som ble rykket opp - kalleren boer kjore disse gjennom sveiper.kjor().
+    """
+    kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone()
+    if not kurs:
+        raise Paameldingsfeil("Ukjent kurs")
+    if ny_kapasitet == kurs["kapasitet"]:
+        return []
+    con.execute("UPDATE kurs SET kapasitet=? WHERE id=?", (ny_kapasitet, kurs_id))
+    logg(con, "kurs_endret", {"kurs_id": kurs_id, "felt": ["kapasitet"]}, aktor=aktor)
+
+    opprykket = []
+    if kurs["status"] != "avlyst":
+        while ny_kapasitet is None or antall_bekreftet(con, kurs_id) < ny_kapasitet:
+            neste = con.execute(
+                "SELECT id FROM paamelding WHERE kurs_id=? AND status='venteliste' ORDER BY opprettet, id LIMIT 1",
+                (kurs_id,)).fetchone()
+            if not neste:
+                break
+            con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, oppdatert=? WHERE id=?",
+                       (datetime.now().isoformat(timespec="seconds"), neste["id"]))
+            logg(con, "flyttet_fra_venteliste", {"paamelding_id": neste["id"]}, aktor=aktor)
+            opprykket.append(neste["id"])
+
+    if kurs["status"] in ("aapen", "full"):
+        na_fullt = ny_kapasitet is not None and antall_bekreftet(con, kurs_id) >= ny_kapasitet
+        if na_fullt and kurs["status"] == "aapen":
+            con.execute("UPDATE kurs SET status='full' WHERE id=?", (kurs_id,))
+        elif not na_fullt and kurs["status"] == "full":
+            con.execute("UPDATE kurs SET status='aapen' WHERE id=?", (kurs_id,))
+    return opprykket
+
+
+KURS_STATUS_OVERGANGER = {"utkast": ("aapen",), "aapen": ("utkast",)}
+
+
+def sett_kurs_status(con, kurs_id: int, ny_status: str, aktor: str = "admin") -> None:
+    """Kun utkast <-> aapen tilbys her. 'full'/'aktiv'/'avsluttet' styres utelukkende automatisk
+    (kapasitet/dato), og 'avlyst' haandteres av avlys_kurs()/gjenaapne_kurs() med egen bekreftelse."""
+    kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone()
+    if not kurs:
+        raise Paameldingsfeil("Ukjent kurs")
+    if ny_status not in KURS_STATUS_OVERGANGER.get(kurs["status"], ()):
+        raise Paameldingsfeil("Ugyldig statusendring.")
+    con.execute("UPDATE kurs SET status=? WHERE id=?", (ny_status, kurs_id))
+    logg(con, "kurs_status_endret", {"kurs_id": kurs_id, "fra": kurs["status"], "til": ny_status}, aktor=aktor)
+
+
+def avlys_kurs(con, kurs_id: int, aktor: str = "admin") -> None:
+    """Setter kurset til avlyst. Dette alene stopper: nye paameldinger (meld_paa avviser status
+    utenfor aapen/full/aktiv), nye fakturaer og paaminnelser/innkallinger (daglig.py plukker kun opp
+    kurs med status aapen/full/aktiv), nytt Zoom-moete (samme grunn) og ventelisteopprykk (sjekket i
+    endre_kapasitet og sett_paamelding_status). Eksisterende paameldinger roeres ikke - de er historikk.
+    Fakturaer krediteres IKKE automatisk. Selve varselet til deltakerne sendes av den som kaller dette."""
+    kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone()
+    if not kurs:
+        raise Paameldingsfeil("Ukjent kurs")
+    if kurs["status"] == "avlyst":
+        raise Paameldingsfeil("Kurset er allerede avlyst.")
+    con.execute("UPDATE kurs SET status='avlyst' WHERE id=?", (kurs_id,))
+    logg(con, "kurs_avlyst", {"kurs_id": kurs_id, "fra": kurs["status"]}, aktor=aktor)
+
+
+def gjenaapne_kurs(con, kurs_id: int, aktor: str = "admin") -> None:
+    kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone()
+    if not kurs:
+        raise Paameldingsfeil("Ukjent kurs")
+    if kurs["status"] != "avlyst":
+        raise Paameldingsfeil("Kurset er ikke avlyst.")
+    con.execute("UPDATE kurs SET status='aapen' WHERE id=?", (kurs_id,))
+    logg(con, "kurs_gjenaapnet", {"kurs_id": kurs_id}, aktor=aktor)
+
+
 def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None = None,
-             paamelding: dict | None = None, sensitivt: dict | None = None) -> tuple[int, str]:
+             paamelding: dict | None = None, sensitivt: dict | None = None, idag: date | None = None) -> tuple[int, str]:
     """Registrer paamelding. Returnerer (paamelding_id, status). Setter venteliste naar kurset er fullt."""
+    idag = idag or date.today()
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone()
     if not kurs:
         raise Paameldingsfeil("Ukjent kurs")
     if kurs["status"] not in ("aapen", "full", "aktiv"):
         raise Paameldingsfeil("Kurset er ikke åpent for påmelding")
+    if kurs["paameldingsfrist"] and idag > date.fromisoformat(kurs["paameldingsfrist"]):
+        raise Paameldingsfeil(f"Påmeldingsfristen ({kurs['paameldingsfrist']}) er passert.")
 
     deltaker_id = finn_eller_opprett_deltaker(con, epost, navn, **(deltaker or {}))
     finnes = con.execute(

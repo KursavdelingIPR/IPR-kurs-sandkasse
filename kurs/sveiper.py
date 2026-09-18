@@ -19,8 +19,9 @@ SQL_DELTAKER = """SELECT p.*, d.navn, d.epost, d.id AS did, k.navn AS kursnavn, 
 
 
 def kjor(k: Kjoring, paamelding_id: int | None = None) -> None:
+    # k.status != 'avlyst': et avlyst kurs skal aldri faa nye bekreftelser, fakturaer eller opprykk.
     rader = k.con.execute(
-        SQL_DELTAKER + " WHERE p.sveiper_kjort=0 AND p.status IN ('bekreftet','venteliste')"
+        SQL_DELTAKER + " WHERE p.sveiper_kjort=0 AND p.status IN ('bekreftet','venteliste') AND k.status!='avlyst'"
         + (" AND p.id=?" if paamelding_id else ""),
         (paamelding_id,) if paamelding_id else ()).fetchall()
     for p in rader:
@@ -77,7 +78,8 @@ def _forfalt(idag: date, dato: str, dager_for: int) -> bool:
 def forfalte_delfakturaer(k: Kjoring) -> None:
     """Daglig: lager delfakturaer som har blitt forfalt siden sist. Idempotent."""
     for p in k.con.execute(SQL_DELTAKER + """ WHERE p.status='bekreftet' AND p.betaling='per_samling'
-                                              AND p.sveiper_kjort=1 AND k.fakturering='person' AND k.pris_nok > 0"""):
+                                              AND p.sveiper_kjort=1 AND k.fakturering='person' AND k.pris_nok > 0
+                                              AND k.status!='avlyst'"""):
         try:
             fakturer(k, p)
         except Exception as e:  # noqa: BLE001

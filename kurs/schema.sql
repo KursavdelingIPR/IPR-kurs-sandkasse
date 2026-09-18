@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS kurs (
     sharepoint_mappe TEXT,                          -- sti/URL til kursmappe i SharePoint
     notat           TEXT,
     ansvarlig_admin_id INTEGER REFERENCES admin_bruker(id),  -- intern eier i adm, brukes av "vis bare mine aktiviteter"
+    paameldingsfrist TEXT,                          -- ISO-dato, NULL = ingen frist
     opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

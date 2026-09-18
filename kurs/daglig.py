@@ -118,7 +118,7 @@ def _importer_zoom(k, kurs, dag, min_minutter: int = 30):
 def _purring(k):
     krav = k.con.execute(
         """SELECT m.*, k.navn AS kursnavn, k.kode FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id
-           WHERE m.levert_ts IS NULL""").fetchall()
+           WHERE m.levert_ts IS NULL AND k.status!='avlyst'""").fetchall()
     for m in krav:
         igjen = (date.fromisoformat(m["frist"]) - k.idag).days
         nokkel = f"materiell:{m['id']}"

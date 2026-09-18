@@ -135,6 +135,7 @@ def kursside(kode):
                 | {"betaler": "organisasjon" if org else "person", "ehf": 1 if f.get("ehf") else 0,
                    "betaling": f.get("betaling", "samlet")},
                 sensitivt={"allergier": f.get("allergier"), "tilrettelegging": f.get("tilrettelegging")},
+                idag=_idag(),
             )
     except db.Paameldingsfeil as e:
         flash(str(e), "feil")
@@ -465,9 +466,115 @@ def admin_kurs_oppsett(kurs_id):
     oppmote_antall = {r["kursdag_id"]: r["antall"] for r in con().execute(
         """SELECT o.kursdag_id, COUNT(*) AS antall FROM oppmote o JOIN kursdag kd ON kd.id=o.kursdag_id
            WHERE kd.kurs_id=? GROUP BY o.kursdag_id""", (kurs_id,))}
-    return render_template("admin_kurs_oppsett.html", kurs=kurs, dager=dager, filer=filer, admins=admins,
-                           oppmote_antall=oppmote_antall, bekreftet_antall=db.antall_bekreftet(con(), kurs_id),
-                           fane="oppsett")
+    return render_template(
+        "admin_kurs_oppsett.html", kurs=kurs, dager=dager, filer=filer, admins=admins,
+        oppmote_antall=oppmote_antall, bekreftet_antall=db.antall_bekreftet(con(), kurs_id),
+        faktura_laast=db.antall_faktura_for_kurs(con(), kurs_id) > 0,
+        kurs_statusvalg=db.KURS_STATUS_OVERGANGER.get(kurs["status"], ()), fane="oppsett")
+
+
+@app.post("/admin/kurs/<int:kurs_id>/oppsett")
+@krever_admin
+def admin_kurs_oppsett_lagre(kurs_id):
+    kurs = _hent_kurs(kurs_id)
+    f = request.form
+    feil = []
+    if not f.get("navn", "").strip():
+        feil.append("Kursnavn kan ikke være tomt.")
+    if f.get("type") not in ("fysisk", "digital", "hybrid"):
+        feil.append("Ugyldig kurstype.")
+    if f.get("fakturering") not in ("person", "organisasjon", "ingen"):
+        feil.append("Ugyldig faktureringsvalg.")
+    if f.get("betaling") not in ("samlet", "per_samling", "deltaker_velger"):
+        feil.append("Ugyldig betalingsvalg.")
+    kapasitet = pris_nok = faktura_dager_for = None
+    paameldingsfrist = f.get("paameldingsfrist") or None
+    try:
+        kapasitet = int(f["kapasitet"]) if f.get("kapasitet") else None
+        pris_nok = int(f.get("pris_nok") or 0)
+        faktura_dager_for = int(f.get("faktura_dager_for") or 14)
+        if paameldingsfrist:
+            date.fromisoformat(paameldingsfrist)
+    except ValueError:
+        feil.append("Kapasitet, pris og «dager før faktura» må være tall, og fristen en gyldig dato.")
+    if feil:
+        for x in feil:
+            flash(x, "feil")
+        return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
+
+    felter = {
+        "navn": f["navn"].strip(), "type": f["type"], "sted": f.get("sted", "").strip() or None,
+        "zoom_url": f.get("zoom_url", "").strip() or None, "pris_nok": pris_nok,
+        "fakturering": f["fakturering"], "betaling": f["betaling"], "faktura_dager_for": faktura_dager_for,
+        "kursholder_epost": f.get("kursholder_epost", "").strip() or None,
+        "notat": f.get("notat", "").strip() or None, "paameldingsfrist": paameldingsfrist,
+    }
+    if felter["type"] == "fysisk":
+        felter["zoom_url"] = felter["zoom_id"] = felter["zoom_pw"] = None
+
+    db.oppdater_kurs_felter(con(), kurs_id, felter, aktor=_aktor())
+    if felter["kursholder_epost"] != (kurs["kursholder_epost"] or None):
+        db.synk_materiell_ansvarlig(con(), kurs_id, felter["kursholder_epost"], aktor=_aktor())
+    opprykket = db.endre_kapasitet(con(), kurs_id, kapasitet, aktor=_aktor()) if kapasitet != kurs["kapasitet"] else []
+    con().commit()
+    if opprykket:
+        sveiper.kjor(Kjoring(con(), idag=_idag()))
+        con().commit()
+    flash("Kursoppsett oppdatert.", "ok")
+    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/status")
+@krever_admin
+def admin_kurs_status(kurs_id):
+    _hent_kurs(kurs_id)
+    try:
+        db.sett_kurs_status(con(), kurs_id, request.form.get("status", ""), aktor=_aktor())
+        con().commit()
+    except db.Paameldingsfeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+        return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
+    flash("Status oppdatert.", "ok")
+    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/avlys")
+@krever_admin
+def admin_avlys_kurs(kurs_id):
+    kurs = _hent_kurs(kurs_id)
+    try:
+        db.avlys_kurs(con(), kurs_id, aktor=_aktor())
+        con().commit()
+    except db.Paameldingsfeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+        return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
+    k = Kjoring(con(), idag=_idag())
+    mottakere = con().execute(
+        """SELECT d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+           WHERE p.kurs_id=? AND p.status IN ('bekreftet','venteliste')""", (kurs_id,)).fetchall()
+    for d in mottakere:
+        k.send_en_gang(f"kurs:{kurs_id}", d["epost"], "avlysning", "avlysning", d=d, kurs=kurs)
+    con().commit()
+    flash(f"Kurset er avlyst og {len(mottakere)} deltaker(e) er varslet på e-post. "
+         "Husk å kreditere eventuelle fakturaer manuelt i Visma – det gjøres ikke automatisk.", "ok")
+    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/gjenaapne")
+@krever_admin
+def admin_gjenaapne_kurs(kurs_id):
+    _hent_kurs(kurs_id)
+    try:
+        db.gjenaapne_kurs(con(), kurs_id, aktor=_aktor())
+        con().commit()
+    except db.Paameldingsfeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+        return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
+    flash("Kurset er gjenåpnet.", "ok")
+    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
 
 
 @app.post("/admin/kurs/<int:kurs_id>/ansvarlig")
@@ -871,6 +978,7 @@ def api_paamelding():
                             "org_navn": _hent(data, "arbeidssted") if org_nr else None, "org_nr": org_nr,
                             **{f: _hent(data, f) for f in ("faktura_ref", "faktura_adresse", "faktura_postnr", "faktura_sted")}},
                 sensitivt={"allergier": _hent(data, "allergier")},
+                idag=_idag(),
             )
     except db.Paameldingsfeil as e:
         return {"status": "ok", "melding": str(e)}, 200
