@@ -13,7 +13,13 @@
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px">
   <a class="knapp sekundar liten" href="{{ url_for('admin_csv', kurs_id=kurs.id) }}">Eksporter deltakerliste (Excel)</a>
   {% if kurs.type != 'digital' %}<a class="knapp sekundar liten" href="{{ url_for('admin_allergiliste', kurs_id=kurs.id) }}">Allergi-/tilretteleggingsliste</a>{% endif %}
+  {% if tellere.bekreftet %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='bekreftet') }}">Send e-post til alle bekreftede</a>{% endif %}
+  {% if tellere.venteliste %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='venteliste') }}">Send e-post til venteliste</a>{% endif %}
 </div>
+
+<!-- Egen (tom) form som avkrysningsboksene i tabellen peker paa via HTML5 "form"-attributtet,
+     slik at den ikke kolliderer med per-rad-skjemaene inni tabellen (skjema kan ikke nestes). -->
+<form id="mottaker-epost" method="get" action="{{ url_for('admin_epost_ny', kurs_id=kurs.id) }}"></form>
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:16px">
   <div><label>Søk (navn/e-post)</label><input type="search" name="sok" value="{{ sok }}" placeholder="Søk…"></div>
@@ -30,9 +36,10 @@
 
 <p class="liten dempet">Viser {{ deltakere|length }} deltaker{{ 's' if deltakere|length != 1 }}.</p>
 <div class="tabellboks"><table>
-  <tr><th>Navn</th><th>E-post</th><th>Telefon</th><th>Arbeidssted</th><th>Fakturastatus</th><th>Påmeldingsstatus</th><th>Sist oppdatert</th><th></th></tr>
+  <tr><th></th><th>Navn</th><th>E-post</th><th>Telefon</th><th>Arbeidssted</th><th>Fakturastatus</th><th>Påmeldingsstatus</th><th>Sist oppdatert</th><th></th></tr>
   {% for p in deltakere %}
   <tr style="{{ 'opacity:.5' if p.status == 'avmeldt' }}">
+    <td><input type="checkbox" name="paamelding_id" value="{{ p.id }}" form="mottaker-epost"></td>
     <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}"><strong>{{ p.navn }}</strong></a></td>
     <td class="liten">{{ p.epost }}</td>
     <td class="liten">{{ p.telefon or '' }}</td>
@@ -42,8 +49,9 @@
     <td class="liten dempet">{{ p.oppdatert[:16].replace('T', ' ') }}</td>
     <td>{% if p.status != 'avmeldt' and kurs.status != 'avsluttet' %}<form method="post" action="{{ url_for('admin_meld_av', pid=p.id) }}" onsubmit="return confirm('Melde av {{ p.navn }}?')" style="margin:0"><button class="liten sekundar">Meld av</button></form>{% endif %}</td>
   </tr>
-  {% else %}<tr><td colspan="8" class="dempet">Ingen deltakere matcher søket.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="9" class="dempet">Ingen deltakere matcher søket.</td></tr>{% endfor %}
 </table></div>
+{% if deltakere %}<p class="liten" style="margin-top:8px"><button form="mottaker-epost" class="liten sekundar">Send e-post til valgte</button></p>{% endif %}
 
 <h2 id="oppmote">Oppmøteregistrering</h2>
 <p class="liten dempet">Klikk på en dag for å registrere/fjerne oppmøte manuelt. Q = QR, K = kode, Z = Zoom, M = manuell.</p>

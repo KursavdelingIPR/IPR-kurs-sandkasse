@@ -34,6 +34,30 @@ class Kjoring:
         db.marker_sendt(self.con, nokkel, til, type_)
         return True
 
+    def send_admin_utsending(self, utsending_id: int) -> list[int]:
+        """Sender en manuell, forhaandsvist utsendelse - én e-post pr mottaker, ingen ser andres adresse.
+
+        Bruker utsendelsens egen, stabile nokkel til deduplisering: er den allerede sendt til en
+        mottaker (f.eks. fra et tidligere, tapt forsok), sendes den ikke paa nytt til akkurat den.
+        Returnerer paamelding_id-ene det faktisk ble sendt til naa (tom liste = alt var alt sendt fra for).
+        """
+        rad = self.con.execute("SELECT * FROM admin_utsending WHERE id=?", (utsending_id,)).fetchone()
+        if not rad:
+            return []
+        sendt_til = []
+        for m in db.admin_utsending_mottakere(self.con, utsending_id):
+            if db.allerede_sendt(self.con, rad["nokkel"], m["epost"], "admin_epost"):
+                continue
+            emne, html = epost.render("admin_melding", emne=rad["emne"], tekst=rad["tekst"], d=m)
+            if self.tor:
+                self.si(f"  [TØRR] admin_epost -> {m['epost']}  «{emne}»")
+            else:
+                epost.send(m["epost"], emne, html)
+                self.si(f"  sendt  admin_epost -> {m['epost']}  «{emne}»")
+            db.marker_sendt(self.con, rad["nokkel"], m["epost"], "admin_epost")
+            sendt_til.append(m["id"])
+        return sendt_til
+
     def avslutt(self) -> None:
         if self.tor:
             self.con.rollback()

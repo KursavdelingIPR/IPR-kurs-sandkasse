@@ -755,8 +755,10 @@ def admin_deltaker_kommunikasjon(kurs_id, paamelding_id):
     kurs = _hent_kurs(kurs_id)
     p = _hent_paamelding(kurs_id, paamelding_id)
     meldinger = con().execute(
-        "SELECT * FROM utsending_logg WHERE nokkel=? AND mottaker=? ORDER BY sendt_ts DESC",
-        (f"kurs:{kurs_id}", p["epost"])).fetchall()
+        """SELECT ul.type, ul.sendt_ts, au.id AS utsending_id, au.emne FROM utsending_logg ul
+           LEFT JOIN admin_utsending au ON au.nokkel=ul.nokkel
+           WHERE ul.mottaker=? AND (ul.nokkel=? OR ul.nokkel LIKE ?) ORDER BY ul.sendt_ts DESC""",
+        (p["epost"], f"kurs:{kurs_id}", f"adhoc:{kurs_id}:%")).fetchall()
     return render_template("admin_deltaker_kommunikasjon.html", kurs=kurs, p=p, meldinger=meldinger, fane="kommunikasjon")
 
 
@@ -772,6 +774,113 @@ def admin_deltaker_logger(kurs_id, paamelding_id):
     return render_template("admin_deltaker_logger.html", kurs=kurs, p=p, hendelser=hendelser, fane="logger")
 
 
+# ------- admin: manuell e-post (fase 5) -------
+
+EPOST_EMNE_MAKS = 200
+EPOST_TEKST_MAKS = 5000
+
+
+def _hent_epost_mottakere(kurs_id: int, ider: list[int]) -> list[sqlite3.Row]:
+    """Validerer mottaker-ID-er MOT DATABASEN - stoler aldri paa at ID-ene fra skjemaet er gyldige/
+    hoerer til dette kurset. Ukjente/fremmede ID-er faller bare bort."""
+    if not ider:
+        return []
+    plassholdere = ",".join("?" * len(ider))
+    return con().execute(
+        f"""SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+            WHERE p.kurs_id=? AND p.id IN ({plassholdere}) ORDER BY d.navn""",
+        (kurs_id, *ider)).fetchall()
+
+
+@app.get("/admin/kurs/<int:kurs_id>/epost/ny")
+@krever_admin
+def admin_epost_ny(kurs_id):
+    kurs = _hent_kurs(kurs_id)
+    gruppe = request.args.get("gruppe")
+    if gruppe in ("bekreftet", "venteliste"):
+        ider = [r["id"] for r in con().execute(
+            "SELECT id FROM paamelding WHERE kurs_id=? AND status=?", (kurs_id, gruppe))]
+    else:
+        ider = request.args.getlist("paamelding_id", type=int)
+    mottakere = _hent_epost_mottakere(kurs_id, ider)
+    if not mottakere:
+        flash("Velg minst én mottaker.", "feil")
+        return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+    return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne="", tekst="",
+                           emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS, forhandsvisning=None)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/epost/forhandsvis")
+@krever_admin
+def admin_epost_forhandsvis(kurs_id):
+    kurs = _hent_kurs(kurs_id)
+    emne = request.form.get("emne", "").strip()
+    tekst = request.form.get("tekst", "").strip()
+    mottakere = _hent_epost_mottakere(kurs_id, request.form.getlist("paamelding_id", type=int))
+
+    feil = []
+    if not emne:
+        feil.append("Fyll inn et emne.")
+    elif len(emne) > EPOST_EMNE_MAKS:
+        feil.append(f"Emnet kan være maks {EPOST_EMNE_MAKS} tegn (er nå {len(emne)}).")
+    if not tekst:
+        feil.append("Fyll inn en melding.")
+    elif len(tekst) > EPOST_TEKST_MAKS:
+        feil.append(f"Meldingen kan være maks {EPOST_TEKST_MAKS} tegn (er nå {len(tekst)}).")
+    if not mottakere:
+        feil.append("Velg minst én gyldig mottaker.")
+    if feil:
+        for x in feil:
+            flash(x, "feil")
+        return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne=emne, tekst=tekst,
+                               emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS, forhandsvisning=None)
+
+    utsending_id, _ = db.opprett_admin_utsending(
+        con(), kurs_id, emne, tekst, [m["id"] for m in mottakere], sendt_av_admin_id=session.get("admin_id"))
+    con().commit()
+    eksempel_id = request.form.get("eksempel_paamelding_id", type=int)
+    eksempel = next((m for m in mottakere if m["id"] == eksempel_id), mottakere[0])
+    _, eksempel_html = epost.render("admin_melding", emne=emne, tekst=tekst, d=eksempel)
+    return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne=emne, tekst=tekst,
+                           emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS,
+                           forhandsvisning={"utsending_id": utsending_id, "html": eksempel_html,
+                                            "eksempel_navn": eksempel["navn"], "eksempel_id": eksempel["id"]})
+
+
+@app.post("/admin/kurs/<int:kurs_id>/epost/send")
+@krever_admin
+def admin_epost_send(kurs_id):
+    _hent_kurs(kurs_id)
+    utsending_id = request.form.get("utsending_id", type=int)
+    rad = con().execute("SELECT id FROM admin_utsending WHERE id=? AND kurs_id=?", (utsending_id, kurs_id)).fetchone()
+    if not rad:
+        flash("Fant ikke utsendelsen. Forhåndsvis på nytt.", "feil")
+        return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+    sendt_til = Kjoring(con(), idag=_idag()).send_admin_utsending(utsending_id)
+    for pid in sendt_til:
+        db.logg(con(), "admin_epost_sendt", {"paamelding_id": pid, "kurs_id": kurs_id}, aktor=_aktor())
+    con().commit()
+    if sendt_til:
+        flash(f"E-post sendt til {len(sendt_til)} mottaker(e).", "ok")
+    else:
+        flash("Denne utsendelsen er allerede sendt – ingenting ble sendt på nytt.", "info")
+    return redirect(url_for("admin_kurs_kommunikasjon", kurs_id=kurs_id))
+
+
+@app.get("/admin/kurs/<int:kurs_id>/epost/<int:utsending_id>")
+@krever_admin
+def admin_epost_detalj(kurs_id, utsending_id):
+    kurs = _hent_kurs(kurs_id)
+    utsending = con().execute(
+        """SELECT au.*, ab.navn AS sendt_av_navn FROM admin_utsending au
+           LEFT JOIN admin_bruker ab ON ab.id=au.sendt_av_admin_id
+           WHERE au.id=? AND au.kurs_id=?""", (utsending_id, kurs_id)).fetchone() or abort(404)
+    if not con().execute("SELECT 1 FROM utsending_logg WHERE nokkel=?", (utsending["nokkel"],)).fetchone():
+        abort(404)  # aldri faktisk sendt (kun forhaandsvist) - ikke vis den som om den var det
+    mottakere = db.admin_utsending_mottakere(con(), utsending_id)
+    return render_template("admin_epost_detalj.html", kurs=kurs, utsending=utsending, mottakere=mottakere)
+
+
 @app.get("/admin/kurs/<int:kurs_id>/kommunikasjon")
 @krever_admin
 def admin_kurs_kommunikasjon(kurs_id):
@@ -779,7 +888,13 @@ def admin_kurs_kommunikasjon(kurs_id):
     meldinger = con().execute(
         "SELECT * FROM utsending_logg WHERE nokkel=? ORDER BY sendt_ts DESC LIMIT 300", (f"kurs:{kurs_id}",)
     ).fetchall()
-    return render_template("admin_kurs_kommunikasjon.html", kurs=kurs, meldinger=meldinger, fane="kommunikasjon")
+    manuelle = con().execute(
+        """SELECT au.id, au.emne, au.opprettet, ab.navn AS sendt_av_navn, COUNT(ul.mottaker) AS antall_sendt
+           FROM admin_utsending au JOIN utsending_logg ul ON ul.nokkel=au.nokkel
+           LEFT JOIN admin_bruker ab ON ab.id=au.sendt_av_admin_id
+           WHERE au.kurs_id=? GROUP BY au.id ORDER BY au.opprettet DESC""", (kurs_id,)).fetchall()
+    return render_template("admin_kurs_kommunikasjon.html", kurs=kurs, meldinger=meldinger, manuelle=manuelle,
+                           fane="kommunikasjon")
 
 
 @app.post("/admin/kurs/<int:kurs_id>/oppmote")

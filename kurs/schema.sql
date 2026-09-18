@@ -139,13 +139,37 @@ CREATE TABLE IF NOT EXISTS materiell_krav (
     levert_ts       TEXT
 );
 
--- Dedup for ALL utsending (Stians innkalling_logg, generalisert)
+-- Dedup for ALL utsending (Stians innkalling_logg, generalisert). For manuell e-post (fase 5) er
+-- nokkelen 'adhoc:<kurs_id>:<tilfeldig>' - unik PR UTSENDELSE (ikke pr type), satt naar admin
+-- forhaandsviser (se admin_utsending), slik at dobbeltklikk/refresh paa "Send" ikke sender to ganger,
+-- mens den samme meldingen godt kan sendes paa nytt som en HELT NY utsendelse senere.
 CREATE TABLE IF NOT EXISTS utsending_logg (
-    nokkel          TEXT NOT NULL,                  -- f.eks. 'kurs:3'  / 'materiell:7'
+    nokkel          TEXT NOT NULL,                  -- f.eks. 'kurs:3'  / 'materiell:7' / 'adhoc:3:a1b2c3d4'
     mottaker        TEXT NOT NULL COLLATE NOCASE,
     type            TEXT NOT NULL,                  -- 'bekreftelse', 'ukefor', 'dagfor-2027-01-12', 'purring-7' ...
     sendt_ts        TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (nokkel, mottaker, type)
+);
+
+-- Manuell e-post fra admin (fase 5). Selve teksten lagres HER, ikke gjentatt pr mottaker i
+-- utsending_logg - koblingen mellom dem er nokkel. Raden opprettes ved forhaandsvisning (foer selve
+-- sendingen), slik at nokkelen finnes og kan folge med bekreftelsen naar "Send" trykkes.
+CREATE TABLE IF NOT EXISTS admin_utsending (
+    id              INTEGER PRIMARY KEY,
+    nokkel          TEXT UNIQUE NOT NULL,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id),
+    emne            TEXT NOT NULL,
+    tekst           TEXT NOT NULL,
+    sendt_av_admin_id INTEGER REFERENCES admin_bruker(id),
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Hvem utsendelsen var ment for, fastsatt (og validert mot kurs_id) ved forhaandsvisning - slik at
+-- selve sendingen ikke er avhengig av mottaker-ID-er som sendes inn paa nytt fra klienten.
+CREATE TABLE IF NOT EXISTS admin_utsending_mottaker (
+    utsending_id    INTEGER NOT NULL REFERENCES admin_utsending(id) ON DELETE CASCADE,
+    paamelding_id   INTEGER NOT NULL REFERENCES paamelding(id),
+    PRIMARY KEY (utsending_id, paamelding_id)
 );
 
 CREATE TABLE IF NOT EXISTS innlogging_token (
