@@ -79,12 +79,12 @@ def _innkallinger(k, kurs, dager, forste):
     # Uka for: sendes fra 7 dager for og fram til start – sene paameldte faar den ogsaa
     if 0 < (forste - k.idag).days <= 7:
         for d in deltakere:
-            k.send_en_gang(nokkel, d["epost"], "ukefor", "ukefor", d=d, kurs=kurs, dager=dager)
+            k.send_en_gang(nokkel, d["epost"], "ukefor", "ukefor", paamelding_id=d["id"], d=d, kurs=kurs, dager=dager)
     # Dagen for hver kursdag
     for i, dag in enumerate(dager, start=1):
         if date.fromisoformat(dag["dato"]) - k.idag == timedelta(days=1):
             for d in deltakere:
-                k.send_en_gang(nokkel, d["epost"], f"dagfor-{dag['dato']}", "dagfor",
+                k.send_en_gang(nokkel, d["epost"], f"dagfor-{dag['dato']}", "dagfor", paamelding_id=d["id"],
                                d=d, kurs=kurs, dag=dag, nr=i, antall=len(dager))
 
 

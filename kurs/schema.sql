@@ -116,6 +116,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS faktura_unik ON faktura (paamelding_id, COALES
 -- status: reservert (forsok paagaar/kan ha blitt avbrutt), feilet (kjent trygt aa prove paa nytt),
 --         ukjent (utfallet er IKKE avklart - proves ALDRI automatisk paa nytt).
 -- Ved suksess slettes raden her og den ekte `faktura`-raden opprettes i samme lokale transaksjon.
+-- Etter at et claim er vunnet sjekkes `faktura` PAA NYTT (foer commit og Visma-kall): en annen prosess kan ha
+-- fullfort og slettet sitt forsok mellom foerste sjekk og claimen (ellers ville Visma faatt to fakturaer).
 CREATE TABLE IF NOT EXISTS faktura_forsok (
     id              INTEGER PRIMARY KEY,
     paamelding_id   INTEGER NOT NULL REFERENCES paamelding(id),

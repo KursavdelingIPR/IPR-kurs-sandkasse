@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from . import db
+from .feil import sikker_feiltekst
 from .integrasjoner import epost
 
 
@@ -21,28 +22,36 @@ class Kjoring:
         self.utskrift.append(tekst)
         print(tekst)
 
-    def send_en_gang(self, nokkel: str, til: str, type_: str, mal: str, **data) -> bool:
+    def send_en_gang(self, nokkel: str, til: str, type_: str, mal: str, *, paamelding_id: int | None = None,
+                     **data) -> bool:
         """Sender e-post med malen hvis (nokkel, til, type) ikke er sendt for. True hvis sendt naa.
 
-        Reserverer forst sendingen atomisk (nytt forsok, eller retry etter en kjent, trygg feil) -
-        dette hindrer to samtidige kjoringer (f.eks. daglig jobb + manuell fase 9/11-behandling) i aa
-        sende samme e-post to ganger. Taper claimen (noen andre har den fra for, enten ferdig sendt
-        eller et uavklart forsok som paagaar/star fast), gjor denne kallen ingenting og returnerer False
-        - kalleren maa selv sjekke db.allerede_sendt() etterpaa for aa vite om meldingen faktisk gikk ut.
+        Rekkefolge (hver overgang med sin egen korte transaksjon - INGEN skrivelaas holdes over det
+        eksterne kallet):
+          1. render lokalt        (en malfeil skal ikke etterlate noen rad - kan proves igjen etter retting)
+          2. claim (atomisk)      nytt forsok, eller retry etter en kjent, trygg feil
+          3. commit               reservasjonen blir synlig for andre, laasen frigis - ogsaa hvis claimen tapes
+          4. epost.send           eksternt kall, ingen laas
+          5. lagre resultat + commit umiddelbart (sendt / ukjent)
+        Taper claimen (noen andre har den fra for, enten ferdig sendt eller et uavklart forsok som
+        paagaar/star fast), gjor denne kallen ingenting og returnerer False - kalleren maa selv sjekke
+        db.allerede_sendt() etterpaa for aa vite om meldingen faktisk gikk ut.
+
+        Commit-punktene tar med seg evt. ventende, ikke-committet arbeid fra kalleren. Det er allerede
+        tilfellet for claim-committen; resultat-committen tar KUN med resultatskrivingen, siden ingenting
+        annet skrives mellom claim og resultat. I tor-modus committes aldri noe (avslutt() ruller tilbake).
 
         Taksonomien for "sikkert feilet" (trygt aa prove paa nytt) vs. "ukjent utfall" (ALDRI automatisk
-        paa nytt) er ikke avklart for Microsoft Graph enna (se trinn 2.5-designet) - inntil videre
-        klassifiseres derfor ALLE feil konservativt som ukjent, og hendelsen logges slik at en admin kan
-        oppdage at noe krever manuell kontroll.
+        paa nytt) er ikke avklart for Microsoft Graph enna - inntil videre klassifiseres derfor ALLE feil
+        konservativt som ukjent, og hendelsen logges (kun sikker feiltekst, aldri str(e) - se feil.py).
+        `paamelding_id` (valgfri) tas med i hendelsen slik at en admin kan finne frem - aldri navn/e-post.
         """
-        vant = db.reserver_sending(self.con, nokkel, til, type_) or \
-            db.reserver_sending_pa_nytt(self.con, nokkel, til, type_)
+        emne, html = epost.render(mal, **data)
+        vant = db.reserver_sending(self.con, nokkel, til, type_) or             db.reserver_sending_pa_nytt(self.con, nokkel, til, type_)
+        if not self.tor:
+            self.con.commit()  # claim (eller tapt claim) - frigjor skrivelaasen FOR det evt. lange eksterne kallet
         if not vant:
             return False
-        if not self.tor:
-            self.con.commit()  # gjor reservasjonen synlig for andre FOR det evt. lange eksterne kallet
-
-        emne, html = epost.render(mal, **data)
         if self.tor:
             self.si(f"  [TØRR] {type_:<22} -> {til}  «{emne}»")
             db.sett_sendt(self.con, nokkel, til, type_)
@@ -51,11 +60,15 @@ class Kjoring:
             epost.send(til, emne, html)
         except Exception as e:  # noqa: BLE001 - klassifisering "feilet"/"ukjent" ikke avklart enna, se docstring
             db.sett_sending_ukjent(self.con, nokkel, til, type_)
-            db.logg(self.con, "epost_ukjent", {"nokkel": nokkel, "type": type_, "feil": str(e)})
+            detaljer = {"nokkel": nokkel, "type": type_, "feil": sikker_feiltekst(e)}
+            if paamelding_id is not None:
+                detaljer["paamelding_id"] = paamelding_id
+            db.logg(self.con, "epost_ukjent", detaljer)
             self.con.commit()
             raise
         db.sett_sendt(self.con, nokkel, til, type_)
-        self.si(f"  sendt  {type_:<22} -> {til}  «{emne}»")
+        self.con.commit()  # resultatet er kort og lokalt - lagre det umiddelbart (avgrenser krasjvindu B)
+        self.si(f"  sendt  {type_:<22} «{emne}»")  # ingen mottakeradresse i driftsutskriften
         return True
 
     def send_admin_utsending(self, utsending_id: int) -> list[int]:

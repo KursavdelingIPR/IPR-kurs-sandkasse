@@ -409,3 +409,36 @@ def test_emne_er_klikkbart_paa_deltaker_kommunikasjon(con):
     klient.post(f"/admin/kurs/{kid}/epost/send", data={"utsending_id": uid})
     tekst = klient.get(f"/admin/kurs/{kid}/deltaker/{pid}/kommunikasjon").get_data(as_text=True)
     assert f'href="/admin/kurs/{kid}/epost/{uid}"' in tekst
+
+
+# ---------------- kun status='sendt' vises som sendt (trinn 2.5, sluttkontroll) ----------------
+
+@pytest.mark.parametrize("status,skal_vises", [("sendt", True), ("reservert", False), ("ukjent", False), ("feilet", False)])
+def test_kun_sendt_status_vises_som_sendt_i_alle_kommunikasjonsvisninger(con, status, skal_vises):
+    """Fire lesere av utsending_logg: deltakerens kommunikasjon, kursets automatiske OG manuelle
+    kommunikasjon, og detaljsiden for en manuell utsendelse. En reservert/ukjent/feilet rad skal
+    aldri presenteres som en sendt melding - hverken automatisk eller manuell."""
+    kid = _kurs(con)
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    r = _forhandsvis(klient, kid, "Manuelt emne", "Tekst", [pid])
+    uid = _utsending_id(r.get_data(as_text=True))
+    klient.post(f"/admin/kurs/{kid}/epost/send", data={"utsending_id": uid})  # gir en 'sendt'-rad (adhoc-nokkel)
+    con.execute("INSERT INTO utsending_logg (nokkel, mottaker, type, status) VALUES (?,?,?,?)",
+                (f"kurs:{kid}", "a@x.no", "autotype", status))
+    con.execute("UPDATE utsending_logg SET status=? WHERE nokkel LIKE 'adhoc:%'", (status,))
+    con.commit()
+
+    deltaker = klient.get(f"/admin/kurs/{kid}/deltaker/{pid}/kommunikasjon").get_data(as_text=True)
+    kurs_side = klient.get(f"/admin/kurs/{kid}/kommunikasjon").get_data(as_text=True)
+    detalj = klient.get(f"/admin/kurs/{kid}/epost/{uid}")
+
+    assert ("Manuelt emne" in deltaker) is skal_vises and ("autotype" in deltaker) is skal_vises
+    assert ("Manuelt emne" in kurs_side) is skal_vises and ("autotype" in kurs_side) is skal_vises
+    assert (detalj.status_code == 200) is skal_vises  # ellers 404: aldri vist som sendt
+    if not skal_vises:
+        assert "Ingen e-post sendt ennå." in deltaker
+        assert "Ingen manuell e-post sendt for dette kurset ennå." in kurs_side
+        assert "Ingen automatisk e-post sendt for dette kurset ennå." in kurs_side

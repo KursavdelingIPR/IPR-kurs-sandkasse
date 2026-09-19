@@ -6,7 +6,7 @@ import secrets
 import sqlite3
 import string
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -687,6 +687,45 @@ def faktura_forsok_rad(con, paamelding_id: int, kursdag_id: int | None):
     return con.execute(
         "SELECT * FROM faktura_forsok WHERE paamelding_id=? AND COALESCE(kursdag_id,0)=?",
         (paamelding_id, kursdag_id or 0)).fetchone()
+
+
+# ---------- uavklarte operasjoner: felles definisjon for motor og forside ----------
+# En 'reservert' rad er et forsok som pagar ELLER som ble avbrutt midt i (prosessen doede). Etter denne
+# tiden regnes den som trolig forlatt og krever manuell kontroll. 'ukjent' krever alltid kontroll.
+# 'feilet' teller IKKE - det er en kjent, trygg feil som (i fremtiden) haandteres automatisk.
+# Merk klokkene: utsending_logg.sendt_ts er SQLite-tid (UTC), faktura_forsok.opprettet er Python-tid
+# (lokal). Hver tabell sammenlignes derfor mot sin egen klokke - aldri paa tvers.
+UAVKLART_GRENSE_MIN = 5
+
+
+def forsok_er_gammel(rad) -> bool:
+    """True naar en faktura_forsok-rad har staatt uavklart lenger enn UAVKLART_GRENSE_MIN."""
+    alder = datetime.now() - datetime.fromisoformat(rad["opprettet"])
+    return alder.total_seconds() > UAVKLART_GRENSE_MIN * 60
+
+
+def uavklarte_operasjoner(con) -> dict:
+    """Levende telling (fra naavaerende tilstand, ikke fra hendelseslogg) av uavklarte operasjoner
+    som krever manuell kontroll: e-post og faktura hver for seg, og totalt."""
+    epost = con.execute(
+        """SELECT COUNT(*) FROM utsending_logg
+           WHERE status='ukjent' OR (status='reservert' AND sendt_ts < datetime('now', ?))""",
+        (f"-{UAVKLART_GRENSE_MIN} minutes",)).fetchone()[0]
+    gammel_grense = (datetime.now() - timedelta(minutes=UAVKLART_GRENSE_MIN)).isoformat(timespec="seconds")
+    faktura = con.execute(
+        """SELECT COUNT(*) FROM faktura_forsok
+           WHERE status='ukjent' OR (status='reservert' AND opprettet < ?)""", (gammel_grense,)).fetchone()[0]
+    return {"epost": epost, "faktura": faktura, "totalt": epost + faktura}
+
+
+def har_uavklart_for_paamelding(con, kurs_id: int, epost: str, paamelding_id: int) -> bool:
+    """True hvis det finnes et reservert/ukjent e-post- eller fakturaforsok for akkurat denne paameldingen
+    (uavhengig av alder - 'reservert' kan bety at en annen prosess jobber med den akkurat naa)."""
+    return con.execute(
+        """SELECT 1 FROM utsending_logg WHERE nokkel=? AND mottaker=? AND status IN ('reservert','ukjent')
+           UNION ALL
+           SELECT 1 FROM faktura_forsok WHERE paamelding_id=? AND status IN ('reservert','ukjent') LIMIT 1""",
+        (f"kurs:{kurs_id}", epost, paamelding_id)).fetchone() is not None
 
 
 # ---------- admin: manuell e-post (fase 5) ----------

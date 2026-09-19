@@ -53,4 +53,5 @@ def kjor(k: Kjoring) -> None:
         k.con.execute(
             "INSERT INTO dokument (kurs_id, deltaker_id, type, tittel, url) VALUES (?,?,?,?,?)",
             (r["id"], r["deltaker_id"], "kursbevis", f"Kursbevis – {r['navn']}", f"lokal:{fil.relative_to(config.ROT).as_posix()}"))
-        k.send_en_gang(f"kurs:{r['id']}", r["epost"], "kursbevis", "kursbevis_klar", navn=r["deltaker_navn"], kurs=r)
+        k.send_en_gang(f"kurs:{r['id']}", r["epost"], "kursbevis", "kursbevis_klar", paamelding_id=r["pid"],
+                       navn=r["deltaker_navn"], kurs=r)

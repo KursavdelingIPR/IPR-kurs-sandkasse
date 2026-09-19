@@ -525,14 +525,10 @@ def admin():
         """SELECT m.*, k.kode, k.navn AS kursnavn FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id
            WHERE m.levert_ts IS NULL ORDER BY m.frist""").fetchall()
     hendelser = con().execute("SELECT * FROM hendelse ORDER BY id DESC LIMIT 15").fetchall()
-    # Fra trinn 2.5: epost_ukjent/faktura_ukjent/faktura_reservert_gammel er utfall der vi bevisst
-    # IKKE prover automatisk paa nytt - de skal telle med her, ikke bli usynlige, slik at en admin ser
-    # at noe krever manuell kontroll.
-    feil = con().execute(
-        """SELECT COUNT(*) FROM hendelse
-           WHERE handling IN ('sveip_feil','epost_ukjent','faktura_ukjent','faktura_reservert_gammel')"""
-    ).fetchone()[0]
-    return render_template("admin.html", kurs=kurs, mangler=mangler, hendelser=hendelser, feil=feil)
+    # Levende telling fra NAAVAERENDE tilstand (ikke kumulativ hendelseslogg): uavklarte e-post-/faktura-
+    # operasjoner som vi bevisst IKKE prover automatisk paa nytt. Samme staleness-grense som motoren.
+    uavklart = db.uavklarte_operasjoner(con())
+    return render_template("admin.html", kurs=kurs, mangler=mangler, hendelser=hendelser, uavklart=uavklart)
 
 
 # ------- aktivitetsoversikt -------
@@ -790,10 +786,10 @@ def admin_avlys_kurs(kurs_id):
         return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
     k = Kjoring(con(), idag=_idag())
     mottakere = con().execute(
-        """SELECT d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+        """SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
            WHERE p.kurs_id=? AND p.status IN ('bekreftet','venteliste')""", (kurs_id,)).fetchall()
     for d in mottakere:
-        k.send_en_gang(f"kurs:{kurs_id}", d["epost"], "avlysning", "avlysning", d=d, kurs=kurs)
+        k.send_en_gang(f"kurs:{kurs_id}", d["epost"], "avlysning", "avlysning", paamelding_id=d["id"], d=d, kurs=kurs)
     con().commit()
     flash(f"Kurset er avlyst og {len(mottakere)} deltaker(e) er varslet på e-post. "
          "Husk å kreditere eventuelle fakturaer manuelt i Visma – det gjøres ikke automatisk.", "ok")
@@ -1210,9 +1206,10 @@ def admin_deltaker_behandle(kurs_id, paamelding_id):
              "automatisk gjenoppretting).", "feil")
         return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
 
-    con().execute("UPDATE paamelding SET sveiper_utsatt=0 WHERE id=?", (paamelding_id,))
-    con().commit()
-    sveiper.kjor(Kjoring(con(), idag=_idag()), paamelding_id)
+    # Malrettet behandling MED ignorer_utsatt: flagget staar igjen (=1) mens behandlingen pagar, saa den
+    # globale sveiperen aldri kan overta raden (ingen "nullstill, commit, kjor"-tidsvindu). Doble
+    # sideeffekter hindres uansett av claim/status-modellen, ikke av flagget.
+    sveiper.kjor(Kjoring(con(), idag=_idag()), paamelding_id, ignorer_utsatt=True)
     con().commit()
 
     if p["status"] == "bekreftet":
@@ -1221,15 +1218,33 @@ def admin_deltaker_behandle(kurs_id, paamelding_id):
     else:  # venteliste: sveiper_kjort settes med vilje ikke - bruk utsendelsesloggen i stedet
         fullfort = db.allerede_sendt(con(), f"kurs:{kurs_id}", p["epost"], "venteliste")
 
+    # Sluttsemantikk: flagget nullstilles ETTER behandlingen, uansett utfall (raden er da ikke lenger
+    # "holdt tilbake" av admin - hva som skjer videre styres av claim/status):
+    #   fullfort  -> ferdig.
+    #   feilet    -> ingen uavklart rad (f.eks. teknisk feil foer noe ble reservert) - daglig jobb henter den inn.
+    #   uavklart  -> reservert/ukjent hos oss eller en annen prosess - proves ALDRI automatisk paa nytt.
+    # Betinget UPDATE: kun den som faktisk fjerner flagget skriver; ugyldig/blokkert behandling (utkast,
+    # avlyst, ikke holdt tilbake) kom aldri hit og rorer ikke flagget.
+    con().execute("UPDATE paamelding SET sveiper_utsatt=0 WHERE id=? AND sveiper_utsatt=1", (paamelding_id,))
+    if fullfort:
+        resultat = "fullfort"
+    elif db.har_uavklart_for_paamelding(con(), kurs_id, p["epost"], paamelding_id):
+        resultat = "uavklart"
+    else:
+        resultat = "feilet"
+
     db.logg(con(), "manuell_behandling_utlost",
-           {"paamelding_id": paamelding_id, "kurs_id": kurs_id, "resultat": "fullfort" if fullfort else "feilet"},
-           aktor=_aktor())
+           {"paamelding_id": paamelding_id, "kurs_id": kurs_id, "resultat": resultat}, aktor=_aktor())
     con().commit()
 
     if fullfort and p["status"] == "bekreftet":
         flash("Bekreftelse er sendt og fakturering er behandlet.", "ok")
     elif fullfort:
         flash("Ventelistebeskjed er sendt.", "ok")
+    elif resultat == "uavklart":
+        flash("Behandlingen er ikke fullført: en e-post- eller fakturaoperasjon er uavklart eller pågår i en "
+             "annen prosess. Systemet sender/fakturerer IKKE automatisk på nytt når utfallet er uklart – "
+             "dette må kontrolleres manuelt (se «Uavklarte operasjoner» på forsiden).", "feil")
     else:
         flash("Behandlingen ble ikke fullført (feil ved sending eller fakturering). Den fanges "
              "opp automatisk igjen ved neste daglige kjøring.", "feil")
@@ -1363,7 +1378,7 @@ def admin_epost_detalj(kurs_id, utsending_id):
         """SELECT au.*, ab.navn AS sendt_av_navn FROM admin_utsending au
            LEFT JOIN admin_bruker ab ON ab.id=au.sendt_av_admin_id
            WHERE au.id=? AND au.kurs_id=?""", (utsending_id, kurs_id)).fetchone() or abort(404)
-    if not con().execute("SELECT 1 FROM utsending_logg WHERE nokkel=?", (utsending["nokkel"],)).fetchone():
+    if not con().execute("SELECT 1 FROM utsending_logg WHERE nokkel=? AND status='sendt'", (utsending["nokkel"],)).fetchone():
         abort(404)  # aldri faktisk sendt (kun forhaandsvist) - ikke vis den som om den var det
     mottakere = db.admin_utsending_mottakere(con(), utsending_id)
     return render_template("admin_epost_detalj.html", kurs=kurs, utsending=utsending, mottakere=mottakere)
@@ -1381,7 +1396,7 @@ def admin_kurs_kommunikasjon(kurs_id):
         """SELECT au.id, au.emne, au.opprettet, ab.navn AS sendt_av_navn, COUNT(ul.mottaker) AS antall_sendt
            FROM admin_utsending au JOIN utsending_logg ul ON ul.nokkel=au.nokkel
            LEFT JOIN admin_bruker ab ON ab.id=au.sendt_av_admin_id
-           WHERE au.kurs_id=? GROUP BY au.id ORDER BY au.opprettet DESC""", (kurs_id,)).fetchall()
+           WHERE au.kurs_id=? AND ul.status='sendt' GROUP BY au.id ORDER BY au.opprettet DESC""", (kurs_id,)).fetchall()
     return render_template("admin_kurs_kommunikasjon.html", kurs=kurs, meldinger=meldinger, manuelle=manuelle,
                            fane="kommunikasjon")
 

@@ -7,23 +7,36 @@ Fakturering styres av kurs.betaling / paamelding.betaling:
   samlet      -> én faktura paa hele belopet ved paamelding
   per_samling -> én faktura pr kursdag, opprettet `kurs.faktura_dager_for` dager for hver samling
 """
-from datetime import date, datetime
+from datetime import date
 
 from . import db
+from .feil import sikker_feiltekst
 from .integrasjoner import visma
 from .kjoring import Kjoring
 
-# Hvor lenge en 'reservert' faktura_forsok-rad kan staa uavklart for den regnes som trolig forlatt
-# (prosessen doede midt i et Visma-kall) og flagges for admin - godt over Vismas eget 30s-tidsavbrudd.
-# Aldri automatisk retry uansett alder - se schema.sql/trinn 2.5-designet.
-_FORSOK_ALDERSGRENSE_MIN = 5
+# Staleness-grensen for 'reservert' (db.UAVKLART_GRENSE_MIN) deles med forsidens teller - aldri automatisk
+# retry uansett alder, se schema.sql/trinn 2.5-designet.
 
 SQL_DELTAKER = """SELECT p.*, d.navn, d.epost, d.id AS did, k.navn AS kursnavn, k.kode, k.pris_nok, k.fakturering,
                          k.visma_artikkel, k.type AS kurstype, k.faktura_dager_for
                   FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id JOIN kurs k ON k.id=p.kurs_id"""
 
 
-def kjor(k: Kjoring, paamelding_id: int | None = None) -> None:
+def kjor(k: Kjoring, paamelding_id: int | None = None, *, ignorer_utsatt: bool = False) -> None:
+    """Behandler paameldinger som ikke er ferdig ("ved paamelding"-kjeden).
+
+    Global (paamelding_id=None): hopper over sveiper_utsatt=1 - admin har bevisst bedt om aa VENTE.
+    Malrettet (paamelding_id=X): behandler kun X. Med ignorer_utsatt=True behandles X ogsaa om den er
+    holdt tilbake (sveiper_utsatt=1) - det er slik admin-"Behandle" utloeser en holdt paamelding UTEN aa
+    maatte nullstille flagget foerst (det aapnet et tidsvindu der den globale sveiperen kunne overta).
+    Flagget nullstilles av kalleren ETTER behandlingen. Uten ignorer_utsatt respekteres flagget ogsaa
+    malrettet (trygg standard for alle andre kallere). ignorer_utsatt uten paamelding_id er ikke tillatt.
+
+    Beskyttelsen mot doble sideeffekter er claim/status-modellen (Kjoring.send_en_gang, _opprett) - ikke flagget.
+    """
+    if ignorer_utsatt and not paamelding_id:
+        raise ValueError("ignorer_utsatt krever en bestemt paamelding_id")
+    utsatt_vilkar = "" if ignorer_utsatt else " AND p.sveiper_utsatt=0"
     # avlyst: skal aldri faa e-post/faktura. utkast: ikke publisert ennaa, skal aldri behandles
     # automatisk (fase 9 - admin kan registrere med tillat_utkast, men det skal ikke sendes noe
     # for kurset er aapnet). sveiper_utsatt=1: admin har bevisst bedt om AA VENTE (fase 9) - skal
@@ -37,7 +50,7 @@ def kjor(k: Kjoring, paamelding_id: int | None = None) -> None:
     # ha vaert aapen forst (daglig.kjor() sin statusovergang gjelder bare aapen/full/aktiv-kurs),
     # saa et rent utkast-kurs har aldri en legitim "recovery"-rad aa ta igjen paa denne maaten.
     rader = k.con.execute(
-        SQL_DELTAKER + """ WHERE p.sveiper_kjort=0 AND p.sveiper_utsatt=0 AND p.status IN ('bekreftet','venteliste')
+        SQL_DELTAKER + f""" WHERE p.sveiper_kjort=0{utsatt_vilkar} AND p.status IN ('bekreftet','venteliste')
                            AND k.status NOT IN ('avlyst','utkast')"""
         + (" AND p.id=?" if paamelding_id else ""),
         (paamelding_id,) if paamelding_id else ()).fetchall()
@@ -45,8 +58,9 @@ def kjor(k: Kjoring, paamelding_id: int | None = None) -> None:
         try:
             _en(k, p)
         except Exception as e:  # noqa: BLE001 – logg og fortsett med neste
-            db.logg(k.con, "sveip_feil", {"paamelding_id": p["id"], "feil": str(e)})
-            k.si(f"  FEIL for {p['epost']}: {e}")
+            feil = sikker_feiltekst(e)  # aldri str(e): kan inneholde e-post/URL/persondata
+            db.logg(k.con, "sveip_feil", {"paamelding_id": p["id"], "feil": feil})
+            k.si(f"  FEIL for påmelding {p['id']}: {feil}")
 
 
 def _en(k: Kjoring, p) -> None:
@@ -55,10 +69,11 @@ def _en(k: Kjoring, p) -> None:
     dager = db.kursdager(k.con, p["kurs_id"])
 
     if p["status"] == "venteliste":
-        k.send_en_gang(nokkel, p["epost"], "venteliste", "venteliste", p=p, kurs=kurs)
+        k.send_en_gang(nokkel, p["epost"], "venteliste", "venteliste", paamelding_id=p["id"], p=p, kurs=kurs)
         return  # ikke fakturer / ikke merk ferdig – kjores paa nytt naar de flyttes opp
 
-    k.send_en_gang(nokkel, p["epost"], "bekreftelse", "bekreftelse", p=p, kurs=kurs, dager=dager)
+    k.send_en_gang(nokkel, p["epost"], "bekreftelse", "bekreftelse", paamelding_id=p["id"],
+                   p=p, kurs=kurs, dager=dager)
     if not db.allerede_sendt(k.con, nokkel, p["epost"], "bekreftelse"):
         return  # bekreftelsen er ikke trygt bekreftet sendt enda (reservert/feilet/ukjent hos noen -
                 # kanskje denne kjoringen selv) - ikke fakturer, ikke marker ferdig. Tas igjen senere,
@@ -84,6 +99,11 @@ def _fakturering_ferdig(k: Kjoring, p) -> bool:
                 "SELECT 1 FROM faktura WHERE paamelding_id=? AND kursdag_id=?", (p["id"], dag["id"])).fetchone():
             return False
     return True
+
+
+def _faktura_finnes(con, paamelding_id: int, kursdag_id: int | None) -> bool:
+    return con.execute("SELECT 1 FROM faktura WHERE paamelding_id=? AND COALESCE(kursdag_id,0)=?",
+                       (paamelding_id, kursdag_id or 0)).fetchone() is not None
 
 
 def skal_faktureres(p) -> bool:
@@ -133,14 +153,26 @@ def forfalte_delfakturaer(k: Kjoring) -> None:
         try:
             fakturer(k, p)
         except Exception as e:  # noqa: BLE001
-            db.logg(k.con, "faktura_feil", {"paamelding_id": p["id"], "feil": str(e)})
-            k.si(f"  FEIL delfaktura for {p['epost']}: {e}")
+            feil = sikker_feiltekst(e)
+            db.logg(k.con, "faktura_feil", {"paamelding_id": p["id"], "feil": feil})
+            k.si(f"  FEIL delfaktura for påmelding {p['id']}: {feil}")
 
 
 def _opprett(k: Kjoring, p, kursdag_id: int | None, belop: int, linjetekst: str) -> None:
-    if k.con.execute(
-            "SELECT 1 FROM faktura WHERE paamelding_id=? AND COALESCE(kursdag_id,0)=?",
-            (p["id"], kursdag_id or 0)).fetchone():
+    """Oppretter EN faktura (samlet eller for en samling). Transaksjonsforlop (ingen laas over Visma-kallet):
+
+      1. rask sjekk: finnes den ekte fakturaen allerede?                     -> ferdig
+      2. claim i faktura_forsok (atomisk; nytt forsok eller retry etter kjent, trygg feil)
+      3. sjekk faktura PAA NYTT, i claim-transaksjonen (lukker racet der en annen prosess rakk aa
+         opprette fakturaen - og slette sitt forsok - mellom 1. og 2.)        -> rydd forsoket, commit, ferdig
+      4. commit claim
+      5. visma.fakturer                   (eksternt kall, ingen laas)
+      6. EN kort lokal transaksjon: INSERT faktura + oppdater kunde-id + DELETE forsok + logg, commit
+
+    Ekte faktura-rad opprettes ALDRI foer Visma har bekreftet. Taksonomien for Visma-feil er uavklart -
+    ALLE feil er 'ukjent' og proves aldri automatisk paa nytt.
+    """
+    if _faktura_finnes(k.con, p["id"], kursdag_id):
         return  # allerede fakturert – unik indeks i databasen er ekstra sikring
     org = p["betaler"] == "organisasjon"
     g = visma.Fakturagrunnlag(
@@ -165,9 +197,17 @@ def _opprett(k: Kjoring, p, kursdag_id: int | None, belop: int, linjetekst: str)
     vant = db.reserver_faktura(k.con, p["id"], kursdag_id) or db.reserver_faktura_pa_nytt(k.con, p["id"], kursdag_id)
     if not vant:
         rad = db.faktura_forsok_rad(k.con, p["id"], kursdag_id)
-        if rad and rad["status"] == "reservert" and _forsok_er_gammel(rad):
+        if rad and rad["status"] == "reservert" and db.forsok_er_gammel(rad):
             db.logg(k.con, "faktura_reservert_gammel", {"paamelding_id": p["id"], "kursdag_id": kursdag_id})
-            k.si(f"  OBS: gammelt uavklart fakturaforsok for {p['epost']} - krever manuell kontroll")
+            k.si(f"  OBS: gammelt uavklart fakturaforsøk for påmelding {p['id']} - krever manuell kontroll")
+        k.con.commit()  # ingen no-op-transaksjon (med skrivelaas) staaende - og evt. logg lagres
+        return
+
+    # Sjekk paa nytt NAA som vi eier claimen: en annen prosess kan ha fullfoert (ekte faktura + slettet
+    # forsok) mellom sjekken over og claimen. Uten dette ville vi fakturert en gang til i Visma.
+    if _faktura_finnes(k.con, p["id"], kursdag_id):
+        db.fjern_faktura_forsok(k.con, p["id"], kursdag_id)
+        k.con.commit()
         return
     k.con.commit()  # gjor reservasjonen synlig for andre FOR det evt. lange Visma-kallet
 
@@ -177,22 +217,26 @@ def _opprett(k: Kjoring, p, kursdag_id: int | None, belop: int, linjetekst: str)
         # Taksonomien for Visma-feil er IKKE avklart enna (se trinn 2.5-designet / visma.py). Inntil
         # videre klassifiseres ALT konservativt som ukjent - ALDRI automatisk retry, siden vi ikke kan
         # utelukke at Visma faktisk opprettet fakturaen selv om kallet feilet lokalt.
-        db.sett_faktura_forsok_ukjent(k.con, p["id"], kursdag_id, str(e))
-        db.logg(k.con, "faktura_ukjent", {"paamelding_id": p["id"], "kursdag_id": kursdag_id, "feil": str(e)})
+        feil = sikker_feiltekst(e)  # aldri str(e): Visma-URL-en kan inneholde kundens e-post
+        db.sett_faktura_forsok_ukjent(k.con, p["id"], kursdag_id, feil)
+        db.logg(k.con, "faktura_ukjent", {"paamelding_id": p["id"], "kursdag_id": kursdag_id, "feil": feil})
         k.con.commit()
         raise
 
-    k.con.execute(
-        """INSERT INTO faktura (paamelding_id, kursdag_id, visma_id, faktura_nr, belop_nok, status)
-           VALUES (?,?,?,?,?, 'sendt')""",
-        (p["id"], kursdag_id, res.visma_id, res.faktura_nr, g.belop_nok))
-    k.con.execute("UPDATE deltaker SET visma_kunde_id=? WHERE id=? AND visma_kunde_id IS NULL", (res.kunde_id, p["did"]))
-    db.fjern_faktura_forsok(k.con, p["id"], kursdag_id)
-    db.logg(k.con, "fakturert", {"paamelding_id": p["id"], "kursdag_id": kursdag_id,
-                                 "faktura_nr": res.faktura_nr, "belop": g.belop_nok})
-    k.si(f"  faktura {res.faktura_nr} {g.belop_nok} kr -> {g.kunde_navn} ({linjetekst})")
-
-
-def _forsok_er_gammel(rad) -> bool:
-    alder = datetime.now() - datetime.fromisoformat(rad["opprettet"])
-    return alder.total_seconds() > _FORSOK_ALDERSGRENSE_MIN * 60
+    # Resultat: kort lokal transaksjon, INGEN eksterne kall. Feiler den, ruller vi tilbake alt her og lar
+    # forsoket staa som 'reservert' (aldri automatisk retry) - Visma HAR fakturaen, saa det er riktig.
+    try:
+        k.con.execute(
+            """INSERT INTO faktura (paamelding_id, kursdag_id, visma_id, faktura_nr, belop_nok, status)
+               VALUES (?,?,?,?,?, 'sendt')""",
+            (p["id"], kursdag_id, res.visma_id, res.faktura_nr, g.belop_nok))
+        k.con.execute("UPDATE deltaker SET visma_kunde_id=? WHERE id=? AND visma_kunde_id IS NULL",
+                      (res.kunde_id, p["did"]))
+        db.fjern_faktura_forsok(k.con, p["id"], kursdag_id)
+        db.logg(k.con, "fakturert", {"paamelding_id": p["id"], "kursdag_id": kursdag_id,
+                                     "faktura_nr": res.faktura_nr, "belop": g.belop_nok})
+        k.con.commit()
+    except Exception:
+        k.con.rollback()
+        raise
+    k.si(f"  faktura {res.faktura_nr} {g.belop_nok} kr (påmelding {p['id']})")  # ingen navn i driftsutskriften

@@ -302,21 +302,8 @@ def test_kommunikasjonsvisning_viser_aldri_uavklart_rad(con, monkeypatch):
     assert "Ingen e-post sendt ennå." in tekst  # den ukjente raden vises IKKE som om den var sendt
 
 
-# ==================== forsidens feilteller ====================
-
-def test_forsiden_teller_ukjent_og_gammel_reservert_sammen_med_sveip_feil(con):
-    from kurs.web import app as webapp
-    db.logg(con, "sveip_feil", {"paamelding_id": 1, "feil": "x"})
-    db.logg(con, "epost_ukjent", {"nokkel": "kurs:1", "type": "bekreftelse", "feil": "x"})
-    db.logg(con, "faktura_ukjent", {"paamelding_id": 1, "feil": "x"})
-    db.logg(con, "faktura_reservert_gammel", {"paamelding_id": 1})
-    con.commit()
-
-    klient = webapp.app.test_client()
-    klient.post("/admin/logg-inn", data={"brukernavn": config.ADMIN_BRUKERNAVN, "passord": config.ADMIN_PASSORD})
-    tekst = klient.get("/admin").get_data(as_text=True)
-    assert "Feil / krever kontroll" in tekst
-    assert ">4<" in tekst.replace(" ", "").replace("\n", "")
+# Forsidens teller er fra rettelsesrunden en LIVE telling av uavklart tilstand (ikke kumulativ hendelsestelling) -
+# se tests/test_trinn25_rettelser.py (test_teller_*).
 
 
 # ==================== tørrkjøring: fortsatt ingen databaseendringer ====================
