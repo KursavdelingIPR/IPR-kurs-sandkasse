@@ -55,3 +55,34 @@ klassifiseres som **`ukjent`**, og **ukjent prøves aldri automatisk på nytt** 
   kolonner endres. `faktura_forsok` er en ny tabell og krever ingen endring av `faktura`.
 - **SQLite og samtidighet:** claim-modellen forutsetter én databasefil og korte transaksjoner. Ved flere
   samtidige prosesser i drift bør `busy_timeout`/WAL vurderes eksplisitt.
+
+## E. Fase 11 trinn 3 (bulkbehandling): premisser og begrensninger
+
+**Bygget:** `kurs/behandling.py` (felles, tynn orkestrering for fase 9 og bulk), `POST /bulk/behandle`, resultatside,
+aggregert logg `bulk_behandling_utlost`. Bulk bruker samme sveiper-/claim-motor som fase 9. Ingen ny e-post-/fakturalogikk.
+
+**Må avklares/implementeres før produksjon:**
+
+- **CSRF-beskyttelse - må vurderes/implementeres før produksjonsadmin med ekte persondata.** Admin-rutene (også
+  «Behandle valgte», som sender e-post og oppretter faktura) har i dag ingen CSRF-token. `SameSite=Lax` på session-cookien
+  er en delvis mitigasjon og er **ikke** full CSRF-beskyttelse (dekker f.eks. ikke same-site-scenarier, eldre nettlesere
+  eller cookie-innstillinger som endres). Ikke bygget i trinn 3.
+- **Synkron bulk og timeouts.** Bulk kjører synkront i én HTTP-request (maks 50 deltakere, sekvensielt). Før live Graph/Visma
+  i produksjon må dette avklares mot: faktisk Azure/app-hosting, reverse proxy-/front-end-timeout, worker-timeout
+  (f.eks. gunicorn/App Service) og faktisk Graph-/Visma-latency. Avgjør om bulk senere må flyttes til en bakgrunnsjobb.
+  Ingen jobbkø er bygget. Krasj midt i en rad er dekket av claim-modellen (raden blir `reservert`, telles etter 5 min).
+- **Tidsbudsjettet (`BULK_TIDSBUDSJETT_SEK = 120`) er en prototype-/sikkerhetsgrense, IKKE en antakelse om endelig
+  Azure-timeout.** Produksjonsverdien må vurderes mot faktisk hosting/proxy/worker-timeout. Budsjettet sjekkes kun *før* en ny
+  rad starter og avbryter aldri en rad som allerede behandles - én rad (Graph + Visma) kan i seg selv ta lengre tid enn
+  budsjettet.
+
+**Kjente begrensninger:**
+
+- **Stoppregelen kan ikke skille lokal radfeil fra systemisk feil.** Motoren svelger unntak og gir bare tilstand, og etter
+  taksonomien (fortsatt uavgjort) blir *alle* Graph/Visma-feil `ukjent`. Regelen stopper derfor start av nye rader etter
+  3 påfølgende uavklarte/feilede forsøk (`BULK_STOPP_ETTER`). «Pågår hos annen prosess», allerede behandlet og ikke
+  behandlingsbar teller ikke; fullført nullstiller. Ikke en circuit breaker.
+- **Resultatsiden lagres ikke** (returneres direkte fra POST, no-store). Laster admin siden på nytt, sendes ingenting to
+  ganger (idempotent), men oversikten er borte. PRG/resultattoken kan innføres senere hvis det blir et UX-problem.
+- **En rad som blir uavklart frigir `sveiper_utsatt`** (som fase 9). Global sveiper ser den da, men claimen hindrer effekt.
+- Uavklarte rader krever fortsatt manuell kontroll (admin-UI for å løse dem er backlog-punkt 10).

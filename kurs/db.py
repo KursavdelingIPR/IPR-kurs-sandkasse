@@ -698,6 +698,11 @@ def faktura_forsok_rad(con, paamelding_id: int, kursdag_id: int | None):
 UAVKLART_GRENSE_MIN = 5
 
 
+def _lokal_gammel_grense_iso() -> str:
+    """Grensetidspunkt (lokal Python-tid, samme format som faktura_forsok.opprettet)."""
+    return (datetime.now() - timedelta(minutes=UAVKLART_GRENSE_MIN)).isoformat(timespec="seconds")
+
+
 def forsok_er_gammel(rad) -> bool:
     """True naar en faktura_forsok-rad har staatt uavklart lenger enn UAVKLART_GRENSE_MIN."""
     alder = datetime.now() - datetime.fromisoformat(rad["opprettet"])
@@ -711,21 +716,40 @@ def uavklarte_operasjoner(con) -> dict:
         """SELECT COUNT(*) FROM utsending_logg
            WHERE status='ukjent' OR (status='reservert' AND sendt_ts < datetime('now', ?))""",
         (f"-{UAVKLART_GRENSE_MIN} minutes",)).fetchone()[0]
-    gammel_grense = (datetime.now() - timedelta(minutes=UAVKLART_GRENSE_MIN)).isoformat(timespec="seconds")
+    gammel_grense = _lokal_gammel_grense_iso()
     faktura = con.execute(
         """SELECT COUNT(*) FROM faktura_forsok
            WHERE status='ukjent' OR (status='reservert' AND opprettet < ?)""", (gammel_grense,)).fetchone()[0]
     return {"epost": epost, "faktura": faktura, "totalt": epost + faktura}
 
 
-def har_uavklart_for_paamelding(con, kurs_id: int, epost: str, paamelding_id: int) -> bool:
-    """True hvis det finnes et reservert/ukjent e-post- eller fakturaforsok for akkurat denne paameldingen
-    (uavhengig av alder - 'reservert' kan bety at en annen prosess jobber med den akkurat naa)."""
-    return con.execute(
-        """SELECT 1 FROM utsending_logg WHERE nokkel=? AND mottaker=? AND status IN ('reservert','ukjent')
+def uavklart_status_for_paamelding(con, kurs_id: int, epost: str, paamelding_id: int, epost_type: str) -> str | None:
+    """Uavklart e-post-/fakturaforsok for akkurat denne paameldingens BEHANDLING:
+    e-postdelen gjelder KUN `epost_type` ('bekreftelse' for bekreftet, 'venteliste' for venteliste). Nokkelen
+    kurs:<id> deles av mange e-posttyper (ukefor, dagfor-*, kursbevis, avlysning ...) - en uavklart melding av en
+    ANNEN type sier ingenting om denne behandlingen. Fakturadelen er per paamelding_id. (Forsidens
+    uavklarte_operasjoner() teller derimot ALLE typer - det er en global driftsoversikt.)
+      'ukjent' - minst ett forsok er 'ukjent', eller 'reservert' og gammelt (trolig forlatt) -> krever kontroll
+      'pagar'  - kun ferske 'reservert' forsok (en annen prosess jobber trolig med den akkurat naa)
+      None     - ingen uavklarte forsok.
+    Samme staleness-definisjon (UAVKLART_GRENSE_MIN) og tidsbaser som uavklarte_operasjoner()."""
+    ukjent = con.execute(
+        """SELECT 1 FROM utsending_logg WHERE nokkel=? AND mottaker=? AND type=?
+                  AND (status='ukjent' OR (status='reservert' AND sendt_ts < datetime('now', ?)))
            UNION ALL
-           SELECT 1 FROM faktura_forsok WHERE paamelding_id=? AND status IN ('reservert','ukjent') LIMIT 1""",
-        (f"kurs:{kurs_id}", epost, paamelding_id)).fetchone() is not None
+           SELECT 1 FROM faktura_forsok WHERE paamelding_id=?
+                  AND (status='ukjent' OR (status='reservert' AND opprettet < ?)) LIMIT 1""",
+        (f"kurs:{kurs_id}", epost, epost_type, f"-{UAVKLART_GRENSE_MIN} minutes", paamelding_id,
+         _lokal_gammel_grense_iso())
+    ).fetchone() is not None
+    if ukjent:
+        return "ukjent"
+    pagar = con.execute(
+        """SELECT 1 FROM utsending_logg WHERE nokkel=? AND mottaker=? AND type=? AND status='reservert'
+           UNION ALL
+           SELECT 1 FROM faktura_forsok WHERE paamelding_id=? AND status='reservert' LIMIT 1""",
+        (f"kurs:{kurs_id}", epost, epost_type, paamelding_id)).fetchone() is not None
+    return "pagar" if pagar else None
 
 
 # ---------- admin: manuell e-post (fase 5) ----------

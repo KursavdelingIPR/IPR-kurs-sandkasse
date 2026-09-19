@@ -7,6 +7,7 @@ import csv
 import io
 import secrets
 import sqlite3
+import time
 from datetime import date, datetime, timedelta
 from functools import wraps
 
@@ -17,7 +18,8 @@ from flask import (Flask, Response, abort, flash, g, make_response, redirect, re
 from markupsafe import Markup
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from .. import config, daglig, db, import_deltakere, sveiper
+from .. import behandling, config, daglig, db, import_deltakere, sveiper
+from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
 from ..kjoring import Kjoring
 from ..kursbevis import timer_i_lop
@@ -1186,69 +1188,37 @@ def admin_deltaker_status(kurs_id, paamelding_id):
 @krever_admin
 def admin_deltaker_behandle(kurs_id, paamelding_id):
     """Fase 9, trinn 3: utloeser den e-post/fakturering som bevisst ble holdt tilbake
-    (sveiper_utsatt=1) ved manuell registrering. Bruker eksisterende sveiper.kjor() ubeskaaret -
-    ingen ny utsendelses- eller fakturalogikk. POST-only (GET skal ikke kunne utlose noe).
-
-    utkast og avlyst blokkeres HER, foer noe roeres, slik at et forsok (f.eks. via direkte
-    POST utenom knappen) aldri nullstiller sveiper_utsatt eller kaller sveiper for disse.
+    (sveiper_utsatt=1) ved manuell registrering. All revalidering, behandling (eksisterende sveiper-motor)
+    og tolkning av utfallet ligger i behandling.behandle_holdt_paamelding() - samme funksjon som
+    bulk-behandlingen (fase 11) bruker, slik at enkelt- og bulkbehandling aldri tolker en tilstand ulikt.
+    Ruten her gjor kun 404 for feil kurs, kall, og oversettelse av resultatet til flash-tekst.
+    POST-only (GET skal ikke kunne utlose noe). utkast/avlyst blokkeres i klassifiseringen, foer noe roeres.
     """
     kurs = _hent_kurs(kurs_id)
-    p = _hent_paamelding(kurs_id, paamelding_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)  # 404 hvis paameldingen ikke hoerer til dette kurset
+    res = behandling.behandle_holdt_paamelding(con(), kurs_id, paamelding_id, _idag(), aktor=_aktor())
+    tilbake = redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
 
-    if kurs["status"] == "utkast":
-        flash("Kurset er ikke publisert ennå. Behandlingen kan først utløses når kurset er åpnet.", "feil")
-        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
-    if kurs["status"] == "avlyst":
-        flash("Kurset er avlyst og kan ikke behandles.", "feil")
-        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
-    if not p["sveiper_utsatt"] or p["status"] not in ("bekreftet", "venteliste"):
-        flash("Denne påmeldingen er ikke lenger holdt tilbake (allerede behandlet, eller under "
-             "automatisk gjenoppretting).", "feil")
-        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
-
-    # Malrettet behandling MED ignorer_utsatt: flagget staar igjen (=1) mens behandlingen pagar, saa den
-    # globale sveiperen aldri kan overta raden (ingen "nullstill, commit, kjor"-tidsvindu). Doble
-    # sideeffekter hindres uansett av claim/status-modellen, ikke av flagget.
-    sveiper.kjor(Kjoring(con(), idag=_idag()), paamelding_id, ignorer_utsatt=True)
-    con().commit()
-
-    if p["status"] == "bekreftet":
-        fullfort = con().execute(
-            "SELECT sveiper_kjort FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()[0] == 1
-    else:  # venteliste: sveiper_kjort settes med vilje ikke - bruk utsendelsesloggen i stedet
-        fullfort = db.allerede_sendt(con(), f"kurs:{kurs_id}", p["epost"], "venteliste")
-
-    # Sluttsemantikk: flagget nullstilles ETTER behandlingen, uansett utfall (raden er da ikke lenger
-    # "holdt tilbake" av admin - hva som skjer videre styres av claim/status):
-    #   fullfort  -> ferdig.
-    #   feilet    -> ingen uavklart rad (f.eks. teknisk feil foer noe ble reservert) - daglig jobb henter den inn.
-    #   uavklart  -> reservert/ukjent hos oss eller en annen prosess - proves ALDRI automatisk paa nytt.
-    # Betinget UPDATE: kun den som faktisk fjerner flagget skriver; ugyldig/blokkert behandling (utkast,
-    # avlyst, ikke holdt tilbake) kom aldri hit og rorer ikke flagget.
-    con().execute("UPDATE paamelding SET sveiper_utsatt=0 WHERE id=? AND sveiper_utsatt=1", (paamelding_id,))
-    if fullfort:
-        resultat = "fullfort"
-    elif db.har_uavklart_for_paamelding(con(), kurs_id, p["epost"], paamelding_id):
-        resultat = "uavklart"
-    else:
-        resultat = "feilet"
-
-    db.logg(con(), "manuell_behandling_utlost",
-           {"paamelding_id": paamelding_id, "kurs_id": kurs_id, "resultat": resultat}, aktor=_aktor())
-    con().commit()
-
-    if fullfort and p["status"] == "bekreftet":
+    if not res.forsokt:  # avvist foer motoren ble kalt - ingenting er rort
+        if res.arsak_kode == "kurs_utkast":
+            flash("Kurset er ikke publisert ennå. Behandlingen kan først utløses når kurset er åpnet.", "feil")
+        elif res.arsak_kode == "kurs_avlyst":
+            flash("Kurset er avlyst og kan ikke behandles.", "feil")
+        else:
+            flash("Denne påmeldingen er ikke lenger holdt tilbake (allerede behandlet, eller under "
+                 "automatisk gjenoppretting).", "feil")
+    elif res.kode == behandling.FULLFORT and p["status"] == "bekreftet":
         flash("Bekreftelse er sendt og fakturering er behandlet.", "ok")
-    elif fullfort:
+    elif res.kode == behandling.FULLFORT:
         flash("Ventelistebeskjed er sendt.", "ok")
-    elif resultat == "uavklart":
+    elif res.kode == behandling.UAVKLART:
         flash("Behandlingen er ikke fullført: en e-post- eller fakturaoperasjon er uavklart eller pågår i en "
              "annen prosess. Systemet sender/fakturerer IKKE automatisk på nytt når utfallet er uklart – "
              "dette må kontrolleres manuelt (se «Uavklarte operasjoner» på forsiden).", "feil")
     else:
         flash("Behandlingen ble ikke fullført (feil ved sending eller fakturering). Den fanges "
              "opp automatisk igjen ved neste daglige kjøring.", "feil")
-    return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    return tilbake
 
 
 @app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/kommunikasjon")
@@ -1500,29 +1470,43 @@ def admin_eksporter_valgte_csv(kurs_id):
     return _deltaker_csv_respons(rader, f"deltakere_utvalg_{kurs_id}.csv")
 
 
-# Maks antall deltakere i én bulk-behandling (fase 11, trinn 2/3). Satt lavt bevisst: behandlingen
-# kan innebaere ekte e-post-/Visma-kall per rad (kommer i trinn 3), og losningen skal etter hvert
-# kunne driftes i Azure der vi ikke onsker svaert langvarige synkrone HTTP-requests. Kan okes
-# senere - ikke arkitektur som hindrer at bulk-behandling flyttes til en bakgrunnsjobb/ko da.
+# Maks antall deltakere i én bulk-behandling (fase 11). Satt lavt bevisst: behandlingen innebaerer
+# ekte e-post-/Visma-kall per rad, og losningen skal etter hvert kunne driftes i Azure der vi ikke
+# onsker svaert langvarige synkrone HTTP-requests. Kan okes senere - ikke arkitektur som hindrer at
+# bulk-behandling flyttes til en bakgrunnsjobb/ko da.
 MAKS_BULK_VALGT = 50
+
+# Bulk-behandling er SYNKRON og sekvensiell (én paamelding om gangen, ingen transaksjon rundt helheten).
+# Stoppregel (START av nye rader stoppes - en rad som allerede behandles avbrytes ALDRI):
+#   * etter BULK_STOPP_ETTER paafolgende forsok som endte uavklart ('ukjent') eller feilet
+#   * naar tidsbudsjettet er brukt opp (sjekkes FOR hver ny rad, med monotonic-tid - ikke klokkeslett)
+# BULK_TIDSBUDSJETT_SEK er en prototype-/sikkerhetsgrense, IKKE en antakelse om endelig Azure-/proxy-/
+# worker-timeout - produksjonsverdien maa vurderes mot faktisk hosting (se hardening-backloggen).
+BULK_TIDSBUDSJETT_SEK = 120
+BULK_STOPP_ETTER = 3
+_klokke = time.monotonic  # egen referanse slik at tester kan styre tiden
 
 
 def _bulk_klassifiser(kurs, rad) -> tuple[bool, str]:
-    """Avgjor om EN rad kan behandles av bulk-handlingen na, og hvorfor/hvorfor ikke. Ren
-    klassifisering - INGEN databaseskriving, ingen sveiper/e-post/faktura. Gjenbrukes av baade
-    forhaandsvisningen (trinn 2) og den faktiske bekreft-ruten (trinn 3, ikke bygget ennaa), slik
-    at de to aldri kan vurdere en rad ulikt."""
-    if kurs["status"] in ("avlyst", "utkast"):
-        return False, f"Kurset har status «{kurs['status']}» og kan ikke behandles"
-    if rad["status"] == "avmeldt":
-        return False, "Avmeldt - ingenting å behandle"
-    if rad["status"] not in ("bekreftet", "venteliste"):
-        return False, f"Uventet status «{rad['status']}»"
-    if rad["sveiper_kjort"]:
-        return False, "Allerede behandlet"
-    if not rad["sveiper_utsatt"]:
-        return False, "Ikke holdt tilbake - behandles automatisk som normalt"
-    return True, "Klar til behandling"
+    """Kan EN rad behandles av bulk-handlingen na, og hvorfor/hvorfor ikke. Ren lesing - samme
+    klassifisering (behandling.klassifiser) som den faktiske bulk-behandlingen og fase 9 bruker."""
+    avvist = behandling.klassifiser(con(), kurs, rad)
+    return (True, "Klar til behandling") if avvist is None else (False, avvist.arsak)
+
+
+def _bulk_ider_eller_avvis(kurs_id: int):
+    """Felles for forhaandsvisning og behandling: leser paamelding_id-ene (kun heltall), fjerner duplikater
+    (rekkefolgen beholdes) og haandhever tomt utvalg og maks-grensen SERVER-SIDE.
+    Returnerer (ider, None) eller (None, redirect-respons)."""
+    ider = list(dict.fromkeys(request.form.getlist("paamelding_id", type=int)))
+    if not ider:
+        flash("Velg minst én deltaker.", "feil")
+        return None, redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+    if len(ider) > MAKS_BULK_VALGT:
+        flash(f"Du kan behandle maks {MAKS_BULK_VALGT} deltakere om gangen (valgte {len(ider)}). "
+             "Del opp i flere omganger.", "feil")
+        return None, redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+    return ider, None
 
 
 @app.post("/admin/kurs/<int:kurs_id>/deltakere/bulk/forhandsvis")
@@ -1530,18 +1514,13 @@ def _bulk_klassifiser(kurs, rad) -> tuple[bool, str]:
 def admin_bulk_forhandsvis(kurs_id):
     """Fase 11, trinn 2: viser hvilke av de valgte deltakerne som faktisk kan behandles na, og
     en forstaaelig grunn for resten. INGEN databaseendring - kun lesing og klassifisering.
-    Ingen e-post, ingen Visma, ingen faktura, ingen sveiper.kjor(), ingen endring av
-    sveiper_utsatt. Selve behandlingen (trinn 3) er IKKE bygget ennaa - se
-    dokumentasjon/pindena-ipr-gap-analyse.html for planen."""
+    Ingen e-post, ingen Visma, ingen faktura, ingen sveiper.kjor(), ingen endring av sveiper_utsatt.
+    Forhaandsvisningen er ikke en laas: selve behandlingen (admin_bulk_behandle) revaliderer hver rad paa nytt.
+    Kun rader som er behandlingsbare her sendes videre til behandlings-POST-en."""
     kurs = _hent_kurs(kurs_id)
-    ider = request.form.getlist("paamelding_id", type=int)
-    if not ider:
-        flash("Velg minst én deltaker.", "feil")
-        return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
-    if len(ider) > MAKS_BULK_VALGT:
-        flash(f"Du kan behandle maks {MAKS_BULK_VALGT} deltakere om gangen (valgte {len(ider)}). "
-             "Del opp i flere omganger.", "feil")
-        return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+    ider, avvist = _bulk_ider_eller_avvis(kurs_id)
+    if avvist:
+        return avvist
 
     plassholdere = ",".join("?" * len(ider))
     rader = con().execute(
@@ -1555,13 +1534,102 @@ def admin_bulk_forhandsvis(kurs_id):
     for rad in rader:
         behandlingsbar, arsak = _bulk_klassifiser(kurs, rad)
         resultater.append({"paamelding_id": rad["id"], "navn": rad["navn"], "epost": rad["epost"],
-                           "status": rad["status"], "behandlingsbar": behandlingsbar, "arsak": arsak})
+                           "status": rad["status"], "behandlingsbar": behandlingsbar, "arsak": arsak,
+                           "hva_skjer": behandling.forventet_handling(kurs, rad) if behandlingsbar else ""})
     resultater.sort(key=lambda r: r["navn"])
 
     resp = make_response(render_template(
         "admin_bulk_forhandsvisning.html", kurs=kurs, resultater=resultater,
         antall_behandlingsbare=sum(1 for r in resultater if r["behandlingsbar"]),
         antall_totalt=len(resultater), fane="deltakere"))
+    resp.headers["Cache-Control"] = "no-store"  # personopplysninger - skal aldri mellomlagres
+    return resp
+
+
+_BULK_STOPP_TEKST = {
+    "tidsbudsjett": "Ikke forsøkt: behandlingen ble stoppet fordi tidsgrensen var nådd. Velg denne deltakeren "
+                    "på nytt for å fortsette.",
+    "uavklart_rad": "Ikke forsøkt: behandlingen ble stoppet etter flere uavklarte utfall på rad. Finn årsaken "
+                    "først, og velg deretter denne deltakeren på nytt.",
+}
+
+
+@app.post("/admin/kurs/<int:kurs_id>/deltakere/bulk/behandle")
+@krever_admin
+def admin_bulk_behandle(kurs_id):
+    """Fase 11, trinn 3: faktisk bulk-behandling av holdte paameldinger.
+
+    Bruker SAMME behandling som fase 9 (behandling.behandle_holdt_paamelding -> eksisterende sveiper-motor).
+    Denne ruten kaller aldri epost.send/visma.fakturer, oppretter ingen faktura og rorer aldri utsending_logg.
+
+    * IKKE atomisk: én paamelding om gangen, hver med sine egne korte claim-/resultat-commits. Eksterne
+      sideeffekter kan ikke rulles tilbake - rad 1-7 lykkes, rad 8 kan bli uavklart, og 1-7 forblir fullfort.
+    * Hver rad revalideres FERSKT rett foer behandling (i helperen). Browseren sender kun ID-er.
+    * Resultatet returneres direkte (ingen lagring): en ny POST er trygg (idempotent) og gir
+      "allerede behandlet"/"ikke lenger behandlingsbar".
+    * Personvern: navn/e-post vises kun her, til autentisert admin. Hendelsesloggen far kun ID-er og tellinger.
+    """
+    kurs = _hent_kurs(kurs_id)
+    ider, avvist = _bulk_ider_eller_avvis(kurs_id)
+    if avvist:
+        return avvist
+
+    plassholdere = ",".join("?" * len(ider))
+    vis = {r["id"]: r for r in con().execute(
+        f"""SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+            WHERE p.kurs_id=? AND p.id IN ({plassholdere})""", [kurs_id, *ider]).fetchall()}  # kun til visning
+    rekkefolge = [i for i in ider if i in vis]  # fremmede/ugyldige ID-er forsvinner uten spor
+    if not rekkefolge:
+        flash("Velg minst én deltaker.", "feil")
+        return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+
+    bulk_id = secrets.token_hex(8)  # tilfeldig og opakt - ingen persondata
+    idag, aktor = _idag(), _aktor()
+    tellere = dict.fromkeys(behandling.KATEGORI_NAVN, 0)
+    resultater, stoppgrunn, strak = [], None, 0
+    start = _klokke()
+    try:
+        for pid in rekkefolge:
+            if stoppgrunn is None and _klokke() - start >= BULK_TIDSBUDSJETT_SEK:
+                stoppgrunn = "tidsbudsjett"  # sjekkes FOR en ny rad - en rad som pagar avbrytes aldri
+            if stoppgrunn:
+                res = behandling.Behandlingsresultat(
+                    behandling.IKKE_FORSOKT, f"stoppet_{stoppgrunn}", _BULK_STOPP_TEKST[stoppgrunn])
+            else:
+                try:
+                    res = behandling.behandle_holdt_paamelding(
+                        con(), kurs_id, pid, idag, aktor=aktor, via="bulk", bulk_id=bulk_id)
+                except Exception as e:  # noqa: BLE001 - lokal teknisk feil i EN rad stopper ikke de andre
+                    con().rollback()
+                    feil = sikker_feiltekst(e)
+                    res = behandling.Behandlingsresultat(
+                        behandling.FEILET, "teknisk", f"Teknisk feil ({feil}) – ikke fullført.", forsokt=True)
+                    db.logg(con(), "manuell_behandling_utlost",
+                            {"paamelding_id": pid, "kurs_id": kurs_id, "resultat": "feilet", "via": "bulk",
+                             "bulk_id": bulk_id, "feil": feil}, aktor=aktor)
+                    con().commit()
+                if behandling.teller_som_feil(res):
+                    strak += 1
+                elif res.kode == behandling.FULLFORT:
+                    strak = 0
+                if strak >= BULK_STOPP_ETTER:
+                    stoppgrunn = "uavklart_rad"
+            tellere[res.kode] += 1
+            resultater.append({"paamelding_id": pid, "navn": vis[pid]["navn"], "epost": vis[pid]["epost"],
+                               "kode": res.kode, "arsak": res.arsak})
+    finally:
+        db.logg(con(), "bulk_behandling_utlost",
+                {"kurs_id": kurs_id, "bulk_id": bulk_id, "antall_valgt": len(rekkefolge),
+                 **{kode: antall for kode, antall in tellere.items()},
+                 "stoppet": stoppgrunn is not None, "stoppgrunn": stoppgrunn}, aktor=aktor)
+        con().commit()
+
+    rekke = list(behandling.KATEGORI_NAVN)  # visningsrekkefolge
+    resultater.sort(key=lambda r: (rekke.index(r["kode"]), r["navn"]))
+    resp = make_response(render_template(
+        "admin_bulk_resultat.html", kurs=kurs, resultater=resultater, tellere=tellere,
+        kategorier=behandling.KATEGORI_NAVN, stoppgrunn=stoppgrunn, antall_totalt=len(rekkefolge),
+        fane="deltakere"))
     resp.headers["Cache-Control"] = "no-store"  # personopplysninger - skal aldri mellomlagres
     return resp
 

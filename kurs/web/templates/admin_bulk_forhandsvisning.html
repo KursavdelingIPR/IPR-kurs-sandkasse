@@ -11,21 +11,44 @@
 <p class="liten dempet">{{ antall_behandlingsbare }} av {{ antall_totalt }} valgte kan behandles nå.</p>
 
 <div class="tabellboks"><table>
-  <tr><th>Navn</th><th>E-post</th><th>Status</th><th>Kan behandles?</th><th>Begrunnelse</th></tr>
+  <tr><th>Navn</th><th>E-post</th><th>Status</th><th>Kan behandles?</th><th>Hva skjer</th><th>Begrunnelse</th></tr>
   {% for r in resultater %}
   <tr>
     <td>{{ r.navn }}</td>
     <td class="liten">{{ r.epost }}</td>
     <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}.get(r.status, 'gra') }}">{{ r.status }}</span></td>
     <td>{% if r.behandlingsbar %}<span class="merke ok">Ja</span>{% else %}<span class="merke gra">Nei</span>{% endif %}</td>
+    <td class="liten">{{ r.hva_skjer or '–' }}</td>
     <td class="liten dempet">{{ r.arsak }}</td>
   </tr>
   {% endfor %}
 </table></div>
 
-<form method="post" style="margin-top:16px">
-  {% for r in resultater %}<input type="hidden" name="paamelding_id" value="{{ r.paamelding_id }}">{% endfor %}
-  <button disabled title="Selve behandlingen er ikke bygget ennå">Bekreft behandling (kommer i neste steg)</button>
+{% if antall_behandlingsbare %}
+<div class="flash info" style="margin-top:16px">
+  <strong>Når du bekrefter:</strong>
+  <ul style="margin:6px 0 0 18px">
+    <li>Bekreftede deltakere får bekreftelse på e-post, og faktura opprettes der kurset skal faktureres.</li>
+    <li>Deltakere på venteliste får ventelistebeskjed.</li>
+    <li>E-post og faktura kan ikke trekkes tilbake når de først er sendt.</li>
+    <li>Deltakerne behandles én om gangen. Hvis noe går galt flere ganger på rad, stopper behandlingen av resten,
+      og du får en oversikt over hva som ble gjort.</li>
+  </ul>
+</div>
+
+{# Kun rader som var behandlingsbare her sendes videre. Serveren sjekker hver enkelt på nytt før den behandles. #}
+<form method="post" action="{{ url_for('admin_bulk_behandle', kurs_id=kurs.id) }}" style="margin-top:16px"
+      onsubmit="if (this.dataset.sendt) { return false; }
+                if (!confirm('Behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }} nå? E-post sendes og faktura opprettes. Dette kan ikke angres.')) { return false; }
+                this.dataset.sendt = '1';
+                var k = this.querySelector('button'); k.disabled = true; k.textContent = 'Behandler … vent litt';
+                return true;">
+  {% for r in resultater if r.behandlingsbar %}<input type="hidden" name="paamelding_id" value="{{ r.paamelding_id }}">{% endfor %}
+  <button>Send og behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }}</button>
   <a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Tilbake til deltakere</a>
 </form>
+{% else %}
+<p style="margin-top:16px" class="dempet">Ingen av de valgte deltakerne kan behandles nå.</p>
+<p><a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Tilbake til deltakere</a></p>
+{% endif %}
 {% endblock %}

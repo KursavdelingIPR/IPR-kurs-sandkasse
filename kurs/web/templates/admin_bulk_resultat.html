@@ -1,0 +1,44 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<h2>Resultat av behandlingen</h2>
+
+<div class="flash info">Behandlingen er gjennomført. Unngå å laste siden på nytt – oversikten under lagres ikke.
+  (Hvis du likevel gjør det, sendes ingenting to ganger.)</div>
+
+{% if stoppgrunn == 'tidsbudsjett' %}
+<div class="flash feil">Behandlingen ble stoppet fordi tidsgrensen var nådd. Deltakerne som ikke ble forsøkt er
+  merket under. Gå tilbake til deltakerlisten og velg dem på nytt.</div>
+{% elif stoppgrunn == 'uavklart_rad' %}
+<div class="flash feil">Behandlingen ble stoppet fordi flere deltakere på rad fikk uavklart eller mislykket
+  resultat. Finn årsaken først (er e-post- eller faktureringssystemet tilgjengelig?), og velg deretter de
+  gjenstående deltakerne på nytt.</div>
+{% endif %}
+
+<p><strong>{{ tellere['fullfort'] }} fullført</strong>
+  · {{ tellere['uavklart'] }} uavklart
+  · {{ tellere['allerede_behandlet'] + tellere['ikke_behandlingsbar'] }} hoppet over / endret siden forhåndsvisning
+  · {{ tellere['feilet'] + tellere['ikke_forsokt'] }} feil eller ikke forsøkt
+  <span class="liten dempet">(av {{ antall_totalt }} valgte)</span></p>
+
+{% if tellere['uavklart'] %}
+<div class="flash feil">Uavklarte deltakere blir ikke sendt eller fakturert på nytt automatisk. De må kontrolleres
+  manuelt – de telles under «Uavklarte operasjoner» på forsiden.</div>
+{% endif %}
+
+<div class="tabellboks"><table>
+  <tr><th>Navn</th><th>E-post</th><th>Resultat</th><th>Forklaring</th></tr>
+  {% for r in resultater %}
+  <tr>
+    <td>{{ r.navn }}</td>
+    <td class="liten">{{ r.epost }}</td>
+    <td><span class="merke {{ {'fullfort':'ok','uavklart':'gul','feilet':'gul','ikke_forsokt':'gra','allerede_behandlet':'gra','ikke_behandlingsbar':'gra'}.get(r.kode, 'gra') }}">{{ kategorier[r.kode] }}</span></td>
+    <td class="liten dempet">{{ r.arsak }}</td>
+  </tr>
+  {% endfor %}
+</table></div>
+
+<p style="margin-top:16px"><a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Tilbake til deltakere</a></p>
+{% endblock %}
