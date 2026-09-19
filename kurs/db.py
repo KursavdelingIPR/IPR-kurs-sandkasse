@@ -798,3 +798,36 @@ def iso(d: date) -> str:
 
 def alfanumerisk(s: str) -> str:
     return "".join(c for c in s.upper() if c in string.ascii_uppercase + string.digits)
+
+
+# ---------- redigerbare maltekster (fase 12B) ----------
+# Lagrer KUN tekst. Vet ingenting om {koder}, Jinja eller gyldighet - det gjor kurs/maltekster.py. Committer ikke.
+
+def hent_maltekst(con, mal: str, felt: str) -> str | None:
+    """Overstyringen for (mal, felt), eller None hvis ingen finnes (-> standardtekst)."""
+    rad = con.execute("SELECT tekst FROM mal_tekst WHERE mal=? AND felt=?", (mal, felt)).fetchone()
+    return rad["tekst"] if rad else None
+
+
+def hent_overstyringer_for_mal(con, mal: str) -> dict:
+    """Alle lagrede overstyringer for en mal som {felt: tekst} (ingen rader -> tom dict)."""
+    return {r["felt"]: r["tekst"] for r in con.execute("SELECT felt, tekst FROM mal_tekst WHERE mal=?", (mal,))}
+
+
+def sett_maltekst(con, mal: str, felt: str, tekst: str, aktor: str = "system") -> None:
+    """Lagrer/erstatter overstyringen og logger mal_endret med mal, felt og aktor - ALDRI teksten."""
+    na = datetime.now().isoformat(timespec="seconds")
+    con.execute(
+        """INSERT INTO mal_tekst (mal, felt, tekst, oppdatert, oppdatert_av) VALUES (?,?,?,?,?)
+           ON CONFLICT (mal, felt) DO UPDATE SET tekst=excluded.tekst, oppdatert=excluded.oppdatert,
+                                                 oppdatert_av=excluded.oppdatert_av""",
+        (mal, felt, tekst, na, aktor))
+    logg(con, "mal_endret", {"mal": mal, "felt": felt}, aktor=aktor)
+
+
+def slett_maltekst(con, mal: str, felt: str, aktor: str = "system") -> bool:
+    """Fjerner overstyringen. Logger mal_tilbakestilt (mal, felt, aktor) KUN hvis en rad faktisk fantes. True = fantes."""
+    cur = con.execute("DELETE FROM mal_tekst WHERE mal=? AND felt=?", (mal, felt))
+    if cur.rowcount > 0:
+        logg(con, "mal_tilbakestilt", {"mal": mal, "felt": felt}, aktor=aktor)
+    return cur.rowcount > 0

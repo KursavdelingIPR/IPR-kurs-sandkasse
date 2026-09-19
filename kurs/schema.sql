@@ -297,3 +297,15 @@ CREATE TABLE IF NOT EXISTS henvendelse (
     kilder          TEXT,                           -- f.eks. 'K3,F1'
     grunn           TEXT
 );
+
+-- Overstyringer av redigerbare maltekster (fase 12B). KUN overstyringer: standardtekstene ligger i kode
+-- (kurs/maltekster.py) og kopieres ALDRI inn her. Ingen rad = standardtekst. Databasen lagrer bare tekst - den vet
+-- ingenting om {koder}; validering skjer i maltekster.py foer skriving og ved hvert oppslag.
+CREATE TABLE IF NOT EXISTS mal_tekst (
+    mal             TEXT NOT NULL,                  -- f.eks. 'bekreftelse'
+    felt            TEXT NOT NULL,                  -- f.eks. 'innledning'
+    tekst           TEXT NOT NULL,
+    oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver endring
+    oppdatert_av    TEXT,                           -- aktor, f.eks. 'admin:kari'
+    PRIMARY KEY (mal, felt)
+);
