@@ -12,6 +12,7 @@
 
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px">
   <a class="knapp liten" href="{{ url_for('admin_deltaker_ny', kurs_id=kurs.id) }}">+ Legg til deltaker</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_import_deltakere', kurs_id=kurs.id) }}">Importer deltakere</a>
   <a class="knapp sekundar liten" href="{{ url_for('admin_csv', kurs_id=kurs.id) }}">Eksporter deltakerliste (Excel)</a>
   {% if kurs.type != 'digital' %}<a class="knapp sekundar liten" href="{{ url_for('admin_allergiliste', kurs_id=kurs.id) }}">Allergi-/tilretteleggingsliste</a>{% endif %}
   {% if tellere.bekreftet %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='bekreftet') }}">Send e-post til alle bekreftede</a>{% endif %}

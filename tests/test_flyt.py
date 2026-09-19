@@ -59,6 +59,47 @@ def test_tor_endrer_ingenting(con):
     assert con.execute("SELECT COUNT(*) FROM faktura").fetchone()[0] == 0
 
 
+# ---------------- fase 10: rydding av utlopte import-forhaandsvisninger (trinn 4) ----------------
+
+def test_daglig_rydder_utlopte_import_forhaandsvisninger(con):
+    from datetime import datetime
+    from kurs import import_deltakere as imp
+    kid = _kurs(con, date(2027, 3, 1) + timedelta(days=30))
+    admin_id = con.execute("SELECT id FROM admin_bruker LIMIT 1").fetchone()[0]
+    utlopt = imp.lagre_forhaandsvisning(con, kid, admin_id, [{"navn": "A", "epost": "a@x.no"}], [],
+                                        idag=datetime.now() - timedelta(hours=1))
+    aktiv = imp.lagre_forhaandsvisning(con, kid, admin_id, [{"navn": "B", "epost": "b@x.no"}], [])
+    con.commit()
+    antall_foer = con.execute("SELECT COUNT(*) FROM hendelse").fetchone()[0]
+
+    daglig.kjor(Kjoring(con, idag=date(2027, 3, 1)))
+
+    assert con.execute("SELECT COUNT(*) FROM import_forhaandsvisning WHERE token=?", (utlopt,)).fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM import_forhaandsvisning WHERE token=?", (aktiv,)).fetchone()[0] == 1
+    # ingen hendelseslogg (og dermed ingen persondata) for selve oppryddingen
+    assert con.execute("SELECT COUNT(*) FROM hendelse").fetchone()[0] == antall_foer
+
+
+def test_daglig_rydding_er_idempotent_og_paavirker_ikke_andre_data(con):
+    from datetime import datetime
+    from kurs import import_deltakere as imp
+    idag = date(2027, 3, 1)
+    kid = _kurs(con, idag + timedelta(days=30))
+    admin_id = con.execute("SELECT id FROM admin_bruker LIMIT 1").fetchone()[0]
+    imp.lagre_forhaandsvisning(con, kid, admin_id, [{"navn": "A", "epost": "a@x.no"}], [],
+                              idag=datetime.now() - timedelta(hours=1))
+    db.meld_paa(con, kid, epost="vanlig@x.no", navn="Vanlig")
+    con.commit()
+
+    daglig.kjor(Kjoring(con, idag=idag))
+    etter_forste = con.execute("SELECT COUNT(*) FROM import_forhaandsvisning").fetchone()[0]
+    daglig.kjor(Kjoring(con, idag=idag))
+    assert etter_forste == 0
+    assert con.execute("SELECT COUNT(*) FROM import_forhaandsvisning").fetchone()[0] == 0
+    assert con.execute("SELECT status FROM paamelding WHERE deltaker_id IN "
+                       "(SELECT id FROM deltaker WHERE epost='vanlig@x.no')").fetchone()[0] == "bekreftet"
+
+
 def test_venteliste_rykker_opp(con):
     kid = _kurs(con, date(2027, 5, 1), kapasitet=1)
     p1, s1 = db.meld_paa(con, kid, epost="a@x.no", navn="A")

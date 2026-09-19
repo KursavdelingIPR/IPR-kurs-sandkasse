@@ -14,8 +14,9 @@ import qrcode
 import qrcode.image.svg
 from flask import (Flask, Response, abort, flash, g, redirect, render_template, request, session, url_for)
 from markupsafe import Markup
+from werkzeug.exceptions import RequestEntityTooLarge
 
-from .. import config, daglig, db, sveiper
+from .. import config, daglig, db, import_deltakere, sveiper
 from ..integrasjoner import epost, sharepoint
 from ..kjoring import Kjoring
 from ..kursbevis import timer_i_lop
@@ -912,6 +913,136 @@ def admin_deltaker_ny(kurs_id):
     flash(f"{f['navn']} er registrert og satt til «{status}». "
          "Ingen bekreftelse eller faktura er sendt ennå.", "ok")
     return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=pid))
+
+
+# Marg utover selve fil-taket (import_deltakere.MAKS_FILSTORRELSE) for multipart-hodefelt/grense -
+# satt KUN paa denne ruten (request.max_content_length er en per-request-egenskap), IKKE som en
+# global app.config-endring som ville paavirket andre opplastingsruter (f.eks. /lever/<id>).
+MAKS_REQUEST_BYTES_IMPORT = import_deltakere.MAKS_FILSTORRELSE + 64 * 1024
+
+
+def _tall(antall: int, entall: str, flertall: str) -> str:
+    """Enkel entall/flertall-hjelper til flash-tekster - f.eks. _tall(1, "rad", "rader")."""
+    return f"{antall} {entall if antall == 1 else flertall}"
+
+
+@app.route("/admin/kurs/<int:kurs_id>/deltakere/importer", methods=["GET", "POST"])
+@krever_admin
+def admin_import_deltakere(kurs_id):
+    """Fase 10, trinn 2: last opp CSV -> forhaandsvis. IKKE importer direkte - se
+    import_deltakere.py for hvorfor (forhaandsvisningen kjorer ekte db.meld_paa()-logikk i en
+    SAVEPOINT som alltid rulles tilbake, og resultatet lagres server-side bak et ugjennomsiktig
+    token - aldri i en signert cookie/skjult felt med persondata). Selve importen (trinn 3) er
+    IKKE bygget ennaa.
+    """
+    kurs = _hent_kurs(kurs_id)
+    if request.method == "GET":
+        return render_template("admin_import_deltakere.html", kurs=kurs, fane="deltakere")
+
+    # Settes FOR forste tilgang til request.files/.form, slik at en for stor request avvises av
+    # Werkzeug for hele kroppen er lest inn - route-spesifikk, ikke en global grense.
+    request.max_content_length = MAKS_REQUEST_BYTES_IMPORT
+    try:
+        fil = request.files.get("fil")
+    except RequestEntityTooLarge:
+        flash(f"Filen/forespørselen er for stor (maks "
+             f"{import_deltakere.MAKS_FILSTORRELSE // (1024 * 1024)} MB).", "feil")
+        return render_template("admin_import_deltakere.html", kurs=kurs, fane="deltakere"), 413
+
+    if not fil or not fil.filename:
+        flash("Velg en CSV-fil.", "feil")
+        return render_template("admin_import_deltakere.html", kurs=kurs, fane="deltakere"), 400
+    if not fil.filename.lower().endswith(".csv"):
+        flash("Bare CSV-filer støttes.", "feil")
+        return render_template("admin_import_deltakere.html", kurs=kurs, fane="deltakere"), 400
+
+    # Les aldri mer enn taket + 1 byte inn i minnet - uansett hva Content-Length paastaar.
+    raw = fil.stream.read(import_deltakere.MAKS_FILSTORRELSE + 1)
+    if len(raw) > import_deltakere.MAKS_FILSTORRELSE:
+        flash(f"Filen er for stor (maks {import_deltakere.MAKS_FILSTORRELSE // (1024 * 1024)} MB).", "feil")
+        return render_template("admin_import_deltakere.html", kurs=kurs, fane="deltakere"), 400
+
+    try:
+        rader = import_deltakere.parse_csv(raw)
+    except import_deltakere.ImportFeil as e:
+        flash(str(e), "feil")
+        return render_template("admin_import_deltakere.html", kurs=kurs, fane="deltakere"), 400
+
+    try:
+        resultater = import_deltakere.forhaandsvis(con(), kurs_id, rader, aktor=_aktor())
+    except import_deltakere.ImportFeil as e:
+        flash(str(e), "feil")
+        return render_template("admin_import_deltakere.html", kurs=kurs, fane="deltakere"), 400
+
+    token = None
+    if not import_deltakere.har_blokkerende_rader(resultater):
+        import_deltakere.rydd_utlopte_forhaandsvisninger(con())
+        import_deltakere.slett_forhaandsvisninger_for(con(), kurs_id, session["admin_id"])
+        token = import_deltakere.lagre_forhaandsvisning(con(), kurs_id, session["admin_id"], rader, resultater)
+        con().commit()
+
+    return render_template(
+        "admin_import_forhaandsvisning.html", kurs=kurs, resultater=resultater, token=token,
+        antall=len(rader), har_blokkerende=import_deltakere.har_blokkerende_rader(resultater), fane="deltakere")
+
+
+@app.post("/admin/kurs/<int:kurs_id>/deltakere/importer/bekreft")
+@krever_admin
+def admin_import_deltakere_bekreft(kurs_id):
+    """Fase 10, trinn 3: utforer selve importen. POST-only (GET skal ikke kunne importere noe).
+    Mottar KUN det ugjennomsiktige preview-tokenet - aldri persondata i skjemaet. Revaliderer
+    ALLTID mot fersk databasetilstand (import_deltakere.importer()) for aa skrive noe."""
+    _hent_kurs(kurs_id)
+    token = request.form.get("forhaandsvisning_token", "")
+    try:
+        innhold = import_deltakere.hent_forhaandsvisning(con(), token, kurs_id, session["admin_id"])
+    except import_deltakere.TokenFeil as e:
+        flash(str(e), "feil")
+        return redirect(url_for("admin_import_deltakere", kurs_id=kurs_id))
+
+    try:
+        resultat = import_deltakere.importer(
+            con(), kurs_id, innhold["rader"], innhold["resultater"], aktor=_aktor())
+    except import_deltakere.EndretTilstandFeil as e:
+        # Forholdene i kurset er endret siden forhaandsvisningen - IKKE en teknisk feil. Previewen
+        # er ikke lenger til aa stole paa og ugyldiggjores; admin maa forhaandsvise paa nytt.
+        # Selve avviks-teksten (kan inneholde e-post) vises ALDRI - kun et antall, ingen persondata.
+        import_deltakere.slett_forhaandsvisning(con(), token)
+        con().commit()
+        flash(f"Forholdene i kurset har endret seg siden forhåndsvisningen "
+             f"({_tall(len(e.avvik), 'rad berørt', 'rader berørt')} - f.eks. kapasitet, status "
+             "eller en annen påmelding). Ingenting er importert. Last opp filen på nytt for en "
+             "oppdatert forhåndsvisning.", "feil")
+        return redirect(url_for("admin_import_deltakere", kurs_id=kurs_id))
+    except import_deltakere.ImportFeil as e:
+        # F.eks. kurset ble avlyst/avsluttet etter forhaandsvisningen - samme prinsipp: ugyldiggjor
+        # previewen fremfor aa la den staa igjen som om den fortsatt var gyldig.
+        import_deltakere.slett_forhaandsvisning(con(), token)
+        con().commit()
+        flash(str(e), "feil")
+        return redirect(url_for("admin_import_deltakere", kurs_id=kurs_id))
+    # Andre (uventede) exceptions fanges bevisst IKKE her: db.transaksjon() har allerede rullet
+    # alt tilbake, og vi lar previewen staa (ikke slettet) slik at admin kan forsoke igjen innen
+    # levetiden uten aa laste opp filen paa nytt. Flask sin standard feilhaandtering tar over.
+
+    import_deltakere.slett_forhaandsvisning(con(), token)
+    con().commit()
+    t = import_deltakere.oppsummer(resultat)
+    melding = (f"Import fullført: {_tall(t['antall_importert'], 'deltaker registrert', 'deltakere registrert')} "
+              f"({t['antall_bekreftet']} bekreftet, {t['antall_venteliste']} venteliste)")
+    if t["antall_reaktivert"]:
+        melding += f", {t['antall_reaktivert']} reaktivert"
+    if t["antall_hoppet_over"]:
+        melding += f", {t['antall_hoppet_over']} allerede påmeldt hoppet over"
+    flash(melding + ".", "ok")
+    return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+
+
+@app.get("/admin/deltaker-import-mal.csv")
+@krever_admin
+def admin_deltaker_import_mal():
+    return Response("﻿" + import_deltakere.malfil_csv(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=deltaker-import-mal.csv"})
 
 
 def _hent_paamelding(kurs_id: int, paamelding_id: int):

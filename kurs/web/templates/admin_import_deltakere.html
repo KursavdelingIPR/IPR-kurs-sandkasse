@@ -1,0 +1,31 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<h2>Importer deltakere <span class="liten dempet" style="font-weight:400">– fra CSV-fil</span></h2>
+
+<div class="flash info">
+  Filen forhåndsvises først – ingenting importeres på dette steget. Du får se nøyaktig hva som vil
+  skje med hver rad (nye påmeldinger, reaktiveringer, eventuelle feil) før noe lagres.
+</div>
+
+<div class="kort" style="max-width:640px">
+  <ul class="liten dempet" style="padding-left:18px; margin:0 0 16px">
+    <li>Kun CSV-filer (.csv)</li>
+    <li>Maks 2 MB</li>
+    <li>Maks 300 rader</li>
+    <li>Obligatoriske kolonner: <strong>Navn</strong> og <strong>E-post</strong> – resten er valgfrie</li>
+  </ul>
+  <p class="liten" style="margin-bottom:16px">
+    <a href="{{ url_for('admin_deltaker_import_mal') }}">Last ned CSV-mal →</a>
+  </p>
+
+  <form method="post" enctype="multipart/form-data">
+    <label>Velg CSV-fil</label>
+    <input type="file" name="fil" accept=".csv,text/csv" required>
+    <p style="margin-top:16px"><button>Forhåndsvis import</button>
+      <a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Avbryt</a></p>
+  </form>
+</div>
+{% endblock %}

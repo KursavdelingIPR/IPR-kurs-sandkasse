@@ -1,0 +1,53 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<h2>Forhåndsvisning av import <span class="liten dempet" style="font-weight:400">– {{ antall }} rad{{ 'er' if antall != 1 }} i filen</span></h2>
+
+{% if har_blokkerende %}
+<div class="flash feil">Filen har én eller flere rader som må rettes før den kan importeres. <strong>Ingenting er
+  lagret.</strong> Rett filen og last opp på nytt.</div>
+{% else %}
+<div class="flash ok">Alle rader er klare til import. <strong>Ingenting er importert ennå</strong> – du må
+  bekrefte i neste steg.</div>
+{% endif %}
+
+<div class="tabellboks"><table>
+  <tr><th>#</th><th>Navn</th><th>E-post</th><th>Resultat</th></tr>
+  {% for r in resultater %}
+  <tr>
+    <td class="liten dempet">{{ r.rad_nr }}</td>
+    <td>{{ r.navn }}</td>
+    <td class="liten">{{ r.epost }}</td>
+    <td>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
+        {% if r.person_finnes_fra_for %}<span class="merke gra">Eksisterende person</span>{% endif %}
+        {% if r.handling == 'ny' %}<span class="merke">Ny påmelding</span>
+        {% elif r.handling == 'reaktiver' %}<span class="merke">Reaktiveres</span>
+        {% elif r.handling == 'hopp_over' %}<span class="merke gra">Allerede påmeldt – hoppes over</span>
+        {% elif r.handling == 'blokkert' %}<span class="merke feil">Blokkert</span>
+        {% endif %}
+        {% if r.resultatstatus == 'bekreftet' %}<span class="merke ok">Bekreftet</span>
+        {% elif r.resultatstatus == 'venteliste' %}<span class="merke gul">Venteliste</span>
+        {% endif %}
+      </div>
+      {% if r.handling == 'blokkert' %}<p class="liten" style="color:var(--feil); margin:6px 0 0">{{ r.melding }}</p>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table></div>
+
+{% if not har_blokkerende %}
+<form method="post" action="{{ url_for('admin_import_deltakere_bekreft', kurs_id=kurs.id) }}" style="margin-top:16px"
+      onsubmit="return confirm('Bekreft import av {{ antall }} rad{{ 'er' if antall != 1 }}?')">
+  <input type="hidden" name="forhaandsvisning_token" value="{{ token }}">
+  <button>Bekreft import</button>
+</form>
+{% endif %}
+
+<p style="margin-top:16px">
+  <a class="knapp sekundar liten" href="{{ url_for('admin_import_deltakere', kurs_id=kurs.id) }}">Last opp en annen fil</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Tilbake til deltakere</a>
+</p>
+{% endblock %}

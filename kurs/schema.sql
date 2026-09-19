@@ -216,6 +216,20 @@ CREATE TABLE IF NOT EXISTS innlogging_token (
     brukt           INTEGER NOT NULL DEFAULT 0
 );
 
+-- Fase 10: korttidslagret forhaandsvisning av CSV-import (deltaker/kurs.import_deltakere.py).
+-- Radene kan inneholde sensitive opplysninger (allergi, faktura) - lever KUN server-side i
+-- token-ets levetid (se FORHAANDSVISNING_LEVETID_MIN), ryddes ved bruk/utlop, og skal aldri i
+-- hendelsesloggen. Nettleseren ser bare selve token-strengen, aldri radinnholdet.
+CREATE TABLE IF NOT EXISTS import_forhaandsvisning (
+    token           TEXT PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id),
+    admin_id        INTEGER NOT NULL REFERENCES admin_bruker(id),
+    rader_json      TEXT NOT NULL,
+    resultater_json TEXT NOT NULL,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    utloper         TEXT NOT NULL
+);
+
 -- Ansatte som kan logge inn i administrasjonen. Passord lagres kun som hash (aldri klartekst).
 CREATE TABLE IF NOT EXISTS admin_bruker (
     id              INTEGER PRIMARY KEY,

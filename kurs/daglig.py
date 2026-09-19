@@ -12,11 +12,12 @@ Rekkefolge:
   5. Kursbevis til de som har mott
   6. Purring paa materiell fra kursholdere
   7. Sletting av sensitive opplysninger
+  8. Rydding av utlopte import-forhaandsvisninger (fase 10)
 """
 import argparse
 from datetime import date, timedelta
 
-from . import config, db, kursbevis, sveiper
+from . import config, db, import_deltakere, kursbevis, sveiper
 from .integrasjoner import zoom
 from .kjoring import Kjoring
 
@@ -47,6 +48,8 @@ def kjor(k: Kjoring) -> None:
     _purring(k)
     k.si("7. Personvern")
     _slett_sensitivt(k)
+    k.si("8. Import-forhåndsvisninger")
+    _rydd_import_forhaandsvisninger(k)
     k.avslutt()
 
 
@@ -138,6 +141,16 @@ def _slett_sensitivt(k):
     if cur.rowcount:
         db.logg(k.con, "sensitivt_slettet", {"antall": cur.rowcount})
         k.si(f"  slettet sensitive opplysninger for {cur.rowcount} påmeldinger")
+
+
+def _rydd_import_forhaandsvisninger(k):
+    """Fase 10: fjerner utlopte CSV-import-forhaandsvisninger (kan inneholde allergi/tilrette-
+    legging/fakturainformasjon - skal ikke ligge lenger enn levetiden, se import_deltakere.py).
+    Bruker faktisk klokkeslett (ikke k.idag, som kun styrer HVILKEN DATO jobben later som det er)
+    - en forhaandsvisning er tidsbegrenset i minutter, ikke i kalenderdager."""
+    antall = import_deltakere.rydd_utlopte_forhaandsvisninger(k.con)
+    if antall:
+        k.si(f"  ryddet {antall} utløpt(e) import-forhåndsvisning(er)")
 
 
 def main(argv=None):

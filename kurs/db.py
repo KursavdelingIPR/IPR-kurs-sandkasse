@@ -148,11 +148,26 @@ def antall_bekreftet(con, kurs_id: int) -> int:
 
 # ---------- deltakere / paamelding ----------
 
-def finn_eller_opprett_deltaker(con, epost: str, navn: str, **felter) -> int:
+def finn_eller_opprett_deltaker(con, epost: str, navn: str, *, beskytt_eksisterende_felt: bool = False,
+                                **felter) -> int:
+    """Finner eller oppretter en deltaker (person) paa e-post.
+
+    `beskytt_eksisterende_felt` styrer hva som skjer naar personen ALLEREDE finnes og et felt i
+    `felter` har en verdi som er ULIK det som staar der fra for:
+      - False (STANDARD, uendret oppforsel - ALLE eksisterende kall beholder dette): feltet
+        overskrives med den nye verdien (f.eks. et oppdatert telefonnummer ved neste paamelding).
+      - True: feltet overskrives KUN hvis det er tomt fra for - en eksisterende, ikke-tom verdi
+        beholdes alltid. Ment for kilder som IKKE noedvendigvis er ferskere enn det som allerede
+        er registrert (f.eks. fase 10 sin CSV-import, som kan vaere en gammel Excel-fil) - de skal
+        aldri kunne overskrive noe en admin/deltaker har registrert senere andre steder.
+    """
     epost = epost.strip().lower()
-    rad = con.execute("SELECT id FROM deltaker WHERE epost=?", (epost,)).fetchone()
+    rad = con.execute("SELECT * FROM deltaker WHERE epost=?", (epost,)).fetchone()
     if rad:
-        oppdater = {k: v for k, v in felter.items() if v}
+        if beskytt_eksisterende_felt:
+            oppdater = {k: v for k, v in felter.items() if v and not rad[k]}
+        else:
+            oppdater = {k: v for k, v in felter.items() if v}
         if oppdater:
             con.execute(
                 f"UPDATE deltaker SET {','.join(f'{k}=?' for k in oppdater)} WHERE id=?",
@@ -417,13 +432,18 @@ def gjenaapne_kurs(con, kurs_id: int, aktor: str = "admin") -> None:
 
 def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None = None,
              paamelding: dict | None = None, sensitivt: dict | None = None, idag: date | None = None,
-             aktor: str | None = None, tillat_utkast: bool = False, ignorer_frist: bool = False) -> tuple[int, str]:
+             aktor: str | None = None, tillat_utkast: bool = False, ignorer_frist: bool = False,
+             beskytt_eksisterende_felt: bool = False) -> tuple[int, str]:
     """Registrer paamelding. Returnerer (paamelding_id, status). Setter venteliste naar kurset er fullt.
 
     `aktor`, `tillat_utkast` og `ignorer_frist` er kun ment for administrativ, manuell paamelding
     (fase 9) - offentlig paamelding/webhook/gruppepaamelding bruker aldri disse, og faar dermed
     uendret oppforsel. `avlyst` og `avsluttet` kan IKKE overstyres av noen - se KURS_STATUSVERDIER-
     bruken andre steder; det finnes bevisst ingen parameter for det.
+
+    `beskytt_eksisterende_felt` sendes videre til finn_eller_opprett_deltaker() - se dens
+    docstring. STANDARD er False (uendret oppforsel for alle eksisterende kall). Fase 10 sin
+    CSV-import er eneste kaller som bruker True.
     """
     idag = idag or date.today()
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone()
@@ -435,7 +455,8 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
     if not ignorer_frist and kurs["paameldingsfrist"] and idag > date.fromisoformat(kurs["paameldingsfrist"]):
         raise Paameldingsfeil(f"Påmeldingsfristen ({kurs['paameldingsfrist']}) er passert.")
 
-    deltaker_id = finn_eller_opprett_deltaker(con, epost, navn, **(deltaker or {}))
+    deltaker_id = finn_eller_opprett_deltaker(
+        con, epost, navn, beskytt_eksisterende_felt=beskytt_eksisterende_felt, **(deltaker or {}))
     finnes = con.execute(
         "SELECT id, status FROM paamelding WHERE kurs_id=? AND deltaker_id=?", (kurs_id, deltaker_id)
     ).fetchone()
