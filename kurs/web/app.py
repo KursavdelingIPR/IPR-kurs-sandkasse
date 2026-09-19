@@ -1296,6 +1296,8 @@ def admin_epost_forhandsvis(kurs_id):
         feil.append("Fyll inn et emne.")
     elif len(emne) > EPOST_EMNE_MAKS:
         feil.append(f"Emnet kan være maks {EPOST_EMNE_MAKS} tegn (er nå {len(emne)}).")
+    elif epost.har_kontrolltegn(emne):  # emnet er ett linjeskiftfritt e-postemne (ingen ekstra hoder)
+        feil.append("Emnet kan ikke inneholde linjeskift.")
     if not tekst:
         feil.append("Fyll inn en melding.")
     elif len(tekst) > EPOST_TEKST_MAKS:
