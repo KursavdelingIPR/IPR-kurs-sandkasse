@@ -271,8 +271,11 @@ def test_epostfeil_for_venteliste_presenteres_ikke_som_vellykket(con, monkeypatc
     resp = klient.post(RUTE.format(kid=kid, pid=pid))
     rad = con.execute("SELECT sveiper_utsatt FROM paamelding WHERE id=?", (pid,)).fetchone()
     assert rad["sveiper_utsatt"] == 0
-    assert not con.execute(
-        "SELECT 1 FROM utsending_logg WHERE mottaker='kari@x.no' AND type='venteliste'").fetchone()
+    # Trinn 2.5: en rad finnes naa (reservert -> ukjent, for sporbarhet), men skal ALDRI telle som sendt.
+    assert not db.allerede_sendt(con, f"kurs:{kid}", "kari@x.no", "venteliste")
+    logg_rad = con.execute(
+        "SELECT status FROM utsending_logg WHERE mottaker='kari@x.no' AND type='venteliste'").fetchone()
+    assert logg_rad["status"] == "ukjent"
     tekst = klient.get(resp.headers["Location"]).get_data(as_text=True)
     assert "ikke fullført" in tekst.lower() or "ikke sendt" in tekst.lower()
 

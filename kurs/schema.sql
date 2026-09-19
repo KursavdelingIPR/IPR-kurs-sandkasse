@@ -109,6 +109,23 @@ CREATE TABLE IF NOT EXISTS faktura (
 -- Aldri dobbeltfakturering: én samlet faktura, eller én per samling. (COALESCE fordi NULL != NULL i SQLite.)
 CREATE UNIQUE INDEX IF NOT EXISTS faktura_unik ON faktura (paamelding_id, COALESCE(kursdag_id, 0));
 
+-- Sporer FORSOKET paa aa lage en faktura i Visma - helt adskilt fra selve `faktura`-tabellen, som
+-- fortsatt KUN faar en rad naar Visma faktisk har bekreftet noe (uendret betydning, se trinn 2.5-
+-- designet: en `faktura`-rad brukes bl.a. til aa laase pris/fakturafelt og summeres i rapporter, og
+-- maa derfor aldri opprettes "i god tro" for Visma har svart).
+-- status: reservert (forsok paagaar/kan ha blitt avbrutt), feilet (kjent trygt aa prove paa nytt),
+--         ukjent (utfallet er IKKE avklart - proves ALDRI automatisk paa nytt).
+-- Ved suksess slettes raden her og den ekte `faktura`-raden opprettes i samme lokale transaksjon.
+CREATE TABLE IF NOT EXISTS faktura_forsok (
+    id              INTEGER PRIMARY KEY,
+    paamelding_id   INTEGER NOT NULL REFERENCES paamelding(id),
+    kursdag_id      INTEGER REFERENCES kursdag(id),
+    status          TEXT NOT NULL CHECK (status IN ('reservert','feilet','ukjent')),
+    feilmelding     TEXT,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS faktura_forsok_unik ON faktura_forsok (paamelding_id, COALESCE(kursdag_id, 0));
+
 CREATE TABLE IF NOT EXISTS oppmote (
     paamelding_id   INTEGER NOT NULL REFERENCES paamelding(id),
     kursdag_id      INTEGER NOT NULL REFERENCES kursdag(id),
@@ -145,10 +162,15 @@ CREATE TABLE IF NOT EXISTS materiell_krav (
 -- nokkelen 'adhoc:<kurs_id>:<tilfeldig>' - unik PR UTSENDELSE (ikke pr type), satt naar admin
 -- forhaandsviser (se admin_utsending), slik at dobbeltklikk/refresh paa "Send" ikke sender to ganger,
 -- mens den samme meldingen godt kan sendes paa nytt som en HELT NY utsendelse senere.
+-- status: 'sendt' er standard (bakoverkompatibelt - alle rader skrevet av eldre kode/marker_sendt()
+-- ER faktisk sendt). 'reservert'/'feilet'/'ukjent' brukes KUN av den atomiske claim-flyten i
+-- Kjoring.send_en_gang() (se trinn 2.5-designet) - allerede_sendt() returnerer true KUN for 'sendt',
+-- slik at et uavklart forsok aldri kan vises/telles som en faktisk sendt melding.
 CREATE TABLE IF NOT EXISTS utsending_logg (
     nokkel          TEXT NOT NULL,                  -- f.eks. 'kurs:3'  / 'materiell:7' / 'adhoc:3:a1b2c3d4'
     mottaker        TEXT NOT NULL COLLATE NOCASE,
     type            TEXT NOT NULL,                  -- 'bekreftelse', 'ukefor', 'dagfor-2027-01-12', 'purring-7' ...
+    status          TEXT NOT NULL DEFAULT 'sendt' CHECK (status IN ('reservert','sendt','feilet','ukjent')),
     sendt_ts        TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (nokkel, mottaker, type)
 );

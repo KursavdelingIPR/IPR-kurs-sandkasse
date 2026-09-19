@@ -45,6 +45,10 @@ def _migrer(con: sqlite3.Connection) -> None:
     def har_kolonne(tabell: str, kolonne: str) -> bool:
         return any(r["name"] == kolonne for r in con.execute(f"PRAGMA table_info({tabell})"))
 
+    def har_tabell(tabell: str) -> bool:
+        return con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tabell,)).fetchone() is not None
+
     if not har_kolonne("kurs", "ansvarlig_admin_id"):
         con.execute("ALTER TABLE kurs ADD COLUMN ansvarlig_admin_id INTEGER REFERENCES admin_bruker(id)")
     if not har_kolonne("deltaker", "yrkestittel"):
@@ -61,6 +65,12 @@ def _migrer(con: sqlite3.Connection) -> None:
     if not har_kolonne("paamelding", "sveiper_utsatt"):
         # Konstant default (0) - trygt aa legge til selv om tabellen har rader fra for.
         con.execute("ALTER TABLE paamelding ADD COLUMN sveiper_utsatt INTEGER NOT NULL DEFAULT 0")
+    if har_tabell("utsending_logg") and not har_kolonne("utsending_logg", "status"):
+        # Konstant default ('sendt') - alle eksisterende rader ER faktisk sendt (skrevet av den
+        # gamle, ubetingede marker_sendt()), saa dette endrer ikke betydningen av noen rad fra for.
+        con.execute(
+            "ALTER TABLE utsending_logg ADD COLUMN status TEXT NOT NULL DEFAULT 'sendt' "
+            "CHECK (status IN ('reservert','sendt','feilet','ukjent'))")
 
 
 @contextmanager
@@ -573,15 +583,110 @@ def registrer_firmapaamelding_rad(con, firmapaamelding_id: int, navn: str, epost
 # ---------- utsending (dedup) ----------
 
 def allerede_sendt(con, nokkel: str, mottaker: str, type_: str) -> bool:
+    """True kun naar sendingen faktisk er bekreftet sendt - en reservert/feilet/ukjent rad teller ikke."""
     return con.execute(
-        "SELECT 1 FROM utsending_logg WHERE nokkel=? AND mottaker=? AND type=?", (nokkel, mottaker, type_)
+        "SELECT 1 FROM utsending_logg WHERE nokkel=? AND mottaker=? AND type=? AND status='sendt'",
+        (nokkel, mottaker, type_)
     ).fetchone() is not None
 
 
 def marker_sendt(con, nokkel: str, mottaker: str, type_: str) -> None:
+    """Registrerer en fullfort sending direkte (status faar kolonnens standardverdi 'sendt').
+
+    For kallere som IKKE trenger den atomiske reserver-foerst-flyten under - typisk fordi de ikke
+    gjor noe risikabelt eksternt kall selv (zoomimport-dedup i daglig.py) eller allerede har sin egen
+    forhaandsviste og godkjente nokkel (fase 5, send_admin_utsending()).
+    """
     con.execute(
         "INSERT OR IGNORE INTO utsending_logg (nokkel, mottaker, type) VALUES (?,?,?)", (nokkel, mottaker, type_)
     )
+
+
+def reserver_sending(con, nokkel: str, mottaker: str, type_: str) -> bool:
+    """Atomisk claim av et NYTT sendeforsok. True hvis akkurat dette kallet vant claimen.
+
+    Brukes av Kjoring.send_en_gang() FOR et evt. langt eksternt sendekall, slik at to samtidige
+    kjoringer (f.eks. daglig jobb + manuell fase 9/11-behandling) aldri kan sende samme e-post
+    to ganger - kun én av dem kan vinne INSERT-en.
+    """
+    cur = con.execute(
+        "INSERT OR IGNORE INTO utsending_logg (nokkel, mottaker, type, status) VALUES (?,?,?,'reservert')",
+        (nokkel, mottaker, type_))
+    return cur.rowcount > 0
+
+
+def reserver_sending_pa_nytt(con, nokkel: str, mottaker: str, type_: str) -> bool:
+    """Atomisk claim av RETRY etter en kjent, trygg feil. True hvis akkurat dette kallet vant claimen."""
+    cur = con.execute(
+        """UPDATE utsending_logg SET status='reservert', sendt_ts=datetime('now')
+           WHERE nokkel=? AND mottaker=? AND type=? AND status='feilet'""",
+        (nokkel, mottaker, type_))
+    return cur.rowcount > 0
+
+
+def sett_sendt(con, nokkel: str, mottaker: str, type_: str) -> None:
+    con.execute(
+        "UPDATE utsending_logg SET status='sendt', sendt_ts=datetime('now') WHERE nokkel=? AND mottaker=? AND type=?",
+        (nokkel, mottaker, type_))
+
+
+def sett_sending_feilet(con, nokkel: str, mottaker: str, type_: str) -> None:
+    con.execute(
+        "UPDATE utsending_logg SET status='feilet' WHERE nokkel=? AND mottaker=? AND type=?",
+        (nokkel, mottaker, type_))
+
+
+def sett_sending_ukjent(con, nokkel: str, mottaker: str, type_: str) -> None:
+    con.execute(
+        "UPDATE utsending_logg SET status='ukjent' WHERE nokkel=? AND mottaker=? AND type=?",
+        (nokkel, mottaker, type_))
+
+
+# ---------- faktura: forsok/claim (trinn 2.5) ----------
+# Se schema.sql for hvorfor dette er en EGEN tabell og ikke en ny status/kolonne paa `faktura`.
+
+def reserver_faktura(con, paamelding_id: int, kursdag_id: int | None) -> bool:
+    """Atomisk claim av et NYTT Visma-forsok. True hvis akkurat dette kallet vant claimen."""
+    na = datetime.now().isoformat(timespec="seconds")
+    cur = con.execute(
+        "INSERT OR IGNORE INTO faktura_forsok (paamelding_id, kursdag_id, status, opprettet) VALUES (?,?,'reservert',?)",
+        (paamelding_id, kursdag_id, na))
+    return cur.rowcount > 0
+
+
+def reserver_faktura_pa_nytt(con, paamelding_id: int, kursdag_id: int | None) -> bool:
+    """Atomisk claim av RETRY etter en kjent, trygg feil. True hvis akkurat dette kallet vant claimen."""
+    na = datetime.now().isoformat(timespec="seconds")
+    cur = con.execute(
+        """UPDATE faktura_forsok SET status='reservert', opprettet=?
+           WHERE paamelding_id=? AND COALESCE(kursdag_id,0)=? AND status='feilet'""",
+        (na, paamelding_id, kursdag_id or 0))
+    return cur.rowcount > 0
+
+
+def fjern_faktura_forsok(con, paamelding_id: int, kursdag_id: int | None) -> None:
+    """Kalles etter en vellykket Visma-opprettelse - den ekte `faktura`-raden er naa den varige markoren."""
+    con.execute(
+        "DELETE FROM faktura_forsok WHERE paamelding_id=? AND COALESCE(kursdag_id,0)=?",
+        (paamelding_id, kursdag_id or 0))
+
+
+def sett_faktura_forsok_feilet(con, paamelding_id: int, kursdag_id: int | None, feilmelding: str) -> None:
+    con.execute(
+        "UPDATE faktura_forsok SET status='feilet', feilmelding=? WHERE paamelding_id=? AND COALESCE(kursdag_id,0)=?",
+        (feilmelding, paamelding_id, kursdag_id or 0))
+
+
+def sett_faktura_forsok_ukjent(con, paamelding_id: int, kursdag_id: int | None, feilmelding: str) -> None:
+    con.execute(
+        "UPDATE faktura_forsok SET status='ukjent', feilmelding=? WHERE paamelding_id=? AND COALESCE(kursdag_id,0)=?",
+        (feilmelding, paamelding_id, kursdag_id or 0))
+
+
+def faktura_forsok_rad(con, paamelding_id: int, kursdag_id: int | None):
+    return con.execute(
+        "SELECT * FROM faktura_forsok WHERE paamelding_id=? AND COALESCE(kursdag_id,0)=?",
+        (paamelding_id, kursdag_id or 0)).fetchone()
 
 
 # ---------- admin: manuell e-post (fase 5) ----------

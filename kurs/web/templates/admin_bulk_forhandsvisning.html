@@ -1,0 +1,31 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<h2>Behandle valgte deltakere <span class="liten dempet" style="font-weight:400">– forhåndsvisning</span></h2>
+
+<div class="flash info">Ingenting er behandlet ennå – dette er kun en forhåndsvisning av hva som VILLE
+  skjedd. Ingen e-post er sendt, ingen faktura er opprettet.</div>
+
+<p class="liten dempet">{{ antall_behandlingsbare }} av {{ antall_totalt }} valgte kan behandles nå.</p>
+
+<div class="tabellboks"><table>
+  <tr><th>Navn</th><th>E-post</th><th>Status</th><th>Kan behandles?</th><th>Begrunnelse</th></tr>
+  {% for r in resultater %}
+  <tr>
+    <td>{{ r.navn }}</td>
+    <td class="liten">{{ r.epost }}</td>
+    <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}.get(r.status, 'gra') }}">{{ r.status }}</span></td>
+    <td>{% if r.behandlingsbar %}<span class="merke ok">Ja</span>{% else %}<span class="merke gra">Nei</span>{% endif %}</td>
+    <td class="liten dempet">{{ r.arsak }}</td>
+  </tr>
+  {% endfor %}
+</table></div>
+
+<form method="post" style="margin-top:16px">
+  {% for r in resultater %}<input type="hidden" name="paamelding_id" value="{{ r.paamelding_id }}">{% endfor %}
+  <button disabled title="Selve behandlingen er ikke bygget ennå">Bekreft behandling (kommer i neste steg)</button>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Tilbake til deltakere</a>
+</form>
+{% endblock %}

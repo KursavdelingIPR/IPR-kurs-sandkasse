@@ -1,0 +1,582 @@
+<!doctype html>
+<title>Pindena → IPR gap-analyse</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ============ tokens ============ */
+  :root{
+    --paper:#F2F5F3; --paper-raised:#FFFFFF; --paper-sunk:#E8ECE9;
+    --ink:#182320; --ink-soft:#4C5A56; --ink-faint:#7C8B86;
+    --line:#D6DEDA; --line-strong:#B9C5C0;
+    --accent:#1E6E63; --accent-ink:#0E3E37; --accent-soft:#DCEAE6; --accent-soft-line:#BFDAD3;
+    --have:#2F7D4F; --have-soft:#E1EFE4;
+    --partial:#A9700F; --partial-soft:#F5E9D3;
+    --missing:#AE3B2E; --missing-soft:#F5DEDA;
+    --wait:#4F6470; --wait-soft:#E4EAEC;
+    --skip:#7A8480; --skip-soft:#E9EBE9;
+    --shadow: 0 1px 2px rgba(20,30,27,.06), 0 8px 24px -12px rgba(20,30,27,.18);
+    --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+    --sans:"IBM Plex Sans",-apple-system,"Segoe UI",Arial,sans-serif;
+    --mono:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#101815; --paper-raised:#16211D; --paper-sunk:#0B1210;
+      --ink:#E7EEEA; --ink-soft:#AEBDB6; --ink-faint:#7E8F88;
+      --line:#26332D; --line-strong:#34433C;
+      --accent:#5FC6B4; --accent-ink:#BFEBE1; --accent-soft:#152E29; --accent-soft-line:#25473F;
+      --have:#6FCB8E; --have-soft:#152A1D;
+      --partial:#E3B15C; --partial-soft:#2E2410;
+      --missing:#E9897C; --missing-soft:#331714;
+      --wait:#9FB4BE; --wait-soft:#1B262B;
+      --skip:#8E9995; --skip-soft:#1C211F;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#101815; --paper-raised:#16211D; --paper-sunk:#0B1210;
+    --ink:#E7EEEA; --ink-soft:#AEBDB6; --ink-faint:#7E8F88;
+    --line:#26332D; --line-strong:#34433C;
+    --accent:#5FC6B4; --accent-ink:#BFEBE1; --accent-soft:#152E29; --accent-soft-line:#25473F;
+    --have:#6FCB8E; --have-soft:#152A1D;
+    --partial:#E3B15C; --partial-soft:#2E2410;
+    --missing:#E9897C; --missing-soft:#331714;
+    --wait:#9FB4BE; --wait-soft:#1B262B;
+    --skip:#8E9995; --skip-soft:#1C211F;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px -14px rgba(0,0,0,.6);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    font-size:15.5px; line-height:1.6; -webkit-font-smoothing:antialiased;
+    padding-inline:20px;
+  }
+  img{max-width:100%}
+  [hidden]{display:none!important}
+  ::selection{background:var(--accent-soft);color:var(--accent-ink)}
+
+  a{color:var(--accent-ink)}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) a{color:var(--accent)}}
+  :root[data-theme="dark"] a{color:var(--accent)}
+
+  h1,h2,h3,h4{font-family:var(--serif); font-weight:600; text-wrap:balance; color:var(--ink); letter-spacing:-.01em}
+  .eyebrow{font-family:var(--mono); font-size:11.5px; letter-spacing:.11em; text-transform:uppercase; color:var(--accent-ink)}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .eyebrow{color:var(--accent)}}
+  :root[data-theme="dark"] .eyebrow{color:var(--accent)}
+
+  .shell{max-width:1180px; margin-inline:auto; display:grid; grid-template-columns:220px 1fr; gap:48px; padding-block:40px 96px; align-items:start}
+  @media (max-width:900px){ .shell{grid-template-columns:1fr} }
+
+  /* ---------- masthead ---------- */
+  .masthead{grid-column:1/-1; border-bottom:1px solid var(--line); padding-bottom:28px; margin-bottom:8px}
+  .masthead .eyebrow{margin-bottom:10px}
+  .masthead h1{font-size:clamp(28px,4vw,42px); margin:0 0 10px; line-height:1.08}
+  .masthead .lede{font-size:16.5px; color:var(--ink-soft); max-width:64ch; margin:0}
+  .masthead .meta{display:flex; gap:18px; flex-wrap:wrap; margin-top:18px; font-family:var(--mono); font-size:12px; color:var(--ink-faint)}
+  .masthead .meta b{color:var(--ink-soft); font-weight:500}
+
+  /* ---------- toc ---------- */
+  nav.toc{position:sticky; top:24px; display:flex; flex-direction:column; gap:2px; font-size:13.5px}
+  nav.toc .toc-title{font-family:var(--mono); font-size:11px; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:8px}
+  nav.toc a{display:block; padding:5px 10px; border-radius:6px; color:var(--ink-soft); text-decoration:none; border-left:2px solid transparent}
+  nav.toc a:hover{background:var(--paper-sunk); color:var(--ink)}
+  nav.toc a.indent{padding-left:22px; font-size:12.5px; color:var(--ink-faint)}
+  @media (max-width:900px){
+    nav.toc{position:static; flex-direction:row; flex-wrap:wrap; gap:6px; padding-bottom:8px; border-bottom:1px solid var(--line); margin-bottom:8px}
+    nav.toc a{border:1px solid var(--line); font-size:12.5px; padding:5px 9px}
+    nav.toc a.indent{display:none}
+  }
+
+  main{min-width:0; display:flex; flex-direction:column; gap:64px}
+  section{scroll-margin-top:20px}
+  section > .eyebrow{display:block; margin-bottom:8px}
+  section > h2{font-size:26px; margin:0 0 6px}
+  section > .dek{color:var(--ink-soft); max-width:68ch; margin:0 0 22px; font-size:14.5px}
+
+  /* ---------- chips ---------- */
+  .chip{display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:11px; font-weight:500; letter-spacing:.02em; padding:2.5px 8px; border-radius:20px; white-space:nowrap; line-height:1.5}
+  .chip::before{content:""; width:6px; height:6px; border-radius:50%; background:currentColor}
+  .chip.have{background:var(--have-soft); color:var(--have)}
+  .chip.partial{background:var(--partial-soft); color:var(--partial)}
+  .chip.missing{background:var(--missing-soft); color:var(--missing)}
+  .chip.wait{background:var(--wait-soft); color:var(--wait)}
+  .chip.skip{background:var(--skip-soft); color:var(--skip)}
+
+  .prio{font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.03em}
+  .prio.p1{color:var(--missing)}
+  .prio.p2{color:var(--partial)}
+  .prio.p3{color:var(--wait)}
+  .prio.p4{color:var(--skip)}
+
+  /* ---------- matrix table ---------- */
+  .table-wrap{overflow-x:auto; border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); background:var(--paper-raised)}
+  table.matrix{border-collapse:collapse; width:100%; min-width:1220px; font-size:13.3px}
+  table.matrix caption{caption-side:top; text-align:left; padding:14px 16px; font-family:var(--mono); font-size:11.5px; color:var(--ink-faint); border-bottom:1px solid var(--line)}
+  table.matrix th, table.matrix td{padding:10px 13px; text-align:left; vertical-align:top; border-bottom:1px solid var(--line)}
+  table.matrix thead th{position:sticky; top:0; background:var(--paper-raised); font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); font-weight:500; z-index:2; border-bottom:1px solid var(--line-strong)}
+  table.matrix td:first-child, table.matrix th:first-child{position:sticky; left:0; background:var(--paper-raised); z-index:1; box-shadow:1px 0 0 var(--line)}
+  table.matrix tbody tr:hover td{background:var(--paper-sunk)}
+  table.matrix tbody tr:hover td:first-child{background:var(--paper-sunk)}
+  table.matrix .omrade-rad td{background:var(--accent-soft); font-family:var(--serif); font-weight:600; font-size:13.5px; color:var(--accent-ink); border-top:1px solid var(--accent-soft-line); border-bottom:1px solid var(--accent-soft-line)}
+  table.matrix .omrade-rad td:first-child{background:var(--accent-soft)}
+  table.matrix td.mono, table.matrix .mono{font-family:var(--mono); font-size:12px; color:var(--ink-soft)}
+  table.matrix td.funksjon{font-weight:500}
+  table.matrix td.gap, table.matrix td.losning{color:var(--ink-soft); max-width:230px}
+
+  /* ---------- bucket cards ---------- */
+  .buckets{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px}
+  .bucket{background:var(--paper-raised); border:1px solid var(--line); border-radius:10px; padding:18px 18px 16px; box-shadow:var(--shadow)}
+  .bucket .num{font-family:var(--mono); font-size:11px; color:var(--ink-faint)}
+  .bucket h3{font-size:16px; margin:4px 0 10px; display:flex; align-items:center; gap:8px}
+  .bucket ul{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:13.3px; color:var(--ink-soft)}
+  .bucket ul li::marker{color:var(--ink-faint)}
+  .bucket.have{border-top:3px solid var(--have)}
+  .bucket.partial{border-top:3px solid var(--partial)}
+  .bucket.missing{border-top:3px solid var(--missing)}
+  .bucket.wait{border-top:3px solid var(--wait)}
+  .bucket.skip{border-top:3px solid var(--skip)}
+
+  /* ---------- cross-cutting grid ---------- */
+  .cross-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px}
+  .cross-card{background:var(--paper-raised); border:1px solid var(--line); border-radius:10px; padding:14px 16px; display:flex; flex-direction:column; gap:6px}
+  .cross-card .head{display:flex; justify-content:space-between; align-items:baseline; gap:10px}
+  .cross-card .head b{font-family:var(--serif); font-size:14.5px; font-weight:600}
+  .cross-card p{margin:0; font-size:13px; color:var(--ink-soft)}
+
+  /* ---------- bulk deep-dive ---------- */
+  .bulk-table{width:100%; border-collapse:collapse; font-size:13.5px; background:var(--paper-raised); border:1px solid var(--line); border-radius:10px; overflow:hidden; box-shadow:var(--shadow)}
+  .bulk-table th{text-align:left; font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); padding:10px 14px; border-bottom:1px solid var(--line-strong); background:var(--paper-sunk)}
+  .bulk-table td{padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  .bulk-table tr:last-child td{border-bottom:none}
+  .bulk-table td.behov{font-weight:500}
+
+  .callout{background:var(--accent-soft); border:1px solid var(--accent-soft-line); border-radius:10px; padding:16px 18px; font-size:13.8px; color:var(--accent-ink)}
+  .callout b{font-weight:600}
+
+  /* ---------- roadmap ---------- */
+  .roadmap{display:flex; flex-direction:column; gap:0; counter-reset:fase}
+  .phase{display:grid; grid-template-columns:64px 1fr; gap:0 22px; position:relative}
+  .phase .rail{display:flex; flex-direction:column; align-items:center}
+  .phase .dot{width:34px; height:34px; border-radius:50%; background:var(--paper-raised); border:1.5px solid var(--accent-soft-line); color:var(--accent-ink); font-family:var(--mono); font-weight:600; font-size:13px; display:flex; align-items:center; justify-content:center; flex:none; z-index:1}
+  .phase .stem{width:1.5px; flex:1; background:var(--line-strong); margin:2px 0}
+  .phase:last-child .stem{display:none}
+  .phase .card{background:var(--paper-raised); border:1px solid var(--line); border-radius:10px; padding:18px 20px 18px; margin-bottom:22px; box-shadow:var(--shadow)}
+  .phase .card .top{display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap}
+  .phase .card h3{font-size:18px; margin:0}
+  .phase .tags{display:flex; gap:6px; flex-wrap:wrap}
+  .phase .why{font-size:13.6px; color:var(--ink-soft); margin:8px 0 12px; max-width:70ch}
+  .phase dl{display:grid; grid-template-columns:auto 1fr; gap:5px 14px; font-size:13px; margin:0}
+  .phase dt{font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); padding-top:2px; white-space:nowrap}
+  .phase dd{margin:0; color:var(--ink-soft)}
+  .scope{font-family:var(--mono); font-size:11px; padding:2px 8px; border-radius:5px; border:1px solid var(--line-strong); color:var(--ink-soft)}
+  .scope.liten{color:var(--have)} .scope.medium{color:var(--partial)} .scope.stor{color:var(--missing)}
+
+  footer{grid-column:1/-1; border-top:1px solid var(--line); padding-top:20px; margin-top:8px; font-size:12.5px; color:var(--ink-faint); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px}
+
+  @media (max-width:640px){
+    .phase{grid-template-columns:40px 1fr}
+    .phase .dot{width:28px;height:28px;font-size:11px}
+    table.matrix{min-width:980px}
+  }
+</style>
+
+<div class="shell">
+  <div class="masthead">
+    <span class="eyebrow">Teknisk og strategisk gjennomgang · IPR Kurs</span>
+    <h1>Pindena → IPR<br>gap-analyse</h1>
+    <p class="lede">En funksjonell sammenligning mellom dagens Pindena-bruk og det nye kurssystemet, basert på gjennomgang av hele kodebasen etter fase 1–10. Pindena er brukt som referanse for arbeidsflyt — ikke som fasit for hvordan IPR skal se ut eller fungere teknisk.</p>
+    <div class="meta">
+      <span><b>Grunnlag:</b> schema.sql, 55 admin-/offentlige ruter, 41 maler, daglig.py, e-postmaler, fase 1–10</span>
+      <span><b>Dato:</b> 19. september 2026</span>
+      <span><b>Status:</b> til vurdering — ingen fase besluttet</span>
+    </div>
+  </div>
+
+  <nav class="toc">
+    <div class="toc-title">Innhold</div>
+    <a href="#metode">Metode</a>
+    <a href="#matrise">Funksjonsmatrise</a>
+    <a class="indent" href="#m-nav">A · Navigasjon</a>
+    <a class="indent" href="#m-kurs">B–C · Kurs</a>
+    <a class="indent" href="#m-deltakere">D · Deltakere</a>
+    <a class="indent" href="#m-komm">E · Kommunikasjon</a>
+    <a class="indent" href="#m-bevis">F · Kursbevis</a>
+    <a class="indent" href="#m-produkt">G · Produkter/pris</a>
+    <a class="indent" href="#m-rapport">H · Rapporter</a>
+    <a class="indent" href="#m-ovrig">I–L · SMS/Media/Grupper/Survey</a>
+    <a href="#tverrgaende">Tverrgående vurdering</a>
+    <a href="#bulk">Bulk-handlinger</a>
+    <a href="#bokstaver">De fem bøttene</a>
+    <a href="#veikart">Veikart fase 11+</a>
+  </nav>
+
+  <main>
+
+    <section id="metode">
+      <span class="eyebrow">Metode</span>
+      <h2>Hvordan analysen er gjort</h2>
+      <p class="dek">Ingen kode er endret. Vurderingen er basert på faktisk lesing av <code class="mono">schema.sql</code>, samtlige ruter i <code class="mono">kurs/web/app.py</code>, alle maler i <code class="mono">kurs/web/templates/</code> og <code class="mono">kurs/maler/epost/</code>, samt <code class="mono">daglig.py</code>, <code class="mono">db.py</code>, <code class="mono">sveiper.py</code>, <code class="mono">kursbevis.py</code>, <code class="mono">import_deltakere.py</code> og <code class="mono">assistent.py</code> — ikke antagelser om hva som «sikkert» finnes. Pindena-skjermbildene fra forrige økt er brukt som funksjonell referanse for global navigasjon, deltakerstatuser, e-postoppsett, flettekoder, kursbevis og produktkatalog.</p>
+    </section>
+
+    <section id="matrise">
+      <span class="eyebrow">Del 1</span>
+      <h2>Funksjonsmatrise</h2>
+      <p class="dek">Grønn <span class="chip have">har</span> betyr fullt dekket og fungerer. <span class="chip partial">delvis</span> betyr grunnmuren finnes, men mangler noe reelt. <span class="chip missing">mangler</span> betyr ikke bygget. <span class="chip wait">kan vente</span> og <span class="chip skip">trenger neppe</span> er egne vurderinger, ikke «mangler».</p>
+
+      <div id="m-nav" class="table-wrap">
+        <table class="matrix">
+          <caption>A · Global navigasjon</caption>
+          <thead><tr><th>Pindena-funksjon</th><th>Status</th><th>Hva vi har i dag</th><th>Gap</th><th>Anbefalt løsning</th><th>Prioritet</th><th>Fase</th></tr></thead>
+          <tbody>
+            <tr><td class="funksjon">Aktiviteter/kurs</td><td><span class="chip have">har</span></td><td>Egen hovedseksjon, mer filter/sortering enn Pindena-skjermbildet viser</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">—</td></tr>
+            <tr><td class="funksjon">Rapporter</td><td><span class="chip partial">delvis</span></td><td>Kurs-, deltaker- og nøkkeltallsrapport (fase 6)</td><td class="gap">Ordre/bilag, økonomi per måned mangler</td><td class="losning">Utvid rapportmodulen</td><td class="prio p3">P3</td><td class="mono">14</td></tr>
+            <tr><td class="funksjon">Nettside</td><td><span class="chip partial">delvis</span></td><td>Én «Nettside»-fane per kurs (offentlig påmeldingsside)</td><td class="gap">Ingen generell innholdsseksjon utenfor kurs</td><td class="losning">Ikke nødvendig som egen modul — vurder kun ved konkret behov</td><td class="prio p4">P4</td><td class="mono">—</td></tr>
+            <tr><td class="funksjon">Maler</td><td><span class="chip partial">delvis</span></td><td>11 e-postmaler + 1 kursbevismal, som Jinja2-filer</td><td class="gap">Ingen admin-UI, krever filredigering</td><td class="losning">Se E · Kommunikasjon</td><td class="prio p2">P2</td><td class="mono">12</td></tr>
+            <tr><td class="funksjon">Produkter</td><td><span class="chip missing">mangler</span></td><td>Flat <code class="mono">kurs.pris_nok</code> per kurs</td><td class="gap">Ingen produktkatalog/varianter</td><td class="losning">Se G · Produkter</td><td class="prio p3">P3</td><td class="mono">15</td></tr>
+            <tr><td class="funksjon">Media</td><td><span class="chip partial">delvis</span></td><td><code class="mono">dokument</code>-tabell + SharePoint-lenker (fase-uavh.)</td><td class="gap">Ikke noe eget «bibliotek»-grensesnitt i admin</td><td class="losning">Sannsynligvis unødvendig — SharePoint er alt kilden</td><td class="prio p4">P4</td><td class="mono">—</td></tr>
+            <tr><td class="funksjon">Grupper</td><td><span class="chip missing">mangler</span></td><td>Ingen tabell, ingen konsept</td><td class="gap">Ingen deltakergruppering utover kurs/status/ansvarlig</td><td class="losning">Trenger sannsynligvis ikke — dekkes av filtre</td><td class="prio p4">P4</td><td class="mono">—</td></tr>
+            <tr><td class="funksjon">Spørreundersøkelser</td><td><span class="chip missing">mangler</span></td><td>Ingen tabell, ingen konsept</td><td class="gap">Ingen evaluering etter kurs</td><td class="losning">Vurder som eget delsystem hvis behov bekreftes</td><td class="prio p3">P3</td><td class="mono">16</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="m-kurs" class="table-wrap" style="margin-top:22px">
+        <table class="matrix">
+          <caption>B–C · Kurs / aktiviteter (inkl. kursfaner)</caption>
+          <thead><tr><th>Pindena-funksjon</th><th>Status</th><th>Hva vi har</th><th>Gap</th><th>Anbefalt løsning</th><th>Prioritet</th><th>Fase</th></tr></thead>
+          <tbody>
+            <tr><td class="funksjon">Listevisning m/ søk, filter, sortering</td><td><span class="chip have">har</span></td><td><code class="mono">admin_aktiviteter</code>: søk, mine, ansvarlig, status, sted, sortering, paginering</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">1</td></tr>
+            <tr><td class="funksjon">Kalendervisning</td><td><span class="chip have">har</span></td><td><code class="mono">admin_kalender</code>, samme filtre som listen</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">8</td></tr>
+            <tr><td class="funksjon">Opprette / redigere</td><td><span class="chip have">har</span></td><td><code class="mono">admin_ny_kurs</code>, <code class="mono">admin_kurs_oppsett</code></td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">1, 4</td></tr>
+            <tr><td class="funksjon">Duplisere</td><td><span class="chip have">har</span></td><td>Prefill fra eksisterende kurs, starter som utkast</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">8</td></tr>
+            <tr><td class="funksjon">Status</td><td><span class="chip have">har</span></td><td>utkast/åpen/full/aktiv/avsluttet/avlyst m/definerte overganger</td><td class="gap">–</td><td class="losning">Vurder om «avlyst» trenger en synlig kreditering-sjekkliste</td><td class="prio p4">P4</td><td class="mono">4</td></tr>
+            <tr><td class="funksjon">Kapasitet / venteliste</td><td><span class="chip have">har</span></td><td>Automatisk opprykk ved avmelding/kapasitetsendring</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">4</td></tr>
+            <tr><td class="funksjon">Ansvarlig</td><td><span class="chip have">har</span></td><td><code class="mono">ansvarlig_admin_id</code>, «vis bare mine»</td><td class="gap">«Mine» er kun en visningsfilter, ikke en tilgangsbegrensning</td><td class="losning">Se «roller» i tverrgående vurdering</td><td class="prio p2">P2</td><td class="mono">13</td></tr>
+            <tr><td class="funksjon">Kursfaner: Oppsett/Nettside/Deltakere/Kommunikasjon</td><td><span class="chip have">har</span></td><td>Strukturelt identisk med Pindenas kursmeny</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">1–5</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="m-deltakere" class="table-wrap" style="margin-top:22px">
+        <table class="matrix">
+          <caption>D · Deltakere</caption>
+          <thead><tr><th>Pindena-funksjon</th><th>Status</th><th>Hva vi har</th><th>Gap</th><th>Anbefalt løsning</th><th>Prioritet</th><th>Fase</th></tr></thead>
+          <tbody>
+            <tr><td class="funksjon">Søk / filtrering</td><td><span class="chip have">har</span></td><td>Søk + statusfilter på deltakerlisten</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">1</td></tr>
+            <tr><td class="funksjon">Statusoversikt / tellinger</td><td><span class="chip have">har</span></td><td>Bekreftet/venteliste/avmeldt/totalt</td><td class="gap">Ingen «avslått»-status (se nedenfor)</td><td class="losning">Vurder egen status ved reelt behov</td><td class="prio p3">P3</td><td class="mono">17</td></tr>
+            <tr><td class="funksjon">12 pipeline-statuser (Importert→Forlatt)</td><td><span class="chip skip">trenger neppe</span></td><td>3 statuser (bekreftet/venteliste/avmeldt) + interne flagg</td><td class="gap">Bevisst forenklet — matcher «fjern unødvendig kompleksitet»</td><td class="losning">Behold forenklingen. Vurder kun «avslått» separat</td><td class="prio p4">P4</td><td class="mono">—</td></tr>
+            <tr><td class="funksjon">Venteliste</td><td><span class="chip have">har</span></td><td>Helautomatisk, med opprykk</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">4</td></tr>
+            <tr><td class="funksjon">Import (CSV/Excel)</td><td><span class="chip have">har</span></td><td>Forhåndsvisning, atomisk import, personvernsikret preview</td><td class="gap">Kun CSV, maks 300 rader</td><td class="losning">God nok — utvid kun ved reelt volumbehov</td><td class="prio p4">P4</td><td class="mono">10</td></tr>
+            <tr><td class="funksjon">Manuell registrering</td><td><span class="chip have">har</span></td><td>Fullt skjema + eksplisitt utsatt behandling</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">9</td></tr>
+            <tr><td class="funksjon">Redigering</td><td><span class="chip have">har</span></td><td>Person- og påmeldingsfelt separat redigerbare</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">3</td></tr>
+            <tr><td class="funksjon">Avmelding</td><td><span class="chip have">har</span></td><td>Med automatisk venteliste-opprykk</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">3</td></tr>
+            <tr><td class="funksjon">Massehandlinger (Send/Eksporter/status)</td><td><span class="chip missing">mangler</span></td><td>Kun «send e-post til valgte»</td><td class="gap">Ingen bulk fakturering, statusendring eller filtrert eksport</td><td class="losning">Se eget avsnitt om bulk-handlinger</td><td class="prio p1">P1</td><td class="mono">11</td></tr>
+            <tr><td class="funksjon">Eksport</td><td><span class="chip partial">delvis</span></td><td>CSV for hele kurset + deltakerregister på tvers</td><td class="gap">Eksport følger ikke skjermens søk/filter/utvalg</td><td class="losning">Utvid eksport til å ta samme parametre som visningen</td><td class="prio p2">P2</td><td class="mono">11</td></tr>
+            <tr><td class="funksjon">Betalingsstatus</td><td><span class="chip have">har</span></td><td>Avledet: Ikke fakturert/Fakturert/Delvis betalt/Betalt</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">1</td></tr>
+            <tr><td class="funksjon">Deltakerprofil</td><td><span class="chip have">har</span></td><td>Faner: Deltaker/Kommunikasjon/Logger</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">2</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="m-komm" class="table-wrap" style="margin-top:22px">
+        <table class="matrix">
+          <caption>E · Kommunikasjon</caption>
+          <thead><tr><th>Pindena-funksjon</th><th>Status</th><th>Hva vi har</th><th>Gap</th><th>Anbefalt løsning</th><th>Prioritet</th><th>Fase</th></tr></thead>
+          <tbody>
+            <tr><td class="funksjon">Avsendernavn / svaradresse</td><td><span class="chip partial">delvis</span></td><td><code class="mono">AVSENDER_NAVN</code>/<code class="mono">AVSENDER_EPOST</code> — global for hele instansen</td><td class="gap">Ikke konfigurerbart per kurs, slik Pindena viser</td><td class="losning">Legg felt på kurs, fall tilbake til global</td><td class="prio p2">P2</td><td class="mono">12</td></tr>
+            <tr><td class="funksjon">Blindkopi</td><td><span class="chip partial">delvis</span></td><td><code class="mono">epost.send(..., kopi=)</code> finnes teknisk</td><td class="gap">Ingen admin-UI kobler den til noe</td><td class="losning">Eksponer som felt i kursoppsett</td><td class="prio p3">P3</td><td class="mono">12</td></tr>
+            <tr><td class="funksjon">Testadresse</td><td><span class="chip missing">mangler</span></td><td>Kun inline forhåndsvisning (rendret HTML på siden)</td><td class="gap">Ingen reell test-e-post kan sendes</td><td class="losning">«Send testmail til meg»-knapp på forhåndsvisning</td><td class="prio p3">P3</td><td class="mono">12</td></tr>
+            <tr><td class="funksjon">Maler m/ flettekode-editor</td><td><span class="chip partial">delvis</span></td><td>11 Jinja2-maler, full programmeringskraft</td><td class="gap">Krever filredigering — ikke for ikke-tekniske admins</td><td class="losning">Admin-UI m/ trygg undermengde av flettekoder</td><td class="prio p1">P1</td><td class="mono">12</td></tr>
+            <tr><td class="funksjon">Invitasjoner</td><td><span class="chip partial">delvis</span></td><td>Automatiske påminnelser (uke før/dagen før)</td><td class="gap">Ingen egen «du er invitert til å melde deg på»-e-post</td><td class="losning">Lav prioritet — IPR sin flyt starter typisk med åpent kurs, ikke invitasjon</td><td class="prio p4">P4</td><td class="mono">—</td></tr>
+            <tr><td class="funksjon">Automatiske e-poster</td><td><span class="chip have">har</span></td><td>Bekreftelse, venteliste, avlysning, påminnelser, kursbevis, purring, eskalering</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">1–8</td></tr>
+            <tr><td class="funksjon">Manuelle e-poster</td><td><span class="chip have">har</span></td><td>Forhåndsvisning + dobbeltklikk-vern (fase 5)</td><td class="gap">Kun til ett kurs av gangen (naturlig avgrensning)</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">5</td></tr>
+            <tr><td class="funksjon">Personvernerklæring-lenke</td><td><span class="chip missing">mangler</span></td><td>Checkboks finnes i alle påmeldingsskjema</td><td class="gap"><code class="mono">href="#"</code> — peker ingen steder, i to skjema</td><td class="losning">Rett lenke til reell personvernside</td><td class="prio p1">P1</td><td class="mono">12</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="m-bevis" class="table-wrap" style="margin-top:22px">
+        <table class="matrix">
+          <caption>F · Kursbevis</caption>
+          <thead><tr><th>Pindena-funksjon</th><th>Status</th><th>Hva vi har</th><th>Gap</th><th>Anbefalt løsning</th><th>Prioritet</th><th>Fase</th></tr></thead>
+          <tbody>
+            <tr><td class="funksjon">Automatisk generering</td><td><span class="chip have">har</span></td><td>HTML per deltaker ved kursslutt, lagt på Min side + varslet</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">1–2</td></tr>
+            <tr><td class="funksjon">Oppmøteterskel</td><td><span class="chip partial">delvis</span></td><td>Hardkodet 100 % oppmøte (<code class="mono">MIN_ANDEL</code>)</td><td class="gap">Ikke konfigurerbart per kurs</td><td class="losning">Gjør til kursfelt med samme default</td><td class="prio p3">P3</td><td class="mono">12</td></tr>
+            <tr><td class="funksjon">Malvalg</td><td><span class="chip missing">mangler</span></td><td>Én fast mal (<code class="mono">kurs/maler/kursbevis.html</code>)</td><td class="gap">Ingen valg mellom design/varianter</td><td class="losning">Lav prioritet — utenfor fase 12 sitt omfang, vurder først om reelt behov finnes</td><td class="prio p3">P3</td><td class="mono">—</td></tr>
+            <tr><td class="funksjon">Admin-redigering + forhåndsvisning</td><td><span class="chip missing">mangler</span></td><td>Ingen UI — kun filredigering</td><td class="gap">Samme rotårsak som e-postmaler</td><td class="losning">Samme løsning som E · Kommunikasjon — begge deler bygges i fase 12</td><td class="prio p2">P2</td><td class="mono">12</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="m-produkt" class="table-wrap" style="margin-top:22px">
+        <table class="matrix">
+          <caption>G · Produkter / priser</caption>
+          <thead><tr><th>Pindena-funksjon</th><th>Status</th><th>Hva vi har</th><th>Gap</th><th>Anbefalt løsning</th><th>Prioritet</th><th>Fase</th></tr></thead>
+          <tbody>
+            <tr><td class="funksjon">Produktkatalog (nr/navn/alias)</td><td><span class="chip missing">mangler</span></td><td>Ingen egen tabell — pris ligger flatt på kurset</td><td class="gap">Kan ikke gjenbruke «produkter» på tvers av kurs</td><td class="losning">Vurder kun hvis flere kurs faktisk deler prisstruktur</td><td class="prio p3">P3</td><td class="mono">15</td></tr>
+            <tr><td class="funksjon">Rabatt / rabattprodukter</td><td><span class="chip missing">mangler</span></td><td><code class="mono">paamelding.rabattkode</code> finnes i skjema, men brukes <b>ingen steder</b> i koden</td><td class="gap">Reell, ubrukt kolonne — enten fjern eller implementer</td><td class="losning">Avklar behov før fase 15 — kolonnen bør ikke bare ligge død</td><td class="prio p2">P2</td><td class="mono">15</td></tr>
+            <tr><td class="funksjon">Ulike prisvalg</td><td><span class="chip have">har</span></td><td>samlet / per_samling / deltaker_velger per kurs</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">1</td></tr>
+            <tr><td class="funksjon">Kobling til aktiviteter</td><td><span class="chip skip">trenger neppe</span></td><td>1:1 pris↔kurs er tilstrekkelig for dagens volum</td><td class="gap">–</td><td class="losning">Behold flat modell inntil videre</td><td class="prio p4">P4</td><td class="mono">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="m-rapport" class="table-wrap" style="margin-top:22px">
+        <table class="matrix">
+          <caption>H · Rapporter</caption>
+          <thead><tr><th>Pindena-funksjon</th><th>Status</th><th>Hva vi har</th><th>Gap</th><th>Anbefalt løsning</th><th>Prioritet</th><th>Fase</th></tr></thead>
+          <tbody>
+            <tr><td class="funksjon">Deltakere</td><td><span class="chip have">har</span></td><td>Deltakerregister på tvers av kurs, personvernsikret</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">6</td></tr>
+            <tr><td class="funksjon">Aktiviteter / nøkkeltall</td><td><span class="chip have">har</span></td><td>Kurs-rapport + dashbord (deltakelser, venteliste, avlyste, fakturert)</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">6</td></tr>
+            <tr><td class="funksjon">Betaling</td><td><span class="chip partial">delvis</span></td><td>Fakturasum per kurs, betalingsstatus per deltaker</td><td class="gap">Ingen egen betalingsrapport på tvers av kurs</td><td class="losning">Ny rapport basert på eksisterende <code class="mono">faktura</code>-tabell</td><td class="prio p2">P2</td><td class="mono">14</td></tr>
+            <tr><td class="funksjon">Ordre / bilag</td><td><span class="chip missing">mangler</span></td><td>–</td><td class="gap">Ingen fakturaliste-rapport</td><td class="losning">Bygges av eksisterende <code class="mono">faktura</code>-data — ingen nye tabeller</td><td class="prio p2">P2</td><td class="mono">14</td></tr>
+            <tr><td class="funksjon">Økonomi per måned</td><td><span class="chip missing">mangler</span></td><td>–</td><td class="gap">Ingen periodisert økonomirapport</td><td class="losning">Ny rapport, samme datagrunnlag som over</td><td class="prio p2">P2</td><td class="mono">14</td></tr>
+            <tr><td class="funksjon">Økonomi per deltaker</td><td><span class="chip partial">delvis</span></td><td>Person-detaljrapport finnes (fase 6)</td><td class="gap">Ikke fakturasum/-historikk samlet der</td><td class="losning">Utvid person-rapporten</td><td class="prio p3">P3</td><td class="mono">14</td></tr>
+            <tr><td class="funksjon">Eksport</td><td><span class="chip have">har</span></td><td>CSV med UTF-8 BOM, samme mønster overalt</td><td class="gap">–</td><td class="losning">–</td><td class="prio p4">–</td><td class="mono">6</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="m-ovrig" class="table-wrap" style="margin-top:22px">
+        <table class="matrix">
+          <caption>I–L · SMS, Media, Grupper, Spørreundersøkelser</caption>
+          <thead><tr><th>Pindena-funksjon</th><th>Status</th><th>Hva vi har</th><th>Gap</th><th>Anbefalt løsning</th><th>Prioritet</th><th>Fase</th></tr></thead>
+          <tbody>
+            <tr><td class="funksjon">SMS-utsending</td><td><span class="chip missing">mangler</span></td><td>Ingen SMS-integrasjon i det hele tatt</td><td class="gap">–</td><td class="losning">Trenger sannsynligvis ikke — avklar med IPR om reelt behov finnes først</td><td class="prio p4">P4</td><td class="mono">—</td></tr>
+            <tr><td class="funksjon">Media/filbibliotek</td><td><span class="chip partial">delvis</span></td><td><code class="mono">dokument</code>-tabell + SharePoint-mappe per kurs</td><td class="gap">Ikke et eget «bla i alt innhold»-grensesnitt</td><td class="losning">Trenger sannsynligvis ikke — SharePoint er etablert kilde</td><td class="prio p4">P4</td><td class="mono">—</td></tr>
+            <tr><td class="funksjon">Grupper (deltaker)</td><td><span class="chip missing">mangler</span></td><td>Ingen gruppetabell — kun kurs/status/ansvarlig-filtre</td><td class="gap">–</td><td class="losning">Trenger sannsynligvis ikke — vurder enkel tagging senere ved konkret behov</td><td class="prio p4">P4</td><td class="mono">—</td></tr>
+            <tr><td class="funksjon">Spørreundersøkelser/evaluering</td><td><span class="chip missing">mangler</span></td><td>–</td><td class="gap">Ingen evaluering etter kurs, ingen resultatrapportering</td><td class="losning">Nytt, avgrenset delsystem — reell verdi for videreutdanningskurs (kvalitetssikring)</td><td class="prio p3">P3</td><td class="mono">16</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tverrgaende">
+      <span class="eyebrow">Del 2</span>
+      <h2>Tverrgående vurdering</h2>
+      <p class="dek">Områder som ikke er én funksjon, men egenskaper ved hele systemet.</p>
+      <div class="cross-grid">
+        <div class="cross-card"><div class="head"><b>Personvern / GDPR</b><span class="chip have">sterkt</span></div><p>Konsekvent gjennomført siden fase 1: <code class="mono">sensitivt</code> adskilt og auto-slettet, aldri persondata i <code class="mono">hendelse</code>, verifisert med egne tester i hver fase. Ett konkret hull: personvernerklæring-lenken virker ikke (se E).</p></div>
+        <div class="cross-card"><div class="head"><b>Roller / admin-rettigheter</b><span class="chip missing">svakt</span></div><p><code class="mono">admin_bruker</code> har ingen rolle-/rettighetskolonne. Alle admin-brukere har full tilgang til alt. «Vis bare mine» er kun en visningsfilter, ikke en sperre.</p></div>
+        <div class="cross-card"><div class="head"><b>Logging / sporbarhet</b><span class="chip have">sterkt</span></div><p><code class="mono">hendelse</code>-tabellen brukes konsekvent, med aktør og handling for nesten alt som skjer — inkludert fase 9/10 sine eksplisitte samle-logginnslag uten persondata.</p></div>
+        <div class="cross-card"><div class="head"><b>Bulkhandlinger</b><span class="chip missing">svakt</span></div><p>Kun bulk-e-post finnes. Se eget avsnitt.</p></div>
+        <div class="cross-card"><div class="head"><b>Søk / filter</b><span class="chip have">sterkt</span></div><p>Gjennomgående godt utbygd på aktivitetslisten og deltakerlisten — trolig bedre enn det Pindena-skjermbildene viser.</p></div>
+        <div class="cross-card"><div class="head"><b>Universell utforming</b><span class="chip partial">ukjent</span></div><p>Ikke systematisk vurdert i noen fase. Enkle HTML-skjema uten ARIA-gjennomgang. Bør kartlegges separat, ikke gjettes på her.</p></div>
+        <div class="cross-card"><div class="head"><b>Mobilbruk</b><span class="chip partial">delvis</span></div><p>Ingen egen mobilmal — admin-grensesnittet er bygget for desktop-bruk (tabeller, sidepaneler). Trolig lav risiko siden admin-arbeid typisk gjøres på PC.</p></div>
+        <div class="cross-card"><div class="head"><b>Feil / recovery</b><span class="chip have">sterkt</span></div><p>Gjennomtenkt gjennom hele fase 9/10: SAVEPOINT-basert forhåndsvisning, atomisk import, eksplisitt gjenoppretting ved driftsstans i sveiper/fakturering.</p></div>
+        <div class="cross-card"><div class="head"><b>Idempotens</b><span class="chip have">sterkt</span></div><p>Eksplisitt krav i CLAUDE.md, testet for daglig jobb i hver fase som rører den.</p></div>
+        <div class="cross-card"><div class="head"><b>Sikkerhet</b><span class="chip have">god</span></div><p>Passordhashing, signerte/tilfeldige tokens, route-spesifikke størrelsesgrenser (fase 10), ingen hemmeligheter i kode. Svakheten er rollemodellen, ikke autentisering.</p></div>
+        <div class="cross-card"><div class="head"><b>Automatisering</b><span class="chip have">sterkt</span></div><p><code class="mono">daglig.py</code> dekker sveiper, Zoom, innkallinger, kursbevis, purring, personvernsletting, og nå import-opprydding — én samlet, idempotent jobb.</p></div>
+        <div class="cross-card"><div class="head"><b>Konsistens kurs/deltaker/økonomi</b><span class="chip have">god</span></div><p>Én kilde til sannhet per konsept (<code class="mono">db.meld_paa()</code>, <code class="mono">faktura</code>-tabellen) — bevisst unngått parallelle motorer gjennom fase 9 og 10.</p></div>
+        <div class="cross-card"><div class="head"><b>Klikk per arbeidsoppgave</b><span class="chip partial">varierer</span></div><p>Enkeltregistrering/-redigering er raskt (2–3 klikk). Massearbeid (f.eks. behandle 20 importerte deltakere) krever i dag ett klikk <i>per deltaker</i> — se bulk-avsnittet.</p></div>
+      </div>
+    </section>
+
+    <section id="bulk">
+      <span class="eyebrow">Del 3 · vurdert eksplisitt, som avtalt</span>
+      <h2>Bulk-handlinger</h2>
+      <p class="dek">Vi har nå tre distinkte, en-om-gangen-flyter (manuell registrering, CSV-import, eksplisitt behandling), alle bevisst bygget slik at ingenting sendes automatisk. Spørsmålet er ikke <i>om</i> massehandlinger er nyttig — det er de — men <i>hvilke</i>, og om risikoen ved å bygge dem nå oppveier verdien.</p>
+
+      <div class="table-wrap">
+        <table class="bulk-table">
+          <thead><tr><th style="width:26%">Behov</th><th style="width:16%">I dag</th><th>Vurdering</th></tr></thead>
+          <tbody>
+            <tr><td class="behov">Velg flere deltakere</td><td><span class="chip have">har</span></td><td>Avkrysningsmekanismen finnes allerede (brukt til bulk-e-post, fase 5) og kan gjenbrukes direkte — lav teknisk risiko.</td></tr>
+            <tr><td class="behov">Send bekreftelse til flere</td><td><span class="chip missing">mangler</span></td><td>Naturlig utvidelse av fase 9 sin «Send bekreftelse og behandle fakturering nå» til en løkke over valgte rader. Samme atomicitets- og dedupliseringsprinsipper må gjelde <i>per rad</i> (én rad kan lykkes, en annen feile — det må ikke stoppe resten, men heller ikke late som alt gikk bra).</td></tr>
+            <tr><td class="behov">Behandle fakturering for flere</td><td><span class="chip missing">mangler</span></td><td>Samme mekanisme som over — bekreftelse og fakturering behandles allerede sammen i eksisterende <code class="mono">sveiper.kjor()</code>. Ingen ny fakturalogikk trengs, kun en løkke med tydelig per-rad-resultat.</td></tr>
+            <tr><td class="behov">Eksportere utvalg</td><td><span class="chip partial">delvis</span></td><td>Lavest risiko av alle — CSV-eksporten må bare ta samme filterparametre (søk/status/valgte) som visningen allerede har. Ingen skriving til databasen involvert.</td></tr>
+            <tr><td class="behov">Endre status på flere</td><td><span class="chip missing">mangler</span></td><td>Høyest risiko: statusendring påvirker kapasitet/venteliste-beregning, som i dag er skrevet for én rad av gangen. Krever samme «revalider mot fersk tilstand»-tankegang som fase 10 sin bekreft-rute, ikke en enkel løkke.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout" style="margin-top:16px">
+        <b>Anbefaling:</b> bygg bulk-handlinger som egen, avgrenset fase (11) rett etter fase 10 — mønsteret (forhåndsvisning → eksplisitt bekreftelse → behandling → tydelig resultat) er allerede bevist to ganger (fase 9 og 10) og bør gjenbrukes, ikke lages på nytt. Viktig presisering: i motsetning til fase 10 sin CSV-import (som kun skriver til lokal database og derfor kan være fullt atomisk), utløser «send/behandle» ekte eksterne sideeffekter (e-post, Visma) som ikke kan rulles tilbake — behandlingen må derfor være <i>idempotent per deltaker</i>, ikke én stor alt-eller-ingenting-transaksjon. Fase 11 avgrenses til <i>eksport av utvalg</i> og <i>send/behandle for flere</i> (lavest risiko, størst tidsbesparelse). <i>Bulk statusendring</i> bygges bevisst ikke i denne omgangen — den rører kapasitets-/ventelistelogikk og fortjener egen, separat vurdering med samme grundighet som fase 9/10 fikk.
+      </div>
+    </section>
+
+    <section id="bokstaver">
+      <span class="eyebrow">Del 4</span>
+      <h2>De fem bøttene</h2>
+      <div class="buckets">
+        <div class="bucket have">
+          <span class="num">01</span>
+          <h3><span class="chip have">Har</span> Trenger ikke bygges på nytt</h3>
+          <ul>
+            <li>Kurs: CRUD, kalender, duplisering, status/kapasitet/venteliste</li>
+            <li>Deltakerprofil m/ faner</li>
+            <li>Automatiske e-poster (8 typer)</li>
+            <li>Manuell e-post m/ forhåndsvisning</li>
+            <li>Manuell registrering (fase 9)</li>
+            <li>CSV-import m/ forhåndsvisning (fase 10)</li>
+            <li>Kursbevis-generering</li>
+            <li>Rapporter: kurs, deltakere, nøkkeltall</li>
+            <li>Innsjekk (QR/kode) + Min side</li>
+            <li>KI-assistent — <i>Pindena har ikke dette</i></li>
+          </ul>
+        </div>
+        <div class="bucket partial">
+          <span class="num">02</span>
+          <h3><span class="chip partial">Delvis</span> Bør forbedres</h3>
+          <ul>
+            <li>E-postmaler: fra fil til admin-UI</li>
+            <li>Kursbevis: fleksibel terskel + redigering</li>
+            <li>Eksport: følg filter/utvalg, ikke bare «alt»</li>
+            <li>Avsender/svaradresse/blindkopi per kurs</li>
+            <li>Betalings- og økonomirapporter</li>
+          </ul>
+        </div>
+        <div class="bucket missing">
+          <span class="num">03</span>
+          <h3><span class="chip missing">Mangler</span> Viktig</h3>
+          <ul>
+            <li>Bulk-handlinger (send/behandle/eksporter for flere)</li>
+            <li>Rollebasert tilgang (kursholder vs. full admin)</li>
+            <li>Fungerende personvernerklæring-lenke</li>
+            <li>Testadresse for e-postutsending</li>
+          </ul>
+        </div>
+        <div class="bucket wait">
+          <span class="num">04</span>
+          <h3><span class="chip wait">Kan vente</span></h3>
+          <ul>
+            <li>Produktkatalog / rabattlogikk</li>
+            <li>Spørreundersøkelser/evaluering</li>
+            <li>Malvalg for kursbevis</li>
+            <li>«Avslått»-status på påmelding</li>
+          </ul>
+        </div>
+        <div class="bucket skip">
+          <span class="num">05</span>
+          <h3><span class="chip skip">Trenger neppe</span></h3>
+          <ul>
+            <li>SMS-utsending</li>
+            <li>Eget «Grupper»-delsystem</li>
+            <li>Eget medie-/filbibliotek utenom SharePoint</li>
+            <li>Full 12-status pipeline (Interessert/Reservert/Forlatt …)</li>
+            <li>Produktkobling til flere kurs («én pris, ett kurs» er nok i dag)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="veikart">
+      <span class="eyebrow">Del 5 · forslag, ikke beslutning</span>
+      <h2>Veikart, fase 11 og videre</h2>
+      <p class="dek">Prioritert etter: arbeidsflyter IPR bruker ofte → tidsbesparelse → økonomi/kommunikasjon → personvern/sikkerhet → høy verdi til lav kompleksitet. Antall faser er ikke låst til 20 — dette er sju naturlige steg (fase 11–17); noen kan slås sammen eller deles ved behov.</p>
+
+      <div class="roadmap">
+
+        <div class="phase">
+          <div class="rail"><div class="dot">11</div><div class="stem"></div></div>
+          <div class="card">
+            <div class="top"><h3>Bulk-handlinger for deltakere</h3><span class="scope medium">omfang: medium</span></div>
+            <div class="tags"><span class="prio p1">P1 · høyest</span></div>
+            <p class="why">Direkte forlengelse av fase 9/10, men med en viktig presisering: CSV-import (fase 10) kan være atomisk fordi den kun skriver til lokal database. Bulk «send bekreftelse og behandle fakturering» utløser EKSTERNE sideeffekter (e-post, Visma) som ikke kan rulles tilbake. Riktig mønster er derfor forhåndsvisning → eksplisitt bekreftelse → <i>idempotent behandling per deltaker</i> → resultat per deltaker → samlet oppsummering → trygg retry av dem som feilet. Størst målbar tidsbesparelse av alt i dette veikartet.</p>
+            <dl>
+              <dt>Avhenger av</dt><dd>Fase 9 (eksplisitt enkelt-behandling, samme underliggende <code class="mono">sveiper.kjor(k, paamelding_id)</code>) og fase 10 (forhåndsvisningsmønster, revalidering mot fersk databasetilstand)</dd>
+              <dt>Viktigste funksjoner</dt><dd>A: eksporter utvalgte/filtrerte deltakere (gjenbruk eksisterende CSV-kode). B: velg flere → forhåndsvis hvem som faktisk kan behandles og hvorfor ikke resten → eksplisitt bekreft → behandle hver for seg → rad-for-rad-resultat + oppsummering. <b>Ikke</b> bulk-statusendring i denne omgang (rører kapasitet/venteliste — egen vurdering senere)</dd>
+              <dt>Risiko</dt><dd>Én feilet deltaker skal aldri late som hele batchen feilet når andre faktisk ble sendt/fakturert. Samtidig skal ingen behandles to ganger. Ingen ny e-post-/fakturamotor — gjenbruk <code class="mono">sveiper.kjor()</code> uendret, kalt med eksplisitt <code class="mono">paamelding_id</code> per deltaker i en løkke (aldri uten, som ville plukket opp utenforstående rader fra hele databasen)</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="rail"><div class="dot">12</div><div class="stem"></div></div>
+          <div class="card">
+            <div class="top"><h3>E-post- og kursbevis-maler i admin</h3><span class="scope stor">omfang: stor</span></div>
+            <div class="tags"><span class="prio p1">P1</span></div>
+            <p class="why">Det tydeligste stedet der Pindena faktisk er mer admin-vennlig enn oss: en ikke-teknisk bruker kan endre tekst og sette inn flettekoder uten å røre en fil. CLAUDE.md er eksplisitt på at brukeren ikke nødvendigvis er utvikler. Legger også til testadresse. Den ødelagte personvernerklæring-lenken (<code class="mono">href="#"</code> i <code class="mono">kurs.html</code> og <code class="mono">kurs_gruppe.html</code>) kan rettes som en liten, isolert endring uavhengig av resten av fase 12/11 — så snart riktig URL er oppgitt (finnes ikke i repoet i dag).</p>
+            <dl>
+              <dt>Avhenger av</dt><dd>Ingen — kan starte uavhengig</dd>
+              <dt>Viktigste funksjoner</dt><dd>Admin-UI for de 11 e-postmalene + kursbevis (inkl. oppmøteterskel som kursfelt og forhåndsvisning); trygg, avgrenset flettekode-liste (ikke fri Jinja); «send testmail»; avsender/svaradresse/blindkopi per kurs. Malvalg/design-varianter for kursbevis er bevisst utenfor omfanget her</dd>
+              <dt>Risiko</dt><dd>Må ikke gi admin fri tilgang til å skrive vilkårlig Jinja/HTML (XSS/malform) — avgrens til en trygg mal-variabel-liste, ikke rå malredigering</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="rail"><div class="dot">13</div><div class="stem"></div></div>
+          <div class="card">
+            <div class="top"><h3>Rollebasert admin-tilgang</h3><span class="scope medium">omfang: medium</span></div>
+            <div class="tags"><span class="prio p2">P2</span></div>
+            <p class="why">Personvern/sikkerhet-drevet: i dag har enhver admin-bruker full tilgang til alle kurs og alle deltakere. Med flere ansatte/kursholdere involvert blir dette et reelt avvik fra minste privilegium.</p>
+            <dl>
+              <dt>Avhenger av</dt><dd>Ingen teknisk avhengighet, men bør vente til fase 11/12 sine ruter er stabile (unngå å rebygge tilgangssjekk to ganger)</dd>
+              <dt>Viktigste funksjoner</dt><dd>Enkel rollekolonne på <code class="mono">admin_bruker</code>; håndhev «egne kurs»-grensen der «vis bare mine» i dag kun er en visningsfilter</dd>
+              <dt>Risiko</dt><dd>Må ikke låse ut eksisterende arbeidsflyter for enkeltperson-instituttet i dag — design for gradvis innføring, ikke big-bang</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="rail"><div class="dot">14</div><div class="stem"></div></div>
+          <div class="card">
+            <div class="top"><h3>Betalings- og økonomirapporter</h3><span class="scope medium">omfang: medium</span></div>
+            <div class="tags"><span class="prio p2">P2</span></div>
+            <p class="why">Økonomi er eksplisitt prioritert av IPR. Datagrunnlaget (<code class="mono">faktura</code>-tabellen) finnes allerede fra fase 1 — dette er rapportering, ikke ny fakturalogikk.</p>
+            <dl>
+              <dt>Avhenger av</dt><dd>Ingen</dd>
+              <dt>Viktigste funksjoner</dt><dd>Ordre/bilag-liste, økonomi per måned, utvidet økonomi per deltaker</dd>
+              <dt>Risiko</dt><dd>Lav — rene lese-spørringer mot eksisterende data</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="rail"><div class="dot">15</div><div class="stem"></div></div>
+          <div class="card">
+            <div class="top"><h3>Produkt-/rabattavklaring</h3><span class="scope liten">omfang: liten (avklaring) → medium (bygg)</span></div>
+            <div class="tags"><span class="prio p3">P3</span></div>
+            <p class="why">Ikke en byggefase i seg selv først — en beslutning. <code class="mono">rabattkode</code> ligger allerede ubrukt i skjemaet; enten bygges rabattlogikk, eller kolonnen fjernes bevisst. Full produktkatalog (à la Pindena) bygges kun hvis flere kurs faktisk skal dele prisstruktur.</p>
+            <dl>
+              <dt>Avhenger av</dt><dd>Ingen</dd>
+              <dt>Viktigste funksjoner</dt><dd>Beslutning + evt. enkel rabattprosent/-beløp på påmelding</dd>
+              <dt>Risiko</dt><dd>Lav hvis avgrenset; unngå å bygge en generell produktkatalog «for sikkerhets skyld»</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="rail"><div class="dot">16</div><div class="stem"></div></div>
+          <div class="card">
+            <div class="top"><h3>Spørreundersøkelser / evaluering</h3><span class="scope stor">omfang: stor</span></div>
+            <div class="tags"><span class="prio p3">P3</span></div>
+            <p class="why">Reell verdi for et videreutdanningsinstitutt (kvalitetssikring, dokumentasjon), men et helt nytt delsystem — bør ikke konkurrere med bulk/maler/roller om oppmerksomhet tidlig.</p>
+            <dl>
+              <dt>Avhenger av</dt><dd>Fase 12 (gjenbruk samme flettekode-/utsendingsinfrastruktur for invitasjon til undersøkelsen)</dd>
+              <dt>Viktigste funksjoner</dt><dd>Enkelt skjema, automatisk utsendelse etter kursslutt, resultatoppsummering</dd>
+              <dt>Risiko</dt><dd>Scope creep — hold det enklere enn Pindenas fulle spørreundersøkelsesmodul til å begynne med</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="rail"><div class="dot">17</div></div>
+          <div class="card">
+            <div class="top"><h3>«Avslått»-status på påmelding</h3><span class="scope liten">omfang: liten</span></div>
+            <div class="tags"><span class="prio p3">P3</span></div>
+            <p class="why">Det ene konkrete hullet i den ellers bevisste statusforenklingen — relevant når noen ikke oppfyller opptakskrav til et spesialistløp. Vurderes når/hvis det faktisk oppstår i praksis, ikke spekulativt.</p>
+            <dl>
+              <dt>Avhenger av</dt><dd>Ingen</dd>
+              <dt>Viktigste funksjoner</dt><dd>Ny statusverdi + begrunnelsesfelt</dd>
+              <dt>Risiko</dt><dd>Lav, men rører en CHECK-constraint i <code class="mono">paamelding.status</code> — bør gjøres som ordentlig migrering, ikke i farten</dd>
+            </dl>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>Pindena → IPR gap-analyse · ingen kode endret · venter på beslutning om fase 11</span>
+    <span>IPR Kurs · videreutvikling-ipr</span>
+  </footer>
+</div>

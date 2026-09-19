@@ -12,7 +12,8 @@ from functools import wraps
 
 import qrcode
 import qrcode.image.svg
-from flask import (Flask, Response, abort, flash, g, redirect, render_template, request, session, url_for)
+from flask import (Flask, Response, abort, flash, g, make_response, redirect, render_template, request, session,
+                   url_for)
 from markupsafe import Markup
 from werkzeug.exceptions import RequestEntityTooLarge
 
@@ -524,7 +525,13 @@ def admin():
         """SELECT m.*, k.kode, k.navn AS kursnavn FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id
            WHERE m.levert_ts IS NULL ORDER BY m.frist""").fetchall()
     hendelser = con().execute("SELECT * FROM hendelse ORDER BY id DESC LIMIT 15").fetchall()
-    feil = con().execute("SELECT COUNT(*) FROM hendelse WHERE handling='sveip_feil'").fetchone()[0]
+    # Fra trinn 2.5: epost_ukjent/faktura_ukjent/faktura_reservert_gammel er utfall der vi bevisst
+    # IKKE prover automatisk paa nytt - de skal telle med her, ikke bli usynlige, slik at en admin ser
+    # at noe krever manuell kontroll.
+    feil = con().execute(
+        """SELECT COUNT(*) FROM hendelse
+           WHERE handling IN ('sveip_feil','epost_ukjent','faktura_ukjent','faktura_reservert_gammel')"""
+    ).fetchone()[0]
     return render_template("admin.html", kurs=kurs, mangler=mangler, hendelser=hendelser, feil=feil)
 
 
@@ -826,29 +833,43 @@ def admin_kurs_nettside(kurs_id):
     return render_template("admin_kurs_nettside.html", kurs=_hent_kurs(kurs_id), fane="nettside")
 
 
+def _deltaker_sok_status(request_args) -> tuple[str, str]:
+    """Leser/validerer sok+status-filter fra query-parametre. Delt mellom deltakerlisten og
+    CSV-eksporten, slik at eksporten kan folge NOYAKTIG samme filter som det admin ser paa
+    skjermen - uten aa duplisere valideringsregelen flere steder."""
+    sok = request_args.get("sok", "").strip()
+    status = request_args.get("status", "")
+    if status not in ("", "bekreftet", "venteliste", "avmeldt"):
+        status = ""
+    return sok, status
+
+
+def _deltaker_filter_vilkar(sok: str, status: str) -> tuple[str, list]:
+    vilkar_sql, args = "", []
+    if sok:
+        vilkar_sql += " AND (LOWER(d.navn) LIKE ? OR LOWER(d.epost) LIKE ?)"
+        args += [f"%{sok.lower()}%", f"%{sok.lower()}%"]
+    if status:
+        vilkar_sql += " AND p.status=?"
+        args.append(status)
+    return vilkar_sql, args
+
+
 @app.get("/admin/kurs/<int:kurs_id>/deltakere")
 @krever_admin
 def admin_kurs_deltakere(kurs_id):
     kurs = _hent_kurs(kurs_id)
     dager = db.kursdager(con(), kurs_id)
-    sok = request.args.get("sok", "").strip()
-    status = request.args.get("status", "")
-    if status not in ("", "bekreftet", "venteliste", "avmeldt"):
-        status = ""
+    sok, status = _deltaker_sok_status(request.args)
 
     sql = """SELECT p.*, d.navn, d.epost, d.telefon, d.arbeidssted,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id) AS faktura_antall,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id AND status!='betalt') AS faktura_ubetalt
              FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
              WHERE p.kurs_id=?"""
-    args = [kurs_id]
-    if sok:
-        sql += " AND (LOWER(d.navn) LIKE ? OR LOWER(d.epost) LIKE ?)"
-        args += [f"%{sok.lower()}%", f"%{sok.lower()}%"]
-    if status:
-        sql += " AND p.status=?"
-        args.append(status)
-    sql += " ORDER BY CASE p.status WHEN 'bekreftet' THEN 0 WHEN 'venteliste' THEN 1 ELSE 2 END, d.navn"
+    vilkar_sql, vilkar_args = _deltaker_filter_vilkar(sok, status)
+    args = [kurs_id, *vilkar_args]
+    sql += vilkar_sql + " ORDER BY CASE p.status WHEN 'bekreftet' THEN 0 WHEN 'venteliste' THEN 1 ELSE 2 END, d.navn"
     deltakere = [dict(r, fakturastatus=_fakturastatus(kurs, r)) for r in con().execute(sql, args)]
 
     tellere = {r["status"]: r["antall"] for r in con().execute(
@@ -1223,7 +1244,8 @@ def admin_deltaker_kommunikasjon(kurs_id, paamelding_id):
     meldinger = con().execute(
         """SELECT ul.type, ul.sendt_ts, au.id AS utsending_id, au.emne FROM utsending_logg ul
            LEFT JOIN admin_utsending au ON au.nokkel=ul.nokkel
-           WHERE ul.mottaker=? AND (ul.nokkel=? OR ul.nokkel LIKE ?) ORDER BY ul.sendt_ts DESC""",
+           WHERE ul.mottaker=? AND (ul.nokkel=? OR ul.nokkel LIKE ?) AND ul.status='sendt'
+           ORDER BY ul.sendt_ts DESC""",
         (p["epost"], f"kurs:{kurs_id}", f"adhoc:{kurs_id}:%")).fetchall()
     return render_template("admin_deltaker_kommunikasjon.html", kurs=kurs, p=p, meldinger=meldinger, fane="kommunikasjon")
 
@@ -1352,7 +1374,8 @@ def admin_epost_detalj(kurs_id, utsending_id):
 def admin_kurs_kommunikasjon(kurs_id):
     kurs = _hent_kurs(kurs_id)
     meldinger = con().execute(
-        "SELECT * FROM utsending_logg WHERE nokkel=? ORDER BY sendt_ts DESC LIMIT 300", (f"kurs:{kurs_id}",)
+        "SELECT * FROM utsending_logg WHERE nokkel=? AND status='sendt' ORDER BY sendt_ts DESC LIMIT 300",
+        (f"kurs:{kurs_id}",)
     ).fetchall()
     manuelle = con().execute(
         """SELECT au.id, au.emne, au.opprettet, ab.navn AS sendt_av_navn, COUNT(ul.mottaker) AS antall_sendt
@@ -1412,22 +1435,120 @@ def admin_allergiliste(kurs_id):
     return render_template("admin_allergi.html", kurs=kurs, rader=rader)
 
 
+_DELTAKER_CSV_KOLONNER = ["Navn", "E-post", "Telefon", "Arbeidssted", "Status", "Betaler", "Betaling",
+                         "Organisasjon", "Org.nr", "Fakturanr", "Fakturert (kr)"]
+_DELTAKER_CSV_SELECT = """SELECT d.navn, d.epost, d.telefon, d.arbeidssted, p.status, p.betaler, p.betaling,
+                                p.org_navn, p.org_nr,
+                                (SELECT GROUP_CONCAT(faktura_nr, ' ') FROM faktura WHERE paamelding_id=p.id) AS faktura_nr,
+                                (SELECT COALESCE(SUM(belop_nok),0) FROM faktura WHERE paamelding_id=p.id) AS fakturert_belop
+                         FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id"""
+
+
+def _deltaker_csv_respons(rader, filnavn: str) -> Response:
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(_DELTAKER_CSV_KOLONNER)
+    w.writerows([tuple(r) for r in rader])
+    # Inneholder personopplysninger (navn/e-post/telefon) - skal aldri mellomlagres av nettleser/proxy.
+    return Response("﻿" + buf.getvalue(), mimetype="text/csv",  # BOM -> Excel leser æøå riktig
+                    headers={"Content-Disposition": f"attachment; filename={filnavn}",
+                             "Cache-Control": "no-store"})
+
+
 @app.get("/admin/kurs/<int:kurs_id>/deltakere.csv")
 @krever_admin
 def admin_csv(kurs_id):
+    """Eksporterer deltakere for kurset. Uten sok/status-parametre: hele kurset (uendret
+    oppforsel). Med sok/status satt (samme parametre som deltakerlisten sitt eget filter):
+    eksporterer kun det admin faktisk ser paa skjermen akkurat na."""
+    sok, status = _deltaker_sok_status(request.args)
+    vilkar_sql, vilkar_args = _deltaker_filter_vilkar(sok, status)
+    sql = _DELTAKER_CSV_SELECT + " WHERE p.kurs_id=?" + vilkar_sql + " ORDER BY p.status, d.navn"
+    rader = con().execute(sql, [kurs_id, *vilkar_args]).fetchall()
+    return _deltaker_csv_respons(rader, f"deltakere_{kurs_id}.csv")
+
+
+@app.post("/admin/kurs/<int:kurs_id>/deltakere/eksporter-valgte.csv")
+@krever_admin
+def admin_eksporter_valgte_csv(kurs_id):
+    """Eksporterer KUN de avkryssede deltakerne. POST (ikke GET) fordi utvalget kan bli langt.
+    ID-ene revalideres alltid mot kurs_id her - en manipulert POST kan ikke faa med rader fra
+    et annet kurs."""
+    _hent_kurs(kurs_id)
+    ider = request.form.getlist("paamelding_id", type=int)
+    if not ider:
+        flash("Velg minst én deltaker.", "feil")
+        return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+    plassholdere = ",".join("?" * len(ider))
+    sql = _DELTAKER_CSV_SELECT + f" WHERE p.kurs_id=? AND p.id IN ({plassholdere}) ORDER BY p.status, d.navn"
+    rader = con().execute(sql, [kurs_id, *ider]).fetchall()
+    return _deltaker_csv_respons(rader, f"deltakere_utvalg_{kurs_id}.csv")
+
+
+# Maks antall deltakere i én bulk-behandling (fase 11, trinn 2/3). Satt lavt bevisst: behandlingen
+# kan innebaere ekte e-post-/Visma-kall per rad (kommer i trinn 3), og losningen skal etter hvert
+# kunne driftes i Azure der vi ikke onsker svaert langvarige synkrone HTTP-requests. Kan okes
+# senere - ikke arkitektur som hindrer at bulk-behandling flyttes til en bakgrunnsjobb/ko da.
+MAKS_BULK_VALGT = 50
+
+
+def _bulk_klassifiser(kurs, rad) -> tuple[bool, str]:
+    """Avgjor om EN rad kan behandles av bulk-handlingen na, og hvorfor/hvorfor ikke. Ren
+    klassifisering - INGEN databaseskriving, ingen sveiper/e-post/faktura. Gjenbrukes av baade
+    forhaandsvisningen (trinn 2) og den faktiske bekreft-ruten (trinn 3, ikke bygget ennaa), slik
+    at de to aldri kan vurdere en rad ulikt."""
+    if kurs["status"] in ("avlyst", "utkast"):
+        return False, f"Kurset har status «{kurs['status']}» og kan ikke behandles"
+    if rad["status"] == "avmeldt":
+        return False, "Avmeldt - ingenting å behandle"
+    if rad["status"] not in ("bekreftet", "venteliste"):
+        return False, f"Uventet status «{rad['status']}»"
+    if rad["sveiper_kjort"]:
+        return False, "Allerede behandlet"
+    if not rad["sveiper_utsatt"]:
+        return False, "Ikke holdt tilbake - behandles automatisk som normalt"
+    return True, "Klar til behandling"
+
+
+@app.post("/admin/kurs/<int:kurs_id>/deltakere/bulk/forhandsvis")
+@krever_admin
+def admin_bulk_forhandsvis(kurs_id):
+    """Fase 11, trinn 2: viser hvilke av de valgte deltakerne som faktisk kan behandles na, og
+    en forstaaelig grunn for resten. INGEN databaseendring - kun lesing og klassifisering.
+    Ingen e-post, ingen Visma, ingen faktura, ingen sveiper.kjor(), ingen endring av
+    sveiper_utsatt. Selve behandlingen (trinn 3) er IKKE bygget ennaa - se
+    dokumentasjon/pindena-ipr-gap-analyse.html for planen."""
+    kurs = _hent_kurs(kurs_id)
+    ider = request.form.getlist("paamelding_id", type=int)
+    if not ider:
+        flash("Velg minst én deltaker.", "feil")
+        return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+    if len(ider) > MAKS_BULK_VALGT:
+        flash(f"Du kan behandle maks {MAKS_BULK_VALGT} deltakere om gangen (valgte {len(ider)}). "
+             "Del opp i flere omganger.", "feil")
+        return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+
+    plassholdere = ",".join("?" * len(ider))
     rader = con().execute(
-        """SELECT d.navn, d.epost, d.telefon, d.arbeidssted, p.status, p.betaler, p.betaling, p.org_navn, p.org_nr,
-                  (SELECT GROUP_CONCAT(faktura_nr, ' ') FROM faktura WHERE paamelding_id=p.id) AS faktura_nr,
-                  (SELECT COALESCE(SUM(belop_nok),0) FROM faktura WHERE paamelding_id=p.id) AS fakturert_belop
-           FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
-           WHERE p.kurs_id=? ORDER BY p.status, d.navn""", (kurs_id,)).fetchall()
-    buf = io.StringIO()
-    w = csv.writer(buf, delimiter=";")
-    w.writerow(["Navn", "E-post", "Telefon", "Arbeidssted", "Status", "Betaler", "Betaling", "Organisasjon", "Org.nr",
-                "Fakturanr", "Fakturert (kr)"])
-    w.writerows([tuple(r) for r in rader])
-    return Response("﻿" + buf.getvalue(), mimetype="text/csv",  # BOM -> Excel leser æøå riktig
-                    headers={"Content-Disposition": f"attachment; filename=deltakere_{kurs_id}.csv"})
+        f"""SELECT p.id, p.status, p.sveiper_kjort, p.sveiper_utsatt, d.navn, d.epost
+            FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+            WHERE p.kurs_id=? AND p.id IN ({plassholdere})""", [kurs_id, *ider]).fetchall()
+    # ID-er som ikke tilhorer DETTE kurset forsvinner stille her - ingen feilmelding som
+    # bekrefter/avkrefter at de finnes et annet sted (unngaar informasjonslekkasje).
+
+    resultater = []
+    for rad in rader:
+        behandlingsbar, arsak = _bulk_klassifiser(kurs, rad)
+        resultater.append({"paamelding_id": rad["id"], "navn": rad["navn"], "epost": rad["epost"],
+                           "status": rad["status"], "behandlingsbar": behandlingsbar, "arsak": arsak})
+    resultater.sort(key=lambda r: r["navn"])
+
+    resp = make_response(render_template(
+        "admin_bulk_forhandsvisning.html", kurs=kurs, resultater=resultater,
+        antall_behandlingsbare=sum(1 for r in resultater if r["behandlingsbar"]),
+        antall_totalt=len(resultater), fane="deltakere"))
+    resp.headers["Cache-Control"] = "no-store"  # personopplysninger - skal aldri mellomlagres
+    return resp
 
 
 # ======================= rapporter (fase 6) =======================

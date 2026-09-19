@@ -13,15 +13,17 @@
 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px">
   <a class="knapp liten" href="{{ url_for('admin_deltaker_ny', kurs_id=kurs.id) }}">+ Legg til deltaker</a>
   <a class="knapp sekundar liten" href="{{ url_for('admin_import_deltakere', kurs_id=kurs.id) }}">Importer deltakere</a>
-  <a class="knapp sekundar liten" href="{{ url_for('admin_csv', kurs_id=kurs.id) }}">Eksporter deltakerliste (Excel)</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_csv', kurs_id=kurs.id, sok=sok or None, status=status or None) }}">Eksporter {{ 'treff (Excel)' if (sok or status) else 'deltakerliste (Excel)' }}</a>
   {% if kurs.type != 'digital' %}<a class="knapp sekundar liten" href="{{ url_for('admin_allergiliste', kurs_id=kurs.id) }}">Allergi-/tilretteleggingsliste</a>{% endif %}
   {% if tellere.bekreftet %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='bekreftet') }}">Send e-post til alle bekreftede</a>{% endif %}
   {% if tellere.venteliste %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='venteliste') }}">Send e-post til venteliste</a>{% endif %}
 </div>
 
 <!-- Egen (tom) form som avkrysningsboksene i tabellen peker paa via HTML5 "form"-attributtet,
-     slik at den ikke kolliderer med per-rad-skjemaene inni tabellen (skjema kan ikke nestes). -->
-<form id="mottaker-epost" method="get" action="{{ url_for('admin_epost_ny', kurs_id=kurs.id) }}"></form>
+     slik at den ikke kolliderer med per-rad-skjemaene inni tabellen (skjema kan ikke nestes).
+     Flere knapper under peker paa DENNE samme formen med formaction/formmethod, slik at samme
+     utvalg kan brukes til flere handlinger uten aa duplisere avkrysningsboksene. -->
+<form id="valgte-deltakere" method="get" action="{{ url_for('admin_epost_ny', kurs_id=kurs.id) }}"></form>
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:16px">
   <div><label>Søk (navn/e-post)</label><input type="search" name="sok" value="{{ sok }}" placeholder="Søk…"></div>
@@ -36,12 +38,14 @@
   <div><button class="sekundar">Søk</button></div>
 </form>
 
-<p class="liten dempet">Viser {{ deltakere|length }} deltaker{{ 's' if deltakere|length != 1 }}.</p>
+<p class="liten dempet">Viser {{ deltakere|length }} deltaker{{ 's' if deltakere|length != 1 }}.
+  {% if deltakere %}<label style="font-weight:normal; margin-left:10px"><input type="checkbox" id="velg-alle-synlige"> Velg alle synlige</label>
+  <span id="antall-valgt" class="dempet"></span>{% endif %}</p>
 <div class="tabellboks"><table>
   <tr><th></th><th>Navn</th><th>E-post</th><th>Telefon</th><th>Arbeidssted</th><th>Fakturastatus</th><th>Påmeldingsstatus</th><th>Sist oppdatert</th><th></th></tr>
   {% for p in deltakere %}
   <tr style="{{ 'opacity:.5' if p.status == 'avmeldt' }}">
-    <td><input type="checkbox" name="paamelding_id" value="{{ p.id }}" form="mottaker-epost"></td>
+    <td><input type="checkbox" class="valgt-deltaker" name="paamelding_id" value="{{ p.id }}" form="valgte-deltakere"></td>
     <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}"><strong>{{ p.navn }}</strong></a></td>
     <td class="liten">{{ p.epost }}</td>
     <td class="liten">{{ p.telefon or '' }}</td>
@@ -53,7 +57,29 @@
   </tr>
   {% else %}<tr><td colspan="9" class="dempet">Ingen deltakere matcher søket.</td></tr>{% endfor %}
 </table></div>
-{% if deltakere %}<p class="liten" style="margin-top:8px"><button form="mottaker-epost" class="liten sekundar">Send e-post til valgte</button></p>{% endif %}
+{% if deltakere %}
+<p class="liten" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
+  <button form="valgte-deltakere" class="liten sekundar">Send e-post til valgte</button>
+  <button form="valgte-deltakere" formaction="{{ url_for('admin_eksporter_valgte_csv', kurs_id=kurs.id) }}" formmethod="post" class="liten sekundar">Eksporter valgte</button>
+  <button form="valgte-deltakere" formaction="{{ url_for('admin_bulk_forhandsvis', kurs_id=kurs.id) }}" formmethod="post" class="liten">Behandle valgte</button>
+</p>
+<script>
+  (function () {
+    var boksar = document.querySelectorAll('.valgt-deltaker');
+    var velgAlle = document.getElementById('velg-alle-synlige');
+    var antallVisning = document.getElementById('antall-valgt');
+    function oppdaterAntall() {
+      var n = document.querySelectorAll('.valgt-deltaker:checked').length;
+      antallVisning.textContent = n ? '– ' + n + ' valgt' : '';
+    }
+    velgAlle.addEventListener('change', function () {
+      boksar.forEach(function (b) { b.checked = velgAlle.checked; });
+      oppdaterAntall();
+    });
+    boksar.forEach(function (b) { b.addEventListener('change', oppdaterAntall); });
+  })();
+</script>
+{% endif %}
 
 <h2 id="oppmote">Oppmøteregistrering</h2>
 <p class="liten dempet">Klikk på en dag for å registrere/fjerne oppmøte manuelt. Q = QR, K = kode, Z = Zoom, M = manuell.</p>
