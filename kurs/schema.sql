@@ -80,6 +80,10 @@ CREATE TABLE IF NOT EXISTS paamelding (
     sveiper_kjort   INTEGER NOT NULL DEFAULT 0,     -- 1 naar "ved paamelding"-kjeden er fullfort
     sveiper_utsatt  INTEGER NOT NULL DEFAULT 0,     -- 1 = registrert (typisk manuelt av admin), men bevisst
                                                      -- IKKE klar for automatisk e-post/fakturering ennaa
+    faktura_onskes_na INTEGER NOT NULL DEFAULT 0,   -- 1 = deltaker/admin har eksplisitt bedt om faktura med en gang
+                                                     -- (lagret valg - beregnes aldri fra datoer)
+    faktura_tidligst_dato TEXT,                     -- ISO-dato. NULL = ingen utsatt samlet faktura er planlagt. Dato =
+                                                     -- systemet har besluttet at samlet faktura ikke opprettes foer da
     faktura_kommentar TEXT,                         -- merknad om registreringen/fakturaen
     intern_kommentar  TEXT,                         -- kun synlig for administratorer
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),

@@ -65,6 +65,12 @@ def _migrer(con: sqlite3.Connection) -> None:
     if not har_kolonne("paamelding", "sveiper_utsatt"):
         # Konstant default (0) - trygt aa legge til selv om tabellen har rader fra for.
         con.execute("ALTER TABLE paamelding ADD COLUMN sveiper_utsatt INTEGER NOT NULL DEFAULT 0")
+    # Faktura tidligst seks maaneder foer forste kursdag: KUN lagringsplass foreloepig (ingen kode setter/leser dem
+    # i fakturabeslutningen). Bare manglende kolonner legges til - eksisterende verdier roeres aldri (ingen UPDATE).
+    if not har_kolonne("paamelding", "faktura_onskes_na"):
+        con.execute("ALTER TABLE paamelding ADD COLUMN faktura_onskes_na INTEGER NOT NULL DEFAULT 0")
+    if not har_kolonne("paamelding", "faktura_tidligst_dato"):
+        con.execute("ALTER TABLE paamelding ADD COLUMN faktura_tidligst_dato TEXT")
     if har_tabell("utsending_logg") and not har_kolonne("utsending_logg", "status"):
         # Konstant default ('sendt') - alle eksisterende rader ER faktisk sendt (skrevet av den
         # gamle, ubetingede marker_sendt()), saa dette endrer ikke betydningen av noen rad fra for.
@@ -480,7 +486,10 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
     # REAKTIVERING ellers ville latt en gammel, avmeldt rad sin tidligere sveiper_utsatt-verdi
     # staa ubrukt igjen paa den nye paameldingen. Kaller (fase 9-adminrute) kan overstyre via
     # paamelding={"sveiper_utsatt": 1}.
-    felter = {"status": status, "samtykke_ts": na, "oppdatert": na, "sveiper_utsatt": 0, **(paamelding or {})}
+    # faktura_onskes_na/faktura_tidligst_dato: samme begrunnelse som sveiper_utsatt - en NY registreringsrunde (ogsaa
+    # reaktivering) skal aldri arve en gammel fakturabeslutning. Kaller kan overstyre faktura_onskes_na.
+    felter = {"status": status, "samtykke_ts": na, "oppdatert": na, "sveiper_utsatt": 0,
+              "faktura_onskes_na": 0, "faktura_tidligst_dato": None, **(paamelding or {})}
     # Betalingsmåte: deltakeren bestemmer bare når kurset er satt til 'deltaker_velger'
     if kurs["betaling"] == "deltaker_velger":
         felter["betaling"] = "per_samling" if felter.get("betaling") == "per_samling" else "samlet"
