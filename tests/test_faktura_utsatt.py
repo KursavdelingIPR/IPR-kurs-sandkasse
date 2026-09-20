@@ -378,8 +378,9 @@ def test_faktura_plan_er_koblet_inn_kun_via_lag_plan_og_ingen_andre_moduler_bruk
     rot = Path(__file__).resolve().parent.parent / "kurs"
     for fil in ("daglig.py", "behandling.py", "kjoring.py", "web/app.py", "maltekster.py"):
         tekst = (rot / fil).read_text(encoding="utf-8")
-        for navn in ("faktura_tidligst_dato", "faktura_onskes_na", "faktura_plan", "seks_maaneder_for"):
+        for navn in ("faktura_tidligst_dato", "faktura_onskes_na", "seks_maaneder_for"):
             assert navn not in tekst, (fil, navn)
+        assert fil == "maltekster.py" or "faktura_plan" not in tekst, fil            # maltekster nevner planen kun som datanoekkel
     sveiper_tekst = (rot / "sveiper.py").read_text(encoding="utf-8")
     tre = ast.parse(sveiper_tekst)
     plan_fn = next(n for n in tre.body if isinstance(n, ast.FunctionDef) and n.name == "faktura_plan")

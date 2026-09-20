@@ -9,6 +9,7 @@ mellomrom - ikke skjore byte-snapshots. To lag:
   2. ende-til-ende: den ekte koden som sender (sveiper, daglig, ruter) - fanger det som faktisk sendes
 De tre LAASTE malene (innlogging, eskalering, admin_melding) er ikke redigerbare i v1; de har en kort baseline.
 """
+import re
 from datetime import date, timedelta
 
 import pytest
@@ -16,6 +17,7 @@ import pytest
 from kurs import config, daglig, db, sveiper
 from kurs.integrasjoner import epost
 from kurs.kjoring import Kjoring
+from kurs.sveiper import PLAN_INGEN, PLAN_MANGLER_KURSDAG, PLAN_NA, PLAN_PER_SAMLING, PLAN_UTSATT, FakturaPlan
 
 BASE = config.BASE_URL
 
@@ -28,6 +30,12 @@ def _n(html: str) -> str:
 def _render(mal, **data):
     emne, html = epost.render(mal, **data)
     return emne, _n(html)
+
+
+def _render_bek(**data):
+    """bekreftelse krever faktura_plan (systemets laaste fakturablokk) - standard her: samlet faktura 'na'."""
+    data.setdefault("faktura_plan", FakturaPlan(PLAN_NA))
+    return _render("bekreftelse", **data)
 
 
 KURS = {"navn": "Veiledning i praksis", "type": "fysisk", "sted": "Oslo", "start_kl": "09:00", "slutt_kl": "15:00",
@@ -45,7 +53,7 @@ def _kurs(**over):
 # ============================ felles: rammen ============================
 
 @pytest.mark.parametrize("mal,data", [
-    ("bekreftelse", dict(p=DELTAKER, kurs=KURS, dager=[DAG1])),
+    ("bekreftelse", dict(p=DELTAKER, kurs=KURS, dager=[DAG1], faktura_plan=FakturaPlan(PLAN_NA))),
     ("venteliste", dict(p=DELTAKER, kurs=KURS)),
     ("avlysning", dict(d=DELTAKER, kurs=KURS)),
     ("kursbevis_klar", dict(navn="Ola Nordmann", kurs=KURS)),
@@ -60,7 +68,7 @@ def test_alle_maler_har_felles_ramme_med_signatur_og_min_side_lenke(mal, data):
 # ============================ bekreftelse ============================
 
 def test_bekreftelse_emne_hilsen_og_kursdager():
-    emne, html = _render("bekreftelse", p=DELTAKER, kurs=KURS, dager=[DAG1, DAG2])
+    emne, html = _render_bek(p=DELTAKER, kurs=KURS, dager=[DAG1, DAG2])
     assert emne == "Bekreftelse: Veiledning i praksis"
     assert "<p>Hei Ola Nordmann,</p>" in html
     assert "Takk for påmeldingen! Du har fått plass på <strong>Veiledning i praksis</strong>." in html
@@ -75,36 +83,68 @@ def test_bekreftelse_emne_hilsen_og_kursdager():
     ("hybrid", "Sted: Oslo.", "Kurset er digitalt"),
 ])
 def test_bekreftelse_digitalt_eller_sted(type_, forventet, ikke):
-    _, html = _render("bekreftelse", p=DELTAKER, kurs=_kurs(type=type_), dager=[DAG1])
+    _, html = _render_bek(p=DELTAKER, kurs=_kurs(type=type_), dager=[DAG1])
     assert forventet in html and ikke not in html
 
 
 def test_bekreftelse_fysisk_uten_sted_sier_kommer():
-    _, html = _render("bekreftelse", p=DELTAKER, kurs=_kurs(sted=None), dager=[DAG1])
+    _, html = _render_bek(p=DELTAKER, kurs=_kurs(sted=None), dager=[DAG1])
     assert "Sted: kommer." in html
 
 
-@pytest.mark.parametrize("p_over,forventet", [
-    ({}, "Faktura på 1500 kr sendes til deg."),
-    ({"betaler": "organisasjon", "org_navn": "Firma AS"}, "Faktura på 1500 kr sendes til Firma AS."),
-    ({"betaling": "per_samling"},
+ORG = {"betaler": "organisasjon", "org_navn": "Firma AS"}
+
+
+@pytest.mark.parametrize("p_over,plan,forventet", [
+    ({}, FakturaPlan(PLAN_NA), "Faktura på 1500 kr sendes separat til deg."),
+    (ORG, FakturaPlan(PLAN_NA), "Faktura på 1500 kr sendes separat til Firma AS."),
+    ({}, FakturaPlan(PLAN_UTSATT, date(2027, 3, 20)), "Faktura på 1500 kr sendes separat til deg, tidligst 20.03.2027."),
+    (ORG, FakturaPlan(PLAN_UTSATT, date(2027, 3, 20)), "Faktura på 1500 kr sendes separat til Firma AS, tidligst 20.03.2027."),
+    ({}, FakturaPlan(PLAN_MANGLER_KURSDAG), "Faktura på 1500 kr sendes separat til deg."),
+    (ORG, FakturaPlan(PLAN_MANGLER_KURSDAG), "Faktura på 1500 kr sendes separat til Firma AS."),
+    ({"betaling": "per_samling"}, FakturaPlan(PLAN_PER_SAMLING),
      "Kursavgiften på 1500 kr deles på 2 samlinger, og faktura for hver samling sendes 14 dager før samlingen til deg."),
-    ({"betaling": "per_samling", "betaler": "organisasjon", "org_navn": "Firma AS"},
+    ({"betaling": "per_samling", **ORG}, FakturaPlan(PLAN_PER_SAMLING),
      "faktura for hver samling sendes 14 dager før samlingen til Firma AS."),
 ])
-def test_bekreftelse_faktureringstekst_varianter(p_over, forventet):
-    _, html = _render("bekreftelse", p={**DELTAKER, **p_over}, kurs=KURS, dager=[DAG1, DAG2])
+def test_bekreftelse_faktureringstekst_varianter(p_over, plan, forventet):
+    _, html = _render_bek(p={**DELTAKER, **p_over}, kurs=KURS, dager=[DAG1, DAG2], faktura_plan=plan)
     assert forventet in html
+    assert "Faktura er sendt" not in html and "Faktura er opprettet" not in html      # mailen sendes FOER fakturaforsoket
+    if plan.modus in (PLAN_NA, PLAN_MANGLER_KURSDAG):
+        assert "tidligst" not in html and not re.search(r"\d\d\.\d\d\.\d{4}", html)      # ingen dato (mangler_kursdag: ingen oppdiktet dato)
 
 
-@pytest.mark.parametrize("kurs_over", [{"pris_nok": 0}, {"fakturering": "organisasjon"}])
-def test_bekreftelse_uten_faktureringstekst_naar_kurset_ikke_faktureres_per_person(kurs_over):
-    _, html = _render("bekreftelse", p=DELTAKER, kurs=_kurs(**kurs_over), dager=[DAG1])
-    assert "Faktura på" not in html and "Kursavgiften" not in html
+@pytest.mark.parametrize("dager_for,forventet,ikke", [
+    (0, "0 dager før samlingen", "0 dag før"),
+    (1, "1 dag før samlingen", "1 dager"),
+    (2, "2 dager før samlingen", "2 dag før"),
+    (14, "14 dager før samlingen", "14 dag før"),
+    (180, "180 dager før samlingen", "180 dag før"),
+])
+def test_bekreftelse_per_samling_dag_i_entall_kun_for_1(dager_for, forventet, ikke):
+    _, html = _render_bek(p={**DELTAKER, "betaling": "per_samling"}, kurs=_kurs(faktura_dager_for=dager_for), dager=[DAG1, DAG2],
+                          faktura_plan=FakturaPlan(PLAN_PER_SAMLING))
+    assert f"faktura for hver samling sendes {forventet} til deg." in html and ikke not in html
+
+
+def test_bekreftelse_utsatt_faktura_viser_dato_dd_mm_yyyy_og_ellers_aldri_tidligst():
+    _, utsatt = _render_bek(p=DELTAKER, kurs=KURS, dager=[DAG1], faktura_plan=FakturaPlan(PLAN_UTSATT, date(2027, 3, 20)))
+    assert "tidligst 20.03.2027" in utsatt and "2027-03-20" not in utsatt
+    for plan in (FakturaPlan(PLAN_NA), FakturaPlan(PLAN_MANGLER_KURSDAG), FakturaPlan(PLAN_PER_SAMLING)):
+        _, html = _render_bek(p=DELTAKER, kurs=KURS, dager=[DAG1], faktura_plan=plan)
+        assert "tidligst" not in html
+
+
+@pytest.mark.parametrize("kurs_over", [{"pris_nok": 0}, {"fakturering": "organisasjon"}, {"fakturering": "ingen"}])
+def test_bekreftelse_uten_faktureringstekst_naar_planen_er_ingen(kurs_over):
+    _, html = _render_bek(p=DELTAKER, kurs=_kurs(**kurs_over), dager=[DAG1], faktura_plan=FakturaPlan(PLAN_INGEN))
+    assert "Faktura på" not in html and "sendes separat" not in html and "Kursavgiften" not in html
+    assert "faktura for hver samling" not in html
 
 
 def test_bekreftelse_escaper_deltaker_og_kursnavn():
-    _, html = _render("bekreftelse", p={**DELTAKER, "navn": "<script>alert(1)</script> & Co"},
+    _, html = _render_bek(p={**DELTAKER, "navn": "<script>alert(1)</script> & Co"},
                       kurs=_kurs(navn="Kurs A & B <x>"), dager=[DAG1])
     assert "<script>" not in html and "&lt;script&gt;alert(1)&lt;/script&gt; &amp; Co" in html
     assert "<strong>Kurs A &amp; B &lt;x&gt;</strong>" in html
@@ -358,7 +398,7 @@ def test_e2e_bekreftelse_via_sveiper(con, sendt):
     assert (til, emne) == ("ola@x.no", "Bekreftelse: Veiledning i praksis")
     assert "Du har fått plass på <strong>Veiledning i praksis</strong>." in html
     assert "<li>2027-03-01 kl. 09:00–16:00</li>" in html and "Sted: Oslo." in html   # standard sluttid er 16:00
-    assert "Faktura på 1500 kr sendes til deg." in html
+    assert "Faktura på 1500 kr sendes separat til deg." in html and "tidligst" not in html
 
 
 def test_e2e_venteliste_via_sveiper(con, sendt):

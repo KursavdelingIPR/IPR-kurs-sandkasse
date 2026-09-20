@@ -208,16 +208,16 @@ def test_epost_py_importerer_ikke_db_og_gjor_ingen_override_oppslag():
     assert "maltekst_for_utsending" not in inspect.getsource(epost)      # oppslaget skjer i Kjoring/maltekster
 
 
-# ============================ kun venteliste og avlysning er aktivert ============================
+# ============================ kun venteliste, avlysning og bekreftelse er aktivert ============================
 
-AKTIVE = frozenset({"venteliste", "avlysning"})
+AKTIVE = frozenset({"venteliste", "avlysning", "bekreftelse"})
 IKKE_AKTIVE = [m for m in MALER if m not in AKTIVE]
 
 
-def test_kun_venteliste_og_avlysning_er_aktive_og_verdibyggerne_matcher():
+def test_kun_venteliste_avlysning_og_bekreftelse_er_aktive_og_verdibyggerne_matcher():
     assert maltekster.AKTIVE_MALER == AKTIVE
     assert set(maltekster._VERDIER) == set(maltekster.AKTIVE_MALER) <= set(MALER)
-    assert len(IKKE_AKTIVE) == 6 and "kursbevis_klar" in IKKE_AKTIVE            # kursbevis_klar migreres i eget steg
+    assert len(IKKE_AKTIVE) == 5 and "kursbevis_klar" in IKKE_AKTIVE            # kursbevis_klar migreres i eget steg
 
 
 @pytest.mark.parametrize("mal", IKKE_AKTIVE)
@@ -235,18 +235,6 @@ def test_ovrige_og_laaste_maler_bruker_gammel_rendering_uten_db_lesing(con, monk
         raise AssertionError("DB skal ikke leses for maler som ikke er koblet")
     monkeypatch.setattr(db, "hent_overstyringer_for_mal", ikke_les)
     assert maltekster.maltekst_for_utsending(con, mal, {}) is None
-
-
-def test_bekreftelse_sendes_uendret_via_sveiper_uavhengig_av_maltekst_systemet(con, sendt, monkeypatch):
-    """En (manuelt innsatt) rad for bekreftelse paavirker ingenting - og DB leses ikke for den."""
-    con.execute("INSERT INTO mal_tekst (mal, felt, tekst) VALUES ('bekreftelse', 'emne', 'IGNORERES {ukjent}')")
-    kid = db.opprett_kurs(con, kode="B1", navn="Veiledning i praksis", datoer=["2027-03-01"], sharepoint_mappe="K/B1", pris_nok=0)
-    pid, _ = db.meld_paa(con, kid, epost="ola@x.no", navn="Ola Nordmann")
-    con.commit()
-    monkeypatch.setattr(db, "hent_overstyringer_for_mal", lambda *a, **k: (_ for _ in ()).throw(AssertionError("skal ikke leses")))
-    _kjor(con, pid)
-    (til, emne, html), = _mine(sendt)
-    assert emne == "Bekreftelse: Veiledning i praksis" and "Takk for påmeldingen!" in _n(html)
 
 
 # ============================ feil FOER claim ============================

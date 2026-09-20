@@ -10,6 +10,7 @@ import pytest
 from kurs import config, db, sveiper
 from kurs.integrasjoner import epost
 from kurs.kjoring import Kjoring
+from kurs.sveiper import PLAN_INGEN, FakturaPlan
 
 FARLIG = "Kurs A & B <x>"
 
@@ -23,12 +24,13 @@ KURS = {"navn": FARLIG, "type": "fysisk", "sted": "Oslo", "start_kl": "09:00", "
         "zoom_url": None, "zoom_id": None, "zoom_pw": None}
 DELTAKER = {"navn": "Ola", "betaling": "samlet", "betaler": "person", "org_navn": None}
 DAG = {"dato": "2027-03-01", "start_kl": None, "slutt_kl": None}
+PLAN = FakturaPlan(PLAN_INGEN)      # bekreftelse krever faktura_plan (laast fakturablokk); irrelevant for emnetestene
 
 
 # ============================ emnet er ren tekst ============================
 
 def test_bekreftelse_emne_er_ren_tekst_men_kroppen_escapes():
-    emne, html = epost.render("bekreftelse", p=DELTAKER, kurs=KURS, dager=[DAG])
+    emne, html = epost.render("bekreftelse", p=DELTAKER, kurs=KURS, dager=[DAG], faktura_plan=PLAN)
     assert emne == "Bekreftelse: Kurs A & B <x>"                       # ikke &amp; / &lt;
     assert "&amp;" not in emne and "&lt;" not in emne
     assert "<strong>Kurs A &amp; B &lt;x&gt;</strong>" in html          # kroppen er fortsatt HTML-escapet
@@ -67,7 +69,7 @@ def test_manuell_epost_emne_fra_admin_er_ren_tekst():
 
 
 def test_vanlige_emner_er_uendret():
-    emne, _ = epost.render("bekreftelse", p=DELTAKER, kurs={**KURS, "navn": "Veiledning i praksis"}, dager=[DAG])
+    emne, _ = epost.render("bekreftelse", p=DELTAKER, kurs={**KURS, "navn": "Veiledning i praksis"}, dager=[DAG], faktura_plan=PLAN)
     assert emne == "Bekreftelse: Veiledning i praksis"
 
 
@@ -82,7 +84,7 @@ def test_vanlige_emner_er_uendret():
     "Kurs" + chr(0) + "Bcc: ond@x.no",                  # NUL
 ])
 def test_linjeskift_i_kursnavn_gir_aldri_linjeskift_i_emnet_og_lekker_ikke_inn_i_kroppen(navn):
-    emne, html = epost.render("bekreftelse", p=DELTAKER, kurs={**KURS, "navn": navn}, dager=[DAG])
+    emne, html = epost.render("bekreftelse", p=DELTAKER, kurs={**KURS, "navn": navn}, dager=[DAG], faktura_plan=PLAN)
     for tegn in (chr(13), chr(10), chr(0x2028), chr(0x85), chr(0)):
         assert tegn not in emne
     assert emne == "Bekreftelse: Kurs Bcc: ond@x.no"                    # erstattet med mellomrom - sendingen stoppes ikke

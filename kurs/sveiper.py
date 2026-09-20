@@ -74,13 +74,16 @@ def _en(k: Kjoring, p) -> None:
         k.send_en_gang(nokkel, p["epost"], "venteliste", "venteliste", paamelding_id=p["id"], p=p, kurs=kurs)
         return  # ikke fakturer / ikke merk ferdig – kjores paa nytt naar de flyttes opp
 
+    # EN plan (ren, ingen sideeffekt), regnet FOER mailen: den gaar til bekreftelsens laaste fakturablokk OG videre til fakturer()
+    # og _fakturering_ferdig() - e-posten og motoren kan aldri bygge paa hver sin regel. Mailen sendes FOER fakturaforsoket og
+    # kan derfor aldri paastaa at faktura er sendt/opprettet.
+    plan = _lag_plan(k, p, dager)
     k.send_en_gang(nokkel, p["epost"], "bekreftelse", "bekreftelse", paamelding_id=p["id"],
-                   p=p, kurs=kurs, dager=dager)
+                   p=p, kurs=kurs, dager=dager, faktura_plan=plan)
     if not db.allerede_sendt(k.con, nokkel, p["epost"], "bekreftelse"):
         return  # bekreftelsen er ikke trygt bekreftet sendt enda (reservert/feilet/ukjent hos noen -
                 # kanskje denne kjoringen selv) - ikke fakturer, ikke marker ferdig. Tas igjen senere,
                 # siden sveiper_kjort fortsatt er 0.
-    plan = _lag_plan(k, p, dager)  # EN plan, sendt videre til fakturer() og _fakturering_ferdig() (aldri regnet flere steder)
     fakturer(k, p, plan)
     if not _fakturering_ferdig(k, p, plan):
         return  # faktura ikke definitivt ferdig (reservert/feilet/ukjent) enna, eller kursdato mangler (konfigurasjonsfeil)

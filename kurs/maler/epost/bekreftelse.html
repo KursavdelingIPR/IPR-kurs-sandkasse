@@ -1,14 +1,18 @@
-Emne: Bekreftelse: {{ kurs.navn }}
+Emne: {{ maltekst.emne }}
 {% extends "_ramme.html" %}{% block innhold %}
-<p>Hei {{ p.navn }},</p>
-<p>Takk for påmeldingen! Du har fått plass på <strong>{{ kurs.navn }}</strong>.</p>
+{{ maltekst.innledning }}
 <ul>
 {% for d in dager %}<li>{{ d.dato }} kl. {{ d.start_kl or kurs.start_kl }}–{{ d.slutt_kl or kurs.slutt_kl }}</li>{% endfor %}
 </ul>
 <p>{% if kurs.type == 'digital' %}Kurset er digitalt. Zoom-lenke kommer på e-post dagen før hver kursdag.
 {% else %}Sted: {{ kurs.sted or 'kommer' }}.{% endif %}</p>
-{% if kurs.pris_nok and kurs.fakturering == 'person' %}
-<p>{% if p.betaling == 'per_samling' %}Kursavgiften på {{ kurs.pris_nok }} kr deles på {{ dager | length }} samlinger, og faktura for hver samling sendes {{ kurs.faktura_dager_for }} dager før samlingen{% else %}Faktura på {{ kurs.pris_nok }} kr sendes{% endif %}
-{% if p.betaler == 'organisasjon' %}til {{ p.org_navn }}{% else %}til deg{% endif %}.</p>{% endif %}
-<p>Du kan når som helst logge inn på <a href="{{ base_url }}/min-side">Min side</a> med e-postadressen din.</p>
+{#- LAAST SYSTEMBLOKK: fakturainformasjon. Bygges av systemet fra faktura_plan (samme plan som fakturamotoren) - aldri fra
+    admintekst. Mailen sendes FOER fakturaforsoket, saa teksten sier aldri "sendt"/"opprettet". Ingen dato ved mangler_kursdag. -#}
+{% if faktura_plan.modus == 'per_samling' %}
+<p>Kursavgiften på {{ kurs.pris_nok }} kr deles på {{ dager | length }} samlinger, og faktura for hver samling sendes {{ kurs.faktura_dager_for }} {{ 'dag' if kurs.faktura_dager_for == 1 else 'dager' }} før samlingen
+{% if p.betaler == 'organisasjon' %}til {{ p.org_navn }}{% else %}til deg{% endif %}.</p>
+{% elif faktura_plan.modus in ('na', 'utsatt', 'mangler_kursdag') %}
+<p>Faktura på {{ kurs.pris_nok }} kr sendes separat til {% if p.betaler == 'organisasjon' %}{{ p.org_navn }}{% else %}deg{% endif %}{% if faktura_plan.modus == 'utsatt' %}, tidligst {{ faktura_plan.tidligst_dato.strftime('%d.%m.%Y') }}{% endif %}.</p>
+{% endif %}
+{{ maltekst.avslutning }}
 {% endblock %}

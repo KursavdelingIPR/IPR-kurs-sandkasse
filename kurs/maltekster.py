@@ -427,11 +427,11 @@ def tilbakestill_maltekst(con, mal: str, felt: str, aktor: str = "system") -> bo
 
 # ============================ kobling til utsending (12B2A) ============================
 
-# MIDLERTIDIG (12B2A/12B2B): KUN `venteliste` og `avlysning` er koblet til den faktiske utsendingen. De 6 andre registrerte
-# malene rendres fortsatt med den gamle, hardkodede Jinja-teksten. For at en overstyring aldri skal bli STILLE ignorert, NEKTER lagre_maltekst() aa
-# lagre for maler som ikke er i denne listen. Generaliseres/fjernes i 12B2B naar alle 8 er migrert (verdibyggerne under
-# blir da en del av Mal-registeret).
-AKTIVE_MALER = frozenset({"venteliste", "avlysning"})
+# MIDLERTIDIG (12B2A-12B2C): KUN `venteliste`, `avlysning` og `bekreftelse` er koblet til den faktiske utsendingen. De 5 andre
+# registrerte malene rendres fortsatt med den gamle, hardkodede Jinja-teksten. For at en overstyring aldri skal bli STILLE
+# ignorert, NEKTER lagre_maltekst() aa lagre for maler som ikke er i denne listen. Generaliseres/fjernes naar alle 8 er migrert
+# (verdibyggerne under blir da en del av Mal-registeret).
+AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse"})
 
 
 def _venteliste_verdier(data) -> dict:
@@ -444,7 +444,19 @@ def _avlysning_verdier(data) -> dict:
     return {"navn": data["d"]["navn"], "kursnavn": data["kurs"]["navn"]}
 
 
-_VERDIER = {"venteliste": _venteliste_verdier, "avlysning": _avlysning_verdier}    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
+def _bekreftelse_verdier(data) -> dict:
+    """KUN det registeret tillater: mottakerens navn, kursnavn og foerste kursdag (ISO). Ingen e-post, telefon, adresse eller
+    fakturadata. Fakturainformasjonen er en LAAST systemblokk i malfilen, bygget fra `faktura_plan` (samme FakturaPlan som
+    fakturamotoren) - aldri en kode og aldri redigerbar. Mangler planen -> MalFeil (fail closed: aldri en bekreftelse uten
+    sann fakturainformasjon). Uten kursdager utelates {startdato} (bruker admin den, blir det MalFeil - aldri en oppdiktet dato)."""
+    data["faktura_plan"]
+    verdier = {"navn": data["p"]["navn"], "kursnavn": data["kurs"]["navn"]}
+    if data["dager"]:
+        verdier["startdato"] = data["dager"][0]["dato"]
+    return verdier
+
+
+_VERDIER = {"venteliste": _venteliste_verdier, "avlysning": _avlysning_verdier, "bekreftelse": _bekreftelse_verdier}    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
 
 
 def _bygg(mal: str, tekster: dict, data) -> dict:
