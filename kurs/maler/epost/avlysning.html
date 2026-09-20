@@ -1,8 +1,4 @@
-Emne: Avlyst: {{ kurs.navn }}
+Emne: {{ maltekst.emne }}
 {% extends "_ramme.html" %}{% block innhold %}
-<p>Hei {{ d.navn }},</p>
-<p>Vi må dessverre informere om at <strong>{{ kurs.navn }}</strong> er avlyst.</p>
-<p>Har du allerede mottatt faktura, tar kursadministrasjonen kontakt med deg om det videre.
-Har du spørsmål, kan du svare på denne e-posten eller bruke «Spør oss» på {{ base_url }}/sporsmal.</p>
-<p>Vi beklager ulempen dette medfører.</p>
+{{ maltekst.tekst }}
 {% endblock %}

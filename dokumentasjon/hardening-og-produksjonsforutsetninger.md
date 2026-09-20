@@ -86,3 +86,18 @@ aggregert logg `bulk_behandling_utlost`. Bulk bruker samme sveiper-/claim-motor 
   ganger (idempotent), men oversikten er borte. PRG/resultattoken kan innføres senere hvis det blir et UX-problem.
 - **En rad som blir uavklart frigir `sveiper_utsatt`** (som fase 9). Global sveiper ser den da, men claimen hindrer effekt.
 - Uavklarte rader krever fortsatt manuell kontroll (admin-UI for å løse dem er backlog-punkt 10).
+
+## F. Avlysning: kjente funn (verifisert i 12B2B, IKKE løst)
+
+- **Graph-/sendefeil midt i avlysningsløkken.** `epost.send`-unntak fanges i `Kjoring.send_en_gang` (raden blir `ukjent`,
+  `epost_ukjent` logges PII-sikkert og committes), men unntaket **re-kastes** og går uhåndtert ut av `admin_avlys_kurs`:
+  HTTP 500, løkken avbrytes (senere mottakere forsøkes aldri), og kurset er allerede `avlyst` (committet før sending).
+  Verifisert med 3 mottakere der mottaker 2 feiler: mottaker 1 `sendt`, mottaker 2 `ukjent`, mottaker 3 aldri forsøkt.
+  Dette er en annen mekanisme enn `MalFeil` (som nå fanges i preflight *før* statusendring). Hører sammen med backlog-punkt 8
+  (per-melding feilisolering) og punkt 10 (admin-UI for å løse uavklarte).
+- **Misvisende flash «N deltaker(e) er varslet».** Meldingen teller `len(mottakere)` uansett hva `send_en_gang` returnerer
+  (`False` ved tapt/tatt claim, f.eks. etter gjenåpning + ny avlysning). Verifisert: etter gjenåpning og ny avlysning sa
+  meldingen «3 deltaker(e) er varslet» mens bare den ene som ikke hadde claim fikk e-post.
+- **Preflight er ikke en lås (TOCTOU akseptert).** Avlysningens preflight fanger ugyldig/korrupt lagret mal og DB-lesefeil
+  *før* den irreversible handlingen, men `send_en_gang` rendrer og validerer på nytt før hver claim. En mal som endres/ødelegges
+  mellom preflight og sending kan fortsatt gi `MalFeil` midt i løkken.

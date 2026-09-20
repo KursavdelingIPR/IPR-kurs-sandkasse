@@ -22,6 +22,14 @@ class Kjoring:
         self.utskrift.append(tekst)
         print(tekst)
 
+    def render_for_sending(self, mal: str, **data) -> tuple[str, str]:
+        """Rendrer en e-post NOYAKTIG slik en faktisk utsending gjor: override-bevisst maltekst (kun for maler som er koblet til
+        maltekstsystemet) og deretter epost.render. Ingen sideeffekter: leser kun, committer/ruller ikke tilbake, skriver ingen
+        hendelse og rorer ikke utsending_logg. Brukes av send_en_gang (FOER claim) og av preflight foer irreversible
+        admin-handlinger (f.eks. avlysning). Ugyldig/korrupt maltekst eller DB-lesefeil gir MalFeil."""
+        maltekst = maltekster.maltekst_for_utsending(self.con, mal, data)   # None = ikke-koblet mal -> gammel rendering
+        return epost.render(mal, maltekst=maltekst, **data)
+
     def send_en_gang(self, nokkel: str, til: str, type_: str, mal: str, *, paamelding_id: int | None = None,
                      **data) -> bool:
         """Sender e-post med malen hvis (nokkel, til, type) ikke er sendt for. True hvis sendt naa.
@@ -46,8 +54,7 @@ class Kjoring:
         konservativt som ukjent, og hendelsen logges (kun sikker feiltekst, aldri str(e) - se feil.py).
         `paamelding_id` (valgfri) tas med i hendelsen slik at en admin kan finne frem - aldri navn/e-post.
         """
-        maltekst = maltekster.maltekst_for_utsending(self.con, mal, data)   # None = ikke-koblet mal -> gammel rendering
-        emne, html = epost.render(mal, maltekst=maltekst, **data)
+        emne, html = self.render_for_sending(mal, **data)
         vant = db.reserver_sending(self.con, nokkel, til, type_) or             db.reserver_sending_pa_nytt(self.con, nokkel, til, type_)
         if not self.tor:
             self.con.commit()  # claim (eller tapt claim) - frigjor skrivelaasen FOR det evt. lange eksterne kallet

@@ -18,7 +18,7 @@ from flask import (Flask, Response, abort, flash, g, make_response, redirect, re
 from markupsafe import Markup
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from .. import behandling, config, daglig, db, import_deltakere, sveiper
+from .. import behandling, config, daglig, db, import_deltakere, maltekster, sveiper
 from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
 from ..kjoring import Kjoring
@@ -779,6 +779,21 @@ def admin_kurs_status(kurs_id):
 @krever_admin
 def admin_avlys_kurs(kurs_id):
     kurs = _hent_kurs(kurs_id)
+    mottakere = con().execute(
+        """SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+           WHERE p.kurs_id=? AND p.status IN ('bekreftet','venteliste')""", (kurs_id,)).fetchall()
+    k = Kjoring(con(), idag=_idag())
+    if kurs["status"] != "avlyst":
+        # PREFLIGHT: forhaandsrender avlysningsmeldingen for ALLE mottakere FOER kursstatus endres og committes. Kun rendring -
+        # ingen commit, ingen claim, ingen utsending, ingen hendelse. En ugyldig/korrupt redigert mal (MalFeil) skal ikke
+        # etterlate et avlyst kurs uten varsler. send_en_gang rendrer og validerer likevel paa nytt foer hver claim.
+        try:
+            for d in mottakere:
+                k.render_for_sending("avlysning", d=d, kurs=kurs)
+        except maltekster.MalFeil:
+            flash("Kurset ble ikke avlyst fordi avlysningsmeldingen ikke kunne klargjøres. "
+                 "Kontroller e-postmalen og prøv igjen.", "feil")
+            return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
     try:
         db.avlys_kurs(con(), kurs_id, aktor=_aktor())
         con().commit()
@@ -786,10 +801,6 @@ def admin_avlys_kurs(kurs_id):
         con().rollback()
         flash(str(e), "feil")
         return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
-    k = Kjoring(con(), idag=_idag())
-    mottakere = con().execute(
-        """SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
-           WHERE p.kurs_id=? AND p.status IN ('bekreftet','venteliste')""", (kurs_id,)).fetchall()
     for d in mottakere:
         k.send_en_gang(f"kurs:{kurs_id}", d["epost"], "avlysning", "avlysning", paamelding_id=d["id"], d=d, kurs=kurs)
     con().commit()

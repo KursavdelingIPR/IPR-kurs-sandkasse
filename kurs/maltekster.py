@@ -427,18 +427,24 @@ def tilbakestill_maltekst(con, mal: str, felt: str, aktor: str = "system") -> bo
 
 # ============================ kobling til utsending (12B2A) ============================
 
-# MIDLERTIDIG (12B2A): KUN `venteliste` er koblet til den faktiske utsendingen. De 7 andre registrerte malene rendres fortsatt
-# med den gamle, hardkodede Jinja-teksten. For at en overstyring aldri skal bli STILLE ignorert, NEKTER lagre_maltekst() aa
+# MIDLERTIDIG (12B2A/12B2B): KUN `venteliste` og `avlysning` er koblet til den faktiske utsendingen. De 6 andre registrerte
+# malene rendres fortsatt med den gamle, hardkodede Jinja-teksten. For at en overstyring aldri skal bli STILLE ignorert, NEKTER lagre_maltekst() aa
 # lagre for maler som ikke er i denne listen. Generaliseres/fjernes i 12B2B naar alle 8 er migrert (verdibyggerne under
 # blir da en del av Mal-registeret).
-AKTIVE_MALER = frozenset({"venteliste"})
+AKTIVE_MALER = frozenset({"venteliste", "avlysning"})
 
 
 def _venteliste_verdier(data) -> dict:
     return {"navn": data["p"]["navn"], "kursnavn": data["kurs"]["navn"]}
 
 
-_VERDIER = {"venteliste": _venteliste_verdier}    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
+def _avlysning_verdier(data) -> dict:
+    """KUN det registeret tillater: mottakerens navn og kursnavn. Ingen e-post, telefon, adresse, faktura eller sensitivt.
+    (Systemlenkene {min_side} og {sporsmal_url} bygges av maltekster fra BASE_URL, ikke fra data.)"""
+    return {"navn": data["d"]["navn"], "kursnavn": data["kurs"]["navn"]}
+
+
+_VERDIER = {"venteliste": _venteliste_verdier, "avlysning": _avlysning_verdier}    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
 
 
 def _bygg(mal: str, tekster: dict, data) -> dict:
