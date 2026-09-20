@@ -18,6 +18,13 @@ from kurs.maltekster import (DB_LESEFEIL, ENSLIG_KLAMME, FEIL_FELTTYPE, FOR_LANG
 BASE = config.BASE_URL
 
 
+@pytest.fixture(autouse=True)
+def _alle_maler_aktive(monkeypatch):
+    """12B1-testene tester FUNDAMENTET generisk (alle 8 maler), dvs. slik det er naar alle er koblet til utsending (12B2B).
+    I 12B2A er kun `venteliste` koblet - sperren mot ikke-koblede maler testes i test_maltekster_integrasjon.py."""
+    monkeypatch.setattr(maltekster, "AKTIVE_MALER", frozenset(MALER))
+
+
 @pytest.fixture
 def con(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DEMO", True)
@@ -518,11 +525,13 @@ def test_gammel_database_faar_mal_tekst_ved_oppstart(tmp_path, monkeypatch):
     c.close()
 
 
-def test_maltekster_importerer_ikke_epost_og_12b1_er_ikke_koblet_til_e_postmotoren():
+def test_avhengigheten_gaar_én_vei_epost_kan_importere_maltekster_men_ikke_omvendt():
     from kurs.integrasjoner import epost
-    assert "maltekster" not in inspect.getsource(epost)
-    from kurs import kjoring
-    assert "maltekster" not in inspect.getsource(kjoring)
+    assert "maltekster" in inspect.getsource(epost)                 # epost.py bruker maltekster (12B2A)
+    tre = ast.parse(inspect.getsource(maltekster))
+    importert = {a.name for n in ast.walk(tre) if isinstance(n, ast.Import) for a in n.names}
+    importert |= {(n.module or "") + "." + a.name for n in ast.walk(tre) if isinstance(n, ast.ImportFrom) for a in n.names}
+    assert not [i for i in importert if "epost" in i.lower() or "kjoring" in i.lower()], importert
 
 
 # ============================ mal-ID = Jinja-filnavn = faktisk `mal` i send_en_gang (hindrer navnedrift) ============================

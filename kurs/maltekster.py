@@ -37,6 +37,7 @@ MANGLER_VERDI = "mangler_verdi"
 FEIL_FELTTYPE = "feil_felttype"
 UGYLDIG_TYPE = "ugyldig_type"
 DB_LESEFEIL = "db_lesefeil"
+IKKE_AKTIVERT = "ikke_aktivert"
 
 
 class MalFeil(Exception):
@@ -412,6 +413,8 @@ def lagre_maltekst(con, mal: str, felt: str, tekst: str, aktor: str = "system") 
     """Validerer FOER skriving, lagrer overstyringen og logger mal_endret (mal, felt, aktor - aldri teksten).
     Committer ikke (som resten av db-laget). Returnerer den lagrede, rensede teksten."""
     ren = valider(mal, felt, tekst)
+    if mal not in AKTIVE_MALER:   # 12B2A: ellers ville overstyringen bli STILLE ignorert av utsendingen
+        raise MalFeil(IKKE_AKTIVERT, mal, felt, "Denne malen er ikke koblet til utsending ennå, så teksten kan ikke lagres.")
     db.sett_maltekst(con, mal, felt, ren, aktor=aktor)
     return ren
 
@@ -420,3 +423,49 @@ def tilbakestill_maltekst(con, mal: str, felt: str, aktor: str = "system") -> bo
     """Fjerner overstyringen (-> standardtekst). Logger mal_tilbakestilt KUN hvis en rad faktisk fantes. Committer ikke."""
     _slaa_opp(mal, felt)
     return db.slett_maltekst(con, mal, felt, aktor=aktor)
+
+
+# ============================ kobling til utsending (12B2A) ============================
+
+# MIDLERTIDIG (12B2A): KUN `venteliste` er koblet til den faktiske utsendingen. De 7 andre registrerte malene rendres fortsatt
+# med den gamle, hardkodede Jinja-teksten. For at en overstyring aldri skal bli STILLE ignorert, NEKTER lagre_maltekst() aa
+# lagre for maler som ikke er i denne listen. Generaliseres/fjernes i 12B2B naar alle 8 er migrert (verdibyggerne under
+# blir da en del av Mal-registeret).
+AKTIVE_MALER = frozenset({"venteliste"})
+
+
+def _venteliste_verdier(data) -> dict:
+    return {"navn": data["p"]["navn"], "kursnavn": data["kurs"]["navn"]}
+
+
+_VERDIER = {"venteliste": _venteliste_verdier}    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
+
+
+def _bygg(mal: str, tekster: dict, data) -> dict:
+    """Ferdig rendrede felttekster for en aktiv mal: {felt: str | Markup}. Emnefelt er ren tekst, tekstfelt er trygg HTML.
+    Ingen DB, ingen Jinja. Mangler malens data -> MalFeil (aldri stille tom tekst)."""
+    try:
+        verdier = _VERDIER[mal](data)
+    except (KeyError, IndexError, TypeError) as e:
+        raise MalFeil(MANGLER_VERDI, mal, None, "Data til malen mangler.") from e
+    ut = {}
+    for felt, f in MALER[mal].felt.items():
+        render = felttekst_til_emne if f.type == EMNE else felttekst_til_html
+        ut[felt] = render(mal, felt, tekster[felt], verdier)
+    return ut
+
+
+def standard_maltekst(mal: str, data) -> dict:
+    """Standardtekstene for en aktiv mal, ferdig rendret. RENT - ingen DB (brukes av epost.render uten connection)."""
+    if mal not in AKTIVE_MALER:
+        raise MalFeil(IKKE_AKTIVERT, mal, None, "Denne malen er ikke koblet til maltekstsystemet ennå.")
+    return _bygg(mal, {felt: f.standard for felt, f in MALER[mal].felt.items()}, data)
+
+
+def maltekst_for_utsending(con, mal: str, data):
+    """Effektiv maltekst (overstyring eller standard) for en faktisk utsending, ferdig rendret - eller None for maler som
+    ikke (ennå) er koblet (-> gammel rendering, uendret, ingen DB-lesing). Kalles FOER claim. Ugyldig/korrupt overstyring
+    og DB-feil gir MalFeil - aldri stille fallback til standard. Leser kun; committer/ruller aldri tilbake."""
+    if mal not in AKTIVE_MALER:
+        return None
+    return _bygg(mal, effektive_tekster(con, mal), data)

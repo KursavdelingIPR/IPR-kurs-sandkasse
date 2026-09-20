@@ -6,7 +6,7 @@ databaseendringer rulles tilbake til slutt.
 from dataclasses import dataclass, field
 from datetime import date
 
-from . import db
+from . import db, maltekster
 from .feil import sikker_feiltekst
 from .integrasjoner import epost
 
@@ -46,7 +46,8 @@ class Kjoring:
         konservativt som ukjent, og hendelsen logges (kun sikker feiltekst, aldri str(e) - se feil.py).
         `paamelding_id` (valgfri) tas med i hendelsen slik at en admin kan finne frem - aldri navn/e-post.
         """
-        emne, html = epost.render(mal, **data)
+        maltekst = maltekster.maltekst_for_utsending(self.con, mal, data)   # None = ikke-koblet mal -> gammel rendering
+        emne, html = epost.render(mal, maltekst=maltekst, **data)
         vant = db.reserver_sending(self.con, nokkel, til, type_) or             db.reserver_sending_pa_nytt(self.con, nokkel, til, type_)
         if not self.tor:
             self.con.commit()  # claim (eller tapt claim) - frigjor skrivelaasen FOR det evt. lange eksterne kallet

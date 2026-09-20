@@ -11,7 +11,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from .. import config
+from .. import config, maltekster
 from . import m365
 
 _maler = Environment(
@@ -37,7 +37,7 @@ def _rent_emne(tekst: str) -> str:
     return _KONTROLLTEGN.sub(" ", tekst).strip()
 
 
-def render(mal: str, **data) -> tuple[str, str]:
+def render(mal: str, maltekst: dict | None = None, **data) -> tuple[str, str]:
     """Returnerer (emne, html). Forste linje i malen er 'Emne: ...'.
 
     Emnet rendres som ren tekst (se _emne_env); kroppen rendres fra resten av malen med HTML-escaping. Emne-linja
@@ -45,7 +45,11 @@ def render(mal: str, **data) -> tuple[str, str]:
     kan flytte tekst mellom emne og kropp."""
     kilde = _maler.loader.get_source(_maler, f"{mal}.html")[0]
     forste, _, resten = kilde.partition("\n")
+    if maltekst is None and mal in maltekster.AKTIVE_MALER:
+        maltekst = maltekster.standard_maltekst(mal, data)   # direkte render (ingen DB): STANDARDtekst
     verdier = {"base_url": config.BASE_URL, **data}
+    if maltekst is not None:
+        verdier["maltekst"] = maltekst    # ferdig rendret (emne: ren tekst, tekst: trygg Markup) fra maltekster - IKKE fra DB her
     emne = _rent_emne(_emne_env.from_string(forste.rstrip("\r").removeprefix("Emne:")).render(**verdier))
     html = _maler.from_string(resten).render(**verdier)
     return emne, html
