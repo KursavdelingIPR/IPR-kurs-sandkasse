@@ -229,7 +229,7 @@ def test_X_preview_sender_kun_behandlingsbare_videre_og_har_aktiv_knapp(con):
     skjema = re.search(r"<form[^>]*bulk/behandle.*?</form>", html, re.S).group(0)
     assert not re.search(r"<button[^>]*disabled", skjema)          # knappen er aktiv
     assert "this.dataset.sendt" in html                              # dobbeltklikk-beskyttelse i nettleseren
-    assert "Bekreftelse på e-post og faktura" in html and "Hva skjer" in html
+    assert "Bekreftelse på e-post og fakturering" in html and "Hva skjer" in html
 
 
 def test_X_preview_uten_behandlingsbare_har_ingen_bekreftknapp(con):

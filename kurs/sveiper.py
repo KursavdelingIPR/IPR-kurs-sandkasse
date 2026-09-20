@@ -80,20 +80,37 @@ def _en(k: Kjoring, p) -> None:
         return  # bekreftelsen er ikke trygt bekreftet sendt enda (reservert/feilet/ukjent hos noen -
                 # kanskje denne kjoringen selv) - ikke fakturer, ikke marker ferdig. Tas igjen senere,
                 # siden sveiper_kjort fortsatt er 0.
-    fakturer(k, p)
-    if skal_faktureres(p) and not _fakturering_ferdig(k, p):
-        return  # minst én forfalt faktura er ikke definitivt ferdig (reservert/feilet/ukjent) enna
+    plan = _lag_plan(k, p, dager)  # EN plan, sendt videre til fakturer() og _fakturering_ferdig() (aldri regnet flere steder)
+    fakturer(k, p, plan)
+    if not _fakturering_ferdig(k, p, plan):
+        return  # faktura ikke definitivt ferdig (reservert/feilet/ukjent) enna, eller kursdato mangler (konfigurasjonsfeil)
+    # PLAN_UTSATT: faktura_tidligst_dato (skrevet i fakturer()) og sveiper_kjort=1 ligger i SAMME uavsluttede transaksjon -
+    # ingenting committes mellom dem, saa den ene kan aldri lagres uten den andre.
     k.con.execute("UPDATE paamelding SET sveiper_kjort=1 WHERE id=?", (p["id"],))
 
 
-def _fakturering_ferdig(k: Kjoring, p) -> bool:
-    """True naar hver ENDA FORFALT faktura for paameldingen finnes som en ekte, bekreftet faktura-
-    rad - dvs. ingen uavklart Visma-forsok igjen. Kalles kun naar skal_faktureres(p) er True.
+def _lag_plan(k: Kjoring, p, dager=None) -> "FakturaPlan":
+    """Bygger FakturaPlan for en paamelding fra dens egne felt + den autoritative kursdaglisten (db.kursdager)."""
+    dager = db.kursdager(k.con, p["kurs_id"]) if dager is None else dager
+    return faktura_plan(fakturering=p["fakturering"], pris_nok=p["pris_nok"], status=p["status"], betaling=p["betaling"],
+                        faktura_onskes_na=p["faktura_onskes_na"], kursdager=[d["dato"] for d in dager], idag=k.idag)
 
-    Fremtidige (ikke-forfalte) delfakturaer skal IKKE kreves ferdige her - de hentes opp av
-    forfalte_delfakturaer() naar de forfaller, akkurat som i dag.
+
+def _fakturering_ferdig(k: Kjoring, p, plan: "FakturaPlan") -> bool:
+    """Er fakturadelen av "ved paamelding"-kjeden ferdig, gitt planen?
+
+      ingen            -> ferdig
+      utsatt           -> ferdig (lovlig ventetilstand: bekreftelse = ferdig, faktura = planlagt senere)
+      mangler_kursdag  -> IKKE ferdig (konfigurasjonsfeil - skal ikke skjules)
+      na               -> ferdig naar den samlede fakturaen finnes som en ekte, bekreftet faktura-rad (ingen uavklart forsok)
+      per_samling      -> hver ENDA FORFALT delfaktura finnes som ekte faktura-rad. Fremtidige (ikke-forfalte)
+                          delfakturaer kreves IKKE ferdige - de hentes av forfalte_delfakturaer() naar de forfaller.
     """
-    if p["betaling"] != "per_samling":
+    if plan.modus in (PLAN_INGEN, PLAN_UTSATT):
+        return True
+    if plan.modus == PLAN_MANGLER_KURSDAG:
+        return False
+    if plan.modus == PLAN_NA:
         return k.con.execute(
             "SELECT 1 FROM faktura WHERE paamelding_id=? AND kursdag_id IS NULL", (p["id"],)).fetchone() is not None
     for dag in db.kursdager(k.con, p["kurs_id"]):
@@ -118,11 +135,27 @@ def delbelop(pris: int, antall: int) -> list[int]:
     return [grunn + rest] + [grunn] * (antall - 1)
 
 
-def fakturer(k: Kjoring, p) -> None:
-    """Oppretter de fakturaene som skal finnes for denne deltakeren akkurat naa."""
-    if not skal_faktureres(p):
+def fakturer(k: Kjoring, p, plan: "FakturaPlan | None" = None) -> None:
+    """Gjennomfoerer fakturaplanen for denne deltakeren akkurat naa (planen beregnes her hvis den ikke er gitt).
+
+      ingen           -> ingenting
+      mangler_kursdag -> ingen faktura, ingen Visma, ingen faktura_forsok; kun en trygg hendelse (konfigurasjonsfeil)
+      utsatt          -> ingen faktura/Visma/faktura_forsok; lagrer faktura_tidligst_dato (ikke committet her)
+      na              -> samlet faktura via _opprett (uendret claim/Visma-sikkerhet)
+      per_samling     -> uendret: delfaktura for hver forfalt samling via _opprett
+    """
+    plan = plan or _lag_plan(k, p)
+    if plan.modus == PLAN_INGEN:
         return
-    if p["betaling"] != "per_samling":
+    if plan.modus == PLAN_MANGLER_KURSDAG:
+        db.logg(k.con, "faktura_feil", {"paamelding_id": p["id"], "kurs_id": p["kurs_id"], "arsak": PLAN_MANGLER_KURSDAG})
+        k.si(f"  FEIL for påmelding {p['id']}: kurset mangler kursdager - faktura kan ikke planlegges")
+        return
+    if plan.modus == PLAN_UTSATT:
+        k.con.execute("UPDATE paamelding SET faktura_tidligst_dato=? WHERE id=?", (plan.tidligst_dato.isoformat(), p["id"]))
+        k.si(f"  faktura utsatt til {plan.tidligst_dato.isoformat()} (påmelding {p['id']})")
+        return
+    if plan.modus == PLAN_NA:
         _opprett(k, p, None, p["pris_nok"], f"{p['kursnavn']} – {p['navn']}")
         return
     dager = db.kursdager(k.con, p["kurs_id"])
@@ -149,8 +182,9 @@ def seks_maaneder_for(dato: date) -> date:
     return date(aar, maaned, min(dato.day, calendar.monthrange(aar, maaned)[1]))
 
 
-# Fakturaplan (steg 3A): en REN beslutning om NAAR en faktura skal opprettes. Foreloepig IKKE koblet til fakturaflyten
-# (_en/fakturer bruker den ikke) - "hold faktura" aktiveres foerst sammen med daglig utloesning og oekonomilaas.
+# Fakturaplan: en REN beslutning om NAAR en faktura skal opprettes. Brukes via _lag_plan av _en/fakturer/_fakturering_ferdig;
+# utsatte samlede fakturaer utloeses av utsatte_fakturaer (daglig steg 1c), og oekonomifeltene laases av
+# db.har_okonomisk_binding_for_kurs.
 PLAN_INGEN = "ingen"                      # ingen automatisk faktura (gratis, organisasjon/ingen-fakturering, ikke bekreftet)
 PLAN_PER_SAMLING = "per_samling"          # delfakturaer med egen forfallslogikk (faktura_dager_for) - seksmaanedersregelen gjelder ikke
 PLAN_NA = "na"                            # samlet faktura opprettes naa
@@ -216,6 +250,70 @@ def forfalte_delfakturaer(k: Kjoring) -> None:
             feil = sikker_feiltekst(e)
             db.logg(k.con, "faktura_feil", {"paamelding_id": p["id"], "feil": feil})
             k.si(f"  FEIL delfaktura for påmelding {p['id']}: {feil}")
+
+
+def utsatte_fakturaer(k: Kjoring, paamelding_id: int | None = None) -> None:
+    """Daglig: oppretter SAMLEDE fakturaer som lovlig har ventet (PLAN_UTSATT) og naa er kvalifisert. Idempotent.
+
+    Utvalg: bekreftet, sveiper_kjort=1, betaling samlet, faktura_tidligst_dato satt, kurset fakturerer per person med pris,
+    kursstatus ikke avlyst/utkast, og ingen samlet faktura finnes. Kvalifisert naar den LAGREDE datoen er naadd
+    (faktura_tidligst_dato <= idag) ELLER faktura_onskes_na=1. Den lagrede datoen er beslutningen systemet tok da
+    bekreftelsen ble behandlet - seks maaneder regnes IKKE paa nytt her. Datoen beholdes som historikk etter fakturering.
+
+    Selve fakturaen gaar gjennom samme motor som ellers (fakturer -> _opprett: claim, dobbeltsjekk, faktura_forsok,
+    Visma, unik indeks, ukjent-semantikk uten automatisk retry). En feil paa en rad stopper ikke de andre.
+
+    `paamelding_id` gir maalrettet utloesning av akkurat en holdt paamelding (seam for et fremtidig admin-"faktura naa").
+    Kurs som avlyses mellom SELECT og Visma-kallet er samme eksisterende (ikke-utvidede) race som resten av motoren.
+    """
+    rader = k.con.execute(
+        SQL_DELTAKER + """ WHERE p.status='bekreftet' AND p.sveiper_kjort=1 AND p.betaling='samlet'
+                           AND p.faktura_tidligst_dato IS NOT NULL
+                           AND (p.faktura_onskes_na=1 OR p.faktura_tidligst_dato <= ?)
+                           AND k.fakturering='person' AND k.pris_nok > 0 AND k.status NOT IN ('avlyst','utkast')
+                           AND NOT EXISTS (SELECT 1 FROM faktura f WHERE f.paamelding_id=p.id AND f.kursdag_id IS NULL)"""
+        + (" AND p.id=?" if paamelding_id else ""),
+        (k.idag.isoformat(), *((paamelding_id,) if paamelding_id else ()))).fetchall()
+    for p in rader:
+        try:
+            fakturer(k, p, FakturaPlan(PLAN_NA))
+        except Exception as e:  # noqa: BLE001
+            feil = sikker_feiltekst(e)  # aldri str(e): kan inneholde e-post/URL/persondata
+            db.logg(k.con, "faktura_feil", {"paamelding_id": p["id"], "feil": feil})
+            k.si(f"  FEIL utsatt faktura for påmelding {p['id']}: {feil}")
+
+
+def oppdater_faktura_hold_etter_kursdagendring(con, kurs_id: int) -> int:
+    """SKAL kalles i SAMME transaksjon som enhver endring av kursets kursdager (ingen slik editor finnes ennaa - en vakttest
+    feiler hvis ny kode skriver til kursdag uten aa gaa via denne). Holder lagrede faktura_tidligst_dato i takt med foerste
+    kursdag, slik at en gammel seksmaanedersdato aldri brukes mot et nytt kursoppsett.
+
+    Berorer KUN aktive, ennaa ufakturerte hold: bekreftet, samlet, fakturering=person med pris, faktura_tidligst_dato satt,
+    og INGEN ekte faktura og INGEN faktura_forsok (da har ekstern oekonomisk aktivitet skjedd/kan ha skjedd - historikk roeres ikke).
+      ny foerste kursdag finnes -> faktura_tidligst_dato = seks_maaneder_for(ny foerste kursdag)
+      ingen kursdager igjen    -> faktura_tidligst_dato=NULL og sveiper_kjort=0: normal motor gaar da til mangler_kursdag
+    INGEN Visma/e-post og ingen commit her. Er ny dato allerede passert plukkes raden av utsatte_fakturaer() etterpaa.
+    Returnerer antall oppdaterte paameldinger."""
+    dager = db.kursdager(con, kurs_id)
+    ny_dato = seks_maaneder_for(date.fromisoformat(dager[0]["dato"])).isoformat() if dager else None
+    rader = con.execute(
+        """SELECT p.id, p.faktura_tidligst_dato FROM paamelding p JOIN kurs k ON k.id=p.kurs_id
+           WHERE p.kurs_id=? AND p.status='bekreftet' AND p.betaling='samlet' AND p.faktura_tidligst_dato IS NOT NULL
+             AND k.fakturering='person' AND k.pris_nok > 0
+             AND NOT EXISTS (SELECT 1 FROM faktura f WHERE f.paamelding_id=p.id)
+             AND NOT EXISTS (SELECT 1 FROM faktura_forsok fo WHERE fo.paamelding_id=p.id)""", (kurs_id,)).fetchall()
+    antall = 0
+    for r in rader:
+        if ny_dato is None:
+            con.execute("UPDATE paamelding SET faktura_tidligst_dato=NULL, sveiper_kjort=0 WHERE id=?", (r["id"],))
+        elif r["faktura_tidligst_dato"] != ny_dato:
+            con.execute("UPDATE paamelding SET faktura_tidligst_dato=? WHERE id=?", (ny_dato, r["id"]))
+        else:
+            continue
+        antall += 1
+    if antall:
+        db.logg(con, "faktura_hold_oppdatert", {"kurs_id": kurs_id, "antall": antall})
+    return antall
 
 
 def _opprett(k: Kjoring, p, kursdag_id: int | None, belop: int, linjetekst: str) -> None:

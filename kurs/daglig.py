@@ -6,6 +6,7 @@
 
 Rekkefolge:
   1. Sveiper for nye paameldinger som ikke er ferdigbehandlet
+     (1b: delfakturaer som forfaller, 1c: utsatte samlede fakturaer som har naadd tidligst-datoen)
   2. Opprett Zoom-mote ~8 dager for start (digitale/hybride kurs)
   3. Innkallinger: uka for + dagen for hver kursdag
   4. Kursstatus (aktiv / avsluttet) + oppmoteimport fra Zoom
@@ -28,6 +29,8 @@ def kjor(k: Kjoring) -> None:
     sveiper.kjor(k)
     k.si("1b. Delfakturaer som forfaller")
     sveiper.forfalte_delfakturaer(k)
+    k.si("1c. Utsatte samlede fakturaer")
+    sveiper.utsatte_fakturaer(k)
 
     kursliste = k.con.execute(
         "SELECT * FROM kurs WHERE status IN ('aapen','full','aktiv') ORDER BY id"

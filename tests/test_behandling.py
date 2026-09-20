@@ -325,7 +325,7 @@ def test_forventet_handling(con):
     kid = _kurs(con)
     pid = _holdt(con, kid)
     kurs, rad = _rad_og_kurs(con, kid, pid)
-    assert behandling.forventet_handling(kurs, rad) == "Bekreftelse på e-post og faktura"
+    assert behandling.forventet_handling(kurs, rad) == "Bekreftelse på e-post og fakturering"
     gratis = _kurs(con, kode="T2", pris_nok=0)
     kurs2, rad2 = _rad_og_kurs(con, gratis, _holdt(con, gratis))
     assert behandling.forventet_handling(kurs2, rad2) == "Bekreftelse på e-post"

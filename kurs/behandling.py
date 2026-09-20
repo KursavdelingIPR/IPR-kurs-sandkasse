@@ -101,7 +101,7 @@ def forventet_handling(kurs, rad) -> str:
     if rad["status"] == "venteliste":
         return "Ventelistebeskjed på e-post"
     kunde = {"fakturering": kurs["fakturering"], "pris_nok": kurs["pris_nok"], "status": rad["status"]}
-    return "Bekreftelse på e-post og faktura" if sveiper.skal_faktureres(kunde) else "Bekreftelse på e-post"
+    return "Bekreftelse på e-post og fakturering" if sveiper.skal_faktureres(kunde) else "Bekreftelse på e-post"
 
 
 def teller_som_feil(res: Behandlingsresultat) -> bool:

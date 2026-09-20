@@ -705,7 +705,7 @@ def admin_kurs_oppsett(kurs_id):
     return render_template(
         "admin_kurs_oppsett.html", kurs=kurs, dager=dager, filer=filer, admins=admins,
         oppmote_antall=oppmote_antall, bekreftet_antall=db.antall_bekreftet(con(), kurs_id),
-        faktura_laast=db.antall_faktura_for_kurs(con(), kurs_id) > 0,
+        faktura_laast=db.har_okonomisk_binding_for_kurs(con(), kurs_id),
         kurs_statusvalg=db.KURS_STATUS_OVERGANGER.get(kurs["status"], ()), fane="oppsett")
 
 

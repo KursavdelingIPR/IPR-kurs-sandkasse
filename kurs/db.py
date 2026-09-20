@@ -65,8 +65,9 @@ def _migrer(con: sqlite3.Connection) -> None:
     if not har_kolonne("paamelding", "sveiper_utsatt"):
         # Konstant default (0) - trygt aa legge til selv om tabellen har rader fra for.
         con.execute("ALTER TABLE paamelding ADD COLUMN sveiper_utsatt INTEGER NOT NULL DEFAULT 0")
-    # Faktura tidligst seks maaneder foer forste kursdag: KUN lagringsplass foreloepig (ingen kode setter/leser dem
-    # i fakturabeslutningen). Bare manglende kolonner legges til - eksisterende verdier roeres aldri (ingen UPDATE).
+    # Faktura tidligst seks maaneder foer forste kursdag: faktura_onskes_na (lagret valg) og faktura_tidligst_dato (planlagt
+    # samlet faktura - satt av sveiper.fakturer, lest av sveiper.utsatte_fakturaer og oekonomilaasen). Bare manglende
+    # kolonner legges til - eksisterende verdier roeres aldri (ingen UPDATE).
     if not har_kolonne("paamelding", "faktura_onskes_na"):
         con.execute("ALTER TABLE paamelding ADD COLUMN faktura_onskes_na INTEGER NOT NULL DEFAULT 0")
     if not har_kolonne("paamelding", "faktura_tidligst_dato"):
@@ -278,6 +279,18 @@ def oppdater_sensitivt(con, paamelding_id: int, allergier: str | None, tilrettel
     return True
 
 
+def _frigi_gammel_faktura_hold(con, paamelding_id: int) -> None:
+    """Nullstiller en GAMMEL faktura_tidligst_dato ved overgang til bekreftet/venteliste (samme tankegang som meld_paa():
+    en gammel fakturaplan skal aldri overleve inn i en ny fase av paameldingen - normal sveiper beregner ny plan fra dagens
+    kursoppsett og dagens behandlingsdato). Roerer ALDRI en paamelding som allerede har ekte faktura eller faktura_forsok
+    (ekstern oekonomisk aktivitet har skjedd/kan ha skjedd - datoen er da historikk). faktura_onskes_na roeres ikke."""
+    con.execute(
+        """UPDATE paamelding SET faktura_tidligst_dato=NULL
+           WHERE id=? AND faktura_tidligst_dato IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM faktura f WHERE f.paamelding_id=paamelding.id)
+             AND NOT EXISTS (SELECT 1 FROM faktura_forsok fo WHERE fo.paamelding_id=paamelding.id)""", (paamelding_id,))
+
+
 def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str = "admin") -> int | None:
     """Endrer paameldingsstatus fra admin. Bruker eksisterende meld_av() for avmelding, slik at
     ventelisteopprykk skjer riktig. Bekreftet -> venteliste tilbys bevisst ikke (bruk avmelding).
@@ -310,6 +323,7 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
         # registrering skal ikke stille denne handlingen ut av spill.
         con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, sveiper_utsatt=0, oppdatert=? WHERE id=?",
                    (na, paamelding_id))
+        _frigi_gammel_faktura_hold(con, paamelding_id)
         logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "bekreftet"}, aktor=aktor)
         return paamelding_id
 
@@ -318,6 +332,7 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
             raise Paameldingsfeil("Kan ikke sette en bekreftet deltaker til venteliste direkte – meld av i stedet.")
         con.execute("UPDATE paamelding SET status='venteliste', sveiper_kjort=0, sveiper_utsatt=0, oppdatert=? WHERE id=?",
                    (na, paamelding_id))
+        _frigi_gammel_faktura_hold(con, paamelding_id)
         logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "venteliste"}, aktor=aktor)
         return None
 
@@ -326,7 +341,7 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
 
 # ---------- admin: redigering av kurs (fase 4) ----------
 
-KURS_LAASTE_FELT = ("pris_nok", "fakturering", "betaling", "faktura_dager_for")  # laast etter forste faktura
+KURS_LAASTE_FELT = ("pris_nok", "fakturering", "betaling", "faktura_dager_for")  # laast ved oekonomisk binding
 
 
 def antall_faktura_for_kurs(con, kurs_id: int) -> int:
@@ -335,17 +350,35 @@ def antall_faktura_for_kurs(con, kurs_id: int) -> int:
         (kurs_id,)).fetchone()[0]
 
 
+def har_okonomisk_binding_for_kurs(con, kurs_id: int) -> bool:
+    """True naar kursets oekonomifelt (KURS_LAASTE_FELT) er bundet og ikke lenger kan endres. Boolsk laasebeslutning -
+    antall_faktura_for_kurs() teller fortsatt bare fakturaer. Bundet naar minst ett av disse finnes:
+      A. en ekte faktura
+      B. en faktura_forsok-rad (reservert/feilet/ukjent) - ekstern oekonomisk aktivitet kan ha skjedd, ogsaa om
+         deltakeren senere er avmeldt
+      C. en AKTIV (bekreftet) paamelding med faktura_tidligst_dato (planlagt/utsatt faktura). En avmeldt paamelding med
+         historisk hold-dato, uten faktura/forsok, laaser ikke kurset alene.
+    """
+    return con.execute(
+        """SELECT EXISTS (SELECT 1 FROM faktura f JOIN paamelding p ON p.id=f.paamelding_id WHERE p.kurs_id=?)
+               OR EXISTS (SELECT 1 FROM faktura_forsok fo JOIN paamelding p ON p.id=fo.paamelding_id WHERE p.kurs_id=?)
+               OR EXISTS (SELECT 1 FROM paamelding WHERE kurs_id=? AND status='bekreftet'
+                          AND faktura_tidligst_dato IS NOT NULL)""",
+        (kurs_id, kurs_id, kurs_id)).fetchone()[0] == 1
+
+
 def oppdater_kurs_felter(con, kurs_id: int, felter: dict, aktor: str = "admin") -> list[str]:
     """Oppdaterer kursfelt (ikke kapasitet/status, se egne funksjoner for dem).
 
-    Saa snart minst en faktura finnes for kurset, blir de fakturarelaterte feltene (pris,
+    Saa snart kurset har en oekonomisk binding (se har_okonomisk_binding_for_kurs: faktura, faktura_forsok eller
+    planlagt/utsatt faktura), blir de fakturarelaterte feltene (pris,
     fakturering, betaling, dager-for-faktura) STRIPPET her ogsaa - ikke bare skjult i UI -
     slik at de ikke kan endres via en direkte POST selv om skjemaet skulle tillate det.
     """
     gammel = con.execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone()
     if not gammel:
         raise Paameldingsfeil("Ukjent kurs")
-    if antall_faktura_for_kurs(con, kurs_id) > 0:
+    if har_okonomisk_binding_for_kurs(con, kurs_id):
         felter = {k: v for k, v in felter.items() if k not in KURS_LAASTE_FELT}
     endret = [f for f, v in felter.items() if (gammel[f] if gammel[f] is not None else "") != (v if v is not None else "")]
     if not endret:
@@ -394,6 +427,7 @@ def endre_kapasitet(con, kurs_id: int, ny_kapasitet: int | None, aktor: str = "a
                 break
             con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, oppdatert=? WHERE id=?",
                        (datetime.now().isoformat(timespec="seconds"), neste["id"]))
+            _frigi_gammel_faktura_hold(con, neste["id"])
             logg(con, "flyttet_fra_venteliste", {"paamelding_id": neste["id"]}, aktor=aktor)
             opprykket.append(neste["id"])
 
@@ -539,6 +573,7 @@ def meld_av(con, paamelding_id: int, aktor: str = "admin") -> int | None:
         # opprykk skal faktisk fore til bekreftelse/fakturering, ikke stille forbli utsatt.
         con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, sveiper_utsatt=0, oppdatert=? WHERE id=?",
                    (na, neste["id"]))
+        _frigi_gammel_faktura_hold(con, neste["id"])
         logg(con, "flyttet_fra_venteliste", {"paamelding_id": neste["id"]})
         return neste["id"]
     con.execute("UPDATE kurs SET status='aapen' WHERE id=? AND status='full'", (p["kurs_id"],))
