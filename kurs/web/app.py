@@ -1508,16 +1508,18 @@ def _bulk_klassifiser(kurs, rad) -> tuple[bool, str]:
 
 
 def _bulk_ider_eller_avvis(kurs_id: int):
-    """Felles for forhaandsvisning og behandling: leser paamelding_id-ene (kun heltall), fjerner duplikater
-    (rekkefolgen beholdes) og haandhever tomt utvalg og maks-grensen SERVER-SIDE.
+    """Felles for forhaandsvisning og behandling. Maks-grensen haandheves SERVER-SIDE paa ANTALL RAA request-felt
+    (request.form.getlist uten konvertering) - FOER heltallsparsing, filtrering av ugyldige verdier, deduplisering og
+    databaseoppslag. Deretter: kun heltall, duplikater fjernes (rekkefolgen beholdes), tomt utvalg avvises.
     Returnerer (ider, None) eller (None, redirect-respons)."""
+    raa_ider = request.form.getlist("paamelding_id")
+    if len(raa_ider) > MAKS_BULK_VALGT:
+        flash(f"Du kan behandle maks {MAKS_BULK_VALGT} deltakere om gangen (valgte {len(raa_ider)}). "
+             "Del opp i flere omganger.", "feil")
+        return None, redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
     ider = list(dict.fromkeys(request.form.getlist("paamelding_id", type=int)))
     if not ider:
         flash("Velg minst én deltaker.", "feil")
-        return None, redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
-    if len(ider) > MAKS_BULK_VALGT:
-        flash(f"Du kan behandle maks {MAKS_BULK_VALGT} deltakere om gangen (valgte {len(ider)}). "
-             "Del opp i flere omganger.", "feil")
         return None, redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
     return ider, None
 

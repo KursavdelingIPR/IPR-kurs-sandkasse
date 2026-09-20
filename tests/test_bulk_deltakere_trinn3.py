@@ -184,11 +184,13 @@ def test_D_over_50_avvises_server_side_og_ingenting_behandles(con, monkeypatch):
     assert all(_flagg(con, pid) == (0, 1) for pid in _ider(ut))
 
 
-def test_D_noyaktig_50_tillates_og_duplikater_teller_en_gang(con, monkeypatch):
+def test_D_noyaktig_50_raa_felt_tillates(con, monkeypatch):
+    """Grensen er 50 RAA request-felt (se test_raa_*). Duplikater innenfor grensen dedupes, se test_raa_duplikater_...;
+    50 unike doblet = 100 raa felt avvises, se test_raa_50_unike_doblet_er_100_raa_felt_og_avvises."""
     kid = _kurs(con)
     ut = _deltakere(con, kid, 50)
     kall = _teller(monkeypatch)
-    html = _tekst(_post(_klient(), kid, _ider(ut) + _ider(ut)))  # 100 poster, 50 unike
+    html = _tekst(_post(_klient(), kid, _ider(ut)))                                # 50 raa felt, 50 unike
     assert len(kall["epost"]) == 50 and len(kall["visma"]) == 50
     assert html.count(FULLFORT) >= 50
 
@@ -776,3 +778,166 @@ def test_Z_bulk_er_ikke_en_transaksjon_rundt_helheten(con, monkeypatch):
     monkeypatch.setattr(visma, "fakturer", ekte_visma)
     _post(_klient(), kid, _ider(ut))
     assert sett["rad1"] == (1, 1)
+
+
+# ====================================================================================
+# Maksgrensen (50) gjelder ANTALL RAA request-felt - foer parsing, filtrering, deduplisering og DB-oppslag.
+# Gjelder BAADE forhandsvisning og behandling (felles hjelper).
+# ====================================================================================
+
+RUTER = [FORHANDSVIS, BEHANDLE]
+RUTE_NAVN = ["forhandsvis", "behandle"]
+MALFORMED = ["abc", "", "1.5", "x1", "--2", " "]
+
+
+def _raa(klient, rute, kid, raa) -> object:
+    """Poster RAA feltverdier uten noen forhaandsfiltrering fra testen."""
+    return klient.post(rute.format(kid=kid), data={"paamelding_id": [str(x) for x in raa]})
+
+
+def _melding_side(klient, resp) -> str:
+    assert resp.status_code == 302
+    return _tekst(klient.get(resp.headers["Location"]))
+
+
+def _avvist_som_for_mange(klient, resp, antall_raa):
+    side = _melding_side(klient, resp)
+    assert f"maks 50 deltakere om gangen (valgte {antall_raa})" in side, side[-400:]   # meldingen viser RAA antall
+
+
+def _ingen_behandling(con, kall, ut):
+    assert kall == {"epost": [], "visma": []}
+    assert all(_flagg(con, pid) == (0, 1) for pid in _ider(ut))                        # ingen endring av noen paamelding
+    assert _tell(con, "SELECT COUNT(*) FROM utsending_logg") == 0
+    assert _tell(con, "SELECT COUNT(*) FROM hendelse WHERE handling IN ('bulk_behandling_utlost','manuell_behandling_utlost')") == 0
+
+
+@pytest.mark.parametrize("rute", RUTER, ids=RUTE_NAVN)
+def test_raa_A_51_kopier_av_samme_gyldige_id_avvises(con, monkeypatch, rute):
+    kid = _kurs(con)
+    ut = _deltakere(con, kid, 1)
+    kall = _teller(monkeypatch)
+    klient = _klient()
+    _avvist_som_for_mange(klient, _raa(klient, rute, kid, [ut[0][0]] * 51), 51)       # dedupe ville gitt 1 - irrelevant
+    _ingen_behandling(con, kall, ut)
+
+
+@pytest.mark.parametrize("rute", RUTER, ids=RUTE_NAVN)
+def test_raa_B_51_malformede_verdier_avvises(con, monkeypatch, rute):
+    kid = _kurs(con)
+    ut = _deltakere(con, kid, 1)
+    kall = _teller(monkeypatch)
+    klient = _klient()
+    side = _melding_side(klient, _raa(klient, rute, kid, ["abc"] * 51))
+    assert "maks 50 deltakere om gangen (valgte 51)" in side and "Velg minst" not in side   # parsing ville gitt 0 - irrelevant
+    _ingen_behandling(con, kall, ut)
+
+
+@pytest.mark.parametrize("rute", RUTER, ids=RUTE_NAVN)
+def test_raa_C_51_blandede_verdier_avvises(con, monkeypatch, rute):
+    kid = _kurs(con)
+    ut = _deltakere(con, kid, 10)
+    gyldige = _ider(ut)
+    blandet = gyldige + gyldige[:5] * 3 + [MALFORMED[i % len(MALFORMED)] for i in range(26)]   # 10 + 15 dup + 26 ugyldige
+    assert len(blandet) == 51 and len(set(map(str, gyldige))) == 10
+    kall = _teller(monkeypatch)
+    klient = _klient()
+    _avvist_som_for_mange(klient, _raa(klient, rute, kid, blandet), 51)
+    _ingen_behandling(con, kall, ut)
+
+
+@pytest.mark.parametrize("rute", RUTER, ids=RUTE_NAVN)
+def test_raa_D_noyaktig_50_raa_felt_avvises_ikke_paa_grunn_av_grensen(con, monkeypatch, rute):
+    kid = _kurs(con)
+    ut = _deltakere(con, kid, 10)
+    _teller(monkeypatch)
+    klient = _klient()
+    gyldige = _ider(ut)
+
+    # (i) 50 kopier av samme id: ikke avvist av grensen (normal dedupe -> 1 deltaker)
+    resp = _raa(klient, rute, kid, [gyldige[0]] * 50)
+    if rute == FORHANDSVIS:
+        assert resp.status_code == 200 and "1 av 1" in _tekst(resp)
+    else:
+        assert resp.status_code == 200 and _kategori(_tekst(resp), ut[0][2]) == FULLFORT
+
+    # (ii) 50 malformede: ikke avvist av grensen - vanlig "Velg minst én deltaker" (0 gyldige)
+    side = _melding_side(klient, _raa(klient, rute, kid, ["abc"] * 50))
+    assert "Velg minst" in side and "maks 50" not in side
+
+    # (iii) 50 blandede (10 gyldige + 15 duplikater + 25 ugyldige): normal behandling av de gyldige
+    blandet = gyldige + gyldige[:5] * 3 + [MALFORMED[i % len(MALFORMED)] for i in range(25)]
+    assert len(blandet) == 50
+    resp = _raa(klient, rute, kid, blandet)
+    assert resp.status_code == 200
+    assert "maks 50" not in _tekst(resp)
+
+
+@pytest.mark.parametrize("rute", RUTER, ids=RUTE_NAVN)
+@pytest.mark.parametrize("antall_raa,gyldige_unike_i_db,avvises", [
+    (51, 0, True),      # 51 raa, ingen finnes i DB
+    (51, 1, True),      # 51 raa, 1 unik gyldig
+    (51, 3, True),      # 51 raa, 3 unike gyldige som finnes
+    (52, 51, True),     # flere enn 50 unike ogsaa
+    (50, 0, False),     # 50 raa, ingen finnes i DB -> IKKE avvist av grensen
+    (50, 3, False),     # 50 raa, 3 unike -> ikke avvist
+    (50, 50, False),    # 50 raa, 50 unike som alle finnes -> ikke avvist
+    (1, 1, False),
+])
+def test_raa_E_grensen_er_antall_raa_felt_ikke_gyldige_unike_eller_deltakere_i_db(con, monkeypatch, rute, antall_raa, gyldige_unike_i_db, avvises):
+    kid = _kurs(con)
+    ut = _deltakere(con, kid, gyldige_unike_i_db) if gyldige_unike_i_db else []
+    _teller(monkeypatch)
+    klient = _klient()
+    gyldige = _ider(ut)
+    ikke_i_db = [900000 + i for i in range(antall_raa)]                                 # gyldige heltall som ikke finnes
+    raa = (gyldige + gyldige * 20 + ikke_i_db)[:antall_raa] if gyldige else ikke_i_db[:antall_raa]
+    assert len(raa) == antall_raa
+    resp = _raa(klient, rute, kid, raa)
+    if avvises:
+        _avvist_som_for_mange(klient, resp, antall_raa)
+    else:
+        if resp.status_code == 302:
+            assert "maks 50" not in _tekst(klient.get(resp.headers["Location"]))
+        else:
+            assert resp.status_code == 200 and "maks 50" not in _tekst(resp)
+
+
+def test_raa_50_unike_doblet_er_100_raa_felt_og_avvises(con, monkeypatch):
+    """Tidligere (gammel semantikk) ble dette akseptert fordi det ble dedupet FOER grensen."""
+    kid = _kurs(con)
+    ut = _deltakere(con, kid, 50)
+    kall = _teller(monkeypatch)
+    klient = _klient()
+    for rute in RUTER:
+        _avvist_som_for_mange(klient, _raa(klient, rute, kid, _ider(ut) + _ider(ut)), 100)
+    _ingen_behandling(con, kall, ut)
+
+
+def test_raa_duplikater_innenfor_50_raa_felt_dedupes_som_for(con, monkeypatch):
+    kid = _kurs(con)
+    ut = _deltakere(con, kid, 25)
+    kall = _teller(monkeypatch)
+    html = _tekst(_raa(_klient(), BEHANDLE, kid, _ider(ut) + _ider(ut)))                 # 50 raa, 25 unike
+    assert len(kall["epost"]) == 25 and len(kall["visma"]) == 25 and html.count(FULLFORT) >= 25
+
+
+def test_raa_avvisning_skjer_foer_db_oppslag(con, monkeypatch):
+    """Ved for mange raa felt gjores INGEN spoerring mot paamelding/deltaker/kurs-deltakerdata (grensen kommer foerst)."""
+    kid = _kurs(con)
+    _deltakere(con, kid, 1)
+    klient = _klient()
+    sql = []
+    ekte_koble = db.koble
+
+    def sporende_koble(*a, **kw):
+        c = ekte_koble(*a, **kw)
+        c.set_trace_callback(lambda s: sql.append(s))
+        return c
+    monkeypatch.setattr(db, "koble", sporende_koble)
+    for rute in RUTER:
+        sql.clear()
+        resp = _raa(klient, rute, kid, ["abc"] * 51)
+        oppslag = [s for s in sql if "FROM paamelding" in s or "JOIN deltaker" in s]         # kun selve POST-en
+        assert oppslag == [], oppslag
+        _avvist_som_for_mange(klient, resp, 51)                                             # (redirect-siden spor selv, saa den leses etterpaa)
