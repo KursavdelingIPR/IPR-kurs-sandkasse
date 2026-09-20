@@ -315,3 +315,179 @@ def test_gjenaapning_setter_status_tilbake(con):
     klient.post(f"/admin/kurs/{kid}/avlys")
     klient.post(f"/admin/kurs/{kid}/gjenaapne")
     assert _fersk(con).execute("SELECT status FROM kurs WHERE id=?", (kid,)).fetchone()["status"] == "aapen"
+
+
+# ---------------- faktura_dager_for: server-side 0..180 (grensene inklusive) ----------------
+
+def _dager_for(con, kid):
+    return _fersk(con).execute("SELECT faktura_dager_for FROM kurs WHERE id=?", (kid,)).fetchone()[0]
+
+
+def _post_oppsett(klient, kid, **over):
+    return klient.post(f"/admin/kurs/{kid}/oppsett", data=_oppsett_data(**over), follow_redirects=True).get_data(as_text=True)
+
+
+@pytest.mark.parametrize("verdi", [0, 1, 14, 179, 180])
+def test_valider_faktura_dager_for_godtar_gyldige_verdier_inkludert_grensene(verdi):
+    assert db.valider_faktura_dager_for(verdi) == verdi
+
+
+@pytest.mark.parametrize("verdi", [-1, 181, 999, -180, -999999])
+def test_valider_faktura_dager_for_avviser_utenfor_0_til_180(verdi):
+    with pytest.raises(db.Paameldingsfeil):
+        db.valider_faktura_dager_for(verdi)
+
+
+@pytest.mark.parametrize("verdi", [True, False, 14.0, 14.5, "14", "abc", "", None])
+def test_valider_faktura_dager_for_er_ikke_mer_liberal_enn_heltall(verdi):
+    with pytest.raises(db.Paameldingsfeil):
+        db.valider_faktura_dager_for(verdi)
+
+
+# ---- opprettelse (db-funksjonen som ALLE opprettelsesveier bruker) ----
+
+@pytest.mark.parametrize("verdi", [-1, 181, 999])
+def test_opprett_kurs_avviser_ugyldig_faktura_dager_for_og_skriver_ingenting(con, verdi):
+    with pytest.raises(db.Paameldingsfeil):
+        db.opprett_kurs(con, kode="UG1", navn="Ugyldig", datoer=[date.today().isoformat()], sharepoint_mappe="K/UG1",
+                        faktura_dager_for=verdi)
+    assert con.execute("SELECT COUNT(*) FROM kurs").fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM kursdag").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("verdi", [0, 180])
+def test_opprett_kurs_godtar_grensene(con, verdi):
+    kid = db.opprett_kurs(con, kode="OK1", navn="Grense", datoer=[date.today().isoformat()], sharepoint_mappe="K/OK1",
+                          faktura_dager_for=verdi)
+    assert con.execute("SELECT faktura_dager_for FROM kurs WHERE id=?", (kid,)).fetchone()[0] == verdi
+
+
+def test_opprett_kurs_uten_feltet_beholder_default_14(con):
+    kid = db.opprett_kurs(con, kode="DF1", navn="Default", datoer=[date.today().isoformat()], sharepoint_mappe="K/DF1")
+    assert con.execute("SELECT faktura_dager_for FROM kurs WHERE id=?", (kid,)).fetchone()[0] == 14
+
+
+def _ny_kurs_data(**over):
+    data = {"navn": "Nytt kurs", "type": "fysisk", "sted": "Bergen", "kapasitet": "",
+            "datoer": (date.today() + timedelta(days=90)).isoformat(),
+            "start_kl": "09:00", "slutt_kl": "16:00", "timer_pr_dag": "6", "pris_nok": "1000", "fakturering": "person",
+            "betaling": "samlet", "faktura_dager_for": "14", "ansvarlig_admin_id": "", "paameldingsfrist": "",
+            "kursholder_navn": "", "kursholder_epost": "", "materiell_frist": "", "notat": ""}
+    data.update(over)
+    return data
+
+
+@pytest.mark.parametrize("verdi", ["-1", "181", "999"])
+def test_ny_kurs_rute_avviser_ugyldig_faktura_dager_for_uten_kurs_eller_sharepoint_mappe(con, monkeypatch, verdi):
+    from kurs.integrasjoner import sharepoint
+    kall = []
+    monkeypatch.setattr(sharepoint, "opprett_kursmappe", lambda kode: kall.append(kode) or f"Kurs/{kode}")
+    klient = _klient()
+    _logg_inn(klient)
+    side = klient.post("/admin/kurs/ny", data=_ny_kurs_data(faktura_dager_for=verdi)).get_data(as_text=True)
+    assert "Kunne ikke opprette kurs" in side and "mellom 0 og 180" in side
+    assert _fersk(con).execute("SELECT COUNT(*) FROM kurs").fetchone()[0] == 0
+    assert kall == []                                                             # ingen ekstern sideeffekt
+
+
+@pytest.mark.parametrize("verdi", ["0", "180"])
+def test_ny_kurs_rute_godtar_grensene(con, verdi):
+    klient = _klient()
+    _logg_inn(klient)
+    klient.post("/admin/kurs/ny", data=_ny_kurs_data(faktura_dager_for=verdi))
+    assert _fersk(con).execute("SELECT faktura_dager_for FROM kurs").fetchone()[0] == int(verdi)
+
+
+def test_ny_kurs_rute_tomt_felt_gir_fortsatt_default_14_og_ikke_tall_avvises_som_for(con):
+    klient = _klient()
+    _logg_inn(klient)
+    klient.post("/admin/kurs/ny", data=_ny_kurs_data(faktura_dager_for=""))
+    assert _fersk(con).execute("SELECT faktura_dager_for FROM kurs").fetchone()[0] == 14
+    for ugyldig in ("abc", "14.5"):
+        klient.post("/admin/kurs/ny", data=_ny_kurs_data(faktura_dager_for=ugyldig, navn="Annet"))
+    assert _fersk(con).execute("SELECT COUNT(*) FROM kurs").fetchone()[0] == 1
+
+
+# ---- redigering: direkte POST kan ikke omgaa regelen ----
+
+@pytest.mark.parametrize("verdi", ["-1", "181", "999"])
+def test_oppsett_direkte_post_avviser_ugyldig_og_ingenting_oppdateres(con, verdi):
+    kid = _kurs(con)
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    side = _post_oppsett(klient, kid, faktura_dager_for=verdi, navn="Skal ikke lagres", notat="Heller ikke dette",
+                         pris_nok="5000")
+    assert "mellom 0 og 180" in side
+    rad = _fersk(con).execute("SELECT navn, notat, pris_nok, faktura_dager_for FROM kurs WHERE id=?", (kid,)).fetchone()
+    assert (rad["navn"], rad["notat"], rad["pris_nok"], rad["faktura_dager_for"]) == ("Testkurs", None, 1000, 14)
+
+
+@pytest.mark.parametrize("verdi", [0, 180])
+def test_oppsett_godtar_grensene(con, verdi):
+    kid = _kurs(con)
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    _post_oppsett(klient, kid, faktura_dager_for=str(verdi))
+    assert _dager_for(con, kid) == verdi
+
+
+def test_oppsett_tomt_felt_gir_default_14_og_ikke_numerisk_avvises_som_for(con):
+    kid = _kurs(con, faktura_dager_for=30)
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    for ugyldig in ("abc", "14.5"):
+        side = _post_oppsett(klient, kid, faktura_dager_for=ugyldig, navn="Nei")
+        assert "må være tall" in side
+    assert _dager_for(con, kid) == 30                                             # uendret etter avvisning
+    _post_oppsett(klient, kid, faktura_dager_for="")
+    assert _dager_for(con, kid) == 14                                             # dagens semantikk: tomt = default
+
+
+def test_db_oppdater_kurs_felter_avviser_ugyldig_faktura_dager_for_foer_noe_skrives(con):
+    kid = _kurs(con)
+    con.commit()
+    for verdi in (-1, 181):
+        with pytest.raises(db.Paameldingsfeil):
+            db.oppdater_kurs_felter(con, kid, {"notat": "skal ikke lagres", "faktura_dager_for": verdi})
+    r = con.execute("SELECT notat, faktura_dager_for FROM kurs WHERE id=?", (kid,)).fetchone()
+    assert (r["notat"], r["faktura_dager_for"]) == (None, 14)
+    assert con.execute("SELECT COUNT(*) FROM hendelse WHERE handling='kurs_endret'").fetchone()[0] == 0
+
+
+# ---- oekonomilaasen har fortsatt prioritet ----
+
+@pytest.mark.parametrize("binding", ["faktura", "forsok"])
+def test_gyldig_ny_verdi_kan_ikke_endres_naar_oekonomien_er_laast(con, binding):
+    kid = _kurs(con)
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    if binding == "faktura":
+        con.execute("INSERT INTO faktura (paamelding_id, belop_nok, status) VALUES (?, 1000, 'sendt')", (pid,))
+    else:
+        con.execute("INSERT INTO faktura_forsok (paamelding_id, status) VALUES (?, 'ukjent')", (pid,))
+    con.commit()
+    assert db.har_okonomisk_binding_for_kurs(con, kid) is True
+    klient = _klient()
+    _logg_inn(klient)
+    for verdi in ("0", "30", "180"):                                             # alle GYLDIGE - men laast
+        _post_oppsett(klient, kid, faktura_dager_for=verdi, navn="Endret")
+        assert _dager_for(con, kid) == 14
+    assert _fersk(con).execute("SELECT navn FROM kurs WHERE id=?", (kid,)).fetchone()[0] == "Endret"   # ulaaste felt fungerer
+    assert db.oppdater_kurs_felter(con, kid, {"faktura_dager_for": 30}) == []                       # ogsaa paa db-nivaa
+
+
+def test_ugyldig_verdi_avvises_ogsaa_naar_oekonomien_er_laast_og_omgaar_ikke_laasen(con):
+    kid = _kurs(con)
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    con.execute("INSERT INTO faktura_forsok (paamelding_id, status) VALUES (?, 'feilet')", (pid,))
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    side = _post_oppsett(klient, kid, faktura_dager_for="-1", navn="Skal ikke lagres")
+    assert "mellom 0 og 180" in side
+    rad = _fersk(con).execute("SELECT navn, faktura_dager_for FROM kurs WHERE id=?", (kid,)).fetchone()
+    assert (rad["navn"], rad["faktura_dager_for"]) == ("Testkurs", 14)
+    with pytest.raises(db.Paameldingsfeil):
+        db.oppdater_kurs_felter(con, kid, {"faktura_dager_for": 181})

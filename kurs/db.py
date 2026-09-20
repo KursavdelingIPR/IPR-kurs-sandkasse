@@ -137,7 +137,23 @@ def generer_kode(con, navn: str, datoer: list[str]) -> str:
     return kode
 
 
+FAKTURA_DAGER_FOR_MIN, FAKTURA_DAGER_FOR_MAKS = 0, 180
+
+
+def valider_faktura_dager_for(verdi) -> int:
+    """Server-side fasit for kurs.faktura_dager_for (antall DAGER foer hver samling en delfaktura lages - IKKE seks
+    kalendermaaneder): et helt tall 0..180, grensene inklusive. HTML min/max er bare brukerhjelp. Tar imot int (aldri bool/
+    float/tekst - parsing av skjemaverdier er ikke gjort mer liberal her) og returnerer det. Ugyldig -> Paameldingsfeil."""
+    if isinstance(verdi, bool) or not isinstance(verdi, int):
+        raise Paameldingsfeil("«Dager før faktura» må være et helt tall.")
+    if not FAKTURA_DAGER_FOR_MIN <= verdi <= FAKTURA_DAGER_FOR_MAKS:
+        raise Paameldingsfeil(f"«Dager før faktura» må være mellom {FAKTURA_DAGER_FOR_MIN} og {FAKTURA_DAGER_FOR_MAKS}.")
+    return verdi
+
+
 def opprett_kurs(con, *, kode: str, navn: str, datoer: list[str], aktor: str = "system", **felter) -> int:
+    if "faktura_dager_for" in felter:   # foer noen skriving; utelatt felt beholder schema-defaulten (14)
+        felter["faktura_dager_for"] = valider_faktura_dager_for(felter["faktura_dager_for"])
     kolonner = ["kode", "navn", *felter.keys()]
     cur = con.execute(
         f"INSERT INTO kurs ({','.join(kolonner)}) VALUES ({','.join('?' * len(kolonner))})",
@@ -378,6 +394,8 @@ def oppdater_kurs_felter(con, kurs_id: int, felter: dict, aktor: str = "admin") 
     gammel = con.execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone()
     if not gammel:
         raise Paameldingsfeil("Ukjent kurs")
+    if "faktura_dager_for" in felter:   # ugyldig verdi avvises FOER noe skrives - ogsaa naar feltet ellers ville blitt laast
+        felter["faktura_dager_for"] = valider_faktura_dager_for(felter["faktura_dager_for"])
     if har_okonomisk_binding_for_kurs(con, kurs_id):
         felter = {k: v for k, v in felter.items() if k not in KURS_LAASTE_FELT}
     endret = [f for f, v in felter.items() if (gammel[f] if gammel[f] is not None else "") != (v if v is not None else "")]

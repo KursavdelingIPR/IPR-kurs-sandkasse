@@ -728,11 +728,13 @@ def admin_kurs_oppsett_lagre(kurs_id):
     try:
         kapasitet = int(f["kapasitet"]) if f.get("kapasitet") else None
         pris_nok = int(f.get("pris_nok") or 0)
-        faktura_dager_for = int(f.get("faktura_dager_for") or 14)
+        faktura_dager_for = db.valider_faktura_dager_for(int(f.get("faktura_dager_for") or 14))
         if paameldingsfrist:
             date.fromisoformat(paameldingsfrist)
     except ValueError:
         feil.append("Kapasitet, pris og «dager før faktura» må være tall, og fristen en gyldig dato.")
+    except db.Paameldingsfeil as e:
+        feil.append(str(e))
     if feil:
         for x in feil:
             flash(x, "feil")
@@ -1823,13 +1825,14 @@ def admin_ny_kurs():
             paameldingsfrist = f.get("paameldingsfrist") or None
             if paameldingsfrist:
                 date.fromisoformat(paameldingsfrist)
+            faktura_dager_for = db.valider_faktura_dager_for(int(f.get("faktura_dager_for") or 14))   # foer SharePoint/DB
             with db.transaksjon(con()):
                 kode = db.generer_kode(con(), f["navn"].strip(), datoer)
                 felter = dict(
                     type=f["type"], sted=f.get("sted") or None, start_kl=f["start_kl"], slutt_kl=f["slutt_kl"],
                     timer_pr_dag=float(f.get("timer_pr_dag") or 6), kapasitet=int(f["kapasitet"]) if f.get("kapasitet") else None,
                     pris_nok=int(f.get("pris_nok") or 0), fakturering=f["fakturering"],
-                    betaling=f.get("betaling", "samlet"), faktura_dager_for=int(f.get("faktura_dager_for") or 14),
+                    betaling=f.get("betaling", "samlet"), faktura_dager_for=faktura_dager_for,
                     spesialistlop=f.get("spesialistlop") or None, kursholder_epost=f.get("kursholder_epost") or None,
                     notat=f.get("notat") or None, ansvarlig_admin_id=f.get("ansvarlig_admin_id", type=int),
                     paameldingsfrist=paameldingsfrist, sharepoint_mappe=sharepoint.opprett_kursmappe(kode),
@@ -1843,7 +1846,7 @@ def admin_ny_kurs():
                                   (kid, f.get("kursholder_navn") or f["kursholder_epost"], f["kursholder_epost"], f["materiell_frist"]))
             flash(f"Kurset er opprettet med koden «{kode}», og har fått påmeldingsside, SharePoint-mappe og innsjekkkoder.", "ok")
             return redirect(url_for("admin_kurs_oppsett", kurs_id=kid))
-        except (ValueError, KeyError, sqlite3.IntegrityError) as e:
+        except (ValueError, KeyError, sqlite3.IntegrityError, db.Paameldingsfeil) as e:
             flash(f"Kunne ikke opprette kurs: {e}", "feil")
 
     fra_kurs = None

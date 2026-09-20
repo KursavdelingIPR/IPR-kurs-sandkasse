@@ -259,3 +259,28 @@ def test_ugyldig_paameldingsfrist_avvises_paent(con):
     assert r.status_code == 200
     assert "Kunne ikke opprette kurs" in r.get_data(as_text=True)
     assert _fersk(con).execute("SELECT COUNT(*) FROM kurs").fetchone()[0] == 0
+
+
+# ---------------- faktura_dager_for ved duplisering (server-side 0..180) ----------------
+
+@pytest.mark.parametrize("verdi", [0, 30, 180])
+def test_duplisering_bevarer_gyldig_faktura_dager_for(con, verdi):
+    kid = _kildekurs(con, faktura_dager_for=verdi)
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    side = klient.get(f"/admin/kurs/ny?fra={kid}").get_data(as_text=True)
+    assert f'name="faktura_dager_for" type="number" min="0" max="180" value="{verdi}"' in side    # forhaandsutfylt fra kilden
+    klient.post("/admin/kurs/ny", data=_grunnlag(faktura_dager_for=str(verdi), fra=str(kid), betaling="per_samling"))
+    ny = _fersk(con).execute("SELECT faktura_dager_for, status FROM kurs WHERE id != ?", (kid,)).fetchone()
+    assert (ny["faktura_dager_for"], ny["status"]) == (verdi, "utkast")
+
+
+def test_duplisering_med_ugyldig_verdi_avvises_uten_aa_opprette_kopi(con):
+    kid = _kildekurs(con)
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    side = klient.post("/admin/kurs/ny", data=_grunnlag(faktura_dager_for="181", fra=str(kid))).get_data(as_text=True)
+    assert "mellom 0 og 180" in side
+    assert _fersk(con).execute("SELECT COUNT(*) FROM kurs").fetchone()[0] == 1
