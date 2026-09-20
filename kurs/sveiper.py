@@ -7,6 +7,7 @@ Fakturering styres av kurs.betaling / paamelding.betaling:
   samlet      -> én faktura paa hele belopet ved paamelding
   per_samling -> én faktura pr kursdag, opprettet `kurs.faktura_dager_for` dager for hver samling
 """
+import calendar
 from datetime import date
 
 from . import db
@@ -133,6 +134,18 @@ def fakturer(k: Kjoring, p) -> None:
 
 def _forfalt(idag: date, dato: str, dager_for: int) -> bool:
     return (date.fromisoformat(dato) - idag).days <= dager_for
+
+
+def seks_maaneder_for(dato: date) -> date:
+    """`dato` minus seks KALENDERMAANEDER (ikke 180 dager - seks maaneder er 181-184 dager).
+
+    Finnes ikke samme dagnummer i maalmaaneden, brukes maanedens siste dag:
+    31.08.2027 -> 28.02.2027, 31.08.2028 -> 29.02.2028, 29.02.2028 -> 29.08.2027.
+    Ren funksjon: leser/skriver ikke databasen og bruker ikke dagens dato.
+    """
+    aar, maaned = divmod(dato.year * 12 + (dato.month - 1) - 6, 12)
+    maaned += 1
+    return date(aar, maaned, min(dato.day, calendar.monthrange(aar, maaned)[1]))
 
 
 def forfalte_delfakturaer(k: Kjoring) -> None:
