@@ -1,7 +1,7 @@
-Emne: Velkommen til {{ kurs.navn }} – praktisk informasjon
+Emne: {{ maltekst.emne }}
 {% extends "_ramme.html" %}{% block innhold %}
-<p>Hei {{ d.navn }},</p>
-<p>Nå er det snart tid for <strong>{{ kurs.navn }}</strong>, som starter {{ dager[0].dato }}.</p>
+{{ maltekst.innledning }}
+{#- LAASTE SYSTEMBLOKKER (kursdager, sted/QR-innsjekk, Zoom-informasjon, kursnotat): bygges av systemet fra kursdata, aldri fra admintekst. -#}
 <p><strong>Kursdager</strong></p>
 <ul>{% for dag in dager %}<li>{{ dag.dato }} kl. {{ dag.start_kl or kurs.start_kl }}–{{ dag.slutt_kl or kurs.slutt_kl }}</li>{% endfor %}</ul>
 {% if kurs.type == 'digital' %}
@@ -11,4 +11,5 @@ Emne: Velkommen til {{ kurs.navn }} – praktisk informasjon
 Ved ankomst registrerer du oppmøte ved å skanne QR-koden på skjermen (eller taste koden på {{ base_url }}/innsjekk).</p>
 {% endif %}
 {% if kurs.notat %}<p>{{ kurs.notat }}</p>{% endif %}
+{{ maltekst.avslutning }}
 {% endblock %}

@@ -208,20 +208,20 @@ def test_epost_py_importerer_ikke_db_og_gjor_ingen_override_oppslag():
     assert "maltekst_for_utsending" not in inspect.getsource(epost)      # oppslaget skjer i Kjoring/maltekster
 
 
-# ============================ kun venteliste, avlysning og bekreftelse er aktivert ============================
+# ============================ kun venteliste, avlysning, bekreftelse, ukefor og dagfor er aktivert ============================
 
-AKTIVE = frozenset({"venteliste", "avlysning", "bekreftelse"})
+AKTIVE = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor"})
 IKKE_AKTIVE = [m for m in MALER if m not in AKTIVE]
 
 
-def test_kun_venteliste_avlysning_og_bekreftelse_er_aktive_og_verdibyggerne_matcher():
+def test_kun_de_fem_aktiverte_maler_er_aktive_og_verdibyggerne_matcher():
     assert maltekster.AKTIVE_MALER == AKTIVE
     assert set(maltekster._VERDIER) == set(maltekster.AKTIVE_MALER) <= set(MALER)
-    assert len(IKKE_AKTIVE) == 5 and "kursbevis_klar" in IKKE_AKTIVE            # kursbevis_klar migreres i eget steg
+    assert len(IKKE_AKTIVE) == 3 and "kursbevis_klar" in IKKE_AKTIVE            # kursbevis_klar migreres i eget steg
 
 
 @pytest.mark.parametrize("mal", IKKE_AKTIVE)
-def test_ovrige_seks_maler_kan_ikke_lagres_saa_override_aldri_blir_stille_ignorert(con, mal):
+def test_ovrige_maler_kan_ikke_lagres_saa_override_aldri_blir_stille_ignorert(con, mal):
     felt = next(iter(MALER[mal].felt))
     with pytest.raises(MalFeil) as e:
         maltekster.lagre_maltekst(con, mal, felt, "Egen tekst")

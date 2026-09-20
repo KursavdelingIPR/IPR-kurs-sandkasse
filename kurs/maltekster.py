@@ -427,11 +427,11 @@ def tilbakestill_maltekst(con, mal: str, felt: str, aktor: str = "system") -> bo
 
 # ============================ kobling til utsending (12B2A) ============================
 
-# MIDLERTIDIG (12B2A-12B2C): KUN `venteliste`, `avlysning` og `bekreftelse` er koblet til den faktiske utsendingen. De 5 andre
-# registrerte malene rendres fortsatt med den gamle, hardkodede Jinja-teksten. For at en overstyring aldri skal bli STILLE
+# MIDLERTIDIG (12B2A-12B2C): KUN `venteliste`, `avlysning`, `bekreftelse`, `ukefor` og `dagfor` er koblet til den faktiske
+# utsendingen. De 3 andre registrerte malene rendres fortsatt med den gamle, hardkodede Jinja-teksten. For at en overstyring aldri skal bli STILLE
 # ignorert, NEKTER lagre_maltekst() aa lagre for maler som ikke er i denne listen. Generaliseres/fjernes naar alle 8 er migrert
 # (verdibyggerne under blir da en del av Mal-registeret).
-AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse"})
+AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor"})
 
 
 def _venteliste_verdier(data) -> dict:
@@ -456,7 +456,21 @@ def _bekreftelse_verdier(data) -> dict:
     return verdier
 
 
-_VERDIER = {"venteliste": _venteliste_verdier, "avlysning": _avlysning_verdier, "bekreftelse": _bekreftelse_verdier}    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
+def _ukefor_verdier(data) -> dict:
+    """KUN det registeret tillater: navn, kursnavn og foerste kursdag (ISO). Kursdager/klokkeslett, sted/QR-innsjekk, Zoom-
+    informasjon og kursnotat er LAASTE systemblokker i malfilen - aldri koder, aldri redigerbare."""
+    return {"navn": data["d"]["navn"], "kursnavn": data["kurs"]["navn"], "startdato": data["dager"][0]["dato"]}
+
+
+def _dagfor_verdier(data) -> dict:
+    """KUN det registeret tillater. Tid, sted/QR og Zoom-lenke/ID/passord er LAASTE systemblokker i malfilen (Zoom-hemmeligheter
+    er aldri koder). Alle varianter (forste/midt/siste) faar verdier, saa en ugyldig variant feiler lukket uansett dag."""
+    return {"navn": data["d"]["navn"], "kursnavn": data["kurs"]["navn"], "dato": data["dag"]["dato"],
+            "dagnummer": data["nr"], "antall_dager": data["antall"]}
+
+
+_VERDIER = {"venteliste": _venteliste_verdier, "avlysning": _avlysning_verdier, "bekreftelse": _bekreftelse_verdier,
+            "ukefor": _ukefor_verdier, "dagfor": _dagfor_verdier}    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
 
 
 def _bygg(mal: str, tekster: dict, data) -> dict:

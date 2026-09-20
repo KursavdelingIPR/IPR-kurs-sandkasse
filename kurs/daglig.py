@@ -18,7 +18,7 @@ Rekkefolge:
 import argparse
 from datetime import date, timedelta
 
-from . import config, db, import_deltakere, kursbevis, sveiper
+from . import config, db, import_deltakere, kursbevis, maltekster, sveiper
 from .integrasjoner import zoom
 from .kjoring import Kjoring
 
@@ -41,8 +41,11 @@ def kjor(k: Kjoring) -> None:
             continue
         forste, siste = date.fromisoformat(dager[0]["dato"]), date.fromisoformat(dager[-1]["dato"])
         k.si(f"-- {kurs['kode']} {kurs['navn']} ({forste} – {siste})")
-        kurs = _zoom(k, kurs, forste)
-        _innkallinger(k, kurs, dager, forste)
+        # 1. Preflight (ren lesing): er malteksten for dagens innkallinger gyldig? FOER en evt. NY ekstern Zoom-opprettelse.
+        deltakere = _deltakere(k, kurs["id"])
+        blokkert = _forhandsvalider_innkallinger(k, kurs, dager, forste, deltakere)
+        kurs = _zoom(k, kurs, forste, utsett=_skal_utsette_zoom(k, kurs, dager, forste, blokkert))
+        _innkallinger(k, kurs, dager, forste, deltakere=deltakere, blokkert=blokkert)
         _status_og_oppmote(k, kurs, dager, forste, siste)
 
     k.si("5. Kursbevis")
@@ -62,8 +65,27 @@ def _deltakere(k, kurs_id):
            WHERE p.kurs_id=? AND p.status='bekreftet'""", (kurs_id,)).fetchall()
 
 
-def _zoom(k, kurs, forste):
-    if kurs["type"] == "fysisk" or kurs["zoom_url"] or (forste - k.idag).days > 8:
+def _trenger_zoom(k, kurs, forste) -> bool:
+    """Skal det opprettes et NYTT Zoom-moete for dette kurset naa? (Uendret vilkaar, flyttet ut av _zoom.)"""
+    return not (kurs["type"] == "fysisk" or kurs["zoom_url"] or (forste - k.idag).days > 8)
+
+
+def _skal_utsette_zoom(k, kurs, dager, forste, blokkert) -> bool:
+    """Maltype-spesifikk beslutning. Ugyldig maltekst for en innkalling som skal sendes i dag utsetter NY Zoom-opprettelse
+    (ingen ny ekstern sideeffekt foer malen er rettet) - MED MINDRE en GYLDIG dagfor er aktuell i dag: dagfor er den eneste
+    innkallingen som trenger Zoom-lenken, og en korrupt ukefor (som ikke inneholder lenken) skal aldri hindre den.
+    Korrupt dagfor (eneste som trenger lenken) eller korrupt ukefor uten dagfor i dag utsetter altsaa Zoom."""
+    if not blokkert or not _trenger_zoom(k, kurs, forste):
+        return False
+    gyldig_dagfor_i_dag = "dagfor" not in blokkert and any(mal == "dagfor" for mal, _t, _d in _dagens_innkallinger(k, dager, forste))
+    return not gyldig_dagfor_i_dag
+
+
+def _zoom(k, kurs, forste, utsett: bool = False):
+    if not _trenger_zoom(k, kurs, forste):
+        return kurs
+    if utsett:   # en innkalling som skal sendes i dag har ugyldig maltekst: ingen NY ekstern sideeffekt foer malen er rettet
+        k.si("  Zoom-opprettelse utsatt: ugyldig e-postmal for dagens innkalling (rettes malen, tas det neste kjøring)")
         return kurs
     if k.tor:
         k.si("  [TØRR] oppretter Zoom-møte")
@@ -76,19 +98,69 @@ def _zoom(k, kurs, forste):
     return k.con.execute("SELECT * FROM kurs WHERE id=?", (kurs["id"],)).fetchone()
 
 
-def _innkallinger(k, kurs, dager, forste):
-    nokkel = f"kurs:{kurs['id']}"
-    deltakere = _deltakere(k, kurs["id"])
+def _dagens_innkallinger(k, dager, forste) -> list:
+    """Hvilke innkallinger som skal sendes i dag - UENDRET tidsvindu og utvalg. [(mal, type_, data_for(kurs, deltaker))]."""
+    ut = []
     # Uka for: sendes fra 7 dager for og fram til start – sene paameldte faar den ogsaa
     if 0 < (forste - k.idag).days <= 7:
-        for d in deltakere:
-            k.send_en_gang(nokkel, d["epost"], "ukefor", "ukefor", paamelding_id=d["id"], d=d, kurs=kurs, dager=dager)
+        ut.append(("ukefor", "ukefor", lambda kurs, d: dict(d=d, kurs=kurs, dager=dager)))
     # Dagen for hver kursdag
     for i, dag in enumerate(dager, start=1):
         if date.fromisoformat(dag["dato"]) - k.idag == timedelta(days=1):
-            for d in deltakere:
-                k.send_en_gang(nokkel, d["epost"], f"dagfor-{dag['dato']}", "dagfor", paamelding_id=d["id"],
-                               d=d, kurs=kurs, dag=dag, nr=i, antall=len(dager))
+            ut.append(("dagfor", f"dagfor-{dag['dato']}",
+                       lambda kurs, d, dag=dag, i=i: dict(d=d, kurs=kurs, dag=dag, nr=i, antall=len(dager))))
+    return ut
+
+
+def _forhandsvalider_innkallinger(k, kurs, dager, forste, deltakere) -> dict:
+    """Ren lesing (ingen skriving, ingen ekstern sideeffekt): rendrer dagens innkallinger for foerste mottaker og returnerer
+    {mal: MalFeil} for maltyper med ugyldig MALTEKST (korrupt override, ukjent felt, DB-lesefeil). Data som mangler for en
+    enkelt mottaker (mangler_verdi) regnes IKKE som malfeil her - den mottakeren feiler lukket ved selve sendingen."""
+    blokkert = {}
+    if not deltakere:
+        return blokkert
+    for mal, _type, data_for in _dagens_innkallinger(k, dager, forste):
+        if mal in blokkert:
+            continue
+        try:
+            k.render_for_sending(mal, **data_for(kurs, deltakere[0]))
+        except maltekster.MalFeil as e:
+            if e.grunn != maltekster.MANGLER_VERDI:
+                blokkert[mal] = e
+    return blokkert
+
+
+def _logg_innkalling_feil(k, kurs, mal, feil, antall) -> None:
+    """Trygg logg, EN hendelse per (kurs, mal) per kjoering: kun kurs_id, mal, felt, grunnkode og antall - aldri tekst, navn eller e-post."""
+    db.logg(k.con, "innkalling_feil", {"kurs_id": kurs["id"], **feil.detaljer(), "antall": antall})
+    k.si(f"  FEIL {mal}: {feil} - {antall} mottaker(e) fikk ikke innkallingen")
+
+
+def _send(k, nokkel, d, mal, type_, data):
+    """EN utsending. Malnavnet staar som strengliteral i hvert kall (driftvakt: mal-ID = Jinja-fil = navn i send_en_gang)."""
+    if mal == "ukefor":
+        return k.send_en_gang(nokkel, d["epost"], type_, "ukefor", paamelding_id=d["id"], **data)
+    return k.send_en_gang(nokkel, d["epost"], type_, "dagfor", paamelding_id=d["id"], **data)
+
+
+def _innkallinger(k, kurs, dager, forste, deltakere=None, blokkert=None):
+    """Sender dagens innkallinger. MalFeil isoleres per utsending (fail closed for AKKURAT den meldingen): den aborterer aldri
+    daglig.kjor(), og en mottaker med manglende data stopper ikke de neste. Andre feil (f.eks. Graph) er uendret."""
+    nokkel = f"kurs:{kurs['id']}"
+    deltakere = _deltakere(k, kurs["id"]) if deltakere is None else deltakere
+    blokkert = _forhandsvalider_innkallinger(k, kurs, dager, forste, deltakere) if blokkert is None else blokkert
+    for mal, type_, data_for in _dagens_innkallinger(k, dager, forste):
+        if mal in blokkert:   # ugyldig maltekst: ingen render/claim/sending for noen mottaker
+            _logg_innkalling_feil(k, kurs, mal, blokkert[mal], len(deltakere))
+            continue
+        feil, antall = None, 0
+        for d in deltakere:
+            try:
+                _send(k, nokkel, d, mal, type_, data_for(kurs, d))
+            except maltekster.MalFeil as e:
+                feil, antall = feil or e, antall + 1
+        if feil:
+            _logg_innkalling_feil(k, kurs, mal, feil, antall)
 
 
 def _status_og_oppmote(k, kurs, dager, forste, siste):
