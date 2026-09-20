@@ -8,6 +8,7 @@ Fakturering styres av kurs.betaling / paamelding.betaling:
   per_samling -> én faktura pr kursdag, opprettet `kurs.faktura_dager_for` dager for hver samling
 """
 import calendar
+from dataclasses import dataclass
 from datetime import date
 
 from . import db
@@ -146,6 +147,52 @@ def seks_maaneder_for(dato: date) -> date:
     aar, maaned = divmod(dato.year * 12 + (dato.month - 1) - 6, 12)
     maaned += 1
     return date(aar, maaned, min(dato.day, calendar.monthrange(aar, maaned)[1]))
+
+
+# Fakturaplan (steg 3A): en REN beslutning om NAAR en faktura skal opprettes. Foreloepig IKKE koblet til fakturaflyten
+# (_en/fakturer bruker den ikke) - "hold faktura" aktiveres foerst sammen med daglig utloesning og oekonomilaas.
+PLAN_INGEN = "ingen"                      # ingen automatisk faktura (gratis, organisasjon/ingen-fakturering, ikke bekreftet)
+PLAN_PER_SAMLING = "per_samling"          # delfakturaer med egen forfallslogikk (faktura_dager_for) - seksmaanedersregelen gjelder ikke
+PLAN_NA = "na"                            # samlet faktura opprettes naa
+PLAN_UTSATT = "utsatt"                    # samlet faktura venter til `tidligst_dato`
+PLAN_MANGLER_KURSDAG = "mangler_kursdag"  # samlet faktura ville vaert aktuell, men foerste kursdag finnes ikke: ALDRI faktura
+
+
+@dataclass(frozen=True)
+class FakturaPlan:
+    """Resultatet av faktura_plan(). Ingen persondata. `tidligst_dato` er kun satt for modus 'utsatt'."""
+    modus: str
+    tidligst_dato: date | None = None
+
+
+def faktura_plan(*, fakturering: str, pris_nok: int, status: str, betaling: str, faktura_onskes_na,
+                 kursdager, idag: date) -> FakturaPlan:
+    """Ren beslutning om samlet faktura skal opprettes naa, utsettes eller ikke skje automatisk.
+
+    Alt kommer inn som argumenter (ingen DB, ingen dagens dato, ingen sideeffekter). `kursdager` er den autoritative,
+    sorterte kursdaglisten (db.kursdager) som ISO-datoer eller date; foerste element er foerste kursdag.
+    Det lagrede feltet faktura_tidligst_dato brukes IKKE som input (det er systemets senere, lagrede beslutning).
+
+    Rekkefoelge (viktig - manglende kursdag vinner over faktura_onskes_na):
+      1. skal_faktureres()? Ellers 'ingen' (samme fasit som resten av motoren; hvem som betaler spiller ingen rolle)
+      2. betaling per_samling -> 'per_samling' (egen forfallslogikk, uberoert av 6-maanedersregelen og faktura_onskes_na)
+      3. ingen foerste kursdag -> 'mangler_kursdag' (konfigurasjonsfeil, aldri 'na')
+      4. faktura_onskes_na -> 'na' (ogsaa naar kurset er mer enn seks maaneder frem)
+      5. idag foer seks_maaneder_for(foerste kursdag) -> 'utsatt' (med tidligst_dato), ellers 'na'
+    """
+    if not skal_faktureres({"fakturering": fakturering, "pris_nok": pris_nok, "status": status}):
+        return FakturaPlan(PLAN_INGEN)
+    if betaling == "per_samling":
+        return FakturaPlan(PLAN_PER_SAMLING)
+    datoer = [d if isinstance(d, date) else date.fromisoformat(d) for d in (kursdager or ())]
+    if not datoer:
+        return FakturaPlan(PLAN_MANGLER_KURSDAG)
+    if faktura_onskes_na:
+        return FakturaPlan(PLAN_NA)
+    tidligst = seks_maaneder_for(min(datoer))
+    if idag < tidligst:
+        return FakturaPlan(PLAN_UTSATT, tidligst)
+    return FakturaPlan(PLAN_NA)
 
 
 def forfalte_delfakturaer(k: Kjoring) -> None:

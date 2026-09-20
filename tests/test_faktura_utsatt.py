@@ -4,6 +4,9 @@ Steg 1: kalenderaritmetikken (ren funksjon, ingen DB).
 Steg 2: KUN datamodell + migrering (faktura_onskes_na, faktura_tidligst_dato) - ren lagringskapasitet, ingen
         kobling til fakturabeslutningen. Fakturaflyten er i senere sjekkpunkter.
 """
+import ast
+import dataclasses
+import inspect
 import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
@@ -221,7 +224,11 @@ def test_eksplisitt_valg_kan_ogsaa_settes_ved_reaktivering(con):
 
 @pytest.mark.parametrize("onskes_na", [0, 1])
 def test_samlet_faktura_opprettes_fortsatt_umiddelbart_selv_langt_frem_i_tid(con, onskes_na):
-    """Kurset starter 18 maaneder frem: uten steg 3 skal INGENTING holdes tilbake, og valget paavirker ikke noe."""
+    """Kurset starter 18 maaneder frem. Steg 3A: faktura_plan() finnes, men er IKKE koblet inn - motoren fakturerer
+    derfor fortsatt umiddelbart (med vilje 'feil' mot den nye regelen), og valget paavirker ikke noe."""
+    plan = sveiper.faktura_plan(fakturering="person", pris_nok=1000, status="bekreftet", betaling="samlet",
+                                faktura_onskes_na=onskes_na, kursdager=["2028-09-20"], idag=date(2027, 3, 1))
+    assert plan.modus == (sveiper.PLAN_NA if onskes_na else sveiper.PLAN_UTSATT)   # planen VILLE utsatt - men er ikke koblet
     kid = _kurs(con, start=date(2028, 9, 20), pris_nok=1000, fakturering="person")
     pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A", paamelding={"faktura_onskes_na": onskes_na},
                          idag=date(2027, 3, 1))
@@ -233,14 +240,171 @@ def test_samlet_faktura_opprettes_fortsatt_umiddelbart_selv_langt_frem_i_tid(con
     assert _fakturafelt(con, pid) == (onskes_na, None)                     # faktura_tidligst_dato settes ikke av noe
 
 
-def test_ingen_produksjonskode_bruker_de_nye_feltene_eller_seksmaanedersregelen_ennaa():
-    """Steg 2-vakt: feltene er ren lagringskapasitet. OPPDATERES/FJERNES naar steg 3 (fakturabeslutningen) kobles inn."""
+def _kall_i_kodebasen(navn: str) -> list:
+    """Alle (fil, omsluttende funksjon) der `navn` KALLES i produksjonskoden (kurs/**/*.py) - AST, ikke tekstsok."""
     rot = Path(__file__).resolve().parent.parent / "kurs"
-    kilde = {f: (rot / f).read_text(encoding="utf-8") for f in
-             ("sveiper.py", "daglig.py", "behandling.py", "kjoring.py", "web/app.py", "maltekster.py")}
-    for fil, tekst in kilde.items():
-        assert "faktura_tidligst_dato" not in tekst, fil
-        assert "faktura_onskes_na" not in tekst, fil
-    assert kilde["sveiper.py"].count("seks_maaneder_for") == 1              # kun selve definisjonen
+    funnet = []
+    for fil in sorted(rot.rglob("*.py")):
+        tre = ast.parse(fil.read_text(encoding="utf-8"))
+        for fn in (n for n in ast.walk(tre) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+            for k in (n for n in ast.walk(fn) if isinstance(n, ast.Call)):
+                f = k.func
+                if (isinstance(f, ast.Name) and f.id == navn) or (isinstance(f, ast.Attribute) and f.attr == navn):
+                    funnet.append((fil.relative_to(rot).as_posix(), fn.name))
+    return funnet
+
+
+def test_faktura_plan_er_ikke_koblet_til_fakturaflyten_ennaa():
+    """Steg 3A-vakt: planen og de nye feltene er IKKE i bruk i fakturabeslutningen. OPPDATERES naar planen kobles inn (3B)."""
+    assert _kall_i_kodebasen("faktura_plan") == []                                            # ingen kaller planen
+    assert _kall_i_kodebasen("seks_maaneder_for") == [("sveiper.py", "faktura_plan")]         # bare planen bruker regelen
+    rot = Path(__file__).resolve().parent.parent / "kurs"
     for fil in ("daglig.py", "behandling.py", "kjoring.py", "web/app.py", "maltekster.py"):
-        assert "seks_maaneder_for" not in kilde[fil], fil
+        tekst = (rot / fil).read_text(encoding="utf-8")
+        for navn in ("faktura_tidligst_dato", "faktura_onskes_na", "faktura_plan", "seks_maaneder_for"):
+            assert navn not in tekst, (fil, navn)
+    sveiper_tekst = (rot / "sveiper.py").read_text(encoding="utf-8")
+    tre = ast.parse(sveiper_tekst)
+    docstrenger = {id(n.body[0].value) for n in ast.walk(tre) if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef))
+                   and n.body and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
+    bruk = ([n.id for n in ast.walk(tre) if isinstance(n, ast.Name)] + [n.attr for n in ast.walk(tre) if isinstance(n, ast.Attribute)]
+            + [n.arg for n in ast.walk(tre) if isinstance(n, (ast.arg, ast.keyword)) and n.arg]
+            + [n.value for n in ast.walk(tre) if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrenger])
+    assert not [b for b in bruk if "faktura_tidligst_dato" in b]                              # lagret beslutning er aldri input (kun omtalt i docstring)
+    plan_fn = next(n for n in tre.body if isinstance(n, ast.FunctionDef) and n.name == "faktura_plan")
+    utenfor = sveiper_tekst.replace(ast.get_source_segment(sveiper_tekst, plan_fn), "")
+    assert "faktura_onskes_na" not in utenfor                                                 # ingen annen sveiper-kode leser valget
+
+
+# ======================= STEG 3A: ren fakturaplan (faktura_plan) =======================
+
+def _plan(**over):
+    """Standard: samlet, 1000 kr, fakturering=person, bekreftet, kursstart 20.09.2027, idag 19.03.2027."""
+    arg = dict(fakturering="person", pris_nok=1000, status="bekreftet", betaling="samlet", faktura_onskes_na=0,
+               kursdager=["2027-09-20"], idag=date(2027, 3, 19))
+    arg.update(over)
+    return sveiper.faktura_plan(**arg)
+
+
+def test_plan_1_samlet_mer_enn_seks_maaneder_frem_er_utsatt_med_tidligst_dato():
+    assert _plan(idag=date(2027, 3, 19)) == sveiper.FakturaPlan(sveiper.PLAN_UTSATT, date(2027, 3, 20))
+
+
+def test_plan_2_paa_grensedatoen_er_na():
+    assert _plan(idag=date(2027, 3, 20)) == sveiper.FakturaPlan(sveiper.PLAN_NA)      # noyaktig seks kalendermaaneder foer
+
+
+def test_plan_3_etter_grensedatoen_er_na():
+    assert _plan(idag=date(2027, 3, 21)).modus == sveiper.PLAN_NA
+    assert _plan(idag=date(2027, 9, 20)).modus == sveiper.PLAN_NA                    # paa kursdagen
+    assert _plan(idag=date(2027, 10, 1)).modus == sveiper.PLAN_NA                    # etter kursstart
+
+
+def test_plan_4_faktura_onskes_na_gir_na_selv_langt_frem_i_tid():
+    p = _plan(idag=date(2027, 1, 1), faktura_onskes_na=1)
+    assert p == sveiper.FakturaPlan(sveiper.PLAN_NA) and p.tidligst_dato is None
+    assert _plan(idag=date(2027, 1, 1), faktura_onskes_na=0).modus == sveiper.PLAN_UTSATT   # kontroll: uten ønsket ville den ventet
+
+
+@pytest.mark.parametrize("kursdager", [[], None, ()])
+def test_plan_5_samlet_uten_kursdager_er_mangler_kursdag(kursdager):
+    assert _plan(kursdager=kursdager, faktura_onskes_na=0) == sveiper.FakturaPlan(sveiper.PLAN_MANGLER_KURSDAG)
+
+
+@pytest.mark.parametrize("kursdager", [[], None, ()])
+def test_plan_6_faktura_onskes_na_omgaar_ikke_manglende_kursdag(kursdager):
+    p = _plan(kursdager=kursdager, faktura_onskes_na=1)
+    assert p.modus == sveiper.PLAN_MANGLER_KURSDAG and p.modus != sveiper.PLAN_NA
+
+
+def test_plan_7_per_samling_18_maaneder_frem_er_per_samling():
+    p = _plan(betaling="per_samling", kursdager=["2028-09-20"], idag=date(2027, 3, 1))
+    assert p == sveiper.FakturaPlan(sveiper.PLAN_PER_SAMLING)                        # seksmaanedersregelen gjelder ikke
+
+
+def test_plan_8_faktura_onskes_na_endrer_ikke_per_samling():
+    assert _plan(betaling="per_samling", faktura_onskes_na=1, kursdager=["2028-09-20"]).modus == sveiper.PLAN_PER_SAMLING
+    assert _plan(betaling="per_samling", faktura_onskes_na=0, kursdager=["2028-09-20"]).modus == sveiper.PLAN_PER_SAMLING
+
+
+def test_plan_per_samling_paavirkes_ikke_av_manglende_kursdager():
+    """per_samling har egen forfallslogikk (uendret, ogsaa dens eksisterende feil ved null kursdager) - planen sier bare per_samling."""
+    assert _plan(betaling="per_samling", kursdager=[]).modus == sveiper.PLAN_PER_SAMLING
+
+
+def test_plan_9_gratis_kurs_er_ingen():
+    assert _plan(pris_nok=0) == sveiper.FakturaPlan(sveiper.PLAN_INGEN)
+    assert _plan(pris_nok=0, faktura_onskes_na=1, kursdager=[]).modus == sveiper.PLAN_INGEN    # ingen relevant faktura -> foerst
+
+
+def test_plan_10_fakturering_organisasjon_er_ingen():
+    assert _plan(fakturering="organisasjon").modus == sveiper.PLAN_INGEN
+    assert _plan(fakturering="organisasjon", faktura_onskes_na=1, betaling="per_samling").modus == sveiper.PLAN_INGEN
+
+
+def test_plan_11_fakturering_ingen_er_ingen():
+    assert _plan(fakturering="ingen").modus == sveiper.PLAN_INGEN
+
+
+def test_plan_12_venteliste_er_ingen():
+    assert _plan(status="venteliste").modus == sveiper.PLAN_INGEN
+    assert _plan(status="venteliste", faktura_onskes_na=1).modus == sveiper.PLAN_INGEN
+
+
+def test_plan_13_avmeldt_er_ingen():
+    assert _plan(status="avmeldt").modus == sveiper.PLAN_INGEN
+
+
+def test_plan_14_hvem_som_betaler_paavirker_ikke_planen():
+    """Arbeidsgiver betaler + fakturering=person = samme automatiske faktura som vanlig: planen kjenner ikke betaler."""
+    assert "betaler" not in inspect.signature(sveiper.faktura_plan).parameters
+    for kw in ({}, {"idag": date(2027, 3, 20)}, {"faktura_onskes_na": 1}):
+        assert _plan(**kw) == _plan(**kw)                                            # deterministisk, ingen betaler-input
+    assert _plan().modus == sveiper.PLAN_UTSATT and _plan(idag=date(2027, 3, 20)).modus == sveiper.PLAN_NA
+
+
+def test_plan_15_maanedsslutt_31_august_gir_28_februar():
+    kd = ["2027-08-31"]
+    assert _plan(kursdager=kd, idag=date(2027, 2, 27)) == sveiper.FakturaPlan(sveiper.PLAN_UTSATT, date(2027, 2, 28))
+    assert _plan(kursdager=kd, idag=date(2027, 2, 28)) == sveiper.FakturaPlan(sveiper.PLAN_NA)
+    kd_skudd = ["2028-08-31"]
+    assert _plan(kursdager=kd_skudd, idag=date(2028, 2, 28)) == sveiper.FakturaPlan(sveiper.PLAN_UTSATT, date(2028, 2, 29))
+    assert _plan(kursdager=kd_skudd, idag=date(2028, 2, 29)).modus == sveiper.PLAN_NA
+
+
+def test_plan_bruker_foerste_kursdag_ikke_siste_og_tar_date_eller_iso_tekst():
+    flere = ["2027-09-20", "2027-10-20", "2027-11-20"]
+    assert _plan(kursdager=flere).tidligst_dato == date(2027, 3, 20)                 # foerste kursdag
+    assert _plan(kursdager=[date(2027, 9, 20), date(2027, 10, 20)]).tidligst_dato == date(2027, 3, 20)
+    assert _plan(kursdager=list(reversed(flere))).tidligst_dato == date(2027, 3, 20)  # ogsaa hvis rekkefolgen skulle vaere feil
+
+
+def test_plan_det_lagrede_tidligst_dato_feltet_er_ikke_input():
+    parametre = set(inspect.signature(sveiper.faktura_plan).parameters)
+    assert "faktura_tidligst_dato" not in parametre and "tidligst_dato" not in parametre
+    assert parametre == {"fakturering", "pris_nok", "status", "betaling", "faktura_onskes_na", "kursdager", "idag"}
+
+
+def test_plan_er_ren_deterministisk_og_endrer_ikke_input():
+    kursdager = ["2027-09-20", "2027-10-20"]
+    kopi = list(kursdager)
+    r1, r2 = _plan(kursdager=kursdager), _plan(kursdager=kursdager)
+    assert r1 == r2 and kursdager == kopi
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        r1.modus = "na"                                                              # uforanderlig
+    assert [f.name for f in dataclasses.fields(sveiper.FakturaPlan)] == ["modus", "tidligst_dato"]   # ingen persondata
+
+
+def test_plan_bruker_ikke_db_visma_epost_eller_dagens_dato():
+    """Strukturtest (AST): funksjonen kaller bare et lite, kjent sett funksjoner og refererer aldri til DB/Visma/e-post/klokke."""
+    kilde = (Path(__file__).resolve().parent.parent / "kurs" / "sveiper.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.parse(kilde).body if isinstance(n, ast.FunctionDef) and n.name == "faktura_plan")
+    kall = set()
+    for k in (n for n in ast.walk(fn) if isinstance(n, ast.Call)):
+        kall.add(k.func.id if isinstance(k.func, ast.Name) else k.func.attr)
+    assert kall <= {"skal_faktureres", "FakturaPlan", "isinstance", "fromisoformat", "min", "seks_maaneder_for"}, kall
+    navn = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)}
+    for forbudt in ("db", "visma", "epost", "Kjoring", "k", "con", "today", "now", "datetime", "time", "logg",
+                    "commit", "execute", "send", "fakturer", "_opprett"):
+        assert forbudt not in navn, forbudt
+    assert not [n for n in ast.walk(fn) if isinstance(n, (ast.Global, ast.Nonlocal))]
