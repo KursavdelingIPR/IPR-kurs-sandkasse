@@ -553,13 +553,16 @@ def test_hver_redigerbar_mal_har_en_jinja_malfil_med_samme_navn(mal):
 
 
 def _send_en_gang_mal_argumenter() -> dict:
-    """AST-scan av all kode som kaller send_en_gang() ELLER render_for_sending() med et LITERAL mal-navn:
-    {mal-navn: [filer]}. To kall-steder fordi kursbevis_klar (TOCTOU-vakten, se kjoring.py/kursbevis.py) rendres
-    ÉN gang via render_for_sending() og sendes videre med det allerede rendrede resultatet via
-    send_ferdigrendret_en_gang() - IKKE via send_en_gang(mal=...). Begge kall-formene binder likevel malnavnet
-    til en strengliteral, saa navnedrift fanges uansett hvilken av de to som brukes. Variable mal-argumenter
-    (f.eks. daglig.py sin preflight-loekke over flere maler) hopper vi over her - de dekkes av sine egne,
-    literale send_en_gang-kall andre steder."""
+    """AST-scan av all kode som kaller send_en_gang(), render_for_sending() ELLER maltekster.maltekst_for_utsending()
+    med et LITERAL mal-navn: {mal-navn: [filer]}. Tre kall-former fordi:
+      - kursbevis_klar (TOCTOU-vakt, se kjoring.py/kursbevis.py) rendres ÉN gang via render_for_sending() og sendes
+        videre med det allerede rendrede resultatet via send_ferdigrendret_en_gang() - IKKE send_en_gang(mal=...).
+      - firmapaamelding_kvittering (TOCTOU-vakt, se web/app.py) kaller maltekster.maltekst_for_utsending() direkte i
+        en tidlig preflight (FOER registrering), og fullforer senere med epost.render(maltekst=...) +
+        send_ferdigrendret_en_gang() - heller ikke via send_en_gang(mal=...) eller render_for_sending().
+    Alle tre kall-formene binder likevel malnavnet til en strengliteral, saa navnedrift fanges uansett hvilken som
+    brukes. Variable mal-argumenter (f.eks. daglig.py sin preflight-loekke over flere maler) hopper vi over her -
+    de dekkes av sine egne, literale send_en_gang-kall andre steder."""
     from pathlib import Path
     rot = Path(maltekster.__file__).resolve().parent
     funn = {}
@@ -573,6 +576,10 @@ def _send_en_gang_mal_argumenter() -> dict:
                 funn.setdefault(arg.value, []).append(f"{fil.name}:{node.lineno}")
             elif node.func.attr == "render_for_sending":
                 arg = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "mal"), None)
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    funn.setdefault(arg.value, []).append(f"{fil.name}:{node.lineno}")
+            elif node.func.attr == "maltekst_for_utsending":
+                arg = node.args[1] if len(node.args) > 1 else next((k.value for k in node.keywords if k.arg == "mal"), None)
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     funn.setdefault(arg.value, []).append(f"{fil.name}:{node.lineno}")
     return funn

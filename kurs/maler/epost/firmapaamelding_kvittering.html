@@ -1,7 +1,6 @@
-Emne: Bedriftspåmelding til {{ kurs.navn }} – kvittering
+Emne: {{ maltekst.emne }}
 {% extends "_ramme.html" %}{% block innhold %}
-<p>Hei {{ kontakt.navn }},</p>
-<p>Takk for påmeldingen av {{ antall_totalt }} deltaker{{ 'e' if antall_totalt != 1 }} fra {{ kontakt.firmanavn }} til <strong>{{ kurs.navn }}</strong>.</p>
+{{ maltekst.innledning }}
 <ul>
   <li>{{ antall_bekreftet }} fikk bekreftet plass</li>
   {% if antall_venteliste %}<li>{{ antall_venteliste }} står på venteliste og får plass automatisk hvis det blir ledig</li>{% endif %}
@@ -11,4 +10,5 @@ Emne: Bedriftspåmelding til {{ kurs.navn }} – kvittering
 {% if kurs.fakturering == 'person' and kurs.pris_nok %}<p>Hver bekreftet deltaker faktureres for seg, {{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr, til {{ kontakt.firmanavn }}.</p>
 {% elif kurs.fakturering == 'organisasjon' %}<p>Dere faktureres samlet av kursadministrasjonen i etterkant – ikke automatisk gjennom dette skjemaet.</p>
 {% else %}<p>Dette kurset faktureres ikke automatisk.</p>{% endif %}
+{{ maltekst.avslutning }}
 {% endblock %}

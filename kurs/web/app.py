@@ -198,13 +198,13 @@ def kurs_gruppe(kode):
 
     deltaker_rader = []
     for i, r in enumerate(rader_visning, start=1):
-        navn, epost = r["navn"].strip(), r["epost"].strip().lower()
-        if not navn and not epost:
+        navn, deltaker_epost = r["navn"].strip(), r["epost"].strip().lower()
+        if not navn and not deltaker_epost:
             continue
-        if not navn or "@" not in epost:
+        if not navn or "@" not in deltaker_epost:
             feil.append(f"Deltaker {i}: fyll inn navn og en gyldig e-postadresse.")
             continue
-        deltaker_rader.append({"navn": navn, "epost": epost, "telefon": r["telefon"].strip() or None,
+        deltaker_rader.append({"navn": navn, "epost": deltaker_epost, "telefon": r["telefon"].strip() or None,
                                "arbeidssted": r["arbeidssted"].strip() or None, "hpr_nr": r["hpr_nr"].strip() or None})
     if not deltaker_rader:
         feil.append("Legg til minst én deltaker.")
@@ -226,6 +226,23 @@ def kurs_gruppe(kode):
         "faktura_postnr": f.get("faktura_postnr", "").strip() or None,
         "faktura_sted": f.get("faktura_sted", "").strip() or None, "ehf": bool(f.get("ehf")),
     }
+    antall_totalt = len(deltaker_rader)
+
+    # Preflight FOER noen varig sideeffekt (firmapaamelding/deltaker-registrering/deltakermail): kun det
+    # ADMIN-REDIGERBARE innholdet (emne/innledning/avslutning) rendres her, med data som er kjent uansett hva
+    # registreringen ender med. Den ferdige malteksten gjenbrukes ordrett i den faktiske kvitteringen lenger
+    # ned - de faktiske utfallstallene (bekreftet/venteliste/feilet) er ALDRI koder og krever derfor ingen nytt
+    # DB-oppslag der. En korrupt override oppdages dermed FOER firma/deltakere finnes, og ingenting registreres.
+    try:
+        firma_maltekst = maltekster.maltekst_for_utsending(
+            con(), "firmapaamelding_kvittering", {"kontakt": kontakt, "kurs": kurs, "antall_totalt": antall_totalt})
+    except maltekster.MalFeil as e:
+        db.logg(con(), "firmapaamelding_mal_feil", {"kurs_id": kurs["id"], **e.detaljer()})
+        con().commit()
+        flash("Påmeldingen kunne ikke fullføres akkurat nå. Prøv igjen om noen minutter, eller ta kontakt med "
+              "kursadministrasjonen dersom problemet vedvarer.", "feil")
+        return render_template("kurs_gruppe.html", kurs=kurs, f=f, deltakere=rader_visning or [{}],
+                               maks_deltakere=MAKS_DELTAKERE_GRUPPE), 400
 
     firma, ny = db.finn_eller_opprett_firmapaamelding(con(), kurs["id"], kontakt, eposter)
     if not ny:
@@ -264,10 +281,16 @@ def kurs_gruppe(kode):
     antall_venteliste = sum(1 for _, _, s, _ in resultater if s == "venteliste")
     antall_feilet = sum(1 for _, _, _, feil_ in resultater if feil_)
     kvittering_url = url_for("kurs_gruppe_kvittering", kode=kode, token=firma["kvittering_token"])
-    Kjoring(con(), idag=_idag()).send_en_gang(
-        f"firmapaamelding:{firma['id']}", kontakt["epost"], "firmapaamelding_kvittering", "firmapaamelding_kvittering",
-        kontakt=kontakt, kurs=kurs, kvittering_url=kvittering_url, antall_totalt=len(deltaker_rader),
-        antall_bekreftet=antall_bekreftet, antall_venteliste=antall_venteliste, antall_feilet=antall_feilet)
+    # Ferdigstiller MED det allerede rendrede maltekst-resultatet fra preflighten over - IKKE et nytt DB-oppslag.
+    # epost.render() med en eksplisitt maltekst=... gjor ingen maltekster-/DB-lesing (kun ren, lokal Jinja-rendring
+    # av den laaste utfallsblokken), saa dette kan aldri gi MalFeil her - kun selve sendingen kan feile (Graph),
+    # uendret fase-11-semantikk via send_ferdigrendret_en_gang.
+    emne, html = epost.render("firmapaamelding_kvittering", maltekst=firma_maltekst, kontakt=kontakt, kurs=kurs,
+                              kvittering_url=kvittering_url, antall_totalt=antall_totalt,
+                              antall_bekreftet=antall_bekreftet, antall_venteliste=antall_venteliste,
+                              antall_feilet=antall_feilet)
+    Kjoring(con(), idag=_idag()).send_ferdigrendret_en_gang(
+        f"firmapaamelding:{firma['id']}", kontakt["epost"], "firmapaamelding_kvittering", emne, html)
     db.logg(con(), "firmapaamelding_opprettet", {
         "firmapaamelding_id": firma["id"], "kurs_id": kurs["id"], "antall": len(deltaker_rader),
         "bekreftet": antall_bekreftet, "venteliste": antall_venteliste, "feilet": antall_feilet})
