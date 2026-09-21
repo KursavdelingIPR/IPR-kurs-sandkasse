@@ -553,22 +553,34 @@ def test_hver_redigerbar_mal_har_en_jinja_malfil_med_samme_navn(mal):
 
 
 def _send_en_gang_mal_argumenter() -> dict:
-    """AST-scan av all kode som kaller send_en_gang: {mal-navn: [filer]} fra det fjerde positional argumentet (mal) eller mal=."""
+    """AST-scan av all kode som kaller send_en_gang() ELLER render_for_sending() med et LITERAL mal-navn:
+    {mal-navn: [filer]}. To kall-steder fordi kursbevis_klar (TOCTOU-vakten, se kjoring.py/kursbevis.py) rendres
+    ÉN gang via render_for_sending() og sendes videre med det allerede rendrede resultatet via
+    send_ferdigrendret_en_gang() - IKKE via send_en_gang(mal=...). Begge kall-formene binder likevel malnavnet
+    til en strengliteral, saa navnedrift fanges uansett hvilken av de to som brukes. Variable mal-argumenter
+    (f.eks. daglig.py sin preflight-loekke over flere maler) hopper vi over her - de dekkes av sine egne,
+    literale send_en_gang-kall andre steder."""
     from pathlib import Path
     rot = Path(maltekster.__file__).resolve().parent
     funn = {}
     for fil in [rot / "sveiper.py", rot / "daglig.py", rot / "kursbevis.py", rot / "web" / "app.py"]:
         for node in ast.walk(ast.parse(fil.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "send_en_gang":
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            if node.func.attr == "send_en_gang":
                 arg = node.args[3] if len(node.args) > 3 else next((k.value for k in node.keywords if k.arg == "mal"), None)
                 assert isinstance(arg, ast.Constant) and isinstance(arg.value, str), f"{fil.name}:{node.lineno} mal er ikke en streng"
                 funn.setdefault(arg.value, []).append(f"{fil.name}:{node.lineno}")
+            elif node.func.attr == "render_for_sending":
+                arg = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "mal"), None)
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    funn.setdefault(arg.value, []).append(f"{fil.name}:{node.lineno}")
     return funn
 
 
 def test_hver_redigerbar_mal_sendes_faktisk_via_send_en_gang_under_noyaktig_dette_navnet():
     brukt = _send_en_gang_mal_argumenter()
     for mal in REDIGERBARE:
-        assert mal in brukt, f"{mal} sendes ikke via send_en_gang under dette navnet (navnedrift?)"
-    # alle andre maler som sendes via send_en_gang er de LASTE (ikke redigerbare): kun eskalering
+        assert mal in brukt, f"{mal} sendes ikke under dette navnet (navnedrift?)"
+    # alle andre maler som sendes via send_en_gang/render_for_sending er de LASTE (ikke redigerbare): kun eskalering
     assert set(brukt) - set(MALER) == {"eskalering"}

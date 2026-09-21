@@ -208,16 +208,17 @@ def test_epost_py_importerer_ikke_db_og_gjor_ingen_override_oppslag():
     assert "maltekst_for_utsending" not in inspect.getsource(epost)      # oppslaget skjer i Kjoring/maltekster
 
 
-# ============================ kun venteliste, avlysning, bekreftelse, ukefor og dagfor er aktivert ============================
+# ================== kun venteliste, avlysning, bekreftelse, ukefor, dagfor og kursbevis_klar er aktivert ==================
 
-AKTIVE = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor"})
+AKTIVE = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor", "kursbevis_klar"})
 IKKE_AKTIVE = [m for m in MALER if m not in AKTIVE]
 
 
-def test_kun_de_fem_aktiverte_maler_er_aktive_og_verdibyggerne_matcher():
+def test_kun_de_seks_aktiverte_maler_er_aktive_og_verdibyggerne_matcher():
     assert maltekster.AKTIVE_MALER == AKTIVE
     assert set(maltekster._VERDIER) == set(maltekster.AKTIVE_MALER) <= set(MALER)
-    assert len(IKKE_AKTIVE) == 3 and "kursbevis_klar" in IKKE_AKTIVE            # kursbevis_klar migreres i eget steg
+    # kun firmapaamelding_kvittering og purring gjenstaar - migreres i egne, senere steg
+    assert len(IKKE_AKTIVE) == 2 and set(IKKE_AKTIVE) == {"firmapaamelding_kvittering", "purring"}
 
 
 @pytest.mark.parametrize("mal", IKKE_AKTIVE)

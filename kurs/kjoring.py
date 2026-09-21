@@ -34,13 +34,29 @@ class Kjoring:
                      **data) -> bool:
         """Sender e-post med malen hvis (nokkel, til, type) ikke er sendt for. True hvis sendt naa.
 
+        Rendrer FOERST (en malfeil skal ikke etterlate noen rad - kan proves igjen etter retting), og
+        delegerer deretter til send_ferdigrendret_en_gang() for selve claim/send/status-motoren (se
+        dens docstring for den fulle kontrakten - uendret her)."""
+        emne, html = self.render_for_sending(mal, **data)
+        return self.send_ferdigrendret_en_gang(nokkel, til, type_, emne, html, paamelding_id=paamelding_id)
+
+    def send_ferdigrendret_en_gang(self, nokkel: str, til: str, type_: str, emne: str, html: str, *,
+                                   paamelding_id: int | None = None) -> bool:
+        """Sender en ALLEREDE RENDRET (emne, html) hvis (nokkel, til, type) ikke er sendt for. True hvis sendt naa.
+
+        Dette ER selve fase-11-motoren (claim/commit/send/status) - send_en_gang() er kun et tynt lag som
+        rendrer og delegerer hit. Brukes direkte av kallere som MÅ garantere at ingen ny DB-avhengig
+        maltekstlesing skjer mellom rendring og sending (TOCTOU-vakt) - typisk fordi en varig sideeffekt
+        (f.eks. en generert fil + dokumentrad) allerede er bygget paa nøyaktig dette rendrede resultatet,
+        og en eventuell SENERE malfeil (override endret, DB-lesefeil) IKKE skal kunne oppstaa etter at den
+        sideeffekten er utfoert. Se kursbevis.py.
+
         Rekkefolge (hver overgang med sin egen korte transaksjon - INGEN skrivelaas holdes over det
         eksterne kallet):
-          1. render lokalt        (en malfeil skal ikke etterlate noen rad - kan proves igjen etter retting)
-          2. claim (atomisk)      nytt forsok, eller retry etter en kjent, trygg feil
-          3. commit               reservasjonen blir synlig for andre, laasen frigis - ogsaa hvis claimen tapes
-          4. epost.send           eksternt kall, ingen laas
-          5. lagre resultat + commit umiddelbart (sendt / ukjent)
+          1. claim (atomisk)      nytt forsok, eller retry etter en kjent, trygg feil
+          2. commit               reservasjonen blir synlig for andre, laasen frigis - ogsaa hvis claimen tapes
+          3. epost.send           eksternt kall, ingen laas
+          4. lagre resultat + commit umiddelbart (sendt / ukjent)
         Taper claimen (noen andre har den fra for, enten ferdig sendt eller et uavklart forsok som
         paagaar/star fast), gjor denne kallen ingenting og returnerer False - kalleren maa selv sjekke
         db.allerede_sendt() etterpaa for aa vite om meldingen faktisk gikk ut.
@@ -54,7 +70,6 @@ class Kjoring:
         konservativt som ukjent, og hendelsen logges (kun sikker feiltekst, aldri str(e) - se feil.py).
         `paamelding_id` (valgfri) tas med i hendelsen slik at en admin kan finne frem - aldri navn/e-post.
         """
-        emne, html = self.render_for_sending(mal, **data)
         vant = db.reserver_sending(self.con, nokkel, til, type_) or             db.reserver_sending_pa_nytt(self.con, nokkel, til, type_)
         if not self.tor:
             self.con.commit()  # claim (eller tapt claim) - frigjor skrivelaasen FOR det evt. lange eksterne kallet

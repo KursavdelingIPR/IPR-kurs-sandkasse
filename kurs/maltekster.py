@@ -427,11 +427,11 @@ def tilbakestill_maltekst(con, mal: str, felt: str, aktor: str = "system") -> bo
 
 # ============================ kobling til utsending (12B2A) ============================
 
-# MIDLERTIDIG (12B2A-12B2C): KUN `venteliste`, `avlysning`, `bekreftelse`, `ukefor` og `dagfor` er koblet til den faktiske
-# utsendingen. De 3 andre registrerte malene rendres fortsatt med den gamle, hardkodede Jinja-teksten. For at en overstyring aldri skal bli STILLE
-# ignorert, NEKTER lagre_maltekst() aa lagre for maler som ikke er i denne listen. Generaliseres/fjernes naar alle 8 er migrert
-# (verdibyggerne under blir da en del av Mal-registeret).
-AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor"})
+# MIDLERTIDIG (12B2A-12B2C): KUN `venteliste`, `avlysning`, `bekreftelse`, `ukefor`, `dagfor` og `kursbevis_klar` er koblet
+# til den faktiske utsendingen. De 2 andre registrerte malene rendres fortsatt med den gamle, hardkodede Jinja-teksten. For at
+# en overstyring aldri skal bli STILLE ignorert, NEKTER lagre_maltekst() aa lagre for maler som ikke er i denne listen.
+# Generaliseres/fjernes naar alle 8 er migrert (verdibyggerne under blir da en del av Mal-registeret).
+AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor", "kursbevis_klar"})
 
 
 def _venteliste_verdier(data) -> dict:
@@ -469,8 +469,15 @@ def _dagfor_verdier(data) -> dict:
             "dagnummer": data["nr"], "antall_dager": data["antall"]}
 
 
+def _kursbevis_klar_verdier(data) -> dict:
+    """KUN det registeret tillater: mottakerens navn og kursnavn. Ingen dokument-ID, filsti eller annen intern referanse -
+    Min side-lenken er systemkoden {min_side} (bygget av maltekster fra BASE_URL), aldri en fri URL eller sti fra admin."""
+    return {"navn": data["navn"], "kursnavn": data["kurs"]["navn"]}
+
+
 _VERDIER = {"venteliste": _venteliste_verdier, "avlysning": _avlysning_verdier, "bekreftelse": _bekreftelse_verdier,
-            "ukefor": _ukefor_verdier, "dagfor": _dagfor_verdier}    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
+            "ukefor": _ukefor_verdier, "dagfor": _dagfor_verdier,
+            "kursbevis_klar": _kursbevis_klar_verdier}    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
 
 
 def _bygg(mal: str, tekster: dict, data) -> dict:

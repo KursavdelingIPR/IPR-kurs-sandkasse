@@ -1,6 +1,4 @@
-Emne: Kursbevis: {{ kurs.navn }}
+Emne: {{ maltekst.emne }}
 {% extends "_ramme.html" %}{% block innhold %}
-<p>Hei {{ navn }},</p>
-<p>Takk for deltakelsen på <strong>{{ kurs.navn }}</strong>. Kursbeviset ditt ligger nå på
-<a href="{{ base_url }}/min-side">Min side</a>.</p>
+{{ maltekst.tekst }}
 {% endblock %}
