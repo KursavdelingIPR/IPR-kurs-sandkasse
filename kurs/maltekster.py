@@ -427,11 +427,13 @@ def tilbakestill_maltekst(con, mal: str, felt: str, aktor: str = "system") -> bo
 
 # ============================ kobling til utsending (12B2A) ============================
 
-# MIDLERTIDIG (12B2A-12B2C): KUN `venteliste`, `avlysning`, `bekreftelse`, `ukefor`, `dagfor` og `kursbevis_klar` er koblet
-# til den faktiske utsendingen. De 2 andre registrerte malene rendres fortsatt med den gamle, hardkodede Jinja-teksten. For at
-# en overstyring aldri skal bli STILLE ignorert, NEKTER lagre_maltekst() aa lagre for maler som ikke er i denne listen.
-# Generaliseres/fjernes naar alle 8 er migrert (verdibyggerne under blir da en del av Mal-registeret).
-AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor", "kursbevis_klar"})
+# MIDLERTIDIG (12B2A-12B2C): KUN `venteliste`, `avlysning`, `bekreftelse`, `ukefor`, `dagfor`, `kursbevis_klar` og
+# `firmapaamelding_kvittering` er koblet til den faktiske utsendingen. `purring` rendres fortsatt med den gamle,
+# hardkodede Jinja-teksten. For at en overstyring aldri skal bli STILLE ignorert, NEKTER lagre_maltekst() aa lagre
+# for maler som ikke er i denne listen. Generaliseres/fjernes naar alle 8 er migrert
+# (verdibyggerne under blir da en del av Mal-registeret).
+AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor", "kursbevis_klar",
+                          "firmapaamelding_kvittering"})
 
 
 def _venteliste_verdier(data) -> dict:
@@ -475,9 +477,22 @@ def _kursbevis_klar_verdier(data) -> dict:
     return {"navn": data["navn"], "kursnavn": data["kurs"]["navn"]}
 
 
+def _firmapaamelding_kvittering_verdier(data) -> dict:
+    """KUN det registeret tillater: kontaktpersonens navn, kursnavn, firmanavn og antall deltakere (som tekst,
+    f.eks. "3 deltakere"). ALDRI e-post, telefon, org.nr, faktura-/betalingsdata. De faktiske utfallstallene
+    (antall bekreftet/venteliste/feilet) og kvitteringslenken er LAASTE systemblokker i malfilen, bygget fra det
+    virkelige registreringsresultatet ETTER at deltakerne er meldt paa - de er ALDRI koder her, og kan derfor
+    ikke gjoeres om av admin. `antall_totalt` (antall deltakere i INNSENDINGEN) er derimot kjent FOER noen
+    registrering skjer, saa {antall_deltakere} kan trygt rendres i preflight, foer varig sideeffekt."""
+    antall = data["antall_totalt"]
+    return {"navn": data["kontakt"]["navn"], "kursnavn": data["kurs"]["navn"], "firmanavn": data["kontakt"]["firmanavn"],
+            "antall_deltakere": f"{antall} deltaker{'e' if antall != 1 else ''}"}
+
+
 _VERDIER = {"venteliste": _venteliste_verdier, "avlysning": _avlysning_verdier, "bekreftelse": _bekreftelse_verdier,
-            "ukefor": _ukefor_verdier, "dagfor": _dagfor_verdier,
-            "kursbevis_klar": _kursbevis_klar_verdier}    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
+            "ukefor": _ukefor_verdier, "dagfor": _dagfor_verdier, "kursbevis_klar": _kursbevis_klar_verdier,
+            "firmapaamelding_kvittering": _firmapaamelding_kvittering_verdier,
+            }    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
 
 
 def _bygg(mal: str, tekster: dict, data) -> dict:
