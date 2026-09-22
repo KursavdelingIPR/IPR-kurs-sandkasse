@@ -26,6 +26,7 @@
   button.liten, .knapp.liten { padding:4px 10px; font-size:13px; }
   label { display:block; font-size:13px; font-weight:600; margin:12px 0 4px; }
   input, select, textarea { width:100%; padding:8px 10px; border:1px solid #c7d0d5; border-radius:6px; font:inherit; background:#fff; }
+  fieldset { border:0; margin:0; padding:0; min-width:0; }
   input[type=checkbox], input[type=radio] { width:auto; margin-right:6px; }
   .rad { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:0 14px; }
   table { width:100%; border-collapse:collapse; background:#fff; font-size:14px; }
@@ -61,7 +62,7 @@
     <a href="{{ url_for('sporsmal_side') }}">Spør oss</a>
     {% if session.deltaker_id %}<a href="{{ url_for('min_side') }}">Min side</a><a href="{{ url_for('logg_ut') }}">Logg ut</a>
     {% else %}<a href="{{ url_for('logg_inn') }}">Min side</a>{% endif %}
-    {% if session.admin_id %}<a href="{{ url_for('admin') }}"><strong>Admin</strong></a>{% endif %}
+    {% if session.admin_id and not forhandsvisning %}<a href="{{ url_for('admin') }}"><strong>Admin</strong></a>{% endif %}
     {% endblock %}
   </nav>
 </div></header>

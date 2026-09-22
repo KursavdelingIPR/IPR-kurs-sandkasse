@@ -66,9 +66,10 @@
     <td><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','avlyst':'feil','utkast':'gra'}.get(k.status,'gra') }}">{{ k.status }}</span></td>
     <td class="liten">{{ k.ansvarlig_navn or '–' }}</td>
     <td class="liten" style="white-space:nowrap">
-      <a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}">Åpne</a> ·
-      <a href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}" title="Rediger">✎</a> ·
-      <a href="{{ url_for('admin_ny_kurs', fra=k.id) }}" title="Dupliser «{{ k.navn }}»">Dupliser</a>
+      <div style="display:flex; align-items:center; gap:8px">
+        <a class="knapp liten sekundar" href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}">Rediger</a>
+        <a class="knapp liten sekundar" href="{{ url_for('admin_ny_kurs', fra=k.id) }}" title="Dupliser «{{ k.navn }}»">Dupliser</a>
+      </div>
     </td>
   </tr>
   {% else %}<tr><td colspan="9" class="dempet">Ingen kurs matcher søket.</td></tr>{% endfor %}

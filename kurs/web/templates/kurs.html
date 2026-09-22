@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block tittel %}{{ kurs.navn }} – IPR Påmeldingssystem{% endblock %}
 {% block innhold %}
+{% if forhandsvisning %}
+<div class="flash info">Forhåndsvisning – dette er slik påmeldingssiden vil se ut. Påmelding er deaktivert.</div>
+{% endif %}
 <h1>{{ kurs.navn }}</h1>
 <p class="sub">{{ {'digital':'Digitalt kurs (Zoom)','fysisk':'Fysisk kurs','hybrid':'Hybrid'}[kurs.type] }}{% if kurs.sted %} · {{ kurs.sted }}{% endif %}
   · {% if kurs.pris_nok %}{{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr eks. mva{% else %}Gratis{% endif %}</p>
@@ -13,8 +16,9 @@
   {% if plasser_igjen is not none %}<p class="liten">{% if plasser_igjen > 0 %}{{ plasser_igjen }} plasser igjen{% else %}<span class="merke gul">Fullt – du settes på venteliste</span>{% endif %}</p>{% endif %}
 </div>
 
-<form method="post" class="kort" style="grid-column: span 2">
+<form method="post" class="kort" style="grid-column: span 2"{% if forhandsvisning %} onsubmit="return false"{% endif %}>
   <strong>Påmelding</strong>
+  <fieldset>
   <div class="rad">
     <div><label>Navn *</label><input name="navn" required value="{{ f.navn }}"></div>
     <div><label>E-post *</label><input name="epost" type="email" required value="{{ f.epost }}"></div>
@@ -64,8 +68,13 @@
   <label style="font-weight:normal; margin-top:16px"><input type="checkbox" name="samtykke" required>
     Jeg godtar <a href="https://www.ipr.no/kurs-og-utdanning/artikkel/kurs-salgsbetingelser" target="_blank" rel="noopener">vilkår for kurs</a> og
     <a href="https://www.ipr.no/om-oss/personvernerkl%C3%A6ring" target="_blank" rel="noopener">personvernerklæringen</a> *</label>
+  </fieldset>
+  {% if forhandsvisning %}
+  <p style="margin-top:16px"><button type="button">Meld meg på</button></p>
+  {% else %}
   <p style="margin-top:16px"><button>Meld meg på</button></p>
   <p class="liten dempet" style="margin-top:10px">Melder du på flere personer samtidig? <a href="{{ url_for('kurs_gruppe', kode=kurs.kode) }}">Bruk bedriftspåmelding →</a></p>
+  {% endif %}
 </form>
 </div>
 {% endblock %}

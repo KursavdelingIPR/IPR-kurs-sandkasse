@@ -867,6 +867,23 @@ def admin_kurs_nettside(kurs_id):
     return render_template("admin_kurs_nettside.html", kurs=_hent_kurs(kurs_id), fane="nettside")
 
 
+@app.get("/admin/kurs/<int:kurs_id>/forhandsvis-paamelding")
+@krever_admin
+def admin_forhandsvis_paamelding(kurs_id):
+    """READ-ONLY forhaandsvisning av den OFFENTLIGE paameldingssiden (kurs.html) for admin - gjenbruker noyaktig
+    samme mal/rendringsvei som kursside() (samme felter, samme betalingsvalg, samme laaste kursinfo), med
+    forhandsvisning=True. Ingen ekte deltakerdata vises - kun kursoppsettet. `plasser_igjen` er en telling
+    (uendret fra kursside()), ikke deltaker-PII. Fungerer uansett kursstatus (ogsaa 'utkast'), i motsetning til
+    den offentlige siden - admin skal kunne forhaandsvise FOER kurset publiseres.
+
+    GET-only: det finnes ingen POST-rute her, saa selv et forsokt skjemainnsending mot denne URL-en (uansett
+    hvordan) ville feilet med 405 - det finnes ingen kodesti her som kan opprette en paamelding."""
+    kurs = _hent_kurs(kurs_id)
+    dager = db.kursdager(con(), kurs_id)
+    plasser_igjen = None if kurs["kapasitet"] is None else kurs["kapasitet"] - db.antall_bekreftet(con(), kurs_id)
+    return render_template("kurs.html", kurs=kurs, dager=dager, f={}, plasser_igjen=plasser_igjen, forhandsvisning=True)
+
+
 def _deltaker_sok_status(request_args) -> tuple[str, str]:
     """Leser/validerer sok+status-filter fra query-parametre. Delt mellom deltakerlisten og
     CSV-eksporten, slik at eksporten kan folge NOYAKTIG samme filter som det admin ser paa
