@@ -1,0 +1,54 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_maltekster') }}">← E-postmaler</a></p>
+<h1>{{ mal_navn }}</h1>
+<p class="sub">{{ mal_beskrivelse }}</p>
+<p class="liten dempet" style="margin-top:-14px">
+  <a href="{{ url_for('admin_maltekst_forhandsvis', mal=mal) }}">Forhåndsvis hele e-posten →</a>
+</p>
+
+{% if mal_feilmelding %}
+<div class="flash feil" style="max-width:640px">{{ mal_feilmelding }}</div>
+{% endif %}
+
+{% for f in felter %}
+<div class="kort" style="max-width:640px{{ '; border-color:var(--feil)' if feil_felt == f.navn or f.ugyldig }}">
+  <div style="display:flex; justify-content:space-between; align-items:start; gap:10px">
+    <strong>{{ f.visningsnavn }}</strong>
+    {% if f.ugyldig %}<span class="merke feil">Ugyldig lagret tekst</span>
+    {% else %}<span class="merke {{ 'gul' if f.tilpasset else 'gra' }}">{{ 'Tilpasset' if f.tilpasset else 'Standard' }}</span>{% endif %}
+  </div>
+
+  <form method="post" action="{{ url_for('admin_maltekst_lagre', mal=mal, felt=f.navn) }}">
+    {% if f.type == 'emne' %}
+    <label style="margin-top:12px">Tekst <span class="liten dempet">(maks {{ f.maks }} tegn, ingen linjeskift)</span></label>
+    <input name="tekst" maxlength="{{ f.maks }}" value="{{ f.tekst }}" {% if not f.tom_tillatt %}required{% endif %}>
+    {% else %}
+    <label style="margin-top:12px">Tekst <span class="liten dempet">(maks {{ f.maks }} tegn{{ ', kan være tom' if f.tom_tillatt }})</span></label>
+    <textarea name="tekst" rows="4" maxlength="{{ f.maks }}">{{ f.tekst }}</textarea>
+    {% endif %}
+
+    <p class="liten dempet" style="margin:10px 0 4px">Tillatte koder i dette feltet:</p>
+    <p class="liten" style="margin:0 0 12px">
+      {% for kode in f.koder %}
+        <span class="merke {{ 'gra' if kode in systemkoder else '' }}" style="margin:0 4px 4px 0" title="{{ koder[kode].navn }}">
+          {{ '{' ~ kode ~ '}' }}{% if kode in systemkoder %} (systemgenerert){% endif %} – {{ koder[kode].navn }}
+        </span>
+      {% endfor %}
+    </p>
+
+    <div style="display:flex; gap:8px; align-items:center">
+      <button class="liten">Lagre</button>
+      {% if f.tilpasset %}<span class="liten dempet">Tilpasset – kan tilbakestilles til høyre</span>{% endif %}
+    </div>
+  </form>
+
+  {% if f.tilpasset %}
+  <form method="post" action="{{ url_for('admin_maltekst_tilbakestill', mal=mal, felt=f.navn) }}"
+        onsubmit="return confirm('Tilbakestille «{{ f.visningsnavn }}» til standardteksten?')" style="margin-top:8px">
+    <button class="liten sekundar">Tilbakestill til standard</button>
+  </form>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

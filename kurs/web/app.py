@@ -18,7 +18,7 @@ from flask import (Flask, Response, abort, flash, g, make_response, redirect, re
 from markupsafe import Markup
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from .. import behandling, config, daglig, db, import_deltakere, maltekster, sveiper
+from .. import behandling, config, daglig, db, import_deltakere, mal_eksempler, maltekster, sveiper
 from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
 from ..kjoring import Kjoring
@@ -1899,6 +1899,109 @@ def admin_daglig():
         daglig.kjor(k)
         utskrift = "\n".join(k.utskrift)
     return render_template("admin_daglig.html", utskrift=utskrift)
+
+
+def _maltekst_tilpasset(mal: str) -> bool:
+    """Raa tilstedevaerelse (finnes minst en rad i mal_tekst for denne malen) - IKKE via er_tilpasset()/
+    effektive_tekster(), som validerer ALLE rader for malen og derfor kan kaste MalFeil paa grunn av et HELT
+    ANNET felt enn det vi spor om. Oversikten skal aldri kunne krasje paa grunn av en korrupt overstyring."""
+    return bool(db.hent_overstyringer_for_mal(con(), mal))
+
+
+def _rediger_kontekst(mal: str, feil_felt: str | None = None, feil_tekst: str | None = None) -> dict:
+    """Bygger data til redigeringssiden. Robust mot at malen har EN korrupt lagret rad: da vises hvert felts egen
+    raatekst direkte fra databasen (aldri stille tom) i stedet for at HELE siden feiler - admin skal alltid kunne
+    naa denne siden for aa rette eller tilbakestille en ugyldig overstyring, ikke bare se den andre steder."""
+    m = maltekster.MALER[mal]
+    raa = db.hent_overstyringer_for_mal(con(), mal)
+    try:
+        effektive = maltekster.effektive_tekster(con(), mal)
+        mal_feilmelding = None
+    except maltekster.MalFeil as e:
+        effektive = None
+        mal_feilmelding = (e.forklaring or "En lagret tekst for denne malen er ugyldig.") + \
+            " Rett teksten under, eller tilbakestill feltet til standard."
+    felter = []
+    for felt, f in m.felt.items():
+        if felt == feil_felt:
+            tekst = feil_tekst
+        elif effektive is not None:
+            tekst = effektive[felt]
+        else:
+            tekst = raa.get(felt, f.standard)  # denne malens rader kan ikke valideres samlet - vis lagret raatekst
+        felter.append({"navn": felt, "visningsnavn": f.navn, "type": f.type, "maks": f.maks, "tom_tillatt": f.tom_tillatt,
+                      "tekst": tekst, "tilpasset": felt in raa, "koder": sorted(f.kode),
+                      "ugyldig": effektive is None and felt in raa})
+    return dict(mal=mal, mal_navn=m.navn, mal_beskrivelse=m.beskrivelse, felter=felter, koder=maltekster.KODER,
+               systemkoder=maltekster.SYSTEMKODER, feil_felt=feil_felt, mal_feilmelding=mal_feilmelding)
+
+
+@app.get("/admin/e-postmaler")
+@krever_admin
+def admin_maltekster():
+    """Oversikt over de 8 redigerbare e-postmalene. Laaste systemmaler (innlogging/eskalering/admin_melding) er
+    ikke i MALER-registeret og vises derfor aldri her - de kan ikke redigeres i det hele tatt."""
+    maler = [{"mal": mal, "navn": m.navn, "beskrivelse": m.beskrivelse, "tilpasset": _maltekst_tilpasset(mal)}
+            for mal, m in maltekster.MALER.items()]
+    return render_template("admin_maltekster.html", maler=maler)
+
+
+@app.get("/admin/e-postmaler/<mal>")
+@krever_admin
+def admin_maltekst_rediger(mal):
+    if mal not in maltekster.MALER:
+        abort(404)
+    return render_template("admin_maltekst_rediger.html", **_rediger_kontekst(mal))
+
+
+@app.post("/admin/e-postmaler/<mal>/<felt>")
+@krever_admin
+def admin_maltekst_lagre(mal, felt):
+    if mal not in maltekster.MALER or felt not in maltekster.MALER[mal].felt:
+        abort(404)
+    tekst = request.form.get("tekst", "")
+    try:
+        maltekster.lagre_maltekst(con(), mal, felt, tekst, aktor=_aktor())
+        con().commit()
+    except maltekster.MalFeil as e:
+        con().rollback()
+        flash(e.forklaring or "Teksten kunne ikke lagres.", "feil")
+        return render_template("admin_maltekst_rediger.html", **_rediger_kontekst(mal, feil_felt=felt, feil_tekst=tekst)), 400
+    flash(f"«{maltekster.MALER[mal].felt[felt].navn}» er lagret.", "ok")
+    return redirect(url_for("admin_maltekst_rediger", mal=mal))
+
+
+@app.post("/admin/e-postmaler/<mal>/<felt>/tilbakestill")
+@krever_admin
+def admin_maltekst_tilbakestill(mal, felt):
+    if mal not in maltekster.MALER or felt not in maltekster.MALER[mal].felt:
+        abort(404)
+    fjernet = maltekster.tilbakestill_maltekst(con(), mal, felt, aktor=_aktor())
+    con().commit()
+    flash(f"«{maltekster.MALER[mal].felt[felt].navn}» er tilbakestilt til standardteksten." if fjernet
+         else "Dette feltet bruker allerede standardteksten.", "ok")
+    return redirect(url_for("admin_maltekst_rediger", mal=mal))
+
+
+@app.get("/admin/e-postmaler/<mal>/forhandsvis")
+@krever_admin
+def admin_maltekst_forhandsvis(mal):
+    """Forhaandsviser den EFFEKTIVE malteksten (override hvis den finnes, ellers standard) med fiktive eksempeldata -
+    aldri ekte deltaker-/kurs-/firmadata. Bruker samme rendringsvei som faktisk utsending
+    (Kjoring.render_for_sending: override-bevisst maltekst + epost.render), men gjor INGEN claim, sender ingen
+    e-post og skriver ingen utsending_logg-rad - render_for_sending leser kun og har ingen sideeffekter."""
+    if mal not in maltekster.MALER:
+        abort(404)
+    k = Kjoring(con())
+    visninger, feil = [], None
+    try:
+        for variant, data in mal_eksempler.eksempler(mal):
+            emne, html = k.render_for_sending(mal, **data)
+            visninger.append({"variant": variant, "emne": emne, "html": html})
+    except maltekster.MalFeil as e:
+        feil = e.forklaring or "Malen kunne ikke forhåndsvises akkurat nå."
+    return render_template("admin_maltekst_forhandsvis.html", mal=mal, mal_navn=maltekster.MALER[mal].navn,
+                           visninger=visninger, feil=feil)
 
 
 @app.get("/admin/utboks")
