@@ -101,6 +101,19 @@ def _fakturastatus(kurs, p) -> str:
 
 # ======================= offentlig =======================
 
+# Publiseringsvern (hardening-checkpoint foer skjemabygger). Kun disse statusverdiene gir OFFENTLIG tilgang til
+# BAADE /kurs/<kode> (ordinaer paamelding) og /kurs/<kode>/gruppe (bedriftspaamelding) - GET og POST. Fail-closed:
+# en statusverdi som IKKE staar i denne lista - ogsaa en fremtidig, ukjent en som en senere migrering skulle legge
+# til i CHECK-constrainten i schema.sql - regnes som IKKE offentlig tilgjengelig, uten unntak (allow-list, ikke
+# deny-list). Admin sin egen forhaandsvisning (admin_forhandsvis_paamelding) bruker IKKE denne sjekken og fungerer
+# uansett status, med hensikt - se dens docstring.
+OFFENTLIG_SYNLIGE_KURSSTATUSER = frozenset({"aapen", "full", "aktiv"})
+
+
+def _kurs_offentlig_tilgjengelig(kurs) -> bool:
+    return kurs["status"] in OFFENTLIG_SYNLIGE_KURSSTATUSER
+
+
 @app.get("/")
 def forside():
     kurs = con().execute(
@@ -112,6 +125,8 @@ def forside():
 @app.route("/kurs/<kode>", methods=["GET", "POST"])
 def kursside(kode):
     kurs = con().execute("SELECT * FROM kurs WHERE kode=?", (kode,)).fetchone() or abort(404)
+    if not _kurs_offentlig_tilgjengelig(kurs):
+        abort(404)
     dager = db.kursdager(con(), kurs["id"])
     if request.method == "GET":
         return render_template("kurs.html", kurs=kurs, dager=dager, f={},
@@ -174,6 +189,8 @@ def _grupperad_liste(f) -> list[dict]:
 @app.route("/kurs/<kode>/gruppe", methods=["GET", "POST"])
 def kurs_gruppe(kode):
     kurs = con().execute("SELECT * FROM kurs WHERE kode=?", (kode,)).fetchone() or abort(404)
+    if not _kurs_offentlig_tilgjengelig(kurs):
+        abort(404)
     if request.method == "GET":
         return render_template("kurs_gruppe.html", kurs=kurs, f={}, deltakere=[{}], maks_deltakere=MAKS_DELTAKERE_GRUPPE)
 
