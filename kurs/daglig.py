@@ -194,15 +194,34 @@ def _importer_zoom(k, kurs, dag, min_minutter: int = 30):
 
 
 def _purring(k):
+    """Purrer paa materiell inntil frist (tre trinn: 7/2/0 dager igjen), deretter eskalerer til admin hver dag etter frist.
+
+    Kandidatregel (RETTET 12B2C-5 - se dokumentasjon/audit): et trinn er kandidat HVER dag fra igjen==7 ned til
+    igjen==0, men bare naar NOEYAKTIG DET trinnets type (purring-7/-2/-0) IKKE allerede er sendt. Foer denne
+    rettelsen sjekket koden kun om purring-7 var sendt, ogsaa naar dagens trinn var purring-2/-0 - en render-/
+    malfeil noeyaktig paa igjen==2 eller igjen==0 (naar purring-7 alt var sendt tidligere) hadde da INGEN
+    retry-mulighet og gikk permanent tapt. Naa faar hvert trinn sitt eget, flerdagers retry-vindu paa samme
+    maate som purring-7 alt hadde (igjen==0 er fortsatt siste sjanse for TRINN 0 spesifikt, siden frist da er
+    passert dagen etter - kjent, akseptert begrensning, samme kategori som dagfor sitt endagsvindu).
+    Ingen dobbeltsending: claim/status-motoren (fase 11) hindrer det uansett, og guarden under unngaar i tillegg
+    unoedvendig re-rendring naar trinnet alt er sendt.
+
+    En MalFeil (ugyldig lagret mal) isoleres PER MATERIELLKRAV: den aktuelle paaminnelsen feiler lukket (ingen
+    claim, ingen mail), mens andre materiellkrav og resten av daglig.kjor() fortsetter uendret."""
     krav = k.con.execute(
         """SELECT m.*, k.navn AS kursnavn, k.kode FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id
            WHERE m.levert_ts IS NULL AND k.status!='avlyst'""").fetchall()
     for m in krav:
         igjen = (date.fromisoformat(m["frist"]) - k.idag).days
         nokkel = f"materiell:{m['id']}"
-        if igjen in (7, 2, 0) or (0 < igjen < 7 and not db.allerede_sendt(k.con, nokkel, m["ansvarlig_epost"], "purring-7")):
+        if 0 <= igjen <= 7:
             type_ = "purring-7" if igjen > 2 else ("purring-2" if igjen > 0 else "purring-0")
-            k.send_en_gang(nokkel, m["ansvarlig_epost"], type_, "purring", m=m, igjen=igjen)
+            if not db.allerede_sendt(k.con, nokkel, m["ansvarlig_epost"], type_):
+                try:
+                    k.send_en_gang(nokkel, m["ansvarlig_epost"], type_, "purring", m=m, igjen=igjen)
+                except maltekster.MalFeil as e:
+                    db.logg(k.con, "purring_mal_feil", {"kurs_id": m["kurs_id"], "materiell_id": m["id"], **e.detaljer()})
+                    k.si(f"  FEIL purring ({type_}): {e} - materiellkrav {m['id']} fikk ikke påminnelsen")
         elif igjen < 0:
             k.send_en_gang(nokkel, config.ADMIN_EPOST, "eskalering", "eskalering", m=m, igjen=igjen)
 

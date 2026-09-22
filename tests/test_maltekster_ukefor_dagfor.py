@@ -623,8 +623,6 @@ def test_direkte_render_uten_db_bruker_standardtekst(con, monkeypatch, mal, data
     assert "Hei Ola," in html and emne
 
 
-def test_aktive_maler_er_noyaktig_sju_og_purring_kan_ikke_lagres(con):
-    assert maltekster.AKTIVE_MALER == {"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor", "kursbevis_klar",
-                                       "firmapaamelding_kvittering"}
-    with pytest.raises(MalFeil):
-        maltekster.lagre_maltekst(con, "purring", "innledning", "Hei {navn}")
+def test_ukefor_og_dagfor_er_blant_de_aktive_malene(con):
+    """Fullstendig liste over aktive/inaktive maler dekkes av tests/test_maltekster_integrasjon.py."""
+    assert {"ukefor", "dagfor"} <= maltekster.AKTIVE_MALER

@@ -80,6 +80,7 @@ KODER: dict[str, Kode] = {
     "beskrivelse_liten": Kode("Hva som skal leveres (små bokstaver)", "fet"),
     "frist": Kode("Frist", "fet"),
     "dager_igjen": Kode("Dager til frist", "vanlig"),
+    "dager_igjen_tekst": Kode("Dager til frist, med riktig entall/flertall (f.eks. «1 dag» / «2 dager»)", "vanlig"),
     "min_side": Kode("Lenke til Min side", "system"),
     "sporsmal_url": Kode("Adressen til «Spør oss»", "system"),
 }
@@ -186,14 +187,17 @@ MALER: dict[str, Mal] = {
     "purring": Mal(
         "Purring på materiell", "Sendes til kursholder/ansvarlig som ikke har levert materiell innen fristen nærmer seg.",
         {"emne_frist_om_dager": _emne("Emne – frist om noen dager",
-                                      "Påminnelse: {beskrivelse} til {kursnavn} – frist om {dager_igjen} dager",
-                                      {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen"}),
+                                      "Påminnelse: {beskrivelse} til {kursnavn} – frist om {dager_igjen_tekst}",
+                                      {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
+                                       "dager_igjen_tekst"}),
          "emne_frist_i_dag": _emne("Emne – frist i dag", "Frist i dag: {beskrivelse} til {kursnavn}",
-                                   {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen"}),
+                                   {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
+                                    "dager_igjen_tekst"}),
          "innledning": _hoved("Innledning", _D + "Vi minner om at {beskrivelse_liten} til {kursnavn} skal leveres innen {frist}.",
-                              {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen"}),
+                              {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
+                               "dager_igjen_tekst"}),
          "avslutning": _tillegg("Avslutning", "", {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist",
-                                                    "dager_igjen"})}),
+                                                    "dager_igjen", "dager_igjen_tekst"})}),
 }
 # avlysning tillater i tillegg {sporsmal_url}; ingen av de andre malene gjor det.
 
@@ -427,13 +431,13 @@ def tilbakestill_maltekst(con, mal: str, felt: str, aktor: str = "system") -> bo
 
 # ============================ kobling til utsending (12B2A) ============================
 
-# MIDLERTIDIG (12B2A-12B2C): KUN `venteliste`, `avlysning`, `bekreftelse`, `ukefor`, `dagfor`, `kursbevis_klar` og
-# `firmapaamelding_kvittering` er koblet til den faktiske utsendingen. `purring` rendres fortsatt med den gamle,
-# hardkodede Jinja-teksten. For at en overstyring aldri skal bli STILLE ignorert, NEKTER lagre_maltekst() aa lagre
-# for maler som ikke er i denne listen. Generaliseres/fjernes naar alle 8 er migrert
-# (verdibyggerne under blir da en del av Mal-registeret).
+# Alle 8 redigerbare maler er koblet til den faktiske utsendingen (fase 12B2A-12B2C-5). Kun de LAASTE malene
+# (innlogging, eskalering, admin_melding) rendres utenfor dette systemet. EKSPLISITT liste (IKKE frozenset(MALER)):
+# en fremtidig ny mal i MALER-registeret skal ALDRI bli automatisk aktivert bare fordi den er registrert - den
+# maa faa sin egen verdibygger og eksplisitt legges til her foerst (fail-closed). lagre_maltekst() nekter
+# fortsatt aa lagre for enhver mal som ikke staar i denne listen, slik at en override aldri blir stille ignorert.
 AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor", "kursbevis_klar",
-                          "firmapaamelding_kvittering"})
+                          "firmapaamelding_kvittering", "purring"})
 
 
 def _venteliste_verdier(data) -> dict:
@@ -477,6 +481,22 @@ def _kursbevis_klar_verdier(data) -> dict:
     return {"navn": data["navn"], "kursnavn": data["kurs"]["navn"]}
 
 
+def _purring_verdier(data) -> dict:
+    """KUN det registeret tillater: ansvarliges navn, kursnavn, hva som skal leveres (og liten variant), frist og
+    dager igjen. ALDRI e-post/telefon. Opplastingslenken (/lever/<id>) er en LAAST systemblokk i malfilen - materiell-
+    kravets id er ikke hemmelig (star allerede i denne lenken i dag), men er likevel aldri en kode her.
+
+    `dager_igjen` er UENDRET (ren tallverdi, som foer - bakoverkompatibel med en evt. eksisterende override).
+    `dager_igjen_tekst` er en NY, egen kode med riktig norsk entall/flertall ("1 dag" / "2 dager" / ...): siden
+    12B2C-5s rettelse av retry-vinduet (se daglig._purring) faktisk kan la purring-2 rendres med igjen==1, ikke
+    bare igjen==2, matte standard-emnet faa en tekst som er riktig i begge tilfeller."""
+    m = data["m"]
+    igjen = data["igjen"]
+    return {"navn": m["ansvarlig_navn"], "kursnavn": m["kursnavn"], "beskrivelse": m["beskrivelse"],
+            "beskrivelse_liten": m["beskrivelse"].lower(), "frist": m["frist"], "dager_igjen": igjen,
+            "dager_igjen_tekst": f"{igjen} dag" if igjen == 1 else f"{igjen} dager"}
+
+
 def _firmapaamelding_kvittering_verdier(data) -> dict:
     """KUN det registeret tillater: kontaktpersonens navn, kursnavn, firmanavn og antall deltakere (som tekst,
     f.eks. "3 deltakere"). ALDRI e-post, telefon, org.nr, faktura-/betalingsdata. De faktiske utfallstallene
@@ -491,7 +511,7 @@ def _firmapaamelding_kvittering_verdier(data) -> dict:
 
 _VERDIER = {"venteliste": _venteliste_verdier, "avlysning": _avlysning_verdier, "bekreftelse": _bekreftelse_verdier,
             "ukefor": _ukefor_verdier, "dagfor": _dagfor_verdier, "kursbevis_klar": _kursbevis_klar_verdier,
-            "firmapaamelding_kvittering": _firmapaamelding_kvittering_verdier,
+            "firmapaamelding_kvittering": _firmapaamelding_kvittering_verdier, "purring": _purring_verdier,
             }    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
 
 

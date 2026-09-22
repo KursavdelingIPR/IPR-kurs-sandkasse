@@ -208,31 +208,45 @@ def test_epost_py_importerer_ikke_db_og_gjor_ingen_override_oppslag():
     assert "maltekst_for_utsending" not in inspect.getsource(epost)      # oppslaget skjer i Kjoring/maltekster
 
 
-# ========= kun venteliste, avlysning, bekreftelse, ukefor, dagfor, kursbevis_klar og firmapaamelding_kvittering =========
+# ============================ alle 8 redigerbare maler er aktivert (12B2C-5) ============================
 
+# AKTIVE_MALER er en EKSPLISITT liste i maltekster.py (IKKE frozenset(MALER)) - fail-closed: en fremtidig ny mal i
+# MALER-registeret blir ALDRI automatisk aktivert av seg selv. Denne konstanten er derfor ogsaa eksplisitt her,
+# og testen under sammenligner den mot frozenset(MALER) for AA FANGE akkurat det scenariet (noen legger en ny mal
+# i registeret uten aa huske aa legge den til i AKTIVE_MALER og gi den en verdibygger).
 AKTIVE = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor", "kursbevis_klar",
-                    "firmapaamelding_kvittering"})
-IKKE_AKTIVE = [m for m in MALER if m not in AKTIVE]
+                    "firmapaamelding_kvittering", "purring"})
+IKKE_AKTIVE: list[str] = []
 
 
-def test_kun_de_sju_aktiverte_maler_er_aktive_og_verdibyggerne_matcher():
-    assert maltekster.AKTIVE_MALER == AKTIVE
-    assert set(maltekster._VERDIER) == set(maltekster.AKTIVE_MALER) <= set(MALER)
-    # kun purring gjenstaar - migreres i eget, senere steg
-    assert IKKE_AKTIVE == ["purring"]
+def test_alle_8_redigerbare_maler_er_aktive_og_verdibyggerne_matcher():
+    assert maltekster.AKTIVE_MALER == AKTIVE == frozenset(MALER)           # i dag: identisk innhold, men IKKE utledet
+    assert set(maltekster._VERDIER) == set(maltekster.AKTIVE_MALER) == set(MALER)
+    assert IKKE_AKTIVE == []
 
 
-@pytest.mark.parametrize("mal", IKKE_AKTIVE)
-def test_ovrige_maler_kan_ikke_lagres_saa_override_aldri_blir_stille_ignorert(con, mal):
-    felt = next(iter(MALER[mal].felt))
+def test_ingen_redigerbar_mal_kan_lenger_vaere_registrert_men_inaktiv():
+    """Vakt mot fremtidig drift: siden AKTIVE_MALER er en eksplisitt liste (fail-closed), oppdager testen over det
+    AKTIVE_MALER == frozenset(MALER) ikke lenger stemmer dersom noen legger en ny mal i MALER uten aa aktivere den.
+    Denne testen sikrer i tillegg at hver mal som FAKTISK er aktiv, ogsaa har en verdibygger."""
+    assert set(MALER) == set(maltekster._VERDIER)
+
+
+def test_ny_uaktivert_mal_i_registeret_blir_ikke_automatisk_aktiv_og_kan_ikke_lagres(con, monkeypatch):
+    """Simulerer selve fail-closed-scenariet: en 9. mal legges i MALER, men (bevisst) IKKE i AKTIVE_MALER eller
+    _VERDIER. Den skal forbli inaktiv (IKKE bli med av seg selv fordi den star i MALER), og lagre_maltekst() skal
+    fortsatt avvise den - akkurat som for enhver annen ikke-koblet mal."""
+    ny_mal = maltekster.Mal("Ny fremtidig mal", "Test.", {"tekst": maltekster.MALER["venteliste"].felt["tekst"]})
+    monkeypatch.setitem(maltekster.MALER, "fremtidig_ny_mal", ny_mal)
+    assert "fremtidig_ny_mal" not in maltekster.AKTIVE_MALER               # IKKE automatisk aktivert
     with pytest.raises(MalFeil) as e:
-        maltekster.lagre_maltekst(con, mal, felt, "Egen tekst")
-    assert e.value.grunn == IKKE_AKTIVERT and e.value.mal == mal
+        maltekster.lagre_maltekst(con, "fremtidig_ny_mal", "tekst", "Egen tekst")
+    assert e.value.grunn == IKKE_AKTIVERT and e.value.mal == "fremtidig_ny_mal"
     assert con.execute("SELECT COUNT(*) FROM mal_tekst").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize("mal", IKKE_AKTIVE + ["innlogging", "eskalering", "admin_melding"])
-def test_ovrige_og_laaste_maler_bruker_gammel_rendering_uten_db_lesing(con, monkeypatch, mal):
+@pytest.mark.parametrize("mal", ["innlogging", "eskalering", "admin_melding"])
+def test_laaste_maler_bruker_gammel_rendering_uten_db_lesing(con, monkeypatch, mal):
     def ikke_les(*a, **kw):
         raise AssertionError("DB skal ikke leses for maler som ikke er koblet")
     monkeypatch.setattr(db, "hent_overstyringer_for_mal", ikke_les)
