@@ -272,6 +272,10 @@ def kurs_gruppe(kode):
     if len(rader_visning) > MAKS_DELTAKERE_GRUPPE:
         feil.append(f"Maks {MAKS_DELTAKERE_GRUPPE} deltakere per innsending. Del opp i flere omganger.")
 
+    # 12C3B: HPR-feltet vises kun naar kurset er i et spesialistlop (samme regel som kurs_gruppe.html og individuell
+    # paamelding). Ellers ignoreres en innsendt deltaker_hpr fullstendig - None overskriver/sletter aldri en eksisterende
+    # persons HPR (finn_eller_opprett_deltaker oppdaterer kun med ikke-tomme verdier).
+    hpr_synlig = skjemafelt.vis_hpr(kurs)
     deltaker_rader = []
     for i, r in enumerate(rader_visning, start=1):
         navn, deltaker_epost = r["navn"].strip(), r["epost"].strip().lower()
@@ -281,7 +285,8 @@ def kurs_gruppe(kode):
             feil.append(f"Deltaker {i}: fyll inn navn og en gyldig e-postadresse.")
             continue
         deltaker_rader.append({"navn": navn, "epost": deltaker_epost, "telefon": r["telefon"].strip() or None,
-                               "arbeidssted": r["arbeidssted"].strip() or None, "hpr_nr": r["hpr_nr"].strip() or None})
+                               "arbeidssted": r["arbeidssted"].strip() or None,
+                               "hpr_nr": (r["hpr_nr"].strip() or None) if hpr_synlig else None})
     if not deltaker_rader:
         feil.append("Legg til minst én deltaker.")
     eposter = [d["epost"] for d in deltaker_rader]
