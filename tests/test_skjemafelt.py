@@ -134,7 +134,9 @@ def test_ukjente_kursdata_gir_ikke_nye_felt():
 def test_ingen_api_for_egendefinerte_felt():
     offentlige = {n for n, o in inspect.getmembers(sf, inspect.isfunction)
                   if not n.startswith("_") and o.__module__ == sf.__name__}
-    assert offentlige == {"effektivt_skjema", "vis_hpr", "vis_fakturablokk", "vis_sensitive_felt"}
+    # 12C2: normaliser_overstyring/les_overstyringer validerer kun overstyringer av KJENTE felt - ingen oppretter felt.
+    assert offentlige == {"effektivt_skjema", "vis_hpr", "vis_fakturablokk", "vis_sensitive_felt",
+                          "normaliser_overstyring", "les_overstyringer"}
 
 
 def test_kategoriene_er_kjente_og_overstyrbare_egenskaper_er_gyldige():

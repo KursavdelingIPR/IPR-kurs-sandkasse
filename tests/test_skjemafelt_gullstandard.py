@@ -194,8 +194,14 @@ def test_siden_er_dom_identisk_med_gullstandard(sider, scenario):
 
 def test_gullstandarden_fanger_endret_feltrekkefolge(con, monkeypatch):
     """Kontroll av selve testen: en endring i registeret SKAL gi avvik mot oyeblikksbildet."""
+    import dataclasses
+    from types import MappingProxyType
+
     from kurs import skjemafelt
-    monkeypatch.setattr(skjemafelt, "KONFIGURERBAR_GRUPPE", ("arbeidssted", "telefon"))
+    # 12C2: rekkefolgen styres av standard `rekkefolge` i registeret (tuppelindeksen er kun tie-breaker) - muter den.
+    reg = dict(skjemafelt.REGISTER)
+    reg["telefon"] = dataclasses.replace(reg["telefon"], rekkefolge=3)
+    monkeypatch.setattr(skjemafelt, "REGISTER", MappingProxyType(reg))
     lagret = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
     assert dom(lag_sider(con)["fysisk_uten_spesialistlop"][1]) != lagret["fysisk_uten_spesialistlop"]["dom"]
 

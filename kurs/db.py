@@ -11,7 +11,7 @@ from pathlib import Path
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import config
+from . import config, skjemafelt
 
 _SCHEMA = Path(__file__).with_name("schema.sql")
 _KODE_TEGN = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # uten 0/O/1/I – lett aa taste
@@ -893,3 +893,71 @@ def slett_maltekst(con, mal: str, felt: str, aktor: str = "system") -> bool:
     if cur.rowcount > 0:
         logg(con, "mal_tilbakestilt", {"mal": mal, "felt": felt}, aktor=aktor)
     return cur.rowcount > 0
+
+
+# ---------- paameldingsskjema: per-kurs overstyringer (fase 12C2) ----------
+# Validering/normalisering eies av kurs/skjemafelt.py (ren modul) og skjer FOER skriving. Her er kun SQL. Kolonnenavn
+# kommer ALLTID fra skjemafelt.EGENSKAPER_REKKEFOLGE (whitelist), aldri fra input. Committer ikke. Loggen faar kun
+# kurs_id, felt og egenskapsnavn - aldri label/hjelpetekst.
+
+_SKJEMA_KOLONNER = skjemafelt.EGENSKAPER_REKKEFOLGE
+
+
+def _skjema_db_verdi(verdi):
+    return int(verdi) if isinstance(verdi, bool) else verdi
+
+
+def hent_skjemaoverstyringer(con, kurs_id: int) -> "skjemafelt.Leseresultat":
+    """Gyldige overstyringer for kurset + PII-frie advarsler for ignorerte rader/egenskaper (se skjemafelt.les_overstyringer).
+
+    En REELL lesefeil (sqlite3.Error) blir skjemafelt.SkjemaLesefeil - ALDRI et tomt resultat, siden «ingen overstyringer»
+    ville latt f.eks. et obligatorisk eller skjult felt stille falle tilbake til standard."""
+    try:
+        rader = [dict(r) for r in con.execute(
+            f"SELECT felt, {','.join(_SKJEMA_KOLONNER)} FROM kurs_skjemafelt WHERE kurs_id=? ORDER BY felt", (kurs_id,))]
+    except sqlite3.Error as e:
+        raise skjemafelt.SkjemaLesefeil(kurs_id) from e
+    return skjemafelt.les_overstyringer(rader)
+
+
+def lagre_skjemafelt(con, kurs_id: int, felt: str, egenskaper: dict, aktor: str = "system") -> bool:
+    """Setter den KOMPLETTE overstyringen for ett felt (utelatt/None = standard). Validerer foer skriving
+    (SkjemafeltFeil -> ingenting skrives). Lagrer kun avvik; blir alt standard, slettes raden. Skriver/logger kun ved
+    reell endring (da settes oppdatert/oppdatert_av). True = noe ble endret."""
+    ny = skjemafelt.normaliser_overstyring(felt, egenskaper)
+    if ny.er_tom:
+        return tilbakestill_skjemafelt(con, kurs_id, felt, aktor=aktor)
+    verdier = {k: _skjema_db_verdi(getattr(ny, k)) for k in _SKJEMA_KOLONNER}
+    gammel = con.execute(f"SELECT {','.join(_SKJEMA_KOLONNER)} FROM kurs_skjemafelt WHERE kurs_id=? AND felt=?",
+                         (kurs_id, felt)).fetchone()
+    if gammel and all(type(gammel[k]) is type(v) and gammel[k] == v for k, v in verdier.items()):
+        return False
+    na = datetime.now().isoformat(timespec="seconds")
+    con.execute(
+        f"""INSERT INTO kurs_skjemafelt (kurs_id, felt, {','.join(_SKJEMA_KOLONNER)}, oppdatert, oppdatert_av)
+            VALUES (?,?,{','.join('?' * len(_SKJEMA_KOLONNER))},?,?)
+            ON CONFLICT (kurs_id, felt) DO UPDATE SET {','.join(f'{k}=excluded.{k}' for k in _SKJEMA_KOLONNER)},
+                                                    oppdatert=excluded.oppdatert, oppdatert_av=excluded.oppdatert_av""",
+        (kurs_id, felt, *verdier.values(), na, aktor))
+    logg(con, "skjemafelt_endret", {"kurs_id": kurs_id, "felt": felt, "egenskaper": list(ny.satte_egenskaper())},
+         aktor=aktor)
+    return True
+
+
+def tilbakestill_skjemafelt(con, kurs_id: int, felt: str, aktor: str = "system") -> bool:
+    """Fjerner overstyringen for ett KJENT felt (-> kodet standard). Ogsaa for et laast felt, slik at en korrupt rad kan
+    ryddes. Ukjent felt -> SkjemafeltFeil. Logger kun hvis en rad fantes. True = en rad ble slettet."""
+    if not isinstance(felt, str) or felt not in skjemafelt.REGISTER:
+        raise skjemafelt.SkjemafeltFeil(skjemafelt.UKJENT_FELT, None, None, "Ukjent skjemafelt.")
+    cur = con.execute("DELETE FROM kurs_skjemafelt WHERE kurs_id=? AND felt=?", (kurs_id, felt))
+    if cur.rowcount > 0:
+        logg(con, "skjemafelt_tilbakestilt", {"kurs_id": kurs_id, "felt": felt}, aktor=aktor)
+    return cur.rowcount > 0
+
+
+def tilbakestill_skjema(con, kurs_id: int, aktor: str = "system") -> int:
+    """Fjerner ALLE skjemaoverstyringer for kurset (ogsaa ukjente/korrupte rader). Returnerer antall slettede rader."""
+    cur = con.execute("DELETE FROM kurs_skjemafelt WHERE kurs_id=?", (kurs_id,))
+    if cur.rowcount > 0:
+        logg(con, "skjema_tilbakestilt", {"kurs_id": kurs_id, "antall": cur.rowcount}, aktor=aktor)
+    return cur.rowcount

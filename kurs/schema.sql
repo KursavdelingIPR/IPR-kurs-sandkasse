@@ -313,3 +313,21 @@ CREATE TABLE IF NOT EXISTS mal_tekst (
     oppdatert_av    TEXT,                           -- aktor, f.eks. 'admin:kari'
     PRIMARY KEY (mal, felt)
 );
+
+-- Per-kurs overstyringer av det ordinaere paameldingsskjemaet (fase 12C2). KUN avvik fra kodet standard: registeret i
+-- kurs/skjemafelt.py er fasit for hvilke felt som finnes og hva som kan overstyres. Ingen rad = kodet standard.
+-- NULL i en egenskapskolonne = standard for den egenskapen. En rad der alle egenskaper er NULL skal ikke finnes.
+-- Bevisst INGEN CHECK paa `felt`: ukjente rader skal oppdages og ignoreres kontrollert ved lesing (med advarsel), uten
+-- at tabellen maa bygges om naar registeret utvides. Validering skjer i skjemafelt.py foer skriving og ved hver lesing.
+CREATE TABLE IF NOT EXISTS kurs_skjemafelt (
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    felt            TEXT NOT NULL,                  -- f.eks. 'telefon'
+    synlig          INTEGER CHECK (synlig IS NULL OR synlig IN (0,1)),
+    obligatorisk    INTEGER CHECK (obligatorisk IS NULL OR obligatorisk IN (0,1)),
+    rekkefolge      INTEGER,                        -- plass i den konfigurerbare gruppen (0 er en gyldig verdi)
+    label           TEXT,                           -- ren tekst, escapes ved rendring
+    hjelpetekst     TEXT,                           -- ren tekst, escapes ved rendring
+    oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver reell endring
+    oppdatert_av    TEXT,                           -- aktor, f.eks. 'admin:kari'
+    PRIMARY KEY (kurs_id, felt)
+);
