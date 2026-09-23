@@ -26,6 +26,9 @@ SNAPSHOT = Path(__file__).parent / "gullstandard" / "paamelding_skjema.json"
 
 DAG1, DAG2 = "2099-03-02", "2099-03-03"   # faste datoer: ingenting i siden avhenger av dagens dato
 
+# 12C3: tidligere "post_feil_org_uten_blokk" (400). Tilsiktet endret til normal suksess - se lag_sider().
+SKJULT_FAKTURABLOKK = "post_skjult_fakturablokk_ignorerer_manipulerte_felt"
+
 
 # ============================ DOM-uttrekk ============================
 
@@ -137,9 +140,11 @@ def lag_sider(con) -> dict[str, tuple[int, str]]:
     # POST-feil 2: Paameldingsfeil fra meld_paa (allerede paameldt) - andre feilsti i kursside()
     r = _klient().post("/kurs/PF2", data={**INNSENDT, "samtykke": "on", "betaling": "samlet"})
     sider["post_feil_allerede_paameldt"] = (r.status_code, r.get_data(as_text=True))
-    # POST-feil 3: arbeidsgiver betaler uten org.nr. paa et digitalt kurs uten synlig fakturablokk
+    # Manipulert POST mot et digitalt kurs UTEN synlig fakturablokk: betaler=organisasjon uten org.nr. (+ alle andre
+    # faktura-/sensitive felt). Fram til 12C3 het dette scenariet "post_feil_org_uten_blokk" og ga 400 (org.nr.-krav).
+    # 12C3 (tilsiktet sikkerhetsherding, godkjent): hele den skjulte blokken ignoreres server-side -> normal kvittering.
     r = _klient().post("/kurs/PF3", data={**INNSENDT, "samtykke": "on", "org_nr": ""})
-    sider["post_feil_org_uten_blokk"] = (r.status_code, r.get_data(as_text=True))
+    sider[SKJULT_FAKTURABLOKK] = (r.status_code, r.get_data(as_text=True))
     return sider
 
 
@@ -180,11 +185,11 @@ def _generer(sti: Path = SNAPSHOT) -> None:
 def test_oyeblikksbildet_dekker_alle_scenarier():
     lagret = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
     assert set(lagret) == set(GET_SCENARIER) | {"forhandsvisning", "post_feil_mangler_samtykke",
-                                                "post_feil_allerede_paameldt", "post_feil_org_uten_blokk"}
+                                                "post_feil_allerede_paameldt", SKJULT_FAKTURABLOKK}
 
 
 @pytest.mark.parametrize("scenario", [*GET_SCENARIER, "forhandsvisning", "post_feil_mangler_samtykke",
-                                      "post_feil_allerede_paameldt", "post_feil_org_uten_blokk"])
+                                      "post_feil_allerede_paameldt", SKJULT_FAKTURABLOKK])
 def test_siden_er_dom_identisk_med_gullstandard(sider, scenario):
     lagret = json.loads(SNAPSHOT.read_text(encoding="utf-8"))[scenario]
     status, html = sider[scenario]
@@ -241,9 +246,22 @@ def test_feltrekkefolge_per_kursoppsett(sider, scenario, forventet):
 
 
 def test_kun_navn_epost_og_samtykke_er_required(sider):
-    for scenario, (_, html) in sider.items():
-        required = [n for n, a in skjemafelt_i_rekkefolge(html) if "required" in a]
+    """Paa ALLE sider som viser paameldingsskjemaet (alle scenarier unntatt suksessflyten) er navn, epost og samtykke
+    de eneste required-feltene naar det ikke finnes overstyringer."""
+    skjemasider = {s for s, (_, html) in sider.items() if any(n == "navn" for n, _ in skjemafelt_i_rekkefolge(html))}
+    assert skjemasider == set(sider) - {SKJULT_FAKTURABLOKK}      # testen svekkes ikke: kun kvitteringen er unntatt
+    for scenario in skjemasider:
+        required = [n for n, a in skjemafelt_i_rekkefolge(sider[scenario][1]) if "required" in a]
         assert required == ["navn", "epost", "samtykke"], scenario
+
+
+def test_skjult_fakturablokk_ignorerer_manipulerte_felt_og_gir_normal_kvittering(sider):
+    """12C3: manipulerte faktura-/organisasjonsfelt mot et kurs uten synlig fakturablokk utloser INGEN org.nr.-validering;
+    en ellers gyldig paamelding gjennomfores som normal suksess (kvittering, ikke skjema)."""
+    status, html = sider[SKJULT_FAKTURABLOKK]
+    assert status == 200
+    assert "Du er påmeldt!" in html and "Takk, Test &#34;Person&#34; &lt;Eksempel&gt;." in html
+    assert "Fyll inn organisasjon" not in html and skjemafelt_i_rekkefolge(html) == []
 
 
 def test_deltakerfeltene_har_uendrede_labels_og_ingen_type(sider):

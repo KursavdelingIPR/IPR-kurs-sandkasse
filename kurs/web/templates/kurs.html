@@ -24,7 +24,7 @@
     <div><label>E-post *</label><input name="epost" type="email" required value="{{ f.epost }}"></div>
     {#- Deltakerfelt fra skjemafelt-registeret (kurs/skjemafelt.py): konfigurerbar gruppe, deretter ev. HPR. -#}
     {% for felt in skjema.deltakerfelt %}
-    <div><label>{{ felt.label }}{% if felt.obligatorisk %} *{% endif %}</label><input name="{{ felt.nokkel }}"{% if felt.obligatorisk %} required{% endif %} value="{{ f[felt.nokkel] }}"></div>
+    <div><label>{{ felt.label }}{% if felt.obligatorisk %} *{% endif %}</label><input name="{{ felt.nokkel }}"{% if felt.obligatorisk %} required{% endif %}{% if felt.hjelpetekst %} aria-describedby="hjelp-{{ felt.nokkel }}"{% endif %} value="{{ f[felt.nokkel] }}">{% if felt.hjelpetekst %}<p id="hjelp-{{ felt.nokkel }}" class="liten dempet" style="white-space:pre-line; margin:4px 0 0">{{ felt.hjelpetekst }}</p>{% endif %}</div>
     {% endfor %}
   </div>
 

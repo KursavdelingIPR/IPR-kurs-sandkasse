@@ -114,11 +114,51 @@ def _kurs_offentlig_tilgjengelig(kurs) -> bool:
     return kurs["status"] in OFFENTLIG_SYNLIGE_KURSSTATUSER
 
 
-def _render_paameldingsside(kurs, dager, f, plasser_igjen, **ekstra):
-    """ENESTE vei til kurs.html - brukes av kursside() (GET og begge POST-feilstier) og admin-forhaandsvisningen, slik
-    at alle faar noeyaktig samme effektive skjema fra skjemafelt-registeret (fase 12C1)."""
-    return render_template("kurs.html", kurs=kurs, dager=dager, f=f, plasser_igjen=plasser_igjen,
-                           skjema=skjemafelt.effektivt_skjema(kurs), **ekstra)
+def _skjema_snapshot(kurs) -> tuple:
+    """Leser kursets skjemaoverstyringer EN gang og lager requestens ENE effektive skjema (fase 12C3).
+
+    Snapshotet brukes til ALT i resten av requesten: rendring, hvilke POST-felt som leses, obligatorisk-validering,
+    hva som lagres og ev. re-rendring ved feil. Det leses aldri paa nytt - endrer admin skjemaet mens en POST paagaar,
+    fullfores POST-en etter sitt opprinnelige snapshot. Kaster skjemafelt.SkjemaLesefeil ved reell DB-lesefeil (aldri
+    stille fallback til standardskjema). Returnerer (skjema, advarsler)."""
+    les = db.hent_skjemaoverstyringer(con(), kurs["id"])
+    return skjemafelt.effektivt_skjema(kurs, les), les.advarsler
+
+
+def _render_paameldingsside(kurs, dager, f, plasser_igjen, skjema, **ekstra):
+    """ENESTE vei til kurs.html - brukes av kursside() (GET og begge POST-feilstier) og admin-forhaandsvisningen. Tar
+    imot requestens skjema-snapshot og leser ALDRI databasen selv."""
+    return render_template("kurs.html", kurs=kurs, dager=dager, f=f, plasser_igjen=plasser_igjen, skjema=skjema,
+                           **ekstra)
+
+
+def _skjema_utilgjengelig(kurs, forhandsvisning: bool = False):
+    """Kontrollert 503 naar skjemakonfigurasjonen ikke kan leses. Ingen detaljer om feilen (SQL, sti, unntak) og ingen
+    persondata - kun kursnavnet. Fail-closed: skjemaet vises IKKE med standardoppsett, og ingenting registreres."""
+    return render_template("paamelding_utilgjengelig.html", kurs=kurs, forhandsvisning=forhandsvisning), 503
+
+
+# Faste identitetsfelt som alltid finnes i skjemaet (validering: se kursside()).
+_IDENTITETSFELT = ("navn", "epost", "samtykke")
+
+
+def _tillatte_innsendte_verdier(form, skjema) -> dict:
+    """Raa POST -> KUN feltene dette skjema-snapshotet faktisk viser (fase 12C3). Alt annet ignoreres fullstendig, uansett
+    hva klienten sender: skjult telefon/arbeidssted, HPR uten spesialistlop, sensitive felt paa digitale kurs og hele
+    faktura-/betalingsblokken naar den ikke vises. Verdiene er uendrede raa strenger (samme som foer for synlige felt)."""
+    tillatt = [*_IDENTITETSFELT, *(felt.nokkel for felt in skjema.deltakerfelt)]
+    if skjema.vis_fakturablokk:
+        tillatt += skjemafelt.FAKTURABLOKK.felt
+    if skjema.vis_sensitive_felt:
+        tillatt += skjemafelt.SENSITIV_BLOKK.felt
+    return {k: form[k] for k in tillatt if k in form}
+
+
+def _logg_skjemaadvarsler(kurs_id: int, advarsler) -> None:
+    """PII-fritt: kun kurs_id, kjent felt, kjent egenskap og grunnkode (Advarsel baerer aldri tekst/ukjent feltnavn)."""
+    if advarsler:
+        db.logg(con(), "skjemafelt_advarsel", {"kurs_id": kurs_id, "advarsler": [
+            {"felt": a.felt, "egenskap": a.egenskap, "grunn": a.grunn} for a in advarsler]})
 
 
 @app.get("/")
@@ -134,28 +174,40 @@ def kursside(kode):
     kurs = con().execute("SELECT * FROM kurs WHERE kode=?", (kode,)).fetchone() or abort(404)
     if not _kurs_offentlig_tilgjengelig(kurs):
         abort(404)
+    # Skjema-snapshot FOER all validering og FOER foerste varige skriving (meld_paa) / eksterne sideeffekter (sveiper).
+    try:
+        skjema, advarsler = _skjema_snapshot(kurs)
+    except skjemafelt.SkjemaLesefeil:
+        return _skjema_utilgjengelig(kurs)
     dager = db.kursdager(con(), kurs["id"])
     if request.method == "GET":
         return _render_paameldingsside(kurs, dager, {},
                                        None if kurs["kapasitet"] is None
-                                       else kurs["kapasitet"] - db.antall_bekreftet(con(), kurs["id"]))
-    f = request.form
+                                       else kurs["kapasitet"] - db.antall_bekreftet(con(), kurs["id"]), skjema)
+    # Herfra er `f` KUN de feltene snapshotet viser - raa request.form brukes ikke lenger.
+    f = _tillatte_innsendte_verdier(request.form, skjema)
     feil = []
     if not f.get("navn") or "@" not in f.get("epost", ""):
         feil.append("Fyll inn navn og gyldig e-post.")
+    for felt in skjema.deltakerfelt:
+        if felt.obligatorisk and not (f.get(felt.nokkel) or "").strip():
+            feil.append(f"Fyll inn «{felt.label}».")
     if not f.get("samtykke"):
         feil.append("Du må godta vilkår og personvernerklæring.")
-    org = f.get("betaler") == "organisasjon"
+    org = f.get("betaler") == "organisasjon"   # alltid False naar fakturablokken ikke vises (feltet er filtrert bort)
     if org and not (f.get("org_navn") and f.get("org_nr")):
         feil.append("Fyll inn organisasjon og org.nr. når arbeidsgiver betaler.")
     if feil:
         for x in feil:
             flash(x, "feil")
-        return _render_paameldingsside(kurs, dager, f, None), 400
+        return _render_paameldingsside(kurs, dager, f, None, skjema), 400
     try:
         with db.transaksjon(con()):
+            _logg_skjemaadvarsler(kurs["id"], advarsler)
             pid, status = db.meld_paa(
                 con(), kurs["id"], epost=f["epost"], navn=f["navn"],
+                # None for skjulte felt: finn_eller_opprett_deltaker overskriver aldri med tom verdi, saa en eksisterende
+                # persons telefon/arbeidssted/HPR blir verken endret eller slettet av et kurs som skjuler feltet.
                 deltaker={"telefon": f.get("telefon"), "arbeidssted": f.get("arbeidssted"), "hpr_nr": f.get("hpr_nr")},
                 paamelding={k: f.get(k) or None for k in (
                     "org_navn", "org_nr", "faktura_epost", "faktura_ref", "faktura_adresse", "faktura_postnr", "faktura_sted")}
@@ -166,7 +218,7 @@ def kursside(kode):
             )
     except db.Paameldingsfeil as e:
         flash(str(e), "feil")
-        return _render_paameldingsside(kurs, dager, f, None), 400
+        return _render_paameldingsside(kurs, dager, f, None, skjema), 400
     # "Webhook": kjor sveipene med en gang (bekreftelse + faktura). Daglig jobb tar det som evt. feiler.
     sveiper.kjor(Kjoring(con(), idag=_idag()), pid)
     con().commit()
@@ -903,9 +955,13 @@ def admin_forhandsvis_paamelding(kurs_id):
     GET-only: det finnes ingen POST-rute her, saa selv et forsokt skjemainnsending mot denne URL-en (uansett
     hvordan) ville feilet med 405 - det finnes ingen kodesti her som kan opprette en paamelding."""
     kurs = _hent_kurs(kurs_id)
+    try:
+        skjema, _advarsler = _skjema_snapshot(kurs)   # ingen logging ved visning (12C4 viser advarslene i admin)
+    except skjemafelt.SkjemaLesefeil:
+        return _skjema_utilgjengelig(kurs, forhandsvisning=True)
     dager = db.kursdager(con(), kurs_id)
     plasser_igjen = None if kurs["kapasitet"] is None else kurs["kapasitet"] - db.antall_bekreftet(con(), kurs_id)
-    return _render_paameldingsside(kurs, dager, {}, plasser_igjen, forhandsvisning=True)
+    return _render_paameldingsside(kurs, dager, {}, plasser_igjen, skjema, forhandsvisning=True)
 
 
 def _deltaker_sok_status(request_args) -> tuple[str, str]:

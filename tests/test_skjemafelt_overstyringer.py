@@ -650,24 +650,5 @@ def test_skjemalesefeil_er_ikke_en_skjemafeltfeil():
     """12C3 skal kunne skille «kan ikke lese» fra «ugyldig data» - de er urelaterte typer."""
     assert not issubclass(SkjemaLesefeil, SkjemafeltFeil) and not issubclass(SkjemafeltFeil, SkjemaLesefeil)
 
-
-# ============================ offentlig side leser IKKE overstyringer i 12C2 ============================
-
-def test_offentlig_side_og_forhaandsvisning_ignorerer_db_overstyringer_i_12c2(con):
-    kid = _kurs(con, kode="OFF", spesialistlop="EFT")
-    db.lagre_skjemafelt(con, kid, "telefon", {"synlig": False})
-    db.lagre_skjemafelt(con, kid, "arbeidssted", {"label": "OVERSTYRT-LABEL", "obligatorisk": True, "rekkefolge": 0})
-    db.lagre_skjemafelt(con, kid, "hpr_nr", {"hjelpetekst": "OVERSTYRT-HJELP"})
-    con.commit()
-    from kurs.web import app as webapp
-    k = webapp.app.test_client()
-    admin = webapp.app.test_client()
-    admin.post("/admin/logg-inn", data={"brukernavn": config.ADMIN_BRUKERNAVN, "passord": config.ADMIN_PASSORD})
-    sider = [k.get("/kurs/OFF").get_data(as_text=True),
-             admin.get(f"/admin/kurs/{kid}/forhandsvis-paamelding").get_data(as_text=True),
-             k.post("/kurs/OFF", data={"navn": "Test", "epost": "test@eksempel.no"}).get_data(as_text=True)]
-    for html in sider:
-        assert '<div><label>Telefon</label><input name="telefon" value=""></div>' in html
-        assert '<div><label>Arbeidssted</label><input name="arbeidssted" value=""></div>' in html
-        assert html.index('name="telefon"') < html.index('name="arbeidssted"') < html.index('name="hpr_nr"')
-        assert "OVERSTYRT" not in html
+# (12C2-vakten «offentlig side ignorerer DB-overstyringer» er fjernet i 12C3, der siden bevisst begynner aa bruke dem -
+# se tests/test_skjemafelt_paamelding.py.)
