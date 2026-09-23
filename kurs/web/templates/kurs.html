@@ -22,12 +22,13 @@
   <div class="rad">
     <div><label>Navn *</label><input name="navn" required value="{{ f.navn }}"></div>
     <div><label>E-post *</label><input name="epost" type="email" required value="{{ f.epost }}"></div>
-    <div><label>Telefon</label><input name="telefon" value="{{ f.telefon }}"></div>
-    <div><label>Arbeidssted</label><input name="arbeidssted" value="{{ f.arbeidssted }}"></div>
-    {% if kurs.spesialistlop %}<div><label>HPR-nummer</label><input name="hpr_nr" value="{{ f.hpr_nr }}"></div>{% endif %}
+    {#- Deltakerfelt fra skjemafelt-registeret (kurs/skjemafelt.py): konfigurerbar gruppe, deretter ev. HPR. -#}
+    {% for felt in skjema.deltakerfelt %}
+    <div><label>{{ felt.label }}{% if felt.obligatorisk %} *{% endif %}</label><input name="{{ felt.nokkel }}"{% if felt.obligatorisk %} required{% endif %} value="{{ f[felt.nokkel] }}"></div>
+    {% endfor %}
   </div>
 
-  {% if kurs.fakturering == 'person' and kurs.pris_nok %}
+  {% if skjema.vis_fakturablokk %}
   <label style="margin-top:18px">Hvem betaler?</label>
   <label style="font-weight:normal"><input type="radio" name="betaler" value="person" {{ 'checked' if f.betaler != 'organisasjon' }} onchange="org.classList.add('skjul')">Jeg betaler selv</label>
   <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} onchange="org.classList.remove('skjul')">Arbeidsgiver betaler</label>
@@ -57,7 +58,7 @@
   </div>
   {% endif %}
 
-  {% if kurs.type != 'digital' %}
+  {% if skjema.vis_sensitive_felt %}
   <div class="rad">
     <div><label>Allergier / spesialkost</label><input name="allergier" value="{{ f.allergier }}"></div>
     <div><label>Behov for tilrettelegging</label><input name="tilrettelegging" value="{{ f.tilrettelegging }}"></div>

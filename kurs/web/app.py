@@ -18,7 +18,7 @@ from flask import (Flask, Response, abort, flash, g, make_response, redirect, re
 from markupsafe import Markup
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from .. import behandling, config, daglig, db, import_deltakere, mal_eksempler, maltekster, sveiper
+from .. import behandling, config, daglig, db, import_deltakere, mal_eksempler, maltekster, skjemafelt, sveiper
 from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
 from ..kjoring import Kjoring
@@ -114,6 +114,13 @@ def _kurs_offentlig_tilgjengelig(kurs) -> bool:
     return kurs["status"] in OFFENTLIG_SYNLIGE_KURSSTATUSER
 
 
+def _render_paameldingsside(kurs, dager, f, plasser_igjen, **ekstra):
+    """ENESTE vei til kurs.html - brukes av kursside() (GET og begge POST-feilstier) og admin-forhaandsvisningen, slik
+    at alle faar noeyaktig samme effektive skjema fra skjemafelt-registeret (fase 12C1)."""
+    return render_template("kurs.html", kurs=kurs, dager=dager, f=f, plasser_igjen=plasser_igjen,
+                           skjema=skjemafelt.effektivt_skjema(kurs), **ekstra)
+
+
 @app.get("/")
 def forside():
     kurs = con().execute(
@@ -129,9 +136,9 @@ def kursside(kode):
         abort(404)
     dager = db.kursdager(con(), kurs["id"])
     if request.method == "GET":
-        return render_template("kurs.html", kurs=kurs, dager=dager, f={},
-                               plasser_igjen=None if kurs["kapasitet"] is None
-                               else kurs["kapasitet"] - db.antall_bekreftet(con(), kurs["id"]))
+        return _render_paameldingsside(kurs, dager, {},
+                                       None if kurs["kapasitet"] is None
+                                       else kurs["kapasitet"] - db.antall_bekreftet(con(), kurs["id"]))
     f = request.form
     feil = []
     if not f.get("navn") or "@" not in f.get("epost", ""):
@@ -144,7 +151,7 @@ def kursside(kode):
     if feil:
         for x in feil:
             flash(x, "feil")
-        return render_template("kurs.html", kurs=kurs, dager=dager, f=f, plasser_igjen=None), 400
+        return _render_paameldingsside(kurs, dager, f, None), 400
     try:
         with db.transaksjon(con()):
             pid, status = db.meld_paa(
@@ -159,7 +166,7 @@ def kursside(kode):
             )
     except db.Paameldingsfeil as e:
         flash(str(e), "feil")
-        return render_template("kurs.html", kurs=kurs, dager=dager, f=f, plasser_igjen=None), 400
+        return _render_paameldingsside(kurs, dager, f, None), 400
     # "Webhook": kjor sveipene med en gang (bekreftelse + faktura). Daglig jobb tar det som evt. feiler.
     sveiper.kjor(Kjoring(con(), idag=_idag()), pid)
     con().commit()
@@ -898,7 +905,7 @@ def admin_forhandsvis_paamelding(kurs_id):
     kurs = _hent_kurs(kurs_id)
     dager = db.kursdager(con(), kurs_id)
     plasser_igjen = None if kurs["kapasitet"] is None else kurs["kapasitet"] - db.antall_bekreftet(con(), kurs_id)
-    return render_template("kurs.html", kurs=kurs, dager=dager, f={}, plasser_igjen=plasser_igjen, forhandsvisning=True)
+    return _render_paameldingsside(kurs, dager, {}, plasser_igjen, forhandsvisning=True)
 
 
 def _deltaker_sok_status(request_args) -> tuple[str, str]:
