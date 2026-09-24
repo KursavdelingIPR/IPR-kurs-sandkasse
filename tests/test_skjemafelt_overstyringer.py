@@ -369,7 +369,9 @@ def test_label_fra_overstyring_escapes_ved_rendring(con):
     skjema = sf.effektivt_skjema(kurs, db.hent_skjemaoverstyringer(con, kid))
     from kurs.web import app as webapp
     with webapp.app.test_request_context("/"):
-        html = render_template("kurs.html", kurs=kurs, dager=[], f={}, plasser_igjen=None, skjema=skjema)
+        from kurs import paameldingsside   # 12C5: malen krever side
+        html = render_template("kurs.html", kurs=kurs, dager=[], f={}, plasser_igjen=None, skjema=skjema,
+                               side=paameldingsside.effektiv_side(kurs))
     assert "<label>&lt;script&gt;x&lt;/script&gt; {{ 7*7 }}</label>" in html
     assert "<script>x</script>" not in html
 

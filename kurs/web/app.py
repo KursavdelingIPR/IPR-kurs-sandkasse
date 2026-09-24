@@ -19,7 +19,8 @@ from flask import (Flask, Response, abort, flash, g, make_response, redirect, re
 from markupsafe import Markup
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from .. import behandling, config, daglig, db, import_deltakere, mal_eksempler, maltekster, skjemafelt, sveiper
+from .. import (behandling, config, daglig, db, import_deltakere, mal_eksempler, maltekster, paameldingsside, skjemafelt,
+                sveiper)
 from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
 from ..kjoring import Kjoring
@@ -128,9 +129,10 @@ def _skjema_snapshot(kurs) -> tuple:
 
 def _render_paameldingsside(kurs, dager, f, plasser_igjen, skjema, **ekstra):
     """ENESTE vei til kurs.html - brukes av kursside() (GET og begge POST-feilstier) og admin-forhaandsvisningen. Tar
-    imot requestens skjema-snapshot og leser ALDRI databasen selv."""
+    imot requestens skjema-snapshot og leser ALDRI databasen selv. Sidens tekster (intro/knapp, 12C5) beregnes her fra
+    SAMME kursrad som resten av requesten bruker."""
     return render_template("kurs.html", kurs=kurs, dager=dager, f=f, plasser_igjen=plasser_igjen, skjema=skjema,
-                           **ekstra)
+                           side=paameldingsside.effektiv_side(kurs), **ekstra)
 
 
 def _skjema_utilgjengelig(kurs, forhandsvisning: bool = False):
@@ -943,10 +945,53 @@ def admin_sett_ansvarlig(kurs_id):
     return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
 
 
+def _render_nettside_admin(kurs, intro: str, knappetekst: str, status: int = 200):
+    """`intro`/`knappetekst` er det som staar i feltene (lagret verdi, eller admins innsending ved feil)."""
+    ugyldig = []
+    for kolonne, navn, normaliser in ((paameldingsside.INTRO, "intro", paameldingsside.normaliser_intro),
+                                      (paameldingsside.KNAPPETEKST, "knappetekst",
+                                       paameldingsside.normaliser_knappetekst)):
+        try:
+            normaliser(kurs[kolonne])
+        except paameldingsside.SideFeil:
+            ugyldig.append(navn)
+    return render_template("admin_kurs_nettside.html", kurs=kurs, fane="nettside", intro=intro, knappetekst=knappetekst,
+                           ugyldig=ugyldig, maks_intro=paameldingsside.MAKS_INTRO,
+                           maks_knappetekst=paameldingsside.MAKS_KNAPPETEKST,
+                           standard_knappetekst=paameldingsside.STANDARD_KNAPPETEKST), status
+
+
 @app.get("/admin/kurs/<int:kurs_id>/nettside")
 @krever_admin
 def admin_kurs_nettside(kurs_id):
-    return render_template("admin_kurs_nettside.html", kurs=_hent_kurs(kurs_id), fane="nettside")
+    kurs = _hent_kurs(kurs_id)
+    # Den LAGREDE verdien vises (ogsaa en ugyldig en), slik at admin kan se og rette den.
+    return _render_nettside_admin(kurs, kurs[paameldingsside.INTRO] or "", kurs[paameldingsside.KNAPPETEKST] or "")
+
+
+@app.post("/admin/kurs/<int:kurs_id>/nettside")
+@krever_admin
+def admin_kurs_nettside_lagre(kurs_id):
+    """Fase 12C5: lagrer introduksjonstekst og knappetekst. BEGGE valideres foer noe skrives; ved feil 400 og ingen
+    endring. Ett samlet oppdater_kurs_felter-kall (logger kun feltnavn, aldri innhold). Tom verdi -> NULL (standard)."""
+    kurs = _hent_kurs(kurs_id)
+    intro, knappetekst = request.form.get("intro", ""), request.form.get("knappetekst", "")
+    feil, verdier = [], {}
+    for kolonne, verdi, normaliser in ((paameldingsside.INTRO, intro, paameldingsside.normaliser_intro),
+                                       (paameldingsside.KNAPPETEKST, knappetekst,
+                                        paameldingsside.normaliser_knappetekst)):
+        try:
+            verdier[kolonne] = normaliser(verdi)
+        except paameldingsside.SideFeil as e:
+            feil.append(e.forklaring)
+    if feil:
+        for x in feil:
+            flash(f"{x} Ingen endringer er lagret.", "feil")
+        return _render_nettside_admin(kurs, intro, knappetekst, 400)
+    with db.transaksjon(con()):
+        endret = db.oppdater_kurs_felter(con(), kurs_id, verdier, aktor=_aktor())
+    flash("Nettsideinnstillingene er lagret." if endret else "Ingen endringer å lagre.", "ok")
+    return redirect(url_for("admin_kurs_nettside", kurs_id=kurs_id))
 
 
 @app.get("/admin/kurs/<int:kurs_id>/forhandsvis-paamelding")
@@ -2075,6 +2120,8 @@ _MAKS_KURS_ID = 2 ** 63 - 1                          # SQLite INTEGER; storre ve
 _KURS_ID_MOENSTER = re.compile(r"[1-9][0-9]*")       # kun ASCII-sifre, ingen fortegn/desimaler/mellomrom/ledende 0
 _SKJEMA_KOPI_ADVARSEL = ("Noen skjemainnstillinger på originalkurset kunne ikke kopieres. "
                          "Kontroller Påmeldingsskjema på det nye kurset.")
+_SIDE_KOPI_ADVARSEL = ("Noen nettsideinnstillinger på originalkurset kunne ikke kopieres. "
+                       "Kontroller Nettside på det nye kurset.")
 
 
 def _kildekurs_fra(verdier):
@@ -2135,6 +2182,8 @@ def admin_ny_kurs():
             faktura_dager_for = db.valider_faktura_dager_for(int(f.get("faktura_dager_for") or 14))   # foer SharePoint/DB
             # 12C4B: kildens skjemaoppsett leses EN gang her - etter vanlig validering, FOER SharePoint og DB-skriving.
             kopiplan, kopi_advarsel = _skjema_kopiplan(kilde["id"]) if er_duplikat else ([], False)
+            # 12C5: nettsidens tekster fra den allerede leste kilderaden (ingen ny lesing) - kun gyldige verdier.
+            side_kopi, side_advarsel = paameldingsside.kopi_av_side(kilde) if er_duplikat else ({}, False)
             with db.transaksjon(con()):
                 kode = db.generer_kode(con(), f["navn"].strip(), datoer)
                 felter = dict(
@@ -2149,6 +2198,7 @@ def admin_ny_kurs():
                 if er_duplikat:
                     # Et duplisert kurs skal gjennomgås og åpnes bevisst - ikke være synlig/åpent for påmelding med en gang.
                     felter["status"] = "utkast"
+                    felter.update(side_kopi)
                 kid = db.opprett_kurs(con(), kode=kode, navn=f["navn"].strip(), datoer=datoer, aktor=_aktor(), **felter)
                 # Kopien faar EGNE rader paa den NYE kurs-id-en, i samme transaksjon som kurs/kursdager/materiell.
                 for felt, egenskaper in kopiplan:
@@ -2159,6 +2209,8 @@ def admin_ny_kurs():
             flash(f"Kurset er opprettet med koden «{kode}», og har fått påmeldingsside, SharePoint-mappe og innsjekkkoder.", "ok")
             if kopi_advarsel:
                 flash(_SKJEMA_KOPI_ADVARSEL, "info")
+            if side_advarsel:
+                flash(_SIDE_KOPI_ADVARSEL, "info")
             return redirect(url_for("admin_kurs_oppsett", kurs_id=kid))
         except skjemafelt.SkjemaLesefeil:
             flash("Skjemainnstillingene til originalkurset kunne ikke leses akkurat nå. Kurset er ikke opprettet. "

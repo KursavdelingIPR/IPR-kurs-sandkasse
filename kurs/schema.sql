@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS kurs (
     notat           TEXT,
     ansvarlig_admin_id INTEGER REFERENCES admin_bruker(id),  -- intern eier i adm, brukes av "vis bare mine aktiviteter"
     paameldingsfrist TEXT,                          -- ISO-dato, NULL = ingen frist
+    paamelding_intro TEXT,                          -- ren tekst over skjemaet (fase 12C5), NULL = ingen introduksjonstekst
+    paamelding_knappetekst TEXT,                    -- ren tekst paa paameldingsknappen, NULL = standard «Meld meg på»
     opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

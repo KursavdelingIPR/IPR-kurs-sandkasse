@@ -7,6 +7,8 @@
 <h1>{{ kurs.navn }}</h1>
 <p class="sub">{{ {'digital':'Digitalt kurs (Zoom)','fysisk':'Fysisk kurs','hybrid':'Hybrid'}[kurs.type] }}{% if kurs.sted %} · {{ kurs.sted }}{% endif %}
   · {% if kurs.pris_nok %}{{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr eks. mva{% else %}Gratis{% endif %}</p>
+{#- 12C5: kursets introduksjonstekst - ren tekst, escapes av Jinja, linjeskift via CSS. Ingen tom container. -#}
+{% if side.intro %}<p class="intro" style="white-space:pre-line; max-width:760px; margin:0 0 22px">{{ side.intro }}</p>{% endif %}
 
 <div class="rad" style="align-items:start; gap:20px">
 <div class="kort">
@@ -71,9 +73,9 @@
     <a href="https://www.ipr.no/om-oss/personvernerkl%C3%A6ring" target="_blank" rel="noopener">personvernerklæringen</a> *</label>
   </fieldset>
   {% if forhandsvisning %}
-  <p style="margin-top:16px"><button type="button">Meld meg på</button></p>
+  <p style="margin-top:16px"><button type="button">{{ side.knappetekst }}</button></p>
   {% else %}
-  <p style="margin-top:16px"><button>Meld meg på</button></p>
+  <p style="margin-top:16px"><button>{{ side.knappetekst }}</button></p>
   <p class="liten dempet" style="margin-top:10px">Melder du på flere personer samtidig? <a href="{{ url_for('kurs_gruppe', kode=kurs.kode) }}">Bruk bedriftspåmelding →</a></p>
   {% endif %}
 </form>

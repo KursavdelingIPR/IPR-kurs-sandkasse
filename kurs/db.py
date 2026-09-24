@@ -62,6 +62,11 @@ def _migrer(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE paamelding ADD COLUMN intern_kommentar TEXT")
     if not har_kolonne("kurs", "paameldingsfrist"):
         con.execute("ALTER TABLE kurs ADD COLUMN paameldingsfrist TEXT")
+    # Fase 12C5: paameldingssidens tekster. Kun additivt - NULL betyr standard (ingen intro / «Meld meg på»).
+    if not har_kolonne("kurs", "paamelding_intro"):
+        con.execute("ALTER TABLE kurs ADD COLUMN paamelding_intro TEXT")
+    if not har_kolonne("kurs", "paamelding_knappetekst"):
+        con.execute("ALTER TABLE kurs ADD COLUMN paamelding_knappetekst TEXT")
     if not har_kolonne("paamelding", "sveiper_utsatt"):
         # Konstant default (0) - trygt aa legge til selv om tabellen har rader fra for.
         con.execute("ALTER TABLE paamelding ADD COLUMN sveiper_utsatt INTEGER NOT NULL DEFAULT 0")

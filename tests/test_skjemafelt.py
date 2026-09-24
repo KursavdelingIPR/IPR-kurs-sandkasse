@@ -167,9 +167,11 @@ MAL_KURS = {"navn": "K", "type": "digital", "sted": None, "pris_nok": 0, "faktur
 
 
 def _render_kurs_html(**kw):
+    from kurs import paameldingsside
     from kurs.web import app as webapp
+    side = paameldingsside.EffektivSide(None, paameldingsside.STANDARD_KNAPPETEKST)   # 12C5: malen krever side
     with webapp.app.test_request_context("/"):
-        return render_template("kurs.html", kurs=MAL_KURS, dager=[], f={}, plasser_igjen=None, **kw)
+        return render_template("kurs.html", kurs=MAL_KURS, dager=[], f={}, plasser_igjen=None, side=side, **kw)
 
 
 def test_mal_feiler_hoylytt_uten_skjema():
