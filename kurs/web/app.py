@@ -5,6 +5,7 @@
 import calendar
 import csv
 import io
+import re
 import secrets
 import sqlite3
 import time
@@ -2069,13 +2070,62 @@ def admin_rapporter():
         flere_kurs_antall=flere_kurs_antall)
 
 
+# ---------- kursduplisering: kilde og kopi av paameldingsskjema (fase 12C4B) ----------
+_MAKS_KURS_ID = 2 ** 63 - 1                          # SQLite INTEGER; storre verdier ville gitt OverflowError (500)
+_KURS_ID_MOENSTER = re.compile(r"[1-9][0-9]*")       # kun ASCII-sifre, ingen fortegn/desimaler/mellomrom/ledende 0
+_SKJEMA_KOPI_ADVARSEL = ("Noen skjemainnstillinger på originalkurset kunne ikke kopieres. "
+                         "Kontroller Påmeldingsskjema på det nye kurset.")
+
+
+def _kildekurs_fra(verdier):
+    """Autoritativ tolkning av `fra` (brukes av baade GET-args og POST-skjema). Ingen `fra`-nokkel -> None (vanlig nytt
+    kurs). Finnes nokkelen, er det en EKSPLISITT duplisering: ugyldig verdi -> 400, ukjent kurs -> 404. En ugyldig
+    `fra` blir ALDRI stille tolket som et vanlig nytt kurs."""
+    if "fra" not in verdier:
+        return None
+    raa = verdier["fra"]
+    if not _KURS_ID_MOENSTER.fullmatch(raa) or int(raa) > _MAKS_KURS_ID:
+        abort(400)
+    return _hent_kurs(int(raa))
+
+
+def _skjema_kopiplan(kilde_id: int) -> tuple[list, bool]:
+    """Kildekursets skjemaoverstyringer som et fast, rent snapshot - lest NOYAKTIG EN gang, FOER SharePoint/DB-skriving.
+
+    Bygger kun paa Leseresultat.overstyringer (kjente felt, tillatte og gyldige egenskaper, standardverdier allerede
+    normalisert bort) - aldri raa rader, oppdatert eller oppdatert_av. Hver post forhaandsvalideres med samme funksjon
+    som lagringen bruker. SkjemaLesefeil sendes videre (fail-closed). Returnerer (plan, kilden hadde advarsler)."""
+    les = db.hent_skjemaoverstyringer(con(), kilde_id)
+    plan = []
+    for felt in sorted(les.overstyringer):
+        o = les.overstyringer[felt]
+        egenskaper = {e: getattr(o, e) for e in o.satte_egenskaper()}
+        skjemafelt.normaliser_overstyring(felt, egenskaper)
+        plan.append((felt, egenskaper))
+    return plan, les.har_advarsler
+
+
+def _render_ny_kurs(fra_kurs, status: int = 200):
+    kursholder_navn_forslag = ""
+    kildedatoer = []
+    if fra_kurs:
+        siste_krav = con().execute(
+            "SELECT ansvarlig_navn FROM materiell_krav WHERE kurs_id=? ORDER BY id DESC LIMIT 1", (fra_kurs["id"],)).fetchone()
+        kursholder_navn_forslag = siste_krav["ansvarlig_navn"] if siste_krav else ""
+        kildedatoer = [d["dato"] for d in db.kursdager(con(), fra_kurs["id"])]
+    admins = con().execute("SELECT id, navn FROM admin_bruker WHERE aktiv=1 ORDER BY navn").fetchall()
+    return render_template("admin_ny_kurs.html", fra_kurs=fra_kurs, kursholder_navn_forslag=kursholder_navn_forslag,
+                           kildedatoer=kildedatoer, admins=admins), status
+
+
 @app.route("/admin/kurs/ny", methods=["GET", "POST"])
 @krever_admin
 def admin_ny_kurs():
     if request.method == "POST":
         f = request.form
+        kilde = _kildekurs_fra(f)          # 400/404 FOER all annen behandling og FOER SharePoint
+        er_duplikat = kilde is not None
         datoer = sorted({d.strip() for d in f.get("datoer", "").replace(",", "\n").splitlines() if d.strip()})
-        er_duplikat = bool(f.get("fra"))
         try:
             for d in datoer:
                 date.fromisoformat(d)
@@ -2083,6 +2133,8 @@ def admin_ny_kurs():
             if paameldingsfrist:
                 date.fromisoformat(paameldingsfrist)
             faktura_dager_for = db.valider_faktura_dager_for(int(f.get("faktura_dager_for") or 14))   # foer SharePoint/DB
+            # 12C4B: kildens skjemaoppsett leses EN gang her - etter vanlig validering, FOER SharePoint og DB-skriving.
+            kopiplan, kopi_advarsel = _skjema_kopiplan(kilde["id"]) if er_duplikat else ([], False)
             with db.transaksjon(con()):
                 kode = db.generer_kode(con(), f["navn"].strip(), datoer)
                 felter = dict(
@@ -2098,27 +2150,24 @@ def admin_ny_kurs():
                     # Et duplisert kurs skal gjennomgås og åpnes bevisst - ikke være synlig/åpent for påmelding med en gang.
                     felter["status"] = "utkast"
                 kid = db.opprett_kurs(con(), kode=kode, navn=f["navn"].strip(), datoer=datoer, aktor=_aktor(), **felter)
+                # Kopien faar EGNE rader paa den NYE kurs-id-en, i samme transaksjon som kurs/kursdager/materiell.
+                for felt, egenskaper in kopiplan:
+                    db.lagre_skjemafelt(con(), kid, felt, egenskaper, aktor=_aktor())
                 if f.get("kursholder_epost") and f.get("materiell_frist"):
                     con().execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
                                   (kid, f.get("kursholder_navn") or f["kursholder_epost"], f["kursholder_epost"], f["materiell_frist"]))
             flash(f"Kurset er opprettet med koden «{kode}», og har fått påmeldingsside, SharePoint-mappe og innsjekkkoder.", "ok")
+            if kopi_advarsel:
+                flash(_SKJEMA_KOPI_ADVARSEL, "info")
             return redirect(url_for("admin_kurs_oppsett", kurs_id=kid))
-        except (ValueError, KeyError, sqlite3.IntegrityError, db.Paameldingsfeil) as e:
+        except skjemafelt.SkjemaLesefeil:
+            flash("Skjemainnstillingene til originalkurset kunne ikke leses akkurat nå. Kurset er ikke opprettet. "
+                  "Prøv igjen om litt.", "feil")
+            return _render_ny_kurs(kilde, 503)
+        except (ValueError, KeyError, sqlite3.IntegrityError, db.Paameldingsfeil, skjemafelt.SkjemafeltFeil) as e:
             flash(f"Kunne ikke opprette kurs: {e}", "feil")
 
-    fra_kurs = None
-    kursholder_navn_forslag = ""
-    kildedatoer = []
-    fra_id = request.args.get("fra", type=int)
-    if fra_id:
-        fra_kurs = _hent_kurs(fra_id)
-        siste_krav = con().execute(
-            "SELECT ansvarlig_navn FROM materiell_krav WHERE kurs_id=? ORDER BY id DESC LIMIT 1", (fra_id,)).fetchone()
-        kursholder_navn_forslag = siste_krav["ansvarlig_navn"] if siste_krav else ""
-        kildedatoer = [d["dato"] for d in db.kursdager(con(), fra_id)]
-    admins = con().execute("SELECT id, navn FROM admin_bruker WHERE aktiv=1 ORDER BY navn").fetchall()
-    return render_template("admin_ny_kurs.html", fra_kurs=fra_kurs, kursholder_navn_forslag=kursholder_navn_forslag,
-                           kildedatoer=kildedatoer, admins=admins)
+    return _render_ny_kurs(_kildekurs_fra(request.args))
 
 
 @app.route("/admin/daglig", methods=["GET", "POST"])
