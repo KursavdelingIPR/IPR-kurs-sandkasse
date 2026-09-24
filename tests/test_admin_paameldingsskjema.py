@@ -138,6 +138,27 @@ def test_fanen_finnes_paa_kurssidene(con, admin):
             f"/admin/kurs/{kid}/{side}").get_data(as_text=True)
 
 
+def test_alle_kursfaner_rendres_og_fanelenkene_peker_til_registrerte_ruter(con, admin):
+    """Regresjon (BuildError i admin_kurs_faner.html): ALLE kurssider som inkluderer fanene skal faktisk rendres av
+    Flask (200), og hver fanelenke skal treffe et registrert GET-endpoint - ikke bare finnes som tekst i malen."""
+    import re
+
+    from kurs.web import app as webapp
+    kid = _kurs(con)
+    adapter = webapp.app.url_map.bind("localhost")
+    forventet = {"Oppsett": "admin_kurs_oppsett", "Nettside": "admin_kurs_nettside",
+                 "Påmeldingsskjema": "admin_kurs_paameldingsskjema", "Deltakere": "admin_kurs_deltakere",
+                 "Kommunikasjon": "admin_kurs_kommunikasjon"}
+    for side in ("oppsett", "nettside", "paameldingsskjema", "deltakere", "kommunikasjon"):
+        r = admin.get(f"/admin/kurs/{kid}/{side}")
+        assert r.status_code == 200, side
+        faner = r.get_data(as_text=True).split('<nav class="faner">')[1].split("</nav>")[0]
+        lenker = dict((tekst, href) for href, tekst in re.findall(r'href="([^"]+)">([^<]+)</a>', faner))
+        assert set(lenker) == set(forventet), side
+        for tekst, endpoint in forventet.items():
+            assert adapter.match(lenker[tekst], method="GET") == (endpoint, {"kurs_id": kid}), (side, tekst)
+
+
 # ============================ 20: GET skriver aldri ============================
 
 def test_get_skriver_aldri_til_databasen(con, admin):
