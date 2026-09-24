@@ -15,6 +15,7 @@ av oyeblikksbildet.
 Oyeblikksbildet genereres KUN med _generer() - aldri automatisk fra en test.
 """
 import json
+from datetime import date
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -24,7 +25,11 @@ from kurs import config, db
 
 SNAPSHOT = Path(__file__).parent / "gullstandard" / "paamelding_skjema.json"
 
-DAG1, DAG2 = "2099-03-02", "2099-03-03"   # faste datoer: ingenting i siden avhenger av dagens dato
+DAG1, DAG2 = "2099-03-02", "2099-03-03"   # faste kursdatoer
+# Siden ER datoavhengig: demo-banneret i base.html viser «Systemdato: {{ idag }}» (og kursside() bruker _idag()).
+# Oyeblikksbildet ble tatt 2026-09-23, saa baade testene og _generer() fryser app-datoen dit via seamen
+# kurs.web.app._idag - ellers feiler gullstandarden bare fordi kalenderen har gaatt.
+FAST_DATO = date(2026, 9, 23)
 
 # 12C3: tidligere "post_feil_org_uten_blokk" (400). Tilsiktet endret til normal suksess - se lag_sider().
 SKJULT_FAKTURABLOKK = "post_skjult_fakturablokk_ignorerer_manipulerte_felt"
@@ -150,9 +155,11 @@ def lag_sider(con) -> dict[str, tuple[int, str]]:
 
 @pytest.fixture
 def con(tmp_path, monkeypatch):
+    from kurs.web import app as webapp
     monkeypatch.setattr(config, "UTBOKS", tmp_path / "utboks")
     monkeypatch.setattr(config, "DEMO", True)
     monkeypatch.setattr(config, "DB_STI", tmp_path / "test.db")
+    monkeypatch.setattr(webapp, "_idag", lambda: FAST_DATO)
     c = db.koble(tmp_path / "test.db")
     db.init(c)
     yield c
@@ -167,15 +174,20 @@ def sider(con):
 def _generer(sti: Path = SNAPSHOT) -> None:
     """Skriver oyeblikksbildet paa nytt. KUN manuelt, og KUN naar en endring i paameldingssiden er tilsiktet."""
     import tempfile
+
+    from kurs.web import app as webapp
+    ekte_idag = webapp._idag
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         config.UTBOKS, config.DEMO, config.DB_STI = tmp / "utboks", True, tmp / "test.db"
+        webapp._idag = lambda: FAST_DATO       # samme faste dato som testene
         c = db.koble(config.DB_STI)
         db.init(c)
         try:
             data = {navn: {"status": s, "dom": dom(html)} for navn, (s, html) in lag_sider(c).items()}
         finally:
             c.close()
+            webapp._idag = ekte_idag
     sti.parent.mkdir(parents=True, exist_ok=True)
     sti.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 
