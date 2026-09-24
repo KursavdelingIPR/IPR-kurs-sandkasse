@@ -694,7 +694,7 @@ def admin_aktiviteter():
               LEFT JOIN kursdag kd ON kd.kurs_id=k.id
               LEFT JOIN admin_bruker ab ON ab.id=k.ansvarlig_admin_id
               WHERE {' AND '.join(vilkar)}
-              GROUP BY k.id ORDER BY {order_sql}"""
+              GROUP BY k.id, ab.navn ORDER BY {order_sql}"""
     rader = con().execute(sql, parametre).fetchall()
 
     totalt = len(rader)
@@ -1683,7 +1683,8 @@ def admin_kurs_kommunikasjon(kurs_id):
         """SELECT au.id, au.emne, au.opprettet, ab.navn AS sendt_av_navn, COUNT(ul.mottaker) AS antall_sendt
            FROM admin_utsending au JOIN utsending_logg ul ON ul.nokkel=au.nokkel
            LEFT JOIN admin_bruker ab ON ab.id=au.sendt_av_admin_id
-           WHERE au.kurs_id=? AND ul.status='sendt' GROUP BY au.id ORDER BY au.opprettet DESC""", (kurs_id,)).fetchall()
+           WHERE au.kurs_id=? AND ul.status='sendt' GROUP BY au.id, ab.navn ORDER BY au.opprettet DESC""",
+        (kurs_id,)).fetchall()
     return render_template("admin_kurs_kommunikasjon.html", kurs=kurs, meldinger=meldinger, manuelle=manuelle,
                            fane="kommunikasjon")
 
@@ -1739,11 +1740,13 @@ def admin_allergiliste(kurs_id):
 
 _DELTAKER_CSV_KOLONNER = ["Navn", "E-post", "Telefon", "Arbeidssted", "Status", "Betaler", "Betaling",
                          "Organisasjon", "Org.nr", "Fakturanr", "Fakturert (kr)"]
-_DELTAKER_CSV_SELECT = """SELECT d.navn, d.epost, d.telefon, d.arbeidssted, p.status, p.betaler, p.betaling,
-                                p.org_navn, p.org_nr,
-                                (SELECT GROUP_CONCAT(faktura_nr, ' ') FROM faktura WHERE paamelding_id=p.id) AS faktura_nr,
-                                (SELECT COALESCE(SUM(belop_nok),0) FROM faktura WHERE paamelding_id=p.id) AS fakturert_belop
-                         FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id"""
+def _deltaker_csv_select() -> str:
+    """Felles SELECT for deltaker-CSV. Tekstaggregatet kommer fra db.sql_tekstliste (riktig funksjon per databasebackend)."""
+    return f"""SELECT d.navn, d.epost, d.telefon, d.arbeidssted, p.status, p.betaler, p.betaling,
+                      p.org_navn, p.org_nr,
+                      (SELECT {db.sql_tekstliste(con(), "faktura_nr")} FROM faktura WHERE paamelding_id=p.id) AS faktura_nr,
+                      (SELECT COALESCE(SUM(belop_nok),0) FROM faktura WHERE paamelding_id=p.id) AS fakturert_belop
+               FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id"""
 
 
 def _deltaker_csv_respons(rader, filnavn: str) -> Response:
@@ -1765,7 +1768,7 @@ def admin_csv(kurs_id):
     eksporterer kun det admin faktisk ser paa skjermen akkurat na."""
     sok, status = _deltaker_sok_status(request.args)
     vilkar_sql, vilkar_args = _deltaker_filter_vilkar(sok, status)
-    sql = _DELTAKER_CSV_SELECT + " WHERE p.kurs_id=?" + vilkar_sql + " ORDER BY p.status, d.navn"
+    sql = _deltaker_csv_select() + " WHERE p.kurs_id=?" + vilkar_sql + " ORDER BY p.status, d.navn"
     rader = con().execute(sql, [kurs_id, *vilkar_args]).fetchall()
     return _deltaker_csv_respons(rader, f"deltakere_{kurs_id}.csv")
 
@@ -1782,7 +1785,7 @@ def admin_eksporter_valgte_csv(kurs_id):
         flash("Velg minst én deltaker.", "feil")
         return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
     plassholdere = ",".join("?" * len(ider))
-    sql = _DELTAKER_CSV_SELECT + f" WHERE p.kurs_id=? AND p.id IN ({plassholdere}) ORDER BY p.status, d.navn"
+    sql = _deltaker_csv_select() + f" WHERE p.kurs_id=? AND p.id IN ({plassholdere}) ORDER BY p.status, d.navn"
     rader = con().execute(sql, [kurs_id, *ider]).fetchall()
     return _deltaker_csv_respons(rader, f"deltakere_utvalg_{kurs_id}.csv")
 
@@ -1981,7 +1984,7 @@ def _kurs_rapport_rader():
              LEFT JOIN admin_bruker ab ON ab.id=k.ansvarlig_admin_id
              WHERE (? = '' OR LOWER(k.navn) LIKE ?) AND (? = 0 OR k.ansvarlig_admin_id = ?)
                    AND (? = '' OR k.status = ?)
-             GROUP BY k.id
+             GROUP BY k.id, ab.navn
              HAVING (? = '' OR MAX(kd.dato) >= ?) AND (? = '' OR MIN(kd.dato) <= ?)
              ORDER BY start"""
     args = (sok.lower(), f"%{sok.lower()}%", ansvarlig, ansvarlig, status, status, fra, fra, til, til)
@@ -2028,7 +2031,7 @@ def _deltakere_rapport_rader():
              FROM deltaker d LEFT JOIN paamelding p ON p.deltaker_id=d.id
              WHERE (? = '' OR LOWER(d.navn) LIKE ? OR LOWER(d.epost) LIKE ? OR LOWER(COALESCE(d.arbeidssted,'')) LIKE ?)
              GROUP BY d.id
-             HAVING (? = 0 OR antall_kurs > 1)
+             HAVING (? = 0 OR COUNT(DISTINCT CASE WHEN p.status='bekreftet' THEN p.kurs_id END) > 1)
              ORDER BY d.navn"""
     likemal = f"%{sok.lower()}%"
     args = (sok.lower(), likemal, likemal, likemal, 1 if kun_flere else 0)

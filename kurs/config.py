@@ -31,6 +31,9 @@ def get(navn: str, standard: str = "") -> str:
 MODUS = get("MODUS", "demo")
 DEMO = MODUS != "prod"
 DB_STI = Path(get("DB_STI", str(ROT / "data" / "kurs.db")))
+# Tom (standard) = SQLite i DB_STI, som i den lokale sandkassen. Satt = PostgreSQL, f.eks.
+# postgresql://bruker:passord@server.postgres.database.azure.com:5432/ipr?sslmode=require (hemmelig: Key Vault i drift).
+DATABASE_URL = get("DATABASE_URL")
 UTBOKS = ROT / "utboks"
 BASE_URL = get("BASE_URL", "http://127.0.0.1:5000")
 HEMMELIG_NOKKEL = get("HEMMELIG_NOKKEL", "bytt-meg-i-prod")

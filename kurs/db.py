@@ -1,4 +1,12 @@
-"""Databasetilgang (SQLite). Én fil, ingen server – samme prinsipp som referansen."""
+"""Databasetilgang. SQLite (standard: én fil, ingen server) eller PostgreSQL naar DATABASE_URL er satt.
+
+Backend-valg (se koble()):
+  * DATABASE_URL tom (lokal Windows-sandkasse, tester): SQLite i config.DB_STI - noyaktig som foer.
+  * DATABASE_URL satt (drift, f.eks. Azure Database for PostgreSQL): PostgreSQL via psycopg, gjennom et tynt adapterlag
+    (_PgTilkobling) som gir resten av koden SAMME grensesnitt som sqlite3: con.execute("... ? ...", params),
+    rad["navn"] og rad[0], cursor.rowcount/fetchone/fetchall, commit/rollback, og db.DatabaseFeil/IntegritetsFeil.
+psycopg importeres KUN naar PostgreSQL faktisk brukes.
+"""
 import hashlib
 import json
 import re
@@ -14,9 +22,24 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import config, skjemafelt
 
 _SCHEMA = Path(__file__).with_name("schema.sql")
+_SCHEMA_POSTGRES = Path(__file__).with_name("schema_postgres.sql")
 
-# ---------- portabilitet (PostgreSQL-klargjoring, fase 1) ----------
-# Resten av appen fanger KUN disse - aldri sqlite3.* direkte - slik at databasebackend kan byttes ett sted.
+
+# ---------- felles databaseunntak (fase 1 + 2) ----------
+# Resten av appen fanger KUN db.DatabaseFeil / db.IntegritetsFeil - aldri sqlite3.* eller psycopg.* direkte. De er
+# ENKLE KLASSER (ikke tupler), saa de kan brukes fritt ogsaa inne i andre `except (A, B, ...)`-tupler. sqlite3 sine
+# unntaksklasser er felles basisklasser: adapterens oversatte PostgreSQL-unntak ARVER fra dem, slik at samme
+# `except` fanger feil fra begge databaser.
+
+class PostgresFeil(sqlite3.Error):
+    """Feil fra PostgreSQL, oversatt av adapteren. Meldingen er PostgreSQL sin korte hovedmelding (uten DETAIL, som kan
+    inneholde verdier/persondata). Det opprinnelige psycopg-unntaket ligger i __cause__."""
+
+
+class PostgresIntegritetsFeil(PostgresFeil, sqlite3.IntegrityError):
+    """Brudd paa UNIQUE/NOT NULL/CHECK/FOREIGN KEY i PostgreSQL."""
+
+
 DatabaseFeil = sqlite3.Error
 IntegritetsFeil = sqlite3.IntegrityError
 
@@ -51,7 +74,173 @@ _KODE_TEGN = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # uten 0/O/1/I – lett aa tast
 _TRANSLIT_NORSK = str.maketrans({"æ": "ae", "Æ": "AE", "ø": "o", "Ø": "O", "å": "aa", "Å": "AA"})
 
 
-def koble(sti: Path | None = None) -> sqlite3.Connection:
+# ---------- PostgreSQL-adapter (fase 2) ----------
+
+class Rad:
+    """Rad fra PostgreSQL med samme bruk som sqlite3.Row: rad["navn"] (uten hensyn til store/smaa bokstaver, som
+    sqlite3.Row), rad[0], keys(), dict(rad), len(rad) og iterasjon over verdiene. Ukjent nokkel -> IndexError (som
+    sqlite3.Row)."""
+    __slots__ = ("_navn", "_indeks", "_verdier")
+
+    def __init__(self, navn: list, indeks: dict, verdier):
+        self._navn, self._indeks, self._verdier = navn, indeks, tuple(verdier)
+
+    def keys(self) -> list:
+        return list(self._navn)
+
+    def __getitem__(self, nokkel):
+        if isinstance(nokkel, (int, slice)):
+            return self._verdier[nokkel]
+        try:
+            return self._verdier[self._indeks[nokkel.lower()]]
+        except (KeyError, AttributeError):
+            raise IndexError("No item with that key") from None
+
+    def __iter__(self):
+        return iter(self._verdier)
+
+    def __len__(self) -> int:
+        return len(self._verdier)
+
+    def __eq__(self, annen) -> bool:
+        return isinstance(annen, Rad) and self._navn == annen._navn and self._verdier == annen._verdier
+
+    __hash__ = None
+
+    def __repr__(self) -> str:
+        return f"Rad({dict(zip(self._navn, self._verdier))!r})"
+
+
+def _rad_fabrikk(cursor):
+    """psycopg row_factory: bygger Rad-objekter med kolonnenavnene fra resultatet."""
+    navn = [k.name for k in (cursor.description or [])]
+    indeks = {n.lower(): i for i, n in enumerate(navn)}
+    return lambda verdier: Rad(navn, indeks, verdier)
+
+
+def _til_pg_sql(sql: str) -> str:
+    """sqlite3-plassholder '?' -> psycopg '%s' (kun UTENFOR strenglitteraler/siterte navn), og hver '%' -> '%%' (psycopg
+    tolker % naar parametere sendes med, ogsaa inne i f.eks. LIKE '%bergen%'). Brukes kun naar det finnes parametere."""
+    ut, sitat = [], None
+    for tegn in sql:
+        if sitat:
+            if tegn == sitat:
+                sitat = None
+            ut.append("%%" if tegn == "%" else tegn)
+        elif tegn in ("'", '"'):
+            sitat = tegn
+            ut.append(tegn)
+        elif tegn == "?":
+            ut.append("%s")
+        elif tegn == "%":
+            ut.append("%%")
+        else:
+            ut.append(tegn)
+    return "".join(ut)
+
+
+def _pg_verdi(verdi):
+    """Samme parameterverdier som sqlite3 lagrer: bool -> 0/1 (kolonnene er heltall), date -> 'YYYY-MM-DD' og
+    datetime -> 'YYYY-MM-DD HH:MM:SS[.ffffff]' (sqlite3 sin standardadapter; tidsstempler lagres som tekst)."""
+    if isinstance(verdi, bool):
+        return int(verdi)
+    if isinstance(verdi, datetime):
+        return verdi.isoformat(" ")
+    if isinstance(verdi, date):
+        return verdi.isoformat()
+    return verdi
+
+
+class _PgMarkor:
+    """Cursor med sqlite3-oppforsel: fetchone() -> None og fetchall() -> [] naar setningen ikke ga noe resultat."""
+
+    def __init__(self, cur):
+        self._cur = cur
+
+    @property
+    def rowcount(self) -> int:
+        return self._cur.rowcount
+
+    @property
+    def description(self):
+        return self._cur.description
+
+    def fetchone(self):
+        return self._cur.fetchone() if self._cur.description is not None else None
+
+    def fetchall(self) -> list:
+        return self._cur.fetchall() if self._cur.description is not None else []
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+
+class _PgTilkobling:
+    """Tynt adapterlag rundt en psycopg-tilkobling. Transaksjoner fungerer som med sqlite3: forste setning starter en
+    transaksjon, commit()/rollback() avslutter den (db.transaksjon er uendret). psycopg-feil oversettes til
+    PostgresFeil/PostgresIntegritetsFeil (del av db.DatabaseFeil/IntegritetsFeil)."""
+
+    def __init__(self, raa, psycopg_modul):
+        self._raa, self._pg = raa, psycopg_modul
+
+    def _oversett(self, feil: Exception) -> Exception:
+        diag = getattr(feil, "diag", None)
+        melding = (getattr(diag, "message_primary", None) or type(feil).__name__) if diag else type(feil).__name__
+        klasse = PostgresIntegritetsFeil if isinstance(feil, self._pg.IntegrityError) else PostgresFeil
+        return klasse(melding)
+
+    def execute(self, sql: str, params=()):
+        try:
+            if params:
+                return _PgMarkor(self._raa.execute(_til_pg_sql(sql), [_pg_verdi(v) for v in params]))
+            return _PgMarkor(self._raa.execute(sql))
+        except self._pg.Error as e:
+            raise self._oversett(e) from e
+
+    def executemany(self, sql: str, sekvens) -> None:
+        try:
+            with self._raa.cursor() as cur:
+                cur.executemany(_til_pg_sql(sql), [[_pg_verdi(v) for v in p] for p in sekvens])
+        except self._pg.Error as e:
+            raise self._oversett(e) from e
+
+    def executescript(self, sql: str) -> None:
+        """Flere setninger uten parametere (brukes kun av init() med schema_postgres.sql)."""
+        try:
+            self._raa.execute(sql)
+        except self._pg.Error as e:
+            raise self._oversett(e) from e
+
+    def commit(self) -> None:
+        try:
+            self._raa.commit()
+        except self._pg.Error as e:
+            raise self._oversett(e) from e
+
+    def rollback(self) -> None:
+        self._raa.rollback()
+
+    def close(self) -> None:
+        self._raa.close()
+
+
+def er_postgres(con) -> bool:
+    return isinstance(con, _PgTilkobling)
+
+
+def _koble_postgres(url: str) -> _PgTilkobling:
+    try:
+        import psycopg
+    except ImportError as e:
+        raise RuntimeError("DATABASE_URL er satt, men psycopg er ikke installert (pip install -r requirements.txt).") from e
+    return _PgTilkobling(psycopg.connect(url, row_factory=_rad_fabrikk), psycopg)
+
+
+def koble(sti: Path | None = None):
+    """SQLite (standard): `sti`, eller config.DB_STI. PostgreSQL: KUN naar ingen `sti` er gitt og config.DATABASE_URL er
+    satt. En eksplisitt `sti` betyr alltid SQLite - derfor bruker testene (som gir egen sti) aldri PostgreSQL."""
+    if sti is None and config.DATABASE_URL:
+        return _koble_postgres(config.DATABASE_URL)
     sti = Path(sti or config.DB_STI)
     sti.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(sti)
@@ -60,57 +249,81 @@ def koble(sti: Path | None = None) -> sqlite3.Connection:
     return con
 
 
-def init(con: sqlite3.Connection) -> None:
-    con.executescript(_SCHEMA.read_text(encoding="utf-8"))
+def init(con) -> None:
+    """Oppretter manglende tabeller/indekser, legger til manglende kolonner og den forste admin-brukeren. Idempotent.
+    I drift kjoeres dette av `python -m kurs.migrer` - aldri av gunicorn."""
+    con.executescript((_SCHEMA_POSTGRES if er_postgres(con) else _SCHEMA).read_text(encoding="utf-8"))
     _migrer(con)
     if not con.execute("SELECT 1 FROM admin_bruker").fetchone():
         opprett_admin_bruker(con, config.ADMIN_BRUKERNAVN, "Standardbruker", config.ADMIN_PASSORD)
     con.commit()
 
 
-def _migrer(con: sqlite3.Connection) -> None:
+def har_tabell(con, tabell: str) -> bool:
+    if er_postgres(con):
+        sql = ("SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() "
+               "AND table_name = ?")
+    else:
+        sql = "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?"
+    return con.execute(sql, (tabell,)).fetchone() is not None
+
+
+def har_kolonne(con, tabell: str, kolonne: str) -> bool:
+    if er_postgres(con):
+        return con.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+            "AND table_name = ? AND column_name = ?", (tabell, kolonne)).fetchone() is not None
+    return any(r["name"] == kolonne for r in con.execute(f"PRAGMA table_info({tabell})"))
+
+
+def har_admin_bruker(con) -> bool:
+    return har_tabell(con, "admin_bruker") and con.execute("SELECT 1 FROM admin_bruker").fetchone() is not None
+
+
+def sql_tekstliste(con, uttrykk: str, skille: str = " ") -> str:
+    """SQL-aggregat som slaar sammen tekstverdier: GROUP_CONCAT (SQLite) eller string_agg (PostgreSQL). `uttrykk` og
+    `skille` er faste verdier fra koden - aldri brukerinput."""
+    skille_sql = "'" + skille.replace("'", "''") + "'"
+    return f"string_agg({uttrykk}, {skille_sql})" if er_postgres(con) else f"GROUP_CONCAT({uttrykk}, {skille_sql})"
+
+
+def _migrer(con) -> None:
     """Legger til kolonner fra nyere versjoner av schema.sql i eksisterende databaser, uten aa miste data.
 
     SQLite tillater ikke ALTER TABLE ... ADD COLUMN med en ikke-konstant DEFAULT (som datetime('now'))
     naar tabellen har rader fra for. Vi legger derfor til kolonnen uten default og etterfyller (backfill)
-    med en vanlig UPDATE i stedet.
+    med en vanlig UPDATE i stedet. (Samme ALTER TABLE-syntaks fungerer i PostgreSQL; schema_postgres.sql har
+    allerede alle kolonner, saa der er dette normalt ingen endring.)
     """
-    def har_kolonne(tabell: str, kolonne: str) -> bool:
-        return any(r["name"] == kolonne for r in con.execute(f"PRAGMA table_info({tabell})"))
-
-    def har_tabell(tabell: str) -> bool:
-        return con.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tabell,)).fetchone() is not None
-
-    if not har_kolonne("kurs", "ansvarlig_admin_id"):
+    if not har_kolonne(con, "kurs", "ansvarlig_admin_id"):
         con.execute("ALTER TABLE kurs ADD COLUMN ansvarlig_admin_id INTEGER REFERENCES admin_bruker(id)")
-    if not har_kolonne("deltaker", "yrkestittel"):
+    if not har_kolonne(con, "deltaker", "yrkestittel"):
         con.execute("ALTER TABLE deltaker ADD COLUMN yrkestittel TEXT")
-    if not har_kolonne("paamelding", "oppdatert"):
+    if not har_kolonne(con, "paamelding", "oppdatert"):
         con.execute("ALTER TABLE paamelding ADD COLUMN oppdatert TEXT")
         con.execute("UPDATE paamelding SET oppdatert = opprettet WHERE oppdatert IS NULL")
-    if not har_kolonne("paamelding", "faktura_kommentar"):
+    if not har_kolonne(con, "paamelding", "faktura_kommentar"):
         con.execute("ALTER TABLE paamelding ADD COLUMN faktura_kommentar TEXT")
-    if not har_kolonne("paamelding", "intern_kommentar"):
+    if not har_kolonne(con, "paamelding", "intern_kommentar"):
         con.execute("ALTER TABLE paamelding ADD COLUMN intern_kommentar TEXT")
-    if not har_kolonne("kurs", "paameldingsfrist"):
+    if not har_kolonne(con, "kurs", "paameldingsfrist"):
         con.execute("ALTER TABLE kurs ADD COLUMN paameldingsfrist TEXT")
     # Fase 12C5: paameldingssidens tekster. Kun additivt - NULL betyr standard (ingen intro / «Meld meg på»).
-    if not har_kolonne("kurs", "paamelding_intro"):
+    if not har_kolonne(con, "kurs", "paamelding_intro"):
         con.execute("ALTER TABLE kurs ADD COLUMN paamelding_intro TEXT")
-    if not har_kolonne("kurs", "paamelding_knappetekst"):
+    if not har_kolonne(con, "kurs", "paamelding_knappetekst"):
         con.execute("ALTER TABLE kurs ADD COLUMN paamelding_knappetekst TEXT")
-    if not har_kolonne("paamelding", "sveiper_utsatt"):
+    if not har_kolonne(con, "paamelding", "sveiper_utsatt"):
         # Konstant default (0) - trygt aa legge til selv om tabellen har rader fra for.
         con.execute("ALTER TABLE paamelding ADD COLUMN sveiper_utsatt INTEGER NOT NULL DEFAULT 0")
     # Faktura tidligst seks maaneder foer forste kursdag: faktura_onskes_na (lagret valg) og faktura_tidligst_dato (planlagt
     # samlet faktura - satt av sveiper.fakturer, lest av sveiper.utsatte_fakturaer og oekonomilaasen). Bare manglende
     # kolonner legges til - eksisterende verdier roeres aldri (ingen UPDATE).
-    if not har_kolonne("paamelding", "faktura_onskes_na"):
+    if not har_kolonne(con, "paamelding", "faktura_onskes_na"):
         con.execute("ALTER TABLE paamelding ADD COLUMN faktura_onskes_na INTEGER NOT NULL DEFAULT 0")
-    if not har_kolonne("paamelding", "faktura_tidligst_dato"):
+    if not har_kolonne(con, "paamelding", "faktura_tidligst_dato"):
         con.execute("ALTER TABLE paamelding ADD COLUMN faktura_tidligst_dato TEXT")
-    if har_tabell("utsending_logg") and not har_kolonne("utsending_logg", "status"):
+    if har_tabell(con, "utsending_logg") and not har_kolonne(con, "utsending_logg", "status"):
         # Konstant default ('sendt') - alle eksisterende rader ER faktisk sendt (skrevet av den
         # gamle, ubetingede marker_sendt()), saa dette endrer ikke betydningen av noen rad fra for.
         con.execute(

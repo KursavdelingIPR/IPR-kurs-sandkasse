@@ -4,5 +4,6 @@ qrcode>=8.0
 requests>=2.32
 pytest>=8.0
 anthropic>=1.0          # KI-assistent (kun brukt når MODUS=prod og ANTHROPIC_API_KEY er satt)
+psycopg[binary]>=3.2    # PostgreSQL - brukes KUN naar DATABASE_URL er satt (lokalt: SQLite som foer)
 gunicorn>=23.0; sys_platform != "win32"   # webserver i drift (Azure App Service Linux: gunicorn startup:app)
 # valgfritt: weasyprint (PDF-kursbevis), waitress (drift på Windows)
