@@ -1,0 +1,76 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+{# Fase 12C4A. All tekst fra admin er ren tekst og escapes av Jinja - aldri |safe. #}
+{% macro merke(tilpasset) %}{% if tilpasset is not none %}<span class="merke {{ 'gul' if tilpasset else 'gra' }}">{{ 'Tilpasset' if tilpasset else 'Standard' }}</span>{% endif %}{% endmacro %}
+{% macro fast_felt(navn, tekst) %}
+<div class="kort" style="max-width:720px">
+  <div style="display:flex; justify-content:space-between; gap:10px"><strong>{{ navn }}</strong><span class="merke gra">Fast felt</span></div>
+  <p class="liten dempet" style="margin:6px 0 0">{{ tekst }}</p>
+</div>
+{% endmacro %}
+
+<h2 style="margin-top:0">Påmeldingsskjema</h2>
+
+{% if lesefeil %}
+<div class="flash feil" style="max-width:720px">Skjemainnstillingene kunne ikke leses akkurat nå. Ingen endringer er gjort. Prøv igjen om litt.</div>
+{% else %}
+<p style="max-width:720px">Her velger du hvilke opplysninger deltakerne skal fylle ut når de melder seg på dette kurset.</p>
+<p><a class="knapp sekundar" href="{{ url_for('admin_forhandsvis_paamelding', kurs_id=kurs.id) }}" target="_blank" rel="noopener">Forhåndsvis påmeldingsskjema</a></p>
+<p class="liten dempet" style="max-width:720px">Forhåndsvisningen viser det som sist ble lagret. Lagre først for å se endringene dine.</p>
+
+{% if advarsler %}
+<div class="flash feil" style="max-width:720px">
+  Noen lagrede skjemainnstillinger kunne ikke brukes, og standardverdien brukes i stedet. Kontroller oppsettet og lagre, eller tilbakestill skjemaet til standard.
+  <ul style="margin:6px 0 0; padding-left:18px">{% for a in advarsler %}<li>{{ a }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('admin_kurs_paameldingsskjema_lagre', kurs_id=kurs.id) }}">
+  {{ fast_felt('Navn', 'Alltid synlig og obligatorisk.') }}
+  {{ fast_felt('E-post', 'Alltid synlig og obligatorisk. Brukes til bekreftelse og innlogging på Min side.') }}
+
+  {% for n in konfig_rekkefolge %}{% set x = v[n] %}
+  <div class="kort" style="max-width:720px">
+    <div style="display:flex; justify-content:space-between; gap:10px"><strong>{{ register[n].label }}</strong>{{ merke(x.tilpasset) }}</div>
+    <label style="font-weight:normal"><input type="checkbox" name="{{ n }}_synlig" {{ 'checked' if x.synlig }}>Vis feltet</label>
+    <label style="font-weight:normal; margin-top:6px"><input type="checkbox" name="{{ n }}_obligatorisk" {{ 'checked' if x.obligatorisk }}>Obligatorisk</label>
+    <p class="liten dempet" style="margin:2px 0 0">Gjelder bare når feltet vises. Innstillingen beholdes selv om feltet skjules.</p>
+    <label>Ledetekst <span class="liten dempet">(maks {{ maks_label }} tegn, tom = «{{ register[n].label }}»)</span></label>
+    <input name="{{ n }}_label" maxlength="{{ maks_label }}" value="{{ x.label }}">
+    <label>Hjelpetekst <span class="liten dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn, vises under feltet)</span></label>
+    <textarea name="{{ n }}_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ x.hjelpetekst }}</textarea>
+  </div>
+  {% endfor %}
+
+  <div class="kort" style="max-width:720px">
+    <strong>Rekkefølge</strong>
+    <label style="font-weight:normal"><input type="radio" name="rekkefolge" value="{{ telefon_forst }}" {{ 'checked' if v.rekkefolge == telefon_forst }}>Telefon først</label>
+    <label style="font-weight:normal; margin-top:6px"><input type="radio" name="rekkefolge" value="{{ arbeidssted_forst }}" {{ 'checked' if v.rekkefolge == arbeidssted_forst }}>Arbeidssted først</label>
+  </div>
+
+  <div class="kort" style="max-width:720px">
+    <div style="display:flex; justify-content:space-between; gap:10px"><strong>HPR-nummer</strong><span><span class="merke gra">Systemstyrt</span> {{ merke(v.hpr_nr.tilpasset) }}</span></div>
+    <p class="liten dempet" style="margin:6px 0 0">Vises bare når kurset er del av et spesialistløp, og er aldri obligatorisk. Kun hjelpeteksten kan endres.
+      {% if kurs.spesialistlop %}Dette kurset er i spesialistløpet «{{ kurs.spesialistlop }}», så feltet vises.{% else %}Dette kurset har ikke spesialistløp, så feltet vises ikke nå.{% endif %}</p>
+    <label>Hjelpetekst <span class="liten dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn)</span></label>
+    <textarea name="hpr_nr_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ v.hpr_nr.hjelpetekst }}</textarea>
+  </div>
+
+  <div class="kort" style="max-width:720px">
+    <div style="display:flex; justify-content:space-between; gap:10px"><strong>Faktura, betaling, allergier og tilrettelegging</strong><span class="merke gra">Systemstyrt</span></div>
+    <p class="liten dempet" style="margin:6px 0 0">Styres av kursets oppsett (pris, fakturering og kurstype) og kan ikke endres her.</p>
+  </div>
+
+  {{ fast_felt('Samtykke', 'Alltid synlig og obligatorisk: godkjenning av vilkår og personvernerklæring.') }}
+
+  <p><button>Lagre påmeldingsskjema</button></p>
+</form>
+
+<form method="post" action="{{ url_for('admin_kurs_paameldingsskjema_tilbakestill', kurs_id=kurs.id) }}"
+      onsubmit="return confirm('Tilbakestille påmeldingsskjemaet for dette kurset til standard? Alle tilpasninger av telefon, arbeidssted og HPR-hjelpetekst fjernes.')">
+  <button class="sekundar liten">Tilbakestill til standard</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -969,6 +969,138 @@ def admin_forhandsvis_paamelding(kurs_id):
     return _render_paameldingsside(kurs, dager, {}, plasser_igjen, skjema, forhandsvisning=True)
 
 
+# ---------- adminflate for paameldingsskjemaet (fase 12C4A) ----------
+# All validering/normalisering skjer i skjemafelt/db (12C2) - web-laget oversetter KUN det faste admin-skjemaet til
+# komplette overstyringer for telefon, arbeidssted og (kun hjelpetekst for) HPR. Andre POST-felt leses aldri, saa laaste
+# felt, systemblokker, ukjente felt/egenskaper og HPR-laasene kan ikke naas herfra. Ingen laasing mellom samtidige
+# admin-brukere: den som lagrer sist, vinner (hele oppsettet sendes hver gang - ingen skjulte delvise oppdateringer).
+
+_SKJEMA_EGENSKAP_NAVN = {"synlig": "vis feltet", "obligatorisk": "obligatorisk", "rekkefolge": "rekkefølge",
+                         "label": "ledetekst", "hjelpetekst": "hjelpetekst"}
+_SKJEMA_GRUNN_TEKST = {skjemafelt.UKJENT_FELT: "ukjent felt", skjemafelt.LAAST_FELT: "låst felt",
+                       skjemafelt.IKKE_TILLATT: "kan ikke endres for dette feltet",
+                       skjemafelt.UGYLDIG_TYPE: "ugyldig verdi", skjemafelt.FOR_LANG: "for lang tekst",
+                       skjemafelt.KONTROLLTEGN: "ugyldige tegn", skjemafelt.UTENFOR_OMRAADE: "ugyldig verdi"}
+_TELEFON_FORST, _ARBEIDSSTED_FORST = "telefon_forst", "arbeidssted_forst"
+
+
+def _skjema_advarsel_tekster(advarsler) -> list[str]:
+    """PII-fri, lesbar tekst per advarsel: kun kjent felt, kjent egenskap og grunn - aldri lagret innhold/ukjent navn."""
+    ut = []
+    for a in advarsler:
+        felt = skjemafelt.REGISTER[a.felt].label if a.felt in skjemafelt.REGISTER else "Ukjent felt"
+        egenskap = f" – {_SKJEMA_EGENSKAP_NAVN[a.egenskap]}" if a.egenskap in _SKJEMA_EGENSKAP_NAVN else ""
+        ut.append(f"{felt}{egenskap}: {_SKJEMA_GRUNN_TEKST.get(a.grunn, 'ugyldig verdi')}")
+    return ut
+
+
+def _skjema_admin_verdier(overstyringer) -> dict:
+    """Det admin-skjemaet skal vise for dagens oppsett: effektive verdier (standard der ingen overstyring finnes)."""
+    verdier = {}
+    for n in skjemafelt.KONFIGURERBAR_GRUPPE:
+        f, o = skjemafelt.REGISTER[n], overstyringer.get(n) or skjemafelt.Overstyring()
+        verdier[n] = {"synlig": f.synlig if o.synlig is None else o.synlig,
+                      "obligatorisk": f.obligatorisk if o.obligatorisk is None else o.obligatorisk,
+                      "label": o.label or f.label, "hjelpetekst": o.hjelpetekst or "", "tilpasset": not o.er_tom}
+    hpr = overstyringer.get("hpr_nr") or skjemafelt.Overstyring()
+    verdier["hpr_nr"] = {"hjelpetekst": hpr.hjelpetekst or "", "tilpasset": not hpr.er_tom}
+
+    def plass(n, indeks):
+        o = overstyringer.get(n) or skjemafelt.Overstyring()
+        return (skjemafelt.REGISTER[n].rekkefolge if o.rekkefolge is None else o.rekkefolge, indeks)
+    verdier["rekkefolge"] = (_TELEFON_FORST if plass("telefon", 0) <= plass("arbeidssted", 1) else _ARBEIDSSTED_FORST)
+    return verdier
+
+
+def _skjema_admin_innsendt(form) -> tuple[dict, dict]:
+    """Admin-POST -> (KOMPLETTE egenskaper per felt til db.lagre_skjemafelt, verdier til ev. re-rendring). Leser KUN de
+    faste navnene i admin-skjemaet. Avmerkingsboks: tilstede = ja. Rekkefolgen settes for BEGGE feltene hver gang
+    (lik standard -> normaliseres bort i db), slik at et bytte aldri kan gi et halvt eller inkonsistent oppsett."""
+    rekkefolge = form.get("rekkefolge")
+    plasser = {"telefon": 1, "arbeidssted": 2} if rekkefolge == _TELEFON_FORST else {"telefon": 2, "arbeidssted": 1}
+    egenskaper, verdier = {}, {"rekkefolge": rekkefolge}
+    for n in skjemafelt.KONFIGURERBAR_GRUPPE:
+        e = {"synlig": f"{n}_synlig" in form, "obligatorisk": f"{n}_obligatorisk" in form,
+             "label": form.get(f"{n}_label", ""), "hjelpetekst": form.get(f"{n}_hjelpetekst", "")}
+        egenskaper[n] = {**e, "rekkefolge": plasser[n]}
+        verdier[n] = {**e, "tilpasset": None}      # None = ukjent (ikke lagret) -> ingen Standard/Tilpasset-merke
+    egenskaper["hpr_nr"] = {"hjelpetekst": form.get("hpr_nr_hjelpetekst", "")}
+    verdier["hpr_nr"] = {"hjelpetekst": egenskaper["hpr_nr"]["hjelpetekst"], "tilpasset": None}
+    return egenskaper, verdier
+
+
+def _render_skjema_admin(kurs, verdier, advarsler=(), status=200):
+    rekkefolge = (["arbeidssted", "telefon"] if verdier["rekkefolge"] == _ARBEIDSSTED_FORST
+                  else ["telefon", "arbeidssted"])
+    return render_template("admin_kurs_paameldingsskjema.html", kurs=kurs, fane="paameldingsskjema", v=verdier,
+                           konfig_rekkefolge=rekkefolge, register=skjemafelt.REGISTER,
+                           maks_label=skjemafelt.MAKS_LABEL, maks_hjelpetekst=skjemafelt.MAKS_HJELPETEKST,
+                           advarsler=_skjema_advarsel_tekster(advarsler),
+                           telefon_forst=_TELEFON_FORST, arbeidssted_forst=_ARBEIDSSTED_FORST), status
+
+
+def _skjema_admin_utilgjengelig(kurs):
+    return render_template("admin_kurs_paameldingsskjema.html", kurs=kurs, fane="paameldingsskjema",
+                           lesefeil=True), 503
+
+
+@app.get("/admin/kurs/<int:kurs_id>/paameldingsskjema")
+@krever_admin
+def admin_kurs_paameldingsskjema(kurs_id):
+    """Viser skjemaoppsettet. Kun lesing - skriver aldri noe (heller ikke advarsler). Fail-closed ved lesefeil: da vises
+    IKKE et redigerbart standardskjema."""
+    kurs = _hent_kurs(kurs_id)
+    try:
+        les = db.hent_skjemaoverstyringer(con(), kurs_id)
+    except skjemafelt.SkjemaLesefeil:
+        return _skjema_admin_utilgjengelig(kurs)
+    return _render_skjema_admin(kurs, _skjema_admin_verdier(les.overstyringer), les.advarsler)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/paameldingsskjema")
+@krever_admin
+def admin_kurs_paameldingsskjema_lagre(kurs_id):
+    """Lagrer HELE oppsettet atomisk: alle tre feltene i EN transaksjon. En ugyldig verdi (SkjemafeltFeil fra 12C2-
+    valideringen) eller DB-feil ruller tilbake alt - aldri en halv oppdatering. Lagrer ingenting hvis dagens oppsett
+    ikke kan leses."""
+    kurs = _hent_kurs(kurs_id)
+    try:
+        les = db.hent_skjemaoverstyringer(con(), kurs_id)
+    except skjemafelt.SkjemaLesefeil:
+        return _skjema_admin_utilgjengelig(kurs)
+    egenskaper, verdier = _skjema_admin_innsendt(request.form)
+    if verdier["rekkefolge"] not in (_TELEFON_FORST, _ARBEIDSSTED_FORST):
+        flash("Velg rekkefølge for telefon og arbeidssted.", "feil")
+        verdier["rekkefolge"] = _TELEFON_FORST
+        return _render_skjema_admin(kurs, verdier, les.advarsler, 400)
+    try:
+        with db.transaksjon(con()):
+            endret = [db.lagre_skjemafelt(con(), kurs_id, felt, e, aktor=_aktor()) for felt, e in egenskaper.items()]
+    except skjemafelt.SkjemafeltFeil as e:
+        navn = skjemafelt.REGISTER[e.felt].label if e.felt in skjemafelt.REGISTER else "Skjemaet"
+        flash(f"{navn}: {e.forklaring or 'Ugyldig verdi.'} Ingen endringer er lagret.", "feil")
+        return _render_skjema_admin(kurs, verdier, les.advarsler, 400)
+    except sqlite3.Error:
+        return _skjema_admin_utilgjengelig(kurs)
+    flash("Påmeldingsskjemaet er lagret." if any(endret) else "Ingen endringer å lagre.", "ok")
+    return redirect(url_for("admin_kurs_paameldingsskjema", kurs_id=kurs_id))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/paameldingsskjema/tilbakestill")
+@krever_admin
+def admin_kurs_paameldingsskjema_tilbakestill(kurs_id):
+    """Fjerner ALLE skjemaoverstyringer for kurset (ogsaa korrupte/ukjente rader) -> kodet standardskjema."""
+    kurs = _hent_kurs(kurs_id)
+    try:
+        with db.transaksjon(con()):
+            antall = db.tilbakestill_skjema(con(), kurs_id, aktor=_aktor())
+    except sqlite3.Error:
+        return _skjema_admin_utilgjengelig(kurs)
+    flash("Påmeldingsskjemaet er tilbakestilt til standard." if antall else "Skjemaet bruker allerede standardoppsettet.",
+          "ok")
+    return redirect(url_for("admin_kurs_paameldingsskjema", kurs_id=kurs_id))
+
+
 def _deltaker_sok_status(request_args) -> tuple[str, str]:
     """Leser/validerer sok+status-filter fra query-parametre. Delt mellom deltakerlisten og
     CSV-eksporten, slik at eksporten kan folge NOYAKTIG samme filter som det admin ser paa
