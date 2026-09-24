@@ -197,8 +197,8 @@ def svar(con, sporsmal: str, *, deltaker_id: int | None = None, epost: str | Non
 
 
 def _logg(con, deltaker_id, epost, sporsmal, status, kilder, grunn) -> int:
-    cur = con.execute(
-        "INSERT INTO henvendelse (deltaker_id, epost, sporsmal, status, kilder, grunn) VALUES (?,?,?,?,?,?)",
+    hid = db.sett_inn(
+        con, "INSERT INTO henvendelse (deltaker_id, epost, sporsmal, status, kilder, grunn) VALUES (?,?,?,?,?,?)",
         (deltaker_id, epost, sporsmal, status, ",".join(kilder), grunn))
     con.commit()
-    return cur.lastrowid
+    return hid

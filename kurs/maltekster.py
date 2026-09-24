@@ -14,7 +14,6 @@ Prinsipper:
   * MalFeil bærer kun mal, felt og en grunnkode - aldri teksten, kodeverdier, navn eller e-post.
 """
 import re
-import sqlite3
 from dataclasses import dataclass
 
 from markupsafe import Markup, escape
@@ -389,7 +388,7 @@ def hent_overstyringer(con, mal: str) -> dict:
         raise MalFeil(UKJENT_MAL, None, None, "Denne malen kan ikke redigeres.")
     try:
         rader = db.hent_overstyringer_for_mal(con, mal)
-    except sqlite3.Error as e:
+    except db.DatabaseFeil as e:
         raise MalFeil(DB_LESEFEIL, mal, None, "Kunne ikke lese maltekstene fra databasen.") from e
     ut = {}
     for felt, tekst in rader.items():

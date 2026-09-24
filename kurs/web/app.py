@@ -7,7 +7,6 @@ import csv
 import io
 import re
 import secrets
-import sqlite3
 import time
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -568,7 +567,7 @@ def lever(krav_id):
             flash("Velg en fil.", "feil")
         else:
             sharepoint.last_opp(f"{m['sharepoint_mappe']}/Presentasjoner", fil.filename, fil.read())
-            con().execute("UPDATE materiell_krav SET levert_ts=datetime('now') WHERE id=?", (krav_id,))
+            con().execute("UPDATE materiell_krav SET levert_ts=? WHERE id=?", (db.naa_utc(), krav_id))
             db.logg(con(), "materiell_levert", {"krav_id": krav_id, "fil": fil.filename}, aktor=m["ansvarlig_epost"])
             con().commit()
             flash("Takk! Filen er lastet opp og er nå tilgjengelig for deltakerne på Min side.", "ok")
@@ -605,7 +604,7 @@ def admin_brukere():
                 db.opprett_admin_bruker(con(), f["brukernavn"], f["navn"], f["passord"], aktor=_aktor())
                 con().commit()
                 flash(f"Brukeren «{f['brukernavn'].strip().lower()}» er opprettet.", "ok")
-            except sqlite3.IntegrityError:
+            except db.IntegritetsFeil:
                 flash("Det finnes allerede en bruker med det brukernavnet.", "feil")
         return redirect(url_for("admin_brukere"))
     brukere = con().execute("SELECT * FROM admin_bruker ORDER BY navn").fetchall()
@@ -1126,7 +1125,7 @@ def admin_kurs_paameldingsskjema_lagre(kurs_id):
         navn = skjemafelt.REGISTER[e.felt].label if e.felt in skjemafelt.REGISTER else "Skjemaet"
         flash(f"{navn}: {e.forklaring or 'Ugyldig verdi.'} Ingen endringer er lagret.", "feil")
         return _render_skjema_admin(kurs, verdier, les.advarsler, 400)
-    except sqlite3.Error:
+    except db.DatabaseFeil:
         return _skjema_admin_utilgjengelig(kurs)
     flash("Påmeldingsskjemaet er lagret." if any(endret) else "Ingen endringer å lagre.", "ok")
     return redirect(url_for("admin_kurs_paameldingsskjema", kurs_id=kurs_id))
@@ -1140,7 +1139,7 @@ def admin_kurs_paameldingsskjema_tilbakestill(kurs_id):
     try:
         with db.transaksjon(con()):
             antall = db.tilbakestill_skjema(con(), kurs_id, aktor=_aktor())
-    except sqlite3.Error:
+    except db.DatabaseFeil:
         return _skjema_admin_utilgjengelig(kurs)
     flash("Påmeldingsskjemaet er tilbakestilt til standard." if antall else "Skjemaet bruker allerede standardoppsettet.",
           "ok")
@@ -1569,7 +1568,7 @@ EPOST_EMNE_MAKS = 200
 EPOST_TEKST_MAKS = 5000
 
 
-def _hent_epost_mottakere(kurs_id: int, ider: list[int]) -> list[sqlite3.Row]:
+def _hent_epost_mottakere(kurs_id: int, ider: list[int]) -> list:
     """Validerer mottaker-ID-er MOT DATABASEN - stoler aldri paa at ID-ene fra skjemaet er gyldige/
     hoerer til dette kurset. Ukjente/fremmede ID-er faller bare bort."""
     if not ider:
@@ -2099,11 +2098,12 @@ def admin_rapporter():
 
     avmeldt_antall = con().execute(
         """SELECT COUNT(*) FROM hendelse WHERE handling='avmelding'
-           AND (? = '' OR date(ts) >= ?) AND (? = '' OR date(ts) <= ?)""", periode_args).fetchone()[0]
+           AND (? = '' OR substr(ts, 1, 10) >= ?) AND (? = '' OR substr(ts, 1, 10) <= ?)""", periode_args).fetchone()[0]
 
     fakturert_sum = con().execute(
         """SELECT COALESCE(SUM(belop_nok),0) FROM faktura
-           WHERE (? = '' OR date(opprettet) >= ?) AND (? = '' OR date(opprettet) <= ?)""", periode_args).fetchone()[0]
+           WHERE (? = '' OR substr(opprettet, 1, 10) >= ?) AND (? = '' OR substr(opprettet, 1, 10) <= ?)""",
+        periode_args).fetchone()[0]
 
     flere_kurs_antall = con().execute(
         """SELECT COUNT(*) FROM (SELECT deltaker_id FROM paamelding WHERE status='bekreftet'
@@ -2216,7 +2216,7 @@ def admin_ny_kurs():
             flash("Skjemainnstillingene til originalkurset kunne ikke leses akkurat nå. Kurset er ikke opprettet. "
                   "Prøv igjen om litt.", "feil")
             return _render_ny_kurs(kilde, 503)
-        except (ValueError, KeyError, sqlite3.IntegrityError, db.Paameldingsfeil, skjemafelt.SkjemafeltFeil) as e:
+        except (ValueError, KeyError, db.IntegritetsFeil, db.Paameldingsfeil, skjemafelt.SkjemafeltFeil) as e:
             flash(f"Kunne ikke opprette kurs: {e}", "feil")
 
     return _render_ny_kurs(_kildekurs_fra(request.args))
@@ -2464,7 +2464,7 @@ def admin_kunnskap():
                   f.get("gyldig_til") or None, 1 if f.get("godkjent") else 0, "admin")
         if f.get("id"):
             con().execute("""UPDATE kunnskap SET kategori=?, sporsmal=?, svar=?, kurs_id=?, gyldig_til=?, godkjent=?, oppdatert_av=?,
-                             oppdatert=datetime('now') WHERE id=?""", (*felter, int(f["id"])))
+                             oppdatert=? WHERE id=?""", (*felter, db.naa_utc(), int(f["id"])))
         else:
             con().execute("INSERT INTO kunnskap (kategori, sporsmal, svar, kurs_id, gyldig_til, godkjent, oppdatert_av) VALUES (?,?,?,?,?,?,?)", felter)
         if f.get("henvendelse_id"):

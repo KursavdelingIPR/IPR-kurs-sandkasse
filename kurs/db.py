@@ -6,7 +6,7 @@ import secrets
 import sqlite3
 import string
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -14,6 +14,39 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import config, skjemafelt
 
 _SCHEMA = Path(__file__).with_name("schema.sql")
+
+# ---------- portabilitet (PostgreSQL-klargjoring, fase 1) ----------
+# Resten av appen fanger KUN disse - aldri sqlite3.* direkte - slik at databasebackend kan byttes ett sted.
+DatabaseFeil = sqlite3.Error
+IntegritetsFeil = sqlite3.IntegrityError
+
+_SQLITE_TIDSFORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def naa_utc() -> str:
+    """Naa i SAMME format og tidssone som SQLite sin datetime('now') ('YYYY-MM-DD HH:MM:SS', UTC). Brukes der SQL-en
+    tidligere kalte datetime('now'), saa lagrede og sammenlignede verdier er uendret - uten en SQLite-funksjon."""
+    return datetime.now(timezone.utc).strftime(_SQLITE_TIDSFORMAT)
+
+
+def utc_minutter_siden(minutter: int) -> str:
+    """Som SQLite sin datetime('now', '-N minutes'): samme format og tidssone som naa_utc()."""
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutter)).strftime(_SQLITE_TIDSFORMAT)
+
+
+def sett_inn(con, sql: str, params=()) -> int:
+    """Kjoerer en INSERT og returnerer den nye radens id med `RETURNING id` (SQLite >= 3.35 og PostgreSQL) - i stedet
+    for cursor.lastrowid, som PostgreSQL ikke har. fetchall() fullfoerer setningen, saa en senere commit aldri
+    stoppes av en uferdig setning."""
+    return con.execute(f"{sql} RETURNING id", params).fetchall()[0]["id"]
+
+
+# Tidligere «INSERT OR REPLACE». Standard upsert (SQLite >= 3.24 og PostgreSQL) med samme resultat: raden for
+# paameldingen faar de nye verdiene. (sensitivt har ingen avhengige rader, saa REPLACE sin slett+sett-inn ga ingen
+# annen effekt enn en oppdatering.)
+_SENSITIVT_UPSERT = """INSERT INTO sensitivt (paamelding_id, allergier, tilrettelegging) VALUES (?,?,?)
+                       ON CONFLICT (paamelding_id) DO UPDATE SET allergier=excluded.allergier,
+                                                                 tilrettelegging=excluded.tilrettelegging"""
 _KODE_TEGN = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # uten 0/O/1/I – lett aa taste
 _TRANSLIT_NORSK = str.maketrans({"æ": "ae", "Æ": "AE", "ø": "o", "Ø": "O", "å": "aa", "Å": "AA"})
 
@@ -109,12 +142,12 @@ def ny_kode(lengde: int = 6) -> str:
 
 def opprett_admin_bruker(con, brukernavn: str, navn: str, passord: str, aktor: str = "system") -> int:
     brukernavn = brukernavn.strip().lower()
-    cur = con.execute(
-        "INSERT INTO admin_bruker (brukernavn, navn, passord_hash) VALUES (?,?,?)",
+    admin_id = sett_inn(
+        con, "INSERT INTO admin_bruker (brukernavn, navn, passord_hash) VALUES (?,?,?)",
         (brukernavn, navn.strip(), generate_password_hash(passord)),
     )
     logg(con, "admin_bruker_opprettet", {"brukernavn": brukernavn}, aktor=aktor)
-    return cur.lastrowid
+    return admin_id
 
 
 def verifiser_admin(con, brukernavn: str, passord: str) -> sqlite3.Row | None:
@@ -160,11 +193,10 @@ def opprett_kurs(con, *, kode: str, navn: str, datoer: list[str], aktor: str = "
     if "faktura_dager_for" in felter:   # foer noen skriving; utelatt felt beholder schema-defaulten (14)
         felter["faktura_dager_for"] = valider_faktura_dager_for(felter["faktura_dager_for"])
     kolonner = ["kode", "navn", *felter.keys()]
-    cur = con.execute(
-        f"INSERT INTO kurs ({','.join(kolonner)}) VALUES ({','.join('?' * len(kolonner))})",
+    kurs_id = sett_inn(
+        con, f"INSERT INTO kurs ({','.join(kolonner)}) VALUES ({','.join('?' * len(kolonner))})",
         [kode, navn, *felter.values()],
     )
-    kurs_id = cur.lastrowid
     for d in datoer:
         con.execute(
             "INSERT INTO kursdag (kurs_id, dato, innsjekk_token, innsjekk_kode) VALUES (?,?,?,?)",
@@ -213,11 +245,10 @@ def finn_eller_opprett_deltaker(con, epost: str, navn: str, *, beskytt_eksistere
             )
         return rad["id"]
     kolonner = ["epost", "navn", *felter.keys()]
-    cur = con.execute(
-        f"INSERT INTO deltaker ({','.join(kolonner)}) VALUES ({','.join('?' * len(kolonner))})",
+    return sett_inn(
+        con, f"INSERT INTO deltaker ({','.join(kolonner)}) VALUES ({','.join('?' * len(kolonner))})",
         [epost, navn.strip(), *felter.values()],
     )
-    return cur.lastrowid
 
 
 class Paameldingsfeil(Exception):
@@ -290,8 +321,7 @@ def oppdater_sensitivt(con, paamelding_id: int, allergier: str | None, tilrettel
     if ny == old:
         return False
     if any(ny):
-        con.execute("INSERT OR REPLACE INTO sensitivt (paamelding_id, allergier, tilrettelegging) VALUES (?,?,?)",
-                   (paamelding_id, *ny))
+        con.execute(_SENSITIVT_UPSERT, (paamelding_id, *ny))
     else:
         con.execute("DELETE FROM sensitivt WHERE paamelding_id=?", (paamelding_id,))
     con.execute("UPDATE paamelding SET oppdatert=? WHERE id=?",
@@ -561,17 +591,13 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
         pid = finnes["id"]
     else:
         kolonner = ["kurs_id", "deltaker_id", *felter.keys()]
-        cur = con.execute(
-            f"INSERT INTO paamelding ({','.join(kolonner)}) VALUES ({','.join('?' * len(kolonner))})",
+        pid = sett_inn(
+            con, f"INSERT INTO paamelding ({','.join(kolonner)}) VALUES ({','.join('?' * len(kolonner))})",
             [kurs_id, deltaker_id, *felter.values()],
         )
-        pid = cur.lastrowid
 
     if sensitivt and any(sensitivt.values()):
-        con.execute(
-            "INSERT OR REPLACE INTO sensitivt (paamelding_id, allergier, tilrettelegging) VALUES (?,?,?)",
-            (pid, sensitivt.get("allergier"), sensitivt.get("tilrettelegging")),
-        )
+        con.execute(_SENSITIVT_UPSERT, (pid, sensitivt.get("allergier"), sensitivt.get("tilrettelegging")))
     if fullt and kurs["status"] == "aapen":
         con.execute("UPDATE kurs SET status='full' WHERE id=?", (kurs_id,))
     logg(con, "paamelding", {"paamelding_id": pid, "kurs_id": kurs_id, "status": status},
@@ -626,18 +652,18 @@ def finn_eller_opprett_firmapaamelding(con, kurs_id: int, kontakt: dict, deltake
     if finnes:
         return finnes, False
     try:
-        cur = con.execute(
-            """INSERT INTO firmapaamelding (kurs_id, innsendingsnokkel, kvittering_token, kontakt_navn, kontakt_epost,
+        ny_id = sett_inn(
+            con, """INSERT INTO firmapaamelding (kurs_id, innsendingsnokkel, kvittering_token, kontakt_navn, kontakt_epost,
                kontakt_telefon, firmanavn, org_nr, faktura_ref, faktura_adresse, faktura_postnr, faktura_sted, ehf)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (kurs_id, nokkel, secrets.token_urlsafe(32), kontakt["navn"], kontakt["epost"], kontakt.get("telefon"),
              kontakt["firmanavn"], kontakt.get("org_nr"), kontakt.get("faktura_ref"), kontakt.get("faktura_adresse"),
              kontakt.get("faktura_postnr"), kontakt.get("faktura_sted"), 1 if kontakt.get("ehf") else 0))
         con.commit()
-    except sqlite3.IntegrityError:
+    except IntegritetsFeil:
         con.rollback()
         return con.execute("SELECT * FROM firmapaamelding WHERE innsendingsnokkel=?", (nokkel,)).fetchone(), False
-    return con.execute("SELECT * FROM firmapaamelding WHERE id=?", (cur.lastrowid,)).fetchone(), True
+    return con.execute("SELECT * FROM firmapaamelding WHERE id=?", (ny_id,)).fetchone(), True
 
 
 def registrer_firmapaamelding_rad(con, firmapaamelding_id: int, navn: str, epost: str,
@@ -665,8 +691,8 @@ def marker_sendt(con, nokkel: str, mottaker: str, type_: str) -> None:
     forhaandsviste og godkjente nokkel (fase 5, send_admin_utsending()).
     """
     con.execute(
-        "INSERT OR IGNORE INTO utsending_logg (nokkel, mottaker, type) VALUES (?,?,?)", (nokkel, mottaker, type_)
-    )
+        "INSERT INTO utsending_logg (nokkel, mottaker, type) VALUES (?,?,?) ON CONFLICT DO NOTHING",
+        (nokkel, mottaker, type_))
 
 
 def reserver_sending(con, nokkel: str, mottaker: str, type_: str) -> bool:
@@ -677,7 +703,7 @@ def reserver_sending(con, nokkel: str, mottaker: str, type_: str) -> bool:
     to ganger - kun én av dem kan vinne INSERT-en.
     """
     cur = con.execute(
-        "INSERT OR IGNORE INTO utsending_logg (nokkel, mottaker, type, status) VALUES (?,?,?,'reservert')",
+        "INSERT INTO utsending_logg (nokkel, mottaker, type, status) VALUES (?,?,?,'reservert') ON CONFLICT DO NOTHING",
         (nokkel, mottaker, type_))
     return cur.rowcount > 0
 
@@ -685,16 +711,16 @@ def reserver_sending(con, nokkel: str, mottaker: str, type_: str) -> bool:
 def reserver_sending_pa_nytt(con, nokkel: str, mottaker: str, type_: str) -> bool:
     """Atomisk claim av RETRY etter en kjent, trygg feil. True hvis akkurat dette kallet vant claimen."""
     cur = con.execute(
-        """UPDATE utsending_logg SET status='reservert', sendt_ts=datetime('now')
+        """UPDATE utsending_logg SET status='reservert', sendt_ts=?
            WHERE nokkel=? AND mottaker=? AND type=? AND status='feilet'""",
-        (nokkel, mottaker, type_))
+        (naa_utc(), nokkel, mottaker, type_))
     return cur.rowcount > 0
 
 
 def sett_sendt(con, nokkel: str, mottaker: str, type_: str) -> None:
     con.execute(
-        "UPDATE utsending_logg SET status='sendt', sendt_ts=datetime('now') WHERE nokkel=? AND mottaker=? AND type=?",
-        (nokkel, mottaker, type_))
+        "UPDATE utsending_logg SET status='sendt', sendt_ts=? WHERE nokkel=? AND mottaker=? AND type=?",
+        (naa_utc(), nokkel, mottaker, type_))
 
 
 def sett_sending_feilet(con, nokkel: str, mottaker: str, type_: str) -> None:
@@ -716,7 +742,8 @@ def reserver_faktura(con, paamelding_id: int, kursdag_id: int | None) -> bool:
     """Atomisk claim av et NYTT Visma-forsok. True hvis akkurat dette kallet vant claimen."""
     na = datetime.now().isoformat(timespec="seconds")
     cur = con.execute(
-        "INSERT OR IGNORE INTO faktura_forsok (paamelding_id, kursdag_id, status, opprettet) VALUES (?,?,'reservert',?)",
+        """INSERT INTO faktura_forsok (paamelding_id, kursdag_id, status, opprettet) VALUES (?,?,'reservert',?)
+           ON CONFLICT DO NOTHING""",
         (paamelding_id, kursdag_id, na))
     return cur.rowcount > 0
 
@@ -781,8 +808,8 @@ def uavklarte_operasjoner(con) -> dict:
     som krever manuell kontroll: e-post og faktura hver for seg, og totalt."""
     epost = con.execute(
         """SELECT COUNT(*) FROM utsending_logg
-           WHERE status='ukjent' OR (status='reservert' AND sendt_ts < datetime('now', ?))""",
-        (f"-{UAVKLART_GRENSE_MIN} minutes",)).fetchone()[0]
+           WHERE status='ukjent' OR (status='reservert' AND sendt_ts < ?)""",
+        (utc_minutter_siden(UAVKLART_GRENSE_MIN),)).fetchone()[0]
     gammel_grense = _lokal_gammel_grense_iso()
     faktura = con.execute(
         """SELECT COUNT(*) FROM faktura_forsok
@@ -802,11 +829,11 @@ def uavklart_status_for_paamelding(con, kurs_id: int, epost: str, paamelding_id:
     Samme staleness-definisjon (UAVKLART_GRENSE_MIN) og tidsbaser som uavklarte_operasjoner()."""
     ukjent = con.execute(
         """SELECT 1 FROM utsending_logg WHERE nokkel=? AND mottaker=? AND type=?
-                  AND (status='ukjent' OR (status='reservert' AND sendt_ts < datetime('now', ?)))
+                  AND (status='ukjent' OR (status='reservert' AND sendt_ts < ?))
            UNION ALL
            SELECT 1 FROM faktura_forsok WHERE paamelding_id=?
                   AND (status='ukjent' OR (status='reservert' AND opprettet < ?)) LIMIT 1""",
-        (f"kurs:{kurs_id}", epost, epost_type, f"-{UAVKLART_GRENSE_MIN} minutes", paamelding_id,
+        (f"kurs:{kurs_id}", epost, epost_type, utc_minutter_siden(UAVKLART_GRENSE_MIN), paamelding_id,
          _lokal_gammel_grense_iso())
     ).fetchone() is not None
     if ukjent:
@@ -830,10 +857,9 @@ def opprett_admin_utsending(con, kurs_id: int, emne: str, tekst: str, mottaker_p
     Mottakerne er allerede validert av kalleren (tilhorer kurset) foer denne kalles.
     """
     nokkel = f"adhoc:{kurs_id}:{secrets.token_hex(8)}"
-    cur = con.execute(
-        "INSERT INTO admin_utsending (nokkel, kurs_id, emne, tekst, sendt_av_admin_id) VALUES (?,?,?,?,?)",
+    utsending_id = sett_inn(
+        con, "INSERT INTO admin_utsending (nokkel, kurs_id, emne, tekst, sendt_av_admin_id) VALUES (?,?,?,?,?)",
         (nokkel, kurs_id, emne, tekst, sendt_av_admin_id))
-    utsending_id = cur.lastrowid
     con.executemany(
         "INSERT INTO admin_utsending_mottaker (utsending_id, paamelding_id) VALUES (?,?)",
         [(utsending_id, pid) for pid in mottaker_paamelding_ider])
@@ -853,7 +879,7 @@ def admin_utsending_mottakere(con, utsending_id: int) -> list[sqlite3.Row]:
 def registrer_oppmote(con, paamelding_id: int, kursdag_id: int, kilde: str, minutter: int | None = None) -> bool:
     """True hvis ny registrering, False hvis allerede registrert."""
     cur = con.execute(
-        "INSERT OR IGNORE INTO oppmote (paamelding_id, kursdag_id, kilde, minutter) VALUES (?,?,?,?)",
+        "INSERT INTO oppmote (paamelding_id, kursdag_id, kilde, minutter) VALUES (?,?,?,?) ON CONFLICT DO NOTHING",
         (paamelding_id, kursdag_id, kilde, minutter),
     )
     return cur.rowcount == 1
@@ -915,12 +941,12 @@ def _skjema_db_verdi(verdi):
 def hent_skjemaoverstyringer(con, kurs_id: int) -> "skjemafelt.Leseresultat":
     """Gyldige overstyringer for kurset + PII-frie advarsler for ignorerte rader/egenskaper (se skjemafelt.les_overstyringer).
 
-    En REELL lesefeil (sqlite3.Error) blir skjemafelt.SkjemaLesefeil - ALDRI et tomt resultat, siden «ingen overstyringer»
+    En REELL lesefeil (DatabaseFeil) blir skjemafelt.SkjemaLesefeil - ALDRI et tomt resultat, siden «ingen overstyringer»
     ville latt f.eks. et obligatorisk eller skjult felt stille falle tilbake til standard."""
     try:
         rader = [dict(r) for r in con.execute(
             f"SELECT felt, {','.join(_SKJEMA_KOLONNER)} FROM kurs_skjemafelt WHERE kurs_id=? ORDER BY felt", (kurs_id,))]
-    except sqlite3.Error as e:
+    except DatabaseFeil as e:
         raise skjemafelt.SkjemaLesefeil(kurs_id) from e
     return skjemafelt.les_overstyringer(rader)
 
