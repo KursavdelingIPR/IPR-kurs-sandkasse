@@ -300,14 +300,28 @@ def koble(sti: Path | None = None):
     return con
 
 
-def init(con) -> None:
-    """Oppretter manglende tabeller/indekser, legger til manglende kolonner og den forste admin-brukeren. Idempotent.
-    I drift kjoeres dette av `python -m kurs.migrer` - aldri av gunicorn."""
+def init(con) -> list[int]:
+    """Oppretter manglende tabeller/indekser, legger til manglende kolonner (eldre databaser), kjoerer manglende
+    versjonerte migreringer (kurs/migreringer.py) og den forste admin-brukeren. Idempotent. I drift kjoeres dette av
+    `python -m kurs.migrer` - aldri av gunicorn. Returnerer numrene paa migreringene som ble kjoert."""
+    from . import migreringer   # importeres her: migreringer bruker db
     con.executescript((_SCHEMA_POSTGRES if er_postgres(con) else _SCHEMA).read_text(encoding="utf-8"))
     _migrer(con)
+    con.commit()
+    kjort = migreringer.kjor_manglende(con)
     if not con.execute("SELECT 1 FROM admin_bruker").fetchone():
         opprett_admin_bruker(con, config.ADMIN_BRUKERNAVN, "Standardbruker", config.ADMIN_PASSORD)
     con.commit()
+    return kjort
+
+
+def neste_teller(con, navn: str) -> int:
+    """Neste verdi fra en teller som aldri gaar tilbake (UPDATE ... RETURNING: atomisk i SQLite og PostgreSQL - to
+    samtidige kall kan aldri faa samme verdi). Telleren opprettes av migreringene; mangler den, er databasen ikke migrert."""
+    rad = con.execute("UPDATE teller SET verdi = verdi + 1 WHERE navn=? RETURNING verdi", (navn,)).fetchone()
+    if rad is None:
+        raise DatabaseFeil(f"Telleren «{navn}» finnes ikke - kjoer migreringen (python -m kurs.migrer).")
+    return int(rad["verdi"])
 
 
 def har_tabell(con, tabell: str) -> bool:
@@ -495,19 +509,24 @@ def valider_faktura_dager_for(verdi) -> int:
 
 
 def opprett_kurs(con, *, kode: str, navn: str, datoer: list[str], aktor: str = "system", **felter) -> int:
+    """Oppretter et kurs med et NYTT, permanent kursnummer (kurs.kursnr) fra telleren - kalleren kan aldri velge nummeret.
+    `kode` er nettadresse-delen i offentlige lenker."""
     if "faktura_dager_for" in felter:   # foer noen skriving; utelatt felt beholder schema-defaulten (14)
         felter["faktura_dager_for"] = valider_faktura_dager_for(felter["faktura_dager_for"])
-    kolonner = ["kode", "navn", *felter.keys()]
+    felter.pop("kursnr", None)          # tildeles ALLTID her - ogsaa ved duplisering faar kopien nytt nummer
+    kolonner = ["kursnr", "kode", "navn", *felter.keys()]
     kurs_id = sett_inn(
         con, f"INSERT INTO kurs ({','.join(kolonner)}) VALUES ({','.join('?' * len(kolonner))})",
-        [kode, navn, *felter.values()],
+        [neste_teller(con, "kursnr"), kode, navn, *felter.values()],
     )
     for d in datoer:
         con.execute(
             "INSERT INTO kursdag (kurs_id, dato, innsjekk_token, innsjekk_kode) VALUES (?,?,?,?)",
             (kurs_id, d, secrets.token_urlsafe(24), ny_kode()),
         )
-    logg(con, "kurs_opprettet", {"kurs_id": kurs_id, "kode": kode}, aktor=aktor)
+    logg(con, "kurs_opprettet", {"kurs_id": kurs_id, "kode": kode,
+                                 "kursnr": con.execute("SELECT kursnr FROM kurs WHERE id=?", (kurs_id,)).fetchone()[0]},
+         aktor=aktor)
     return kurs_id
 
 

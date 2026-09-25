@@ -237,7 +237,7 @@ def test_ingen_advarsel_ved_ren_kilde(con, admin):
     kid = _kilde(con)
     _fullt_oppsett(con, kid)
     r = admin.post(f"/admin/kurs/ny?fra={kid}", data=_grunnlag(fra=str(kid)), follow_redirects=True)
-    assert r.status_code == 200 and "er opprettet med koden" in r.get_data(as_text=True)
+    assert r.status_code == 200 and "er opprettet med kursnummer" in r.get_data(as_text=True)
     assert "kunne ikke kopieres" not in r.get_data(as_text=True)
 
 

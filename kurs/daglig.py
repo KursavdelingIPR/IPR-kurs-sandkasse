@@ -209,7 +209,7 @@ def _purring(k):
     En MalFeil (ugyldig lagret mal) isoleres PER MATERIELLKRAV: den aktuelle paaminnelsen feiler lukket (ingen
     claim, ingen mail), mens andre materiellkrav og resten av daglig.kjor() fortsetter uendret."""
     krav = k.con.execute(
-        """SELECT m.*, k.navn AS kursnavn, k.kode FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id
+        """SELECT m.*, k.navn AS kursnavn, k.kursnr, k.kode FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id
            WHERE m.levert_ts IS NULL AND k.status!='avlyst'""").fetchall()
     for m in krav:
         igjen = (date.fromisoformat(m["frist"]) - k.idag).days
@@ -253,9 +253,18 @@ def main(argv=None):
     ap.add_argument("--dato", type=date.fromisoformat, help="overstyr dagens dato (YYYY-MM-DD)")
     a = ap.parse_args(argv)
     con = db.koble()
-    db.init(con)
+    if config.DEMO:
+        db.init(con)          # lokal sandkasse: hold databasen i takt automatisk
+    else:
+        from . import migreringer
+        try:
+            migreringer.kontroller(con)   # drift: migrering er et eget, eksplisitt steg (python -m kurs.migrer)
+        except migreringer.VersjonsFeil as e:
+            print(f"STOPP: {e}")
+            return 3
     kjor(Kjoring(con, idag=a.dato or date.today(), tor=a.tor))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

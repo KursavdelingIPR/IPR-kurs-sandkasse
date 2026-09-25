@@ -18,8 +18,8 @@ from flask import (Flask, Response, abort, flash, g, make_response, redirect, re
 from markupsafe import Markup
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from .. import (behandling, config, daglig, db, import_deltakere, mal_eksempler, maltekster, paameldingsside, skjemafelt,
-                sveiper)
+from .. import (behandling, config, daglig, db, import_deltakere, mal_eksempler, maltekster, migreringer, paameldingsside,
+                skjemafelt, sveiper)
 from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
 from ..kjoring import Kjoring
@@ -54,6 +54,28 @@ def _lukk(_exc):
     c = g.pop("con", None)
     if c:
         c.close()
+
+
+_database_klar = False   # per prosess: True naar databasens versjon er kontrollert og i takt med koden
+
+
+@app.before_request
+def _krev_migrert_database():
+    """Drift: appen kjoerer aldri mot en database med feil versjon (umigrert ELLER nyere enn koden). Kontrolleres ved
+    foerste request per prosess; ved avvik svares 503 paa alle requests og det kontrolleres paa nytt hver gang, slik at
+    appen tar seg inn igjen uten omstart naar `python -m kurs.migrer` er kjoert. I demo/sandkasse holder kjor.py
+    databasen i takt selv (db.init), saa kontrollen er ikke noedvendig der."""
+    global _database_klar
+    if config.DEMO or _database_klar:
+        return None
+    try:
+        migreringer.kontroller(con())
+    except migreringer.VersjonsFeil:
+        app.logger.error("Databasen har feil versjon - kjoer python -m kurs.migrer (503 til migreringen er kjoert)")
+        return render_template("feil.html", tittel="Tjenesten er midlertidig utilgjengelig",
+                               tekst="Systemet vedlikeholdes. Prøv igjen om noen minutter."), 503
+    _database_klar = True
+    return None
 
 
 def krever_admin(f):
@@ -630,7 +652,7 @@ def admin():
                   (SELECT COUNT(*) FROM faktura f JOIN paamelding p ON p.id=f.paamelding_id WHERE p.kurs_id=k.id) AS fakturert
            FROM kurs k LEFT JOIN kursdag kd ON kd.kurs_id=k.id GROUP BY k.id ORDER BY start DESC""").fetchall()
     mangler = con().execute(
-        """SELECT m.*, k.kode, k.navn AS kursnavn FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id
+        """SELECT m.*, k.kursnr, k.kode, k.navn AS kursnavn FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id
            WHERE m.levert_ts IS NULL ORDER BY m.frist""").fetchall()
     hendelser = con().execute("SELECT * FROM hendelse ORDER BY id DESC LIMIT 15").fetchall()
     # Levende telling fra NAAVAERENDE tilstand (ikke kumulativ hendelseslogg): uavklarte e-post-/faktura-
@@ -642,9 +664,19 @@ def admin():
 # ------- aktivitetsoversikt -------
 
 AKTIVITET_SORTER = {
-    "kode": "k.kode", "tittel": "k.navn", "start": "start", "status": "k.status",
+    "kursnr": "k.kursnr", "tittel": "k.navn", "start": "start", "status": "k.status",
     "paameldte": "bekreftet", "ansvarlig": "ansvarlig_navn",
 }
+
+
+def _kurs_sok_vilkar(sok: str) -> tuple[str, list]:
+    """Soek i kurslister: kursnavn (delstreng) ELLER kursnummer. Et rent tall treffer kursnummer som starter med tallet
+    («10» finner 1001-1099 ...) - eksakt nummer kommer alltid med. Returnerer (SQL-vilkaar, parametre)."""
+    if not sok:
+        return "1=1", []
+    if sok.isdigit():
+        return "(LOWER(k.navn) LIKE ? OR CAST(k.kursnr AS TEXT) LIKE ?)", [f"%{sok.lower()}%", f"{sok}%"]
+    return "LOWER(k.navn) LIKE ?", [f"%{sok.lower()}%"]
 
 
 @app.get("/admin/aktiviteter")
@@ -667,8 +699,9 @@ def admin_aktiviteter():
     side = max(1, request.args.get("side", type=int) or 1)
 
     # Samme sted-heuristikk og statusverdier som kurskalenderen (admin_kalender) - se den for begrunnelse.
-    vilkar = ["(? = '' OR LOWER(k.navn) LIKE ?)", "(? = 0 OR k.ansvarlig_admin_id = ?)"]
-    parametre = [sok.lower(), f"%{sok.lower()}%", 1 if mine else 0, session.get("admin_id")]
+    sok_sql, sok_parametre = _kurs_sok_vilkar(sok)
+    vilkar = [sok_sql, "(? = 0 OR k.ansvarlig_admin_id = ?)"]
+    parametre = [*sok_parametre, 1 if mine else 0, session.get("admin_id")]
     if ansvarlig:
         vilkar.append("k.ansvarlig_admin_id = ?")
         parametre.append(ansvarlig)
@@ -760,7 +793,7 @@ def admin_kalender():
         vilkar.append("(k.type IN ('digital','hybrid') OR LOWER(COALESCE(k.sted,'')) LIKE '%zoom%' "
                       "OR LOWER(COALESCE(k.sted,'')) LIKE '%online%')")
 
-    sql = f"""SELECT kd.dato, k.id, k.kode, k.navn, k.status,
+    sql = f"""SELECT kd.dato, k.id, k.kursnr, k.kode, k.navn, k.status,
                      COALESCE(k.sted, CASE WHEN k.type='digital' THEN 'Online' END) AS sted_visning
               FROM kursdag kd JOIN kurs k ON k.id=kd.kurs_id
               WHERE {' AND '.join(vilkar)}
@@ -1972,8 +2005,9 @@ def _kurs_rapport_rader():
     status = request.args.get("status") or ""
     ansvarlig = request.args.get("ansvarlig", type=int) or 0
     sok = request.args.get("sok", "").strip()
+    sok_sql, sok_parametre = _kurs_sok_vilkar(sok)
 
-    sql = """SELECT k.*, ab.navn AS ansvarlig_navn, MIN(kd.dato) AS start, MAX(kd.dato) AS slutt,
+    sql = f"""SELECT k.*, ab.navn AS ansvarlig_navn, MIN(kd.dato) AS start, MAX(kd.dato) AS slutt,
                     (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='bekreftet') AS bekreftet,
                     (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='venteliste') AS venteliste,
                     (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='avmeldt') AS avmeldt,
@@ -1982,12 +2016,12 @@ def _kurs_rapport_rader():
              FROM kurs k
              LEFT JOIN kursdag kd ON kd.kurs_id=k.id
              LEFT JOIN admin_bruker ab ON ab.id=k.ansvarlig_admin_id
-             WHERE (? = '' OR LOWER(k.navn) LIKE ?) AND (? = 0 OR k.ansvarlig_admin_id = ?)
+             WHERE {sok_sql} AND (? = 0 OR k.ansvarlig_admin_id = ?)
                    AND (? = '' OR k.status = ?)
              GROUP BY k.id, ab.navn
              HAVING (? = '' OR MAX(kd.dato) >= ?) AND (? = '' OR MIN(kd.dato) <= ?)
              ORDER BY start"""
-    args = (sok.lower(), f"%{sok.lower()}%", ansvarlig, ansvarlig, status, status, fra, fra, til, til)
+    args = (*sok_parametre, ansvarlig, ansvarlig, status, status, fra, fra, til, til)
     rader = con().execute(sql, args).fetchall()
     filtre = {"fra": fra or None, "til": til or None, "status": status or None,
              "ansvarlig_admin_id": ansvarlig or None, "har_sok": bool(sok)}
@@ -2011,11 +2045,11 @@ def admin_rapport_kurs_csv():
     rader, filtre = _kurs_rapport_rader()
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    w.writerow(["Kode", "Tittel", "Start", "Slutt", "Status", "Ansvarlig", "Bekreftet", "Kapasitet",
+    w.writerow(["Kursnr", "Tittel", "Start", "Slutt", "Status", "Ansvarlig", "Bekreftet", "Kapasitet",
                 "Fyllingsgrad (%)", "Venteliste", "Avmeldt", "Fakturert (kr)"])
     for k in rader:
         fyllingsgrad = round(k["bekreftet"] / k["kapasitet"] * 100) if k["kapasitet"] else ""
-        w.writerow([k["kode"], k["navn"], k["start"] or "", k["slutt"] or "", k["status"], k["ansvarlig_navn"] or "",
+        w.writerow([k["kursnr"], k["navn"], k["start"] or "", k["slutt"] or "", k["status"], k["ansvarlig_navn"] or "",
                    k["bekreftet"], k["kapasitet"] or "", fyllingsgrad, k["venteliste"], k["avmeldt"], k["fakturert"]])
     db.logg(con(), "rapport_eksportert", {"rapport": "kurs", **filtre, "antall_rader": len(rader)}, aktor=_aktor())
     con().commit()
@@ -2068,7 +2102,7 @@ def admin_rapport_deltakere_csv():
 def admin_rapport_deltaker(deltaker_id):
     deltaker = con().execute("SELECT * FROM deltaker WHERE id=?", (deltaker_id,)).fetchone() or abort(404)
     paameldinger = con().execute(
-        """SELECT p.id AS paamelding_id, p.kurs_id, p.status, p.opprettet, k.navn AS kurs_navn, k.kode,
+        """SELECT p.id AS paamelding_id, p.kurs_id, p.status, p.opprettet, k.navn AS kurs_navn, k.kursnr, k.kode,
                   k.status AS kurs_status
            FROM paamelding p JOIN kurs k ON k.id=p.kurs_id WHERE p.deltaker_id=? ORDER BY p.opprettet DESC""",
         (deltaker_id,)).fetchall()
@@ -2088,14 +2122,14 @@ def admin_rapporter():
              HAVING (? = '' OR MAX(dato) >= ?) AND (? = '' OR MIN(dato) <= ?))""", periode_args).fetchone()[0]
 
     venteliste_kurs = con().execute(
-        """SELECT k.id, k.navn, k.kode, COUNT(*) AS antall FROM paamelding p JOIN kurs k ON k.id=p.kurs_id
+        """SELECT k.id, k.navn, k.kursnr, COUNT(*) AS antall FROM paamelding p JOIN kurs k ON k.id=p.kurs_id
            WHERE p.status='venteliste' AND k.id IN (
              SELECT kurs_id FROM kursdag GROUP BY kurs_id
              HAVING (? = '' OR MAX(dato) >= ?) AND (? = '' OR MIN(dato) <= ?))
            GROUP BY k.id ORDER BY antall DESC""", periode_args).fetchall()
 
     avlyste_kurs = con().execute(
-        """SELECT k.id, k.navn, k.kode FROM kurs k WHERE k.status='avlyst' AND k.id IN (
+        """SELECT k.id, k.navn, k.kursnr FROM kurs k WHERE k.status='avlyst' AND k.id IN (
              SELECT kurs_id FROM kursdag GROUP BY kurs_id
              HAVING (? = '' OR MAX(dato) >= ?) AND (? = '' OR MIN(dato) <= ?))""", periode_args).fetchall()
 
@@ -2209,7 +2243,9 @@ def admin_ny_kurs():
                 if f.get("kursholder_epost") and f.get("materiell_frist"):
                     con().execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
                                   (kid, f.get("kursholder_navn") or f["kursholder_epost"], f["kursholder_epost"], f["materiell_frist"]))
-            flash(f"Kurset er opprettet med koden «{kode}», og har fått påmeldingsside, SharePoint-mappe og innsjekkkoder.", "ok")
+            kursnr = con().execute("SELECT kursnr FROM kurs WHERE id=?", (kid,)).fetchone()["kursnr"]
+            flash(f"Kurset er opprettet med kursnummer {kursnr}, og har fått påmeldingsside, SharePoint-mappe og "
+                  "innsjekkkoder.", "ok")
             if kopi_advarsel:
                 flash(_SKJEMA_KOPI_ADVARSEL, "info")
             if side_advarsel:
@@ -2412,7 +2448,8 @@ def api_paamelding():
         db.logg(con(), "webhook_avvist", {"felter": sorted(data.keys())})
         con().commit()
         return {"status": "feil", "melding": "mangler navn, epost eller kurs"}, 400
-    kurs = con().execute("SELECT id FROM kurs WHERE kode=? OR CAST(id AS TEXT)=?", (kurskode.upper(), kurskode)).fetchone()
+    kurs = con().execute("SELECT id FROM kurs WHERE kode=? OR CAST(kursnr AS TEXT)=?",
+                         (kurskode.upper(), kurskode)).fetchone()
     if not kurs:
         return {"status": "feil", "melding": f"ukjent kurs {kurskode}"}, 404
 
@@ -2484,10 +2521,10 @@ def admin_kunnskap():
         fra_henvendelse = con().execute("SELECT * FROM henvendelse WHERE id=?", (request.args["fra"],)).fetchone()
     return render_template(
         "admin_kunnskap.html",
-        oppforinger=con().execute("SELECT k.*, ku.kode FROM kunnskap k LEFT JOIN kurs ku ON ku.id=k.kurs_id ORDER BY k.godkjent, k.kategori, k.id").fetchall(),
+        oppforinger=con().execute("SELECT k.*, ku.kursnr FROM kunnskap k LEFT JOIN kurs ku ON ku.id=k.kurs_id ORDER BY k.godkjent, k.kategori, k.id").fetchall(),
         henvendelser=con().execute("SELECT * FROM henvendelse WHERE status='til_adm' ORDER BY id DESC").fetchall(),
         siste=con().execute("SELECT * FROM henvendelse ORDER BY id DESC LIMIT 20").fetchall(),
-        kurs=con().execute("SELECT id, kode, navn FROM kurs ORDER BY id DESC").fetchall(),
+        kurs=con().execute("SELECT id, kursnr, kode, navn FROM kurs ORDER BY id DESC").fetchall(),
         rediger=rediger, fra=fra_henvendelse)
 
 
@@ -2500,8 +2537,13 @@ def admin_lukk_henvendelse(hid):
 
 
 def main(omstart: bool = True):
+    """Lokal utviklingsserver (kjor.py / start.bat). I demo holdes databasen i takt automatisk; i prod brukes gunicorn
+    (startup.py) og migrering er et eget steg - denne serveren nekter da aa starte mot en umigrert database."""
     c = db.koble()
-    db.init(c)
+    if config.DEMO:
+        db.init(c)
+    else:
+        migreringer.kontroller(c)
     c.close()
     app.run(debug=config.DEMO, use_reloader=omstart and config.DEMO, host="127.0.0.1", port=5000)
 

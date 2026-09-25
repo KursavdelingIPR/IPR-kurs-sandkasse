@@ -7,6 +7,7 @@
   <p>Dette er den offentlige påmeldingssiden deltakerne ser for dette kurset.</p>
   <div style="display:flex; gap:10px; flex-wrap:wrap">
     <a class="knapp" href="{{ url_for('kursside', kode=kurs.kode) }}" target="_blank">Åpne offentlig side ↗</a>
+    <span class="liten dempet">Nettadresse: {{ url_for('kursside', kode=kurs.kode, _external=True) }}</span>
     <a class="knapp sekundar" href="{{ url_for('admin_forhandsvis_paamelding', kurs_id=kurs.id) }}" target="_blank" rel="noopener">Forhåndsvis påmeldingsskjema</a>
   </div>
   <p class="liten dempet" style="margin-top:16px">Forhåndsvisningen viser skjemaet slik det faktisk er satt opp for dette kurset (felter, pris, betalingsvalg og tekstene under) - ingen påmelding kan sendes derfra. Lagre først for å se endringene.</p>

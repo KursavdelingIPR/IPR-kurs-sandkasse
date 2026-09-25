@@ -8,7 +8,10 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS kurs (
     id              INTEGER PRIMARY KEY,
-    kode            TEXT UNIQUE NOT NULL,          -- kort kode brukt i URL-er, f.eks. EFT-2027-1
+    kursnr          INTEGER UNIQUE,                 -- permanent, numerisk kursnummer fra telleren 'kursnr' (aldri gjenbrukt,
+                                                    -- endres aldri). Settes ALLTID av db.opprett_kurs; NULL kun i en
+                                                    -- gammel database som ikke er migrert ennaa (migrering 1 fyller inn)
+    kode            TEXT UNIQUE NOT NULL,          -- nettadresse-del (slug) i offentlige lenker, f.eks. EFT-2027-1
     navn            TEXT NOT NULL,
     type            TEXT NOT NULL DEFAULT 'digital' CHECK (type IN ('digital','fysisk','hybrid')),
     status          TEXT NOT NULL DEFAULT 'aapen' CHECK (status IN ('utkast','aapen','full','aktiv','avsluttet','avlyst')),
@@ -258,6 +261,20 @@ CREATE TABLE IF NOT EXISTS import_forhaandsvisning (
     resultater_json TEXT NOT NULL,
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
     utloper         TEXT NOT NULL
+);
+
+-- Tellere som aldri gaar tilbake (kursnummer). db.neste_teller() bruker UPDATE ... RETURNING - atomisk i begge databaser.
+CREATE TABLE IF NOT EXISTS teller (
+    navn            TEXT PRIMARY KEY,
+    verdi           INTEGER NOT NULL
+);
+
+-- Versjonerte migreringer (kurs/migreringer.py): en rad per migrering som er kjoert. Appen nekter aa kjoere mot en
+-- database med annen versjon enn koden forventer (se migreringer.kontroller).
+CREATE TABLE IF NOT EXISTS schema_versjon (
+    versjon         INTEGER PRIMARY KEY,
+    navn            TEXT NOT NULL,
+    kjort           TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Ansatte som kan logge inn i administrasjonen. Passord lagres kun som hash (aldri klartekst).

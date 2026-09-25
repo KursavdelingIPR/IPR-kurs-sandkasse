@@ -2,10 +2,10 @@
 {% block innhold %}
 <h1>Nytt kurs</h1>
 {% if fra_kurs %}
-<div class="flash info">Du oppretter et nytt kurs basert på «{{ fra_kurs.navn }}» ({{ fra_kurs.kode }}). Gå gjennom feltene,
+<div class="flash info">Du oppretter et nytt kurs basert på «{{ fra_kurs.navn }}» (kursnr. {{ fra_kurs.kursnr }}). Kopien får et nytt kursnummer. Gå gjennom feltene,
   sett nye kursdatoer og en ny påmeldingsfrist. Kurset lagres som <strong>utkast</strong> til du selv åpner det for påmelding.</div>
 {% endif %}
-<p class="sub">Når kurset lagres, lages kurskode, påmeldingsside, SharePoint-mappe og innsjekkkoder automatisk. Zoom-møte lages ~8 dager før start.</p>
+<p class="sub">Når kurset lagres, får det et permanent kursnummer, og påmeldingsside, SharePoint-mappe og innsjekkkoder lages automatisk. Zoom-møte lages ~8 dager før start.</p>
 <form method="post" class="kort" style="max-width:820px">
   {% if fra_kurs %}<input type="hidden" name="fra" value="{{ fra_kurs.id }}">{% endif %}
   <div class="rad">

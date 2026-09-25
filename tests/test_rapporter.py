@@ -88,7 +88,7 @@ def test_kurs_rapport_csv_har_riktige_kolonner_og_ingen_sensitivt(con):
     r = klient.get("/admin/rapporter/kurs.csv")
     tekst = r.get_data(as_text=True)
     assert tekst.startswith("﻿")
-    assert "Kode;Tittel;Start;Slutt;Status" in tekst
+    assert "Kursnr;Tittel;Start;Slutt;Status" in tekst
     assert "Hemmelig-Notter-Info" not in tekst
 
 
@@ -181,7 +181,7 @@ def test_person_detaljside_viser_alle_kurs_ingen_sensitivt(con):
     klient = _klient()
     _logg_inn(klient)
     tekst = klient.get(f"/admin/rapporter/deltaker/{did}").get_data(as_text=True)
-    assert "K1" in tekst and "K2" in tekst
+    assert "1001" in tekst and "1002" in tekst   # kursnumrene
     assert "Skjules-Her-Ogsaa" not in tekst
 
 

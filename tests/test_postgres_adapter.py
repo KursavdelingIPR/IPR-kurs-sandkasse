@@ -274,7 +274,7 @@ def test_init_paa_postgres_bruker_postgres_skjemaet():
     assert raa.kall[0][0] == (KURS_MAPPE / "schema_postgres.sql").read_text(encoding="utf-8")
     assert not any("ALTER TABLE" in sql for sql, _ in raa.kall)                      # ingen manglende kolonner
     assert not any(sql.startswith("INSERT INTO admin_bruker") for sql, _ in raa.kall)
-    assert raa.committet == 1
+    assert raa.committet >= 1
 
 
 # ============================ backend-valg ============================

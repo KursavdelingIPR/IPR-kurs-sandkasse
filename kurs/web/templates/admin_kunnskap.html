@@ -20,7 +20,7 @@
   <div class="rad">
     <div><label>Kategori</label><input name="kategori" required value="{{ rediger.kategori if rediger else '' }}" placeholder="avmelding, praktisk, faktura …"></div>
     <div><label>Gjelder kurs</label><select name="kurs_id"><option value="">Alle kurs</option>
-      {% for k in kurs %}<option value="{{ k.id }}" {{ 'selected' if rediger and rediger.kurs_id == k.id }}>{{ k.kode }} – {{ k.navn }}</option>{% endfor %}</select></div>
+      {% for k in kurs %}<option value="{{ k.id }}" {{ 'selected' if rediger and rediger.kurs_id == k.id }}>{{ k.kursnr }} – {{ k.navn }}</option>{% endfor %}</select></div>
     <div><label>Gyldig til (valgfritt)</label><input type="date" name="gyldig_til" value="{{ rediger.gyldig_til or '' if rediger else '' }}"></div>
   </div>
   <label>Typiske spørsmål (ett per linje – ulike måter å spørre på)</label>
@@ -36,7 +36,7 @@
   <tr><th>ID</th><th>Kategori</th><th>Spørsmål</th><th>Svar</th><th>Gjelder</th><th>Status</th><th></th></tr>
   {% for k in oppforinger %}
   <tr><td class="liten">K{{ k.id }}</td><td>{{ k.kategori }}</td><td class="liten">{{ k.sporsmal | replace('\n', ' · ') }}</td><td class="liten">{{ k.svar }}</td>
-      <td class="liten">{{ k.kode or 'alle' }}</td>
+      <td class="liten">{{ k.kursnr or 'alle' }}</td>
       <td>{% if not k.godkjent %}<span class="merke gul">utkast</span>{% elif k.gyldig_til and k.gyldig_til < idag %}<span class="merke feil">utløpt</span>{% else %}<span class="merke ok">aktiv</span>{% endif %}
         <div class="liten dempet">{{ k.oppdatert[:10] }}</div></td>
       <td><a class="knapp liten sekundar" href="{{ url_for('admin_kunnskap', rediger=k.id) }}#skjema">Rediger</a></td></tr>

@@ -15,7 +15,7 @@
   <tr><th>Kurs</th><th>Datoer</th><th>Type</th><th>Status</th><th>Påmeldt</th><th>Venteliste</th><th>Fakturert</th></tr>
   {% for k in kurs %}
   <tr>
-    <td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a><div class="liten dempet">{{ k.kode }}</div></td>
+    <td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a><div class="liten dempet">Kursnr. {{ k.kursnr }}</div></td>
     <td class="liten">{{ k.start }}{% if k.slutt != k.start %} – {{ k.slutt }}{% endif %}</td>
     <td>{{ k.type }}</td>
     <td><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra'}.get(k.status,'gra') }}">{{ k.status }}</span></td>
@@ -31,7 +31,7 @@
 <div class="tabellboks"><table>
   <tr><th>Kurs</th><th>Ansvarlig</th><th>Frist</th><th></th></tr>
   {% for m in mangler %}
-  <tr><td>{{ m.kode }} {{ m.kursnavn }}</td><td>{{ m.ansvarlig_navn }}<div class="liten dempet">{{ m.ansvarlig_epost }}</div></td>
+  <tr><td>{{ m.kursnr }} {{ m.kursnavn }}</td><td>{{ m.ansvarlig_navn }}<div class="liten dempet">{{ m.ansvarlig_epost }}</div></td>
       <td><span class="merke {{ 'feil' if m.frist < idag else 'gul' }}">{{ m.frist }}</span></td>
       <td class="liten"><a href="{{ url_for('lever', krav_id=m.id) }}">Opplastingslenke</a> · purres automatisk</td></tr>
   {% endfor %}

@@ -106,7 +106,7 @@ def test_kurs_med_flere_kursdager_vises_paa_hver_dato(con):
     klient = _klient()
     _logg_inn(klient)
     t = _hent(klient, aar=2027, maned=3).get_data(as_text=True)
-    assert t.count("FLERE") == 2
+    assert t.count("Kurs med flere dager") == 2
 
 
 def test_flere_kurs_samme_dag_vises_alle(con):
@@ -116,7 +116,7 @@ def test_flere_kurs_samme_dag_vises_alle(con):
     klient = _klient()
     _logg_inn(klient)
     t = _hent(klient, aar=2027, maned=3).get_data(as_text=True)
-    assert "A1" in t and "A2" in t
+    assert "Kurs A" in t and "Kurs B" in t
 
 
 def test_kurs_utenfor_maaneden_vises_ikke(con):

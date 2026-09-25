@@ -6,7 +6,7 @@
 {% include "admin_aktivitet_faner.html" %}
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:16px">
-  <div><label>Søk på kursnavn</label><input type="search" name="sok" value="{{ sok }}" placeholder="Søk…"></div>
+  <div><label>Søk på kursnavn eller kursnr.</label><input type="search" name="sok" value="{{ sok }}" placeholder="Navn eller kursnr."></div>
   <div><label>Sted</label>
     <select name="sted">
       <option value="" {{ 'selected' if not sted }}>Alle steder</option>
@@ -45,7 +45,7 @@
 
 <div class="tabellboks"><table>
   <tr>
-    <th>{{ sorterlenke('kode', 'Kode') }}</th>
+    <th>{{ sorterlenke('kursnr', 'Kursnr') }}</th>
     <th>{{ sorterlenke('tittel', 'Tittel') }}</th>
     <th>{{ sorterlenke('start', 'Start') }}</th>
     <th>Sted / Online</th>
@@ -57,7 +57,7 @@
   </tr>
   {% for k in kurs %}
   <tr>
-    <td><code>{{ k.kode }}</code></td>
+    <td>{{ k.kursnr }}</td>
     <td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a></td>
     <td class="liten">{{ k.start }}{% if k.start_kl %} kl. {{ k.start_kl }}{% endif %}</td>
     <td class="liten">{{ k.sted_visning or '–' }}</td>

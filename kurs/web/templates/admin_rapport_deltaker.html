@@ -9,7 +9,7 @@
   <tr><th>Kurs</th><th>Påmeldingsstatus</th><th>Kursstatus</th><th>Påmeldt</th><th></th></tr>
   {% for p in paameldinger %}
   <tr>
-    <td>{{ p.kode }} {{ p.kurs_navn }}</td>
+    <td>{{ p.kursnr }} {{ p.kurs_navn }}</td>
     <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}[p.status] }}">{{ p.status }}</span></td>
     <td class="liten">{{ p.kurs_status }}</td>
     <td class="liten dempet">{{ p.opprettet[:10] }}</td>

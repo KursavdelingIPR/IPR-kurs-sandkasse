@@ -28,7 +28,7 @@
 <div class="tabellboks"><table>
   <tr><th>Kurs</th><th>Antall på venteliste</th></tr>
   {% for k in venteliste_kurs %}
-  <tr><td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}">{{ k.kode }} {{ k.navn }}</a></td><td>{{ k.antall }}</td></tr>
+  <tr><td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}">{{ k.kursnr }} {{ k.navn }}</a></td><td>{{ k.antall }}</td></tr>
   {% endfor %}
 </table></div>
 {% endif %}
@@ -38,7 +38,7 @@
 <div class="tabellboks"><table>
   <tr><th>Kurs</th></tr>
   {% for k in avlyste_kurs %}
-  <tr><td><a href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}">{{ k.kode }} {{ k.navn }}</a></td></tr>
+  <tr><td><a href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}">{{ k.kursnr }} {{ k.navn }}</a></td></tr>
   {% endfor %}
 </table></div>
 {% endif %}

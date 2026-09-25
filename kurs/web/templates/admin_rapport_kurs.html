@@ -29,10 +29,10 @@
 <p class="liten dempet" style="margin-bottom:10px">«Fakturert» viser fakturaer opprettet/sendt fra systemet, ikke nødvendigvis innbetalt beløp.</p>
 
 <div class="tabellboks"><table>
-  <tr><th>Kode</th><th>Tittel</th><th>Periode</th><th>Status</th><th>Ansvarlig</th><th>Bekreftet/kapasitet</th><th>Fyllingsgrad</th><th>Venteliste</th><th>Avmeldt</th><th>Fakturert</th></tr>
+  <tr><th>Kursnr</th><th>Tittel</th><th>Periode</th><th>Status</th><th>Ansvarlig</th><th>Bekreftet/kapasitet</th><th>Fyllingsgrad</th><th>Venteliste</th><th>Avmeldt</th><th>Fakturert</th></tr>
   {% for k in rader %}
   <tr>
-    <td><code>{{ k.kode }}</code></td>
+    <td>{{ k.kursnr }}</td>
     <td>{{ k.navn }}</td>
     <td class="liten">{{ k.start or '–' }}{% if k.slutt and k.slutt != k.start %} – {{ k.slutt }}{% endif %}</td>
     <td><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','avlyst':'feil','utkast':'gra'}.get(k.status,'gra') }}">{{ k.status }}</span></td>
