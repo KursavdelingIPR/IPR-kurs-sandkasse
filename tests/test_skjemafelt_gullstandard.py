@@ -50,6 +50,8 @@ class _Dom(HTMLParser):
             attrs = [(k, "<csrf>" if k == "value" else v) for k, v in attrs]
         if tag == "script":
             attrs = [(k, "<nonce>" if k == "nonce" else v) for k, v in attrs]
+        if tag == "style":
+            self._i_stil = True
         if tag == "input":
             self.inputs.append((a.get("name"), dict(attrs)))
         self.tokens.append("<" + " ".join([tag, *(f"{k}={v!r}" if v is not None else k for k, v in attrs)]) + ">")
@@ -57,10 +59,16 @@ class _Dom(HTMLParser):
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
 
+    _i_stil = False
+
     def handle_endtag(self, tag):
+        if tag == "style":
+            self._i_stil = False
         self.tokens.append(f"</{tag}>")
 
     def handle_data(self, data):
+        if self._i_stil:           # felles CSS i base.html er ikke en del av skjemaets gullstandard
+            return
         tekst = " ".join(data.split())
         if tekst:
             self.tokens.append("#" + tekst)

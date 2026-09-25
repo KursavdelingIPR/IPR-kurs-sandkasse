@@ -310,7 +310,7 @@ def init(con) -> list[int]:
     con.commit()
     kjort = migreringer.kjor_manglende(con)
     if not con.execute("SELECT 1 FROM admin_bruker").fetchone():
-        opprett_admin_bruker(con, config.ADMIN_BRUKERNAVN, "Standardbruker", config.ADMIN_PASSORD)
+        opprett_admin_bruker(con, config.ADMIN_BRUKERNAVN, "Standardbruker", config.ADMIN_PASSORD, rolle="system")
     con.commit()
     return kjort
 
@@ -459,14 +459,85 @@ def ny_kode(lengde: int = 6) -> str:
 
 # ---------- admin-brukere ----------
 
-def opprett_admin_bruker(con, brukernavn: str, navn: str, passord: str, aktor: str = "system") -> int:
+ROLLER = ("system", "kursadmin", "lese")
+ROLLE_NAVN = {"system": "Systemadministrator", "kursadmin": "Kursadministrator", "lese": "Lesetilgang"}
+
+
+class RolleFeil(Exception):
+    pass
+
+
+def opprett_admin_bruker(con, brukernavn: str, navn: str, passord: str, aktor: str = "system",
+                         rolle: str = "kursadmin", entra_oid: str | None = None, epost: str | None = None) -> int:
+    if rolle not in ROLLER:
+        raise RolleFeil("Ugyldig rolle.")
     brukernavn = brukernavn.strip().lower()
     admin_id = sett_inn(
-        con, "INSERT INTO admin_bruker (brukernavn, navn, passord_hash) VALUES (?,?,?)",
-        (brukernavn, navn.strip(), generate_password_hash(passord)),
+        con, "INSERT INTO admin_bruker (brukernavn, navn, passord_hash, rolle, entra_oid, epost) VALUES (?,?,?,?,?,?)",
+        (brukernavn, navn.strip(), generate_password_hash(passord), rolle, entra_oid, epost),
     )
-    logg(con, "admin_bruker_opprettet", {"brukernavn": brukernavn}, aktor=aktor)
+    logg(con, "admin_bruker_opprettet", {"brukernavn": brukernavn, "rolle": rolle, "entra": entra_oid is not None},
+         aktor=aktor)
     return admin_id
+
+
+def antall_aktive_systemadmin(con) -> int:
+    return con.execute("SELECT COUNT(*) FROM admin_bruker WHERE aktiv=1 AND rolle='system'").fetchone()[0]
+
+
+def sett_admin_rolle(con, admin_id: int, rolle: str, aktor: str = "system") -> bool:
+    """Endrer rolle. Den siste aktive systemadministratoren kan aldri fratas rollen (da ville ingen kunne styre
+    brukere). True = endret."""
+    if rolle not in ROLLER:
+        raise RolleFeil("Ugyldig rolle.")
+    rad = con.execute("SELECT * FROM admin_bruker WHERE id=?", (admin_id,)).fetchone()
+    if not rad:
+        raise RolleFeil("Ukjent bruker.")
+    if rad["rolle"] == rolle:
+        return False
+    if rad["rolle"] == "system" and rad["aktiv"] and antall_aktive_systemadmin(con) <= 1:
+        raise RolleFeil("Den siste aktive systemadministratoren kan ikke fratas rollen.")
+    con.execute("UPDATE admin_bruker SET rolle=? WHERE id=?", (rolle, admin_id))
+    logg(con, "admin_rolle_endret", {"id": admin_id, "fra": rad["rolle"], "til": rolle}, aktor=aktor)
+    return True
+
+
+def finn_eller_opprett_entra_bruker(con, oid: str, navn: str, epost: str | None, rolle: str, aktor: str = "entra"):
+    """Innlogging via Microsoft Entra ID. Finner brukeren paa entra_oid; finnes den ikke, knyttes en eksisterende LOKAL
+    bruker med samme brukernavn (= e-post) til Entra, ellers opprettes en ny. Navn, e-post og ROLLE oppdateres fra Entra
+    ved hver innlogging (Entra er fasit for rollen). En deaktivert bruker slipper ikke inn - deaktivering i appen vinner.
+    Returnerer raden, eller None hvis brukeren er deaktivert."""
+    if rolle not in ROLLER:
+        raise RolleFeil("Ugyldig rolle.")
+    navn = (navn or epost or oid).strip()
+    epost = (epost or "").strip().lower() or None
+    rad = con.execute("SELECT * FROM admin_bruker WHERE entra_oid=?", (oid,)).fetchone()
+    if not rad and epost:
+        lokal = con.execute("SELECT * FROM admin_bruker WHERE brukernavn=? AND entra_oid IS NULL", (epost,)).fetchone()
+        if lokal:
+            con.execute("UPDATE admin_bruker SET entra_oid=? WHERE id=?", (oid, lokal["id"]))
+            logg(con, "admin_bruker_knyttet_entra", {"id": lokal["id"]}, aktor=aktor)
+            rad = con.execute("SELECT * FROM admin_bruker WHERE id=?", (lokal["id"],)).fetchone()
+    if not rad:
+        brukernavn = epost or f"entra:{oid}"
+        # Entra-brukere har ikke lokalt passord: et tilfeldig, ukjent passord gjoer lokal innlogging umulig.
+        admin_id = opprett_admin_bruker(con, brukernavn, navn, secrets.token_urlsafe(32), aktor=aktor, rolle=rolle,
+                                        entra_oid=oid, epost=epost)
+        return con.execute("SELECT * FROM admin_bruker WHERE id=?", (admin_id,)).fetchone()
+    if not rad["aktiv"]:
+        return None
+    endringer = {k: v for k, v in (("navn", navn), ("epost", epost), ("rolle", rolle)) if rad[k] != v}
+    if endringer:
+        if "rolle" in endringer:
+            try:
+                sett_admin_rolle(con, rad["id"], rolle, aktor=aktor)
+            except RolleFeil:
+                pass    # siste systemadmin beholder rollen lokalt selv om Entra sier noe annet
+            endringer.pop("rolle")
+        if endringer:
+            con.execute(f"UPDATE admin_bruker SET {','.join(f'{k}=?' for k in endringer)} WHERE id=?",
+                        [*endringer.values(), rad["id"]])
+    return con.execute("SELECT * FROM admin_bruker WHERE id=?", (rad["id"],)).fetchone()
 
 
 def verifiser_admin(con, brukernavn: str, passord: str) -> sqlite3.Row | None:

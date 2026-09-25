@@ -28,7 +28,7 @@ from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
 from ..kjoring import Kjoring
 from ..kursbevis import timer_i_lop
-from . import sikkerhet
+from . import entra, sikkerhet
 
 app = Flask(__name__)
 app.secret_key = config.HEMMELIG_NOKKEL
@@ -99,7 +99,8 @@ def _tilgangslogg(respons):
 
 @app.context_processor
 def _globale():
-    return {"demo": config.DEMO, "idag": _idag().isoformat()}
+    return {"demo": config.DEMO, "idag": _idag().isoformat(), "admin_rolle": g.get("admin_rolle"),
+            "rolle_navn": db.ROLLE_NAVN}
 
 
 def _idag() -> date:
@@ -148,19 +149,31 @@ def _krev_migrert_database():
     return None
 
 
+# Rollebasert tilgang (fase 13). Haandheves HER, server-side, for hver admin-request - aldri bare skjult i UI.
+#   system    - alt, inkludert brukere og (toerr)kjoering av daglig jobb
+#   kursadmin - alt daglig kursarbeid (kurs, deltakere, e-post, maler, rapporter, kunnskapsbase)
+#   lese      - kun se: ingen POST, ingen eksport av personopplysninger, ingen allergiliste
+SYSTEM_ENDEPUNKTER = frozenset({"admin_brukere", "admin_bruker_deaktiver", "admin_bruker_rolle", "admin_daglig"})
+KUN_KURSADMIN_ENDEPUNKTER = frozenset({"admin_csv", "admin_eksporter_valgte_csv", "admin_allergiliste",
+                                       "admin_rapport_kurs_csv", "admin_rapport_deltakere_csv", "admin_utboks"})
+LESE_TILLATTE_POST = frozenset({"admin_logg_ut"})
+
+
 def _admin_okt_gyldig() -> bool:
     """Server-side kontroll av admin-oekten ved HVER request: bruker finnes og er aktiv (deaktivering virker straks),
-    absolutt levetid og inaktivitetsgrense. Ugyldig oekt fjernes fra sesjonen."""
+    absolutt levetid og inaktivitetsgrense. Rollen leses fra databasen hver gang (endringer virker straks) og legges
+    i g.admin_rolle. Ugyldig oekt fjernes fra sesjonen."""
     admin_id = session.get("admin_id")
     if not admin_id:
         return False
     naa = time.time()
     start, sist = session.get("admin_start", 0), session.get("admin_sist", 0)
     utlopt = naa - start > ADMIN_MAKS_TIMER * 3600 or naa - sist > ADMIN_INAKTIV_MIN * 60
-    aktiv = not utlopt and con().execute("SELECT 1 FROM admin_bruker WHERE id=? AND aktiv=1", (admin_id,)).fetchone()
-    if not aktiv:
+    rad = None if utlopt else con().execute("SELECT rolle FROM admin_bruker WHERE id=? AND aktiv=1", (admin_id,)).fetchone()
+    if not rad:
         _admin_logg_ut()
         return False
+    g.admin_rolle = rad["rolle"]
     if naa - sist > 60:                        # skriv cookien paa nytt hoeyst hvert minutt
         session["admin_sist"] = naa
     return True
@@ -171,11 +184,44 @@ def _admin_logg_ut() -> None:
         session.pop(n, None)
 
 
+def _logg_inn_admin(bruker, neste=None):
+    """Setter opp admin-sesjonen etter bekreftet identitet (lokalt passord ELLER Entra): ny sesjon (mot session fixation,
+    deltakerinnlogging beholdes), tidsstempler, hendelse. Returnerer viderekoblingen."""
+    deltaker_id = session.get("deltaker_id")
+    session.clear()
+    if deltaker_id:
+        session["deltaker_id"] = deltaker_id
+    session.permanent = True
+    session["admin_id"], session["admin_brukernavn"], session["admin_navn"] = (
+        bruker["id"], bruker["brukernavn"], bruker["navn"])
+    session["admin_start"] = session["admin_sist"] = time.time()
+    db.logg(con(), "admin_innlogget", {"admin_id": bruker["id"], "entra": bool(bruker["entra_oid"])},
+            aktor=f"admin:{bruker['brukernavn']}")
+    con().commit()
+    return redirect(sikkerhet.trygg_neste(neste, url_for("admin")))
+
+
+def _har_rolle_for(endepunkt: str | None, metode: str) -> bool:
+    rolle = g.get("admin_rolle")
+    if rolle == "system":
+        return True
+    if endepunkt in SYSTEM_ENDEPUNKTER:
+        return False
+    if rolle == "kursadmin":
+        return True
+    # lese
+    if metode not in ("GET", "HEAD", "OPTIONS") and endepunkt not in LESE_TILLATTE_POST:
+        return False
+    return endepunkt not in KUN_KURSADMIN_ENDEPUNKTER
+
+
 def krever_admin(f):
     @wraps(f)
     def inner(*a, **kw):
         if not _admin_okt_gyldig():
             return redirect(url_for("admin_login", neste=request.path))
+        if not _har_rolle_for(request.endpoint, request.method):
+            abort(403)
         return f(*a, **kw)
     return inner
 
@@ -730,27 +776,20 @@ def lever(krav_id, signatur):
 @app.route("/admin/logg-inn", methods=["GET", "POST"])
 def admin_login():
     if request.method == "POST":
+        if not config.ADMIN_LOKAL_INNLOGGING:
+            abort(404)                                  # drift uten noedbrukere: kun Entra
         brukernavn = request.form.get("brukernavn", "")
         sikkerhet.krev_kvote("admin_login")
         sikkerhet.krev_kvote("admin_login_bruker", brukernavn)
         bruker = db.verifiser_admin(con(), brukernavn, request.form.get("passord", ""))
-        if bruker:
-            deltaker_id = session.get("deltaker_id")
-            session.clear()                             # ny sesjon ved innlogging (mot session fixation)
-            if deltaker_id:
-                session["deltaker_id"] = deltaker_id
-            session.permanent = True
-            session["admin_id"], session["admin_brukernavn"], session["admin_navn"] = (
-                bruker["id"], bruker["brukernavn"], bruker["navn"])
-            session["admin_start"] = session["admin_sist"] = time.time()
-            db.logg(con(), "admin_innlogget", {"admin_id": bruker["id"]}, aktor=f"admin:{bruker['brukernavn']}")
-            con().commit()
-            return redirect(sikkerhet.trygg_neste(request.args.get("neste"), url_for("admin")))
+        if bruker and not bruker["entra_oid"]:          # Entra-brukere har ikke lokalt passord
+            return _logg_inn_admin(bruker, request.args.get("neste"))
         db.logg(con(), "admin_innlogging_avvist", {"brukernavn_hash": hashlib.sha256(
             brukernavn.strip().lower().encode()).hexdigest()[:16]})
         con().commit()
         flash("Feil brukernavn eller passord.", "feil")
-    return render_template("admin_login.html")
+    return render_template("admin_login.html", entra=entra.aktiv(), lokal=config.ADMIN_LOKAL_INNLOGGING,
+                           neste=sikkerhet.trygg_neste(request.args.get("neste"), ""))
 
 
 @app.route("/admin/brukere", methods=["GET", "POST"])
@@ -758,20 +797,39 @@ def admin_login():
 def admin_brukere():
     if request.method == "POST":
         f = request.form
+        rolle = f.get("rolle", "kursadmin")
         if not f.get("navn", "").strip() or not f.get("brukernavn", "").strip() or not f.get("passord"):
             flash("Fyll inn navn, brukernavn og passord.", "feil")
-        elif len(f["passord"]) < 8:
-            flash("Passordet må være minst 8 tegn.", "feil")
+        elif len(f["passord"]) < 12:
+            flash("Passordet må være minst 12 tegn.", "feil")
+        elif rolle not in db.ROLLER:
+            flash("Ugyldig rolle.", "feil")
         else:
             try:
-                db.opprett_admin_bruker(con(), f["brukernavn"], f["navn"], f["passord"], aktor=_aktor())
+                db.opprett_admin_bruker(con(), f["brukernavn"], f["navn"], f["passord"], aktor=_aktor(), rolle=rolle)
                 con().commit()
-                flash(f"Brukeren «{f['brukernavn'].strip().lower()}» er opprettet.", "ok")
+                flash(f"Brukeren «{f['brukernavn'].strip().lower()}» er opprettet som {db.ROLLE_NAVN[rolle].lower()}.", "ok")
             except db.IntegritetsFeil:
+                con().rollback()
                 flash("Det finnes allerede en bruker med det brukernavnet.", "feil")
         return redirect(url_for("admin_brukere"))
     brukere = con().execute("SELECT * FROM admin_bruker ORDER BY navn").fetchall()
-    return render_template("admin_brukere.html", brukere=brukere)
+    return render_template("admin_brukere.html", brukere=brukere, roller=db.ROLLER, entra=entra.aktiv(),
+                           lokal=config.ADMIN_LOKAL_INNLOGGING)
+
+
+@app.post("/admin/brukere/<int:bid>/rolle")
+@krever_admin
+def admin_bruker_rolle(bid):
+    try:
+        endret = db.sett_admin_rolle(con(), bid, request.form.get("rolle", ""), aktor=_aktor())
+        con().commit()
+    except db.RolleFeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+        return redirect(url_for("admin_brukere"))
+    flash("Rollen er endret." if endret else "Rollen var allerede satt.", "ok")
+    return redirect(url_for("admin_brukere"))
 
 
 @app.post("/admin/brukere/<int:bid>/deaktiver")
@@ -781,9 +839,8 @@ def admin_bruker_deaktiver(bid):
     if bid == session.get("admin_id"):
         flash("Du kan ikke deaktivere din egen bruker.", "feil")
         return redirect(url_for("admin_brukere"))
-    aktive = con().execute("SELECT COUNT(*) FROM admin_bruker WHERE aktiv=1").fetchone()[0]
-    if bruker["aktiv"] and aktive <= 1:
-        flash("Den siste aktive brukeren kan ikke deaktiveres.", "feil")
+    if bruker["aktiv"] and bruker["rolle"] == "system" and db.antall_aktive_systemadmin(con()) <= 1:
+        flash("Den siste aktive systemadministratoren kan ikke deaktiveres.", "feil")
         return redirect(url_for("admin_brukere"))
     con().execute("UPDATE admin_bruker SET aktiv = 1 - aktiv WHERE id=?", (bid,))
     db.logg(con(), "admin_bruker_endret", {"id": bid, "aktiv": 0 if bruker["aktiv"] else 1}, aktor=_aktor())
@@ -2718,6 +2775,9 @@ def admin_lukk_henvendelse(hid):
     con().execute("UPDATE henvendelse SET status='lukket' WHERE id=?", (hid,))
     con().commit()
     return redirect(url_for("admin_kunnskap"))
+
+
+entra.installer(app, con, _logg_inn_admin)
 
 
 def main(omstart: bool = True):

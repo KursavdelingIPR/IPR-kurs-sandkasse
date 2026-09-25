@@ -198,6 +198,9 @@ def produksjonsfeil() -> list[str]:
         feil.append("WEBHOOK_HEMMELIG maa vaere en tilfeldig streng paa minst 32 tegn")
     if not config.BASE_URL.startswith("https://"):
         feil.append("BASE_URL maa vaere https:// i drift")
+    entra_ok = bool(config.ENTRA_TENANT_ID and config.ENTRA_CLIENT_ID and config.ENTRA_CLIENT_SECRET)
+    if not entra_ok and not config.ADMIN_LOKAL_INNLOGGING:
+        feil.append("Ingen innloggingsvei for admin: sett opp Entra ID (ENTRA_*) eller ADMIN_LOKAL_INNLOGGING=1")
     return feil
 
 

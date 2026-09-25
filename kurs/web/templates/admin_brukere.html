@@ -1,34 +1,63 @@
 {% extends "admin_base.html" %}
 {% block innhold %}
 <h1>Brukere</h1>
-<p class="sub">Alle som skal logge inn i administrasjonen må ha sin egen bruker. Del aldri passord mellom flere personer.</p>
+<p class="sub">Alle som skal logge inn i administrasjonen må ha sin egen bruker. Del aldri passord mellom flere personer.
+  {% if entra %}Brukere som logger inn med Microsoft opprettes automatisk første gang, og får rollen fra Entra ID.{% endif %}</p>
+
+<div class="kort" style="max-width:820px; margin-bottom:18px">
+  <strong>Roller</strong>
+  <ul class="liten" style="margin:6px 0 0; padding-left:18px">
+    <li><strong>Systemadministrator</strong> – alt, inkludert brukere og daglig kjøring.</li>
+    <li><strong>Kursadministrator</strong> – alt daglig kursarbeid: kurs, deltakere, e-post, maler, rapporter.</li>
+    <li><strong>Lesetilgang</strong> – kan se alt, men ikke endre noe, eksportere lister eller se allergilister.</li>
+  </ul>
+</div>
 
 <div class="tabellboks">
 <table>
-<tr><th>Navn</th><th>Brukernavn</th><th>Status</th><th>Opprettet</th><th></th></tr>
+<tr><th scope="col">Navn</th><th scope="col">Brukernavn</th><th scope="col">Rolle</th><th scope="col">Innlogging</th><th scope="col">Status</th><th scope="col">Opprettet</th><th scope="col"><span class="skjul-visuelt">Handlinger</span></th></tr>
 {% for b in brukere %}
 <tr>
   <td>{{ b.navn }}</td>
   <td>{{ b.brukernavn }}</td>
+  <td>
+    <form method="post" action="{{ url_for('admin_bruker_rolle', bid=b.id) }}" style="display:flex; gap:6px; align-items:center">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="skjul-visuelt" for="rolle-{{ b.id }}">Rolle for {{ b.navn }}</label>
+      <select id="rolle-{{ b.id }}" name="rolle" style="width:auto"{% if b.entra_oid %} disabled title="Rollen styres fra Entra ID"{% endif %}>
+        {% for r in roller %}<option value="{{ r }}" {{ 'selected' if b.rolle == r }}>{{ rolle_navn[r] }}</option>{% endfor %}
+      </select>
+      {% if not b.entra_oid %}<button class="liten sekundar">Lagre</button>{% endif %}
+    </form>
+  </td>
+  <td class="liten">{{ 'Microsoft (Entra ID)' if b.entra_oid else 'Lokalt passord' }}</td>
   <td><span class="merke {{ 'ok' if b.aktiv else 'gra' }}">{{ 'Aktiv' if b.aktiv else 'Deaktivert' }}</span></td>
   <td>{{ b.opprettet[:10] }}</td>
   <td>
+    {% if b.id != session.admin_id %}
     <form method="post" action="{{ url_for('admin_bruker_deaktiver', bid=b.id) }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="liten sekundar">{{ 'Deaktiver' if b.aktiv else 'Aktiver' }}</button>
     </form>
+    {% else %}<span class="liten dempet">deg</span>{% endif %}
   </td>
 </tr>
 {% endfor %}
 </table>
 </div>
 
-<h2>Ny bruker</h2>
+{% if lokal %}
+<h2>Ny bruker (lokalt passord)</h2>
 <form method="post" class="kort" style="max-width:420px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>Navn *</label><input name="navn" required>
-  <label>Brukernavn *</label><input name="brukernavn" required autocapitalize="off">
-  <label>Passord * (minst 8 tegn)</label><input type="password" name="passord" minlength="8" required>
+  <label for="ny-navn">Navn *</label><input id="ny-navn" name="navn" required>
+  <label for="ny-brukernavn">Brukernavn *</label><input id="ny-brukernavn" name="brukernavn" required autocapitalize="off">
+  <label for="ny-passord">Passord * (minst 12 tegn)</label><input id="ny-passord" type="password" name="passord" minlength="12" required autocomplete="new-password">
+  <label for="ny-rolle">Rolle</label>
+  <select id="ny-rolle" name="rolle">{% for r in roller %}<option value="{{ r }}" {{ 'selected' if r == 'kursadmin' }}>{{ rolle_navn[r] }}</option>{% endfor %}</select>
   <p style="margin-top:14px"><button>Opprett bruker</button></p>
 </form>
+{% else %}
+<p class="liten dempet">Lokale brukere kan ikke opprettes i drift (ADMIN_LOKAL_INNLOGGING er av). Nye brukere logger inn med Microsoft.</p>
+{% endif %}
 {% endblock %}

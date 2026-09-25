@@ -63,7 +63,7 @@ def _prod(monkeypatch):
 def test_post_uten_csrf_token_avvises_med_400_og_uten_endring(con):
     admin = _admin()
     admin.injiser_csrf = False
-    r = admin.post("/admin/brukere", data={"navn": "Ny", "brukernavn": "ny", "passord": "passord123"})
+    r = admin.post("/admin/brukere", data={"navn": "Ny", "brukernavn": "ny", "passord": "passord-som-holder"})
     assert r.status_code == 400 and "Skjemaet kunne ikke sendes" in r.get_data(as_text=True)
     assert con.execute("SELECT COUNT(*) FROM admin_bruker WHERE brukernavn='ny'").fetchone()[0] == 0
 
@@ -71,7 +71,7 @@ def test_post_uten_csrf_token_avvises_med_400_og_uten_endring(con):
 def test_post_med_feil_csrf_token_avvises(con):
     admin = _admin()
     admin.injiser_csrf = False
-    r = admin.post("/admin/brukere", data={"navn": "Ny", "brukernavn": "ny", "passord": "passord123",
+    r = admin.post("/admin/brukere", data={"navn": "Ny", "brukernavn": "ny", "passord": "passord-som-holder",
                                           "csrf_token": "feil-token"})
     assert r.status_code == 400
 
@@ -82,7 +82,7 @@ def test_post_med_riktig_token_i_hode_godtas(con):
     admin.get("/admin/brukere")                  # en side med POST-skjema lager sesjonens token (csrf_token() i malen)
     with admin.session_transaction() as s:
         token = s["csrf"]
-    r = admin.post("/admin/brukere", data={"navn": "Ny", "brukernavn": "ny", "passord": "passord123"},
+    r = admin.post("/admin/brukere", data={"navn": "Ny", "brukernavn": "ny", "passord": "passord-som-holder"},
                    headers={"X-CSRF-Token": token})
     assert r.status_code == 302
     assert con.execute("SELECT COUNT(*) FROM admin_bruker WHERE brukernavn='ny'").fetchone()[0] == 1

@@ -284,6 +284,11 @@ CREATE TABLE IF NOT EXISTS admin_bruker (
     navn            TEXT NOT NULL,
     passord_hash    TEXT NOT NULL,
     aktiv           INTEGER NOT NULL DEFAULT 1,
+    -- Rolle (fase 13): system = alt (brukere, daglig jobb), kursadmin = daglig kursarbeid, lese = kun se.
+    -- Haandheves server-side i kurs/web/app.py (krever_admin). Entra-brukere faar rollen fra Entra ved hver innlogging.
+    rolle           TEXT NOT NULL DEFAULT 'kursadmin' CHECK (rolle IN ('system','kursadmin','lese')),
+    entra_oid       TEXT UNIQUE,                    -- Microsoft Entra ID objekt-id (NULL = lokal bruker)
+    epost           TEXT,
     opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

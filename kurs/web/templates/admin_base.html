@@ -6,9 +6,9 @@
 <a href="{{ url_for('admin_ny_kurs') }}">Nytt kurs</a>
 <a href="{{ url_for('admin_kunnskap') }}">Kunnskapsbase</a>
 <a href="{{ url_for('admin_maltekster') }}">E-postmaler</a>
-<a href="{{ url_for('admin_daglig') }}">Daglig kjøring</a>
-<a href="{{ url_for('admin_brukere') }}">Brukere</a>
+{% if admin_rolle == 'system' %}<a href="{{ url_for('admin_daglig') }}">Daglig kjøring</a>
+<a href="{{ url_for('admin_brukere') }}">Brukere</a>{% endif %}
 {% if demo %}<a href="{{ url_for('admin_utboks') }}">Utboks</a>{% endif %}
 <a href="{{ url_for('forside') }}">Offentlig side</a>
-<a href="{{ url_for('admin_logg_ut') }}">Logg ut{% if session.admin_navn %} ({{ session.admin_navn }}){% endif %}</a>
+<a href="{{ url_for('admin_logg_ut') }}">Logg ut{% if session.admin_navn %} ({{ session.admin_navn }}{% if admin_rolle == 'lese' %}, lesetilgang{% endif %}){% endif %}</a>
 {% endblock %}

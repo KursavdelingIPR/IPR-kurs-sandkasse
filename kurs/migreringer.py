@@ -42,8 +42,23 @@ def _m1_kursnummer(con) -> None:
         con.execute("UPDATE kurs SET kursnr=? WHERE id=?", (db.neste_teller(con, "kursnr"), rad["id"]))
 
 
+def _m2_roller(con) -> None:
+    """Rollebasert admin-tilgang (fase 13): admin_bruker.rolle, entra_oid (Microsoft Entra ID) og epost. ALLE eksisterende
+    brukere faar rollen 'system' - de hadde full tilgang fra foer, og ingen skal miste tilgang av en migrering."""
+    if not db.har_kolonne(con, "admin_bruker", "rolle"):
+        con.execute("ALTER TABLE admin_bruker ADD COLUMN rolle TEXT NOT NULL DEFAULT 'kursadmin' "
+                    "CHECK (rolle IN ('system','kursadmin','lese'))")
+        con.execute("UPDATE admin_bruker SET rolle='system'")
+    if not db.har_kolonne(con, "admin_bruker", "entra_oid"):
+        con.execute("ALTER TABLE admin_bruker ADD COLUMN entra_oid TEXT")
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS admin_bruker_entra_oid_unik ON admin_bruker (entra_oid)")
+    if not db.har_kolonne(con, "admin_bruker", "epost"):
+        con.execute("ALTER TABLE admin_bruker ADD COLUMN epost TEXT")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
+    (2, "roller", _m2_roller),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

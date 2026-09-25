@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS admin_bruker (
     navn            TEXT NOT NULL,
     passord_hash    TEXT NOT NULL,
     aktiv           BIGINT NOT NULL DEFAULT 1,
+    rolle           TEXT NOT NULL DEFAULT 'kursadmin' CHECK (rolle IN ('system','kursadmin','lese')),
+    entra_oid       TEXT UNIQUE,
+    epost           TEXT,
     opprettet       TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
 );
 

@@ -2,12 +2,20 @@
 {% block innhold %}
 <div class="kort" style="max-width:380px; margin:0 auto">
   <h1>Logg inn</h1>
-  <p class="sub">Logg inn med din personlige brukerkonto.{% if demo %} Demo: brukernavn <code>admin</code>, passord <code>demo</code>{% endif %}</p>
+  {% if entra %}
+  <p class="sub">Logg inn med IPR-kontoen din.</p>
+  <p><a class="knapp" style="width:100%; text-align:center" href="{{ url_for('admin_entra_start', neste=neste or None) }}">Logg inn med Microsoft</a></p>
+  {% endif %}
+  {% if lokal %}
+  {% if entra %}<p class="liten dempet" style="margin-top:20px">Nødbruker (lokalt passord):</p>{% else %}
+  <p class="sub">Logg inn med din personlige brukerkonto.{% if demo %} Demo: brukernavn <code>admin</code>, passord <code>demo</code>{% endif %}</p>{% endif %}
   <form method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>Brukernavn</label><input name="brukernavn" autofocus autocapitalize="off" autocomplete="username">
-    <label>Passord</label><input type="password" name="passord" autocomplete="current-password">
+    <label for="brukernavn">Brukernavn</label><input id="brukernavn" name="brukernavn" autofocus autocapitalize="off" autocomplete="username">
+    <label for="passord">Passord</label><input id="passord" type="password" name="passord" autocomplete="current-password">
     <p style="margin-top:14px"><button style="width:100%">Logg inn</button></p>
   </form>
+  {% endif %}
+  {% if not entra and not lokal %}<p class="flash feil">Innlogging er ikke satt opp. Kontakt IT.</p>{% endif %}
 </div>
 {% endblock %}

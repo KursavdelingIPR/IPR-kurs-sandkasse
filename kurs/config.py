@@ -52,6 +52,18 @@ M365_CLIENT_ID = get("M365_CLIENT_ID")
 M365_CLIENT_SECRET = get("M365_CLIENT_SECRET")
 SHAREPOINT_SITE_ID = get("SHAREPOINT_SITE_ID")
 
+# Admin-innlogging med Microsoft Entra ID (fase 13). Egen app-registrering anbefales (delegert: openid profile email),
+# men M365-registreringen kan gjenbrukes - tomme verdier faller tilbake til M365_*. Ingen verdier = Entra av.
+ENTRA_TENANT_ID = get("ENTRA_TENANT_ID") or M365_TENANT_ID
+ENTRA_CLIENT_ID = get("ENTRA_CLIENT_ID") or M365_CLIENT_ID
+ENTRA_CLIENT_SECRET = get("ENTRA_CLIENT_SECRET") or M365_CLIENT_SECRET
+# App-roller (anbefalt) fra app-registreringen -> rolle i systemet. Format: "verdi=rolle,verdi=rolle".
+ENTRA_ROLLER = get("ENTRA_ROLLER", "ipr.system=system,ipr.kursadmin=kursadmin,ipr.lese=lese")
+# Alternativt/i tillegg: sikkerhetsgrupper (objekt-id) -> rolle. Format: "<gruppe-oid>=system,<gruppe-oid>=kursadmin".
+ENTRA_GRUPPER = get("ENTRA_GRUPPER", "")
+# Lokal innlogging med brukernavn/passord: paa i demo; i drift kun for noedbrukere naar dette settes til 1.
+ADMIN_LOKAL_INNLOGGING = get("ADMIN_LOKAL_INNLOGGING", "1" if DEMO else "0") == "1"
+
 # Zoom Server-to-Server OAuth
 ZOOM_ACCOUNT_ID = get("ZOOM_ACCOUNT_ID")
 ZOOM_CLIENT_ID = get("ZOOM_CLIENT_ID")
