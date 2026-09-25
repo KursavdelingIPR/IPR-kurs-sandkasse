@@ -9,6 +9,7 @@
   påmelding{{ 'er' if andre_paameldinger != 1 }} vedkommende har.</div>
 <form method="post" action="{{ url_for('admin_deltaker_person', kurs_id=kurs.id, paamelding_id=p.id) }}" class="kort" style="max-width:640px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="versjon" value="{{ versjon_for('person', p) }}">
   <div class="rad">
     <div><label for="f-navn">Navn *</label><input id="f-navn" name="navn" required value="{{ p.navn }}"></div>
     <div><label for="f-epost">E-post *</label><input id="f-epost" name="epost" type="email" required value="{{ p.epost }}"></div>
@@ -65,6 +66,7 @@
 
 <form method="post" action="{{ url_for('admin_deltaker_paamelding', kurs_id=kurs.id, paamelding_id=p.id) }}" class="kort" style="max-width:720px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="versjon" value="{{ versjon_for('paamelding', p) }}">
   <div class="rad">
     <div><label for="f-betaler">Hvem betaler</label><select id="f-betaler" name="betaler">
         <option value="person" {{ 'selected' if p.betaler != 'organisasjon' }}>Privat</option>

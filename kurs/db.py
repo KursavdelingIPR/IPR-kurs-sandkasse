@@ -1094,8 +1094,8 @@ def marker_sendt(con, nokkel: str, mottaker: str, type_: str) -> None:
     """Registrerer en fullfort sending direkte (status faar kolonnens standardverdi 'sendt').
 
     For kallere som IKKE trenger den atomiske reserver-foerst-flyten under - typisk fordi de ikke
-    gjor noe risikabelt eksternt kall selv (zoomimport-dedup i daglig.py) eller allerede har sin egen
-    forhaandsviste og godkjente nokkel (fase 5, send_admin_utsending()).
+    gjor noe risikabelt eksternt kall selv (zoomimport-dedup i daglig.py). All e-post gaar gjennom
+    claim-motoren (Kjoring.send_ferdigrendret_en_gang), ogsaa manuelle utsendelser.
     """
     con.execute(
         "INSERT INTO utsending_logg (nokkel, mottaker, type) VALUES (?,?,?) ON CONFLICT DO NOTHING",
@@ -1222,6 +1222,65 @@ def uavklarte_operasjoner(con) -> dict:
         """SELECT COUNT(*) FROM faktura_forsok
            WHERE status='ukjent' OR (status='reservert' AND opprettet < ?)""", (gammel_grense,)).fetchone()[0]
     return {"epost": epost, "faktura": faktura, "totalt": epost + faktura}
+
+
+def uavklarte_eposter(con) -> list:
+    """E-poster med uavklart utfall (samme definisjon som uavklarte_operasjoner), eldste foerst."""
+    return con.execute(
+        """SELECT nokkel, mottaker, type, status, sendt_ts FROM utsending_logg
+           WHERE status='ukjent' OR (status='reservert' AND sendt_ts < ?) ORDER BY sendt_ts, nokkel, type""",
+        (utc_minutter_siden(UAVKLART_GRENSE_MIN),)).fetchall()
+
+
+def uavklarte_fakturaer(con) -> list:
+    """Fakturaforsoek med uavklart utfall, med det admin trenger for aa kontrollere i Visma."""
+    return con.execute(
+        """SELECT f.id, f.paamelding_id, f.kursdag_id, f.status, f.feilmelding, f.opprettet,
+                  d.navn, p.kurs_id, k.kursnr, k.navn AS kursnavn, k.pris_nok, kd.dato AS kursdag_dato
+           FROM faktura_forsok f JOIN paamelding p ON p.id=f.paamelding_id JOIN deltaker d ON d.id=p.deltaker_id
+           JOIN kurs k ON k.id=p.kurs_id LEFT JOIN kursdag kd ON kd.id=f.kursdag_id
+           WHERE f.status='ukjent' OR (f.status='reservert' AND f.opprettet < ?) ORDER BY f.opprettet, f.id""",
+        (_lokal_gammel_grense_iso(),)).fetchall()
+
+
+def avklar_epost(con, nokkel: str, mottaker: str, type_: str, *, sendt: bool, aktor: str) -> bool:
+    """Admin har kontrollert en uavklart e-post (Sendte elementer). sendt=True -> 'sendt'; sendt=False -> 'feilet'
+    (proeves igjen neste gang samme utsending kjoeres). Atomisk: False hvis raden ikke (lenger) er uavklart.
+    Hendelsesloggen faar aldri mottakeradressen."""
+    utfall = "sendt" if sendt else "feilet"
+    cur = con.execute(
+        """UPDATE utsending_logg SET status=? WHERE nokkel=? AND mottaker=? AND type=?
+             AND (status='ukjent' OR (status='reservert' AND sendt_ts < ?))""",
+        (utfall, nokkel, mottaker, type_, utc_minutter_siden(UAVKLART_GRENSE_MIN)))
+    if cur.rowcount != 1:
+        return False
+    logg(con, "uavklart_epost_avklart", {"nokkel": nokkel, "type": type_, "utfall": utfall}, aktor=aktor)
+    return True
+
+
+def avklar_faktura(con, forsok_id: int, *, fakturert: bool, aktor: str, faktura_nr: str | None = None,
+                   belop_nok: int | None = None, visma_id: str | None = None) -> bool:
+    """Admin har kontrollert et uavklart fakturaforsoek i Visma.
+      fakturert=True  -> fakturaen FINNES i Visma: registreres som faktura (status sendt), forsoeket fjernes.
+      fakturert=False -> fakturaen finnes IKKE i Visma: forsoeket blir 'feilet' og proeves igjen ved neste kjoering.
+    Atomisk og idempotent: False hvis forsoeket ikke (lenger) er uavklart. Den unike indeksen paa faktura hindrer
+    uansett to fakturaer for samme paamelding/samling (IntegritetsFeil)."""
+    rad = con.execute(
+        """SELECT * FROM faktura_forsok WHERE id=? AND (status='ukjent' OR (status='reservert' AND opprettet < ?))""",
+        (forsok_id, _lokal_gammel_grense_iso())).fetchone()
+    if not rad:
+        return False
+    detaljer = {"paamelding_id": rad["paamelding_id"], "kursdag_id": rad["kursdag_id"],
+                "utfall": "fakturert" if fakturert else "ikke_fakturert"}
+    if fakturert:
+        con.execute("""INSERT INTO faktura (paamelding_id, kursdag_id, visma_id, faktura_nr, belop_nok, status)
+                       VALUES (?,?,?,?,?, 'sendt')""", (rad["paamelding_id"], rad["kursdag_id"], visma_id, faktura_nr, belop_nok))
+        con.execute("DELETE FROM faktura_forsok WHERE id=?", (forsok_id,))
+        detaljer["faktura_nr"] = faktura_nr
+    else:
+        con.execute("UPDATE faktura_forsok SET status='feilet' WHERE id=?", (forsok_id,))
+    logg(con, "uavklart_faktura_avklart", detaljer, aktor=aktor)
+    return True
 
 
 def uavklart_status_for_paamelding(con, kurs_id: int, epost: str, paamelding_id: int, epost_type: str) -> str | None:

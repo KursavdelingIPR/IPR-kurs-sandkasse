@@ -1,0 +1,75 @@
+{% extends "admin_base.html" %}
+{% block tittel %}Uavklarte operasjoner{% endblock %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin') }}">← Oversikt</a></p>
+<h1>Uavklarte operasjoner</h1>
+<p class="sub">Her er e-poster og fakturaer der systemet ikke vet om de faktisk gikk ut – typisk fordi Microsoft eller Visma
+  ikke svarte. De sendes eller faktureres aldri automatisk på nytt, fordi det kunne gitt dobbel e-post eller dobbel
+  faktura. Sjekk først, og registrer så hva som faktisk skjedde.</p>
+
+<h2>E-post ({{ eposter|length }})</h2>
+{% if eposter %}
+<p class="liten dempet">Sjekk «Sendte elementer» i kurs-postboksen. «Er sendt» avslutter saken. «Ble ikke sendt» gjør at
+  systemet prøver igjen neste gang samme utsending kjøres (morgenjobben for påminnelser, bekreftelser og purringer;
+  knappen på kurset for avlysninger). Kursbevis og manuelle e-poster prøves ikke automatisk på nytt – send da en
+  e-post manuelt.</p>
+<div class="tabellboks"><table>
+  <thead><tr><th scope="col">Tidspunkt (UTC)</th><th scope="col">Type</th><th scope="col">Kurs</th><th scope="col">Mottaker</th><th scope="col">Status</th><th scope="col"><span class="skjul-visuelt">Handling</span></th></tr></thead>
+  <tbody>
+  {% for e in eposter %}
+  <tr>
+    <td class="liten">{{ e.sendt_ts }}</td>
+    <td>{{ e.type }}</td>
+    <td class="liten">{% if e.kurs %}<a href="{{ url_for('admin_kurs_deltakere', kurs_id=e.kurs.id) }}">{{ e.kurs.kursnr }} {{ e.kurs.navn }}</a>{% else %}{{ e.nokkel }}{% endif %}</td>
+    <td class="liten">{{ e.mottaker }}</td>
+    <td><span class="merke gul">{{ 'ukjent utfall' if e.status == 'ukjent' else 'avbrutt' }}</span></td>
+    <td>{% if admin_rolle != 'lese' %}
+      <form method="post" action="{{ url_for('admin_uavklart_epost') }}" style="display:flex; gap:6px; flex-wrap:wrap; margin:0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="nokkel" value="{{ e.nokkel }}"><input type="hidden" name="mottaker" value="{{ e.mottaker }}">
+        <input type="hidden" name="type" value="{{ e.type }}">
+        <button class="liten" name="utfall" value="sendt">Er sendt</button>
+        <button class="liten sekundar" name="utfall" value="ikke_sendt">Ble ikke sendt</button>
+      </form>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="tom kort">Ingen uavklarte e-poster.</p>{% endif %}
+
+<h2>Faktura ({{ fakturaer|length }})</h2>
+{% if fakturaer %}
+<p class="liten dempet">Søk opp kunden i Visma. <strong>Finnes fakturaen</strong>: fyll inn fakturanummeret (og beløpet)
+  og velg «Finnes i Visma». <strong>Finnes den ikke</strong>: velg «Finnes ikke» – da lages den ved neste daglige kjøring.
+  Velg aldri «Finnes ikke» uten å ha sjekket: da kan det bli dobbel faktura.</p>
+<div class="tabellboks"><table>
+  <thead><tr><th scope="col">Tidspunkt</th><th scope="col">Deltaker</th><th scope="col">Kurs</th><th scope="col">Gjelder</th><th scope="col">Feil</th><th scope="col"><span class="skjul-visuelt">Handling</span></th></tr></thead>
+  <tbody>
+  {% for fa in fakturaer %}
+  <tr>
+    <td class="liten">{{ fa.opprettet }}</td>
+    <td>{{ fa.navn }}</td>
+    <td class="liten"><a href="{{ url_for('admin_deltaker', kurs_id=fa.kurs_id, paamelding_id=fa.paamelding_id) }}">{{ fa.kursnr }} {{ fa.kursnavn }}</a></td>
+    <td class="liten">{{ 'Samlet faktura' if fa.kursdag_id is none else 'Samling ' ~ fa.kursdag_dato }}</td>
+    <td class="liten dempet">{{ fa.feilmelding or ('avbrutt' if fa.status == 'reservert' else '') }}</td>
+    <td>{% if admin_rolle != 'lese' %}
+      <form method="post" action="{{ url_for('admin_uavklart_faktura', forsok_id=fa.id) }}" style="margin:0 0 6px"
+            data-bekreft="Registrere at fakturaen FINNES i Visma?">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="utfall" value="fakturert">
+        <div class="rad" style="gap:0 8px">
+          <div><label for="f-nr-{{ fa.id }}">Fakturanr. *</label><input id="f-nr-{{ fa.id }}" name="faktura_nr" required maxlength="40"></div>
+          <div><label for="f-belop-{{ fa.id }}">Beløp (kr) *</label><input id="f-belop-{{ fa.id }}" name="belop_nok" type="number" min="1" required value="{{ fa.forslag }}"></div>
+        </div>
+        <button class="liten" style="margin-top:6px">Finnes i Visma</button>
+      </form>
+      <form method="post" action="{{ url_for('admin_uavklart_faktura', forsok_id=fa.id) }}" style="margin:0"
+            data-bekreft="Har du sjekket i Visma at fakturaen IKKE finnes? Den lages da på nytt ved neste daglige kjøring.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="utfall" value="ikke_fakturert">
+        <button class="liten fare">Finnes ikke</button>
+      </form>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="tom kort">Ingen uavklarte fakturaer.</p>{% endif %}
+{% endblock %}

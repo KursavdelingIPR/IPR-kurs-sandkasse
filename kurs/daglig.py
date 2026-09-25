@@ -20,42 +20,71 @@ from datetime import date, timedelta
 
 from . import config, db, import_deltakere, kursbevis, lenker, maltekster, sveiper
 from .integrasjoner import zoom
+from .feil import sikker_feiltekst
 from .kjoring import Kjoring
+
+
+def _steg(k: Kjoring, navn: str, funksjon, *args, **logg) -> None:
+    """Kjoerer ett steg med feilisolering. Hvert vellykket steg lagres (commit) for seg; feiler et steg, rulles bare
+    DETS ulagrede arbeid tilbake, feilen logges PII-fritt, og resten av morgenjobben fortsetter - en feil hos Microsoft
+    Graph i ett kurs skal aldri stoppe de andre kursene, kursbevis, purringer eller slettingen av sensitive data.
+    Allerede reserverte/sendte e-poster er committet av claim-motoren og roeres ikke."""
+    try:
+        funksjon(*args)
+    except Exception as e:  # noqa: BLE001 - logg og fortsett med neste steg
+        if k.tor:
+            db.rull_tilbake_hvis_avbrutt(k.con)
+        else:
+            k.con.rollback()
+        feil = sikker_feiltekst(e)
+        db.logg(k.con, "daglig_feil", {"steg": navn, **logg, "feil": feil})
+        k.feil.append(navn)
+        k.si(f"  FEIL i «{navn}»: {feil} - resten av kjøringen fortsetter")
+    if not k.tor:
+        k.con.commit()
+
+
+def _kurs(k: Kjoring, kurs) -> None:
+    dager = db.kursdager(k.con, kurs["id"])
+    if not dager:
+        return
+    forste, siste = date.fromisoformat(dager[0]["dato"]), date.fromisoformat(dager[-1]["dato"])
+    k.si(f"-- {kurs['kode']} {kurs['navn']} ({forste} – {siste})")
+    # 1. Preflight (ren lesing): er malteksten for dagens innkallinger gyldig? FOER en evt. NY ekstern Zoom-opprettelse.
+    deltakere = _deltakere(k, kurs["id"])
+    blokkert = _forhandsvalider_innkallinger(k, kurs, dager, forste, deltakere)
+    kurs = _zoom(k, kurs, forste, utsett=_skal_utsette_zoom(k, kurs, dager, forste, blokkert))
+    _innkallinger(k, kurs, dager, forste, deltakere=deltakere, blokkert=blokkert)
+    _status_og_oppmote(k, kurs, dager, forste, siste)
 
 
 def kjor(k: Kjoring) -> None:
     k.si(f"== Daglig kjøring for {k.idag}  (modus={config.MODUS}{', TØRR' if k.tor else ''}) ==")
     k.si("1. Nye påmeldinger")
-    sveiper.kjor(k)
+    _steg(k, "nye påmeldinger", sveiper.kjor, k)
     k.si("1b. Delfakturaer som forfaller")
-    sveiper.forfalte_delfakturaer(k)
+    _steg(k, "delfakturaer", sveiper.forfalte_delfakturaer, k)
     k.si("1c. Utsatte samlede fakturaer")
-    sveiper.utsatte_fakturaer(k)
+    _steg(k, "utsatte fakturaer", sveiper.utsatte_fakturaer, k)
 
     kursliste = k.con.execute(
         "SELECT * FROM kurs WHERE status IN ('aapen','full','aktiv') ORDER BY id"
     ).fetchall()
     for kurs in kursliste:
-        dager = db.kursdager(k.con, kurs["id"])
-        if not dager:
-            continue
-        forste, siste = date.fromisoformat(dager[0]["dato"]), date.fromisoformat(dager[-1]["dato"])
-        k.si(f"-- {kurs['kode']} {kurs['navn']} ({forste} – {siste})")
-        # 1. Preflight (ren lesing): er malteksten for dagens innkallinger gyldig? FOER en evt. NY ekstern Zoom-opprettelse.
-        deltakere = _deltakere(k, kurs["id"])
-        blokkert = _forhandsvalider_innkallinger(k, kurs, dager, forste, deltakere)
-        kurs = _zoom(k, kurs, forste, utsett=_skal_utsette_zoom(k, kurs, dager, forste, blokkert))
-        _innkallinger(k, kurs, dager, forste, deltakere=deltakere, blokkert=blokkert)
-        _status_og_oppmote(k, kurs, dager, forste, siste)
+        _steg(k, "kurs", _kurs, k, kurs, kurs_id=kurs["id"])
 
     k.si("5. Kursbevis")
-    kursbevis.kjor(k)
+    _steg(k, "kursbevis", kursbevis.kjor, k)
     k.si("6. Purring på materiell")
-    _purring(k)
+    _steg(k, "purring", _purring, k)
     k.si("7. Personvern")
-    _slett_sensitivt(k)
+    _steg(k, "personvern", _slett_sensitivt, k)
     k.si("8. Import-forhåndsvisninger")
-    _rydd_import_forhaandsvisninger(k)
+    _steg(k, "importrydding", _rydd_import_forhaandsvisninger, k)
+    if k.sending_stanset:
+        k.si("OBS: e-posttjenesten feilet flere ganger på rad - resten av dagens e-poster sendes ved neste kjøring.")
+    if k.feil:
+        k.si(f"Ferdig med {len(k.feil)} feil (se hendelsesloggen, «daglig_feil»): {', '.join(k.feil)}")
     k.avslutt()
 
 
@@ -270,8 +299,9 @@ def main(argv=None):
         except migreringer.VersjonsFeil as e:
             print(f"STOPP: {e}")
             return 3
-    kjor(Kjoring(con, idag=a.dato or date.today(), tor=a.tor))
-    return 0
+    k = Kjoring(con, idag=a.dato or date.today(), tor=a.tor)
+    kjor(k)
+    return 1 if k.feil else 0          # 1: minst ett steg feilet (driften varsles), resten ble likevel kjoert
 
 
 if __name__ == "__main__":

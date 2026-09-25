@@ -39,6 +39,9 @@ def kjor(k: Kjoring) -> None:
              AND NOT EXISTS (SELECT 1 FROM dokument x WHERE x.kurs_id=k.id AND x.deltaker_id=p.deltaker_id AND x.type='kursbevis')
         """).fetchall()
     for r in kandidater:
+        if k.sending_stanset:       # e-posttjenesten er nede: ikke utsted bevis som ikke kan varsles - tas neste kjoering
+            k.si("  Kursbevis utsatt: e-posttjenesten feilet flere ganger på rad i denne kjøringen")
+            break
         dager = db.kursdager(k.con, r["id"])
         mott = k.con.execute(
             "SELECT kd.dato FROM oppmote o JOIN kursdag kd ON kd.id=o.kursdag_id WHERE o.paamelding_id=? ORDER BY kd.dato",

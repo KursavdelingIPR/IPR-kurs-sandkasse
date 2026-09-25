@@ -16,6 +16,7 @@
 {# Fase 12C5. All tekst fra admin er ren tekst og escapes av Jinja - aldri |safe. #}
 <form method="post" action="{{ url_for('admin_kurs_nettside_lagre', kurs_id=kurs.id) }}" class="kort" style="max-width:720px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="versjon" value="{{ versjon_for('nettside', kurs) }}">
   <strong>Tekster på påmeldingssiden</strong>
 
   <label for="f-intro">Introduksjonstekst <span class="liten dempet">(valgfri, maks {{ maks_intro }} tegn, vises over påmeldingsskjemaet)</span></label>

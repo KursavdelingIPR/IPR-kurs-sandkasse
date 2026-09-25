@@ -27,7 +27,8 @@
   <div class="kort"><div class="liten dempet">Aktive / åpne kurs</div><div class="stat">{{ kurs | selectattr('status','in',['aapen','full','aktiv']) | list | length }}</div></div>
   <div class="kort"><div class="liten dempet">Påmeldte (åpne kurs)</div><div class="stat">{{ kurs | selectattr('status','in',['aapen','full','aktiv']) | sum(attribute='bekreftet') }}</div></div>
   <div class="kort"><div class="liten dempet">Mangler materiell</div><div class="stat" style="color:{{ 'var(--gul)' if mangler else 'inherit' }}">{{ mangler | length }}</div></div>
-  <div class="kort"><div class="liten dempet">Uavklarte operasjoner som krever manuell kontroll</div><div class="stat" style="color:{{ 'var(--feil)' if uavklart.totalt else 'inherit' }}">{{ uavklart.totalt }}</div>{% if uavklart.totalt %}<div class="liten dempet">E-post: {{ uavklart.epost }} · Faktura: {{ uavklart.faktura }}. Sendes/faktureres ikke automatisk på nytt.</div>{% endif %}</div>
+  <div class="kort"><div class="liten dempet">Uavklarte operasjoner som krever manuell kontroll</div><div class="stat" style="color:{{ 'var(--feil)' if uavklart.totalt else 'inherit' }}">{{ uavklart.totalt }}</div>{% if uavklart.totalt %}<div class="liten dempet">E-post: {{ uavklart.epost }} · Faktura: {{ uavklart.faktura }}. Sendes/faktureres ikke automatisk på nytt.</div>
+    <p class="liten" style="margin:6px 0 0"><a href="{{ url_for('admin_uavklart') }}">Se og avklar →</a></p>{% endif %}</div>
 </div>
 
 {% if mangler %}

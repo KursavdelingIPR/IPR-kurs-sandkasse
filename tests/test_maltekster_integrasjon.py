@@ -488,14 +488,14 @@ def test_A_uten_override_er_avlysning_identisk_med_dagens_og_statusendringene_er
 def test_avlysning_har_aldri_aapen_transaksjon_ved_inngang_til_send_en_gang_og_status_er_committet_foer_sending(con, sendt, monkeypatch):
     kid, pid, vpid = _avl_flyt(con)
     observert = []
-    ekte = Kjoring.send_en_gang
+    ekte = Kjoring.send_ferdigrendret_en_gang          # selve claim-motoren (avlysning gaar via send_til_mange)
 
-    def spion(self, nokkel, til, type_, mal, **kw):
+    def spion(self, nokkel, til, type_, emne, html, **kw):
         annen = db.koble()
-        observert.append((mal, self.con.in_transaction, annen.execute("SELECT status FROM kurs WHERE id=?", (kid,)).fetchone()[0]))
+        observert.append((type_, self.con.in_transaction, annen.execute("SELECT status FROM kurs WHERE id=?", (kid,)).fetchone()[0]))
         annen.close()
-        return ekte(self, nokkel, til, type_, mal, **kw)
-    monkeypatch.setattr(Kjoring, "send_en_gang", spion)
+        return ekte(self, nokkel, til, type_, emne, html, **kw)
+    monkeypatch.setattr(Kjoring, "send_ferdigrendret_en_gang", spion)
     _avlys(kid)
     assert observert == [("avlysning", False, "avlyst")] * 2      # ingen aapen transaksjon; avlysningen er allerede committet
 

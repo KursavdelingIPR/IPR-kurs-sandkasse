@@ -236,9 +236,9 @@ def test_ukefor_ukjent_epostutfall_gir_ingen_automatisk_retry(con, monkeypatch):
     monkeypatch.setattr(epost, "send", feiler)
     kid = _kurs(con)
     _deltaker(con, kid)
-    with pytest.raises(RuntimeError):                                          # kjent backlog: ikke-MalFeil (Graph) isoleres ikke per melding
-        _daglig(con, IDAG)
+    _daglig(con, IDAG)                                                         # Graph-feilen isoleres: jobben fortsetter
     assert con.execute("SELECT status FROM utsending_logg WHERE type='ukefor'").fetchone()[0] == "ukjent"
+    assert con.execute("SELECT COUNT(*) FROM hendelse WHERE handling='daglig_feil'").fetchone()[0] == 1
     _daglig(con, IDAG)
     _daglig(con, IDAG + timedelta(days=1))
     assert len(forsok) == 1                                                    # aldri nytt forsok

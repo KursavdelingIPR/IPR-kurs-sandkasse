@@ -10,6 +10,24 @@ from . import db, maltekster
 from .feil import sikker_feiltekst
 from .integrasjoner import epost
 
+# Sendefeil paa rad i én kjoering foer resten av utsendingene utsettes: e-posttjenesten er da trolig nede, og hvert nye
+# forsoek ville bare gitt enda en uavklart melding. Utsatte meldinger er IKKE reservert - de tas ved neste kjoering.
+STOPP_ETTER = 3
+
+
+class SendingStanset(RuntimeError):
+    """E-posttjenesten har feilet flere ganger paa rad i denne kjoeringen. Ingenting er reservert eller sendt."""
+
+
+@dataclass
+class Sendeutfall:
+    """Resultatet av én utsending til mange mottakere (se Kjoring.send_til_mange)."""
+    sendt: list = field(default_factory=list)   # paamelding_id-er som fikk e-posten naa
+    allerede: int = 0                           # hadde fått den fra foer
+    uavklart: int = 0                           # feilet under sending NAA - utfallet er uavklart
+    uavklart_fra_for: int = 0                   # hadde et uavklart eller paagaaende forsoek fra foer - ikke roert
+    ikke_forsokt: int = 0                       # utsatt: e-posttjenesten nede / ugyldig mal - ingenting reservert
+
 
 @dataclass
 class Kjoring:
@@ -17,6 +35,12 @@ class Kjoring:
     idag: date = field(default_factory=date.today)
     tor: bool = False
     utskrift: list[str] = field(default_factory=list)
+    sendefeil_paa_rad: int = 0
+    feil: list[str] = field(default_factory=list)       # steg som feilet (daglig.py) - gir avslutningskode 1
+
+    @property
+    def sending_stanset(self) -> bool:
+        return self.sendefeil_paa_rad >= STOPP_ETTER
 
     def si(self, tekst: str) -> None:
         self.utskrift.append(tekst)
@@ -70,7 +94,9 @@ class Kjoring:
         konservativt som ukjent, og hendelsen logges (kun sikker feiltekst, aldri str(e) - se feil.py).
         `paamelding_id` (valgfri) tas med i hendelsen slik at en admin kan finne frem - aldri navn/e-post.
         """
-        vant = db.reserver_sending(self.con, nokkel, til, type_) or             db.reserver_sending_pa_nytt(self.con, nokkel, til, type_)
+        if self.sending_stanset:        # FOER claim: ingenting reserveres, meldingen tas ved neste kjoering
+            raise SendingStanset("E-posttjenesten har feilet flere ganger på rad - resten sendes ved neste kjøring.")
+        vant = db.reserver_sending(self.con, nokkel, til, type_) or db.reserver_sending_pa_nytt(self.con, nokkel, til, type_)
         if not self.tor:
             self.con.commit()  # claim (eller tapt claim) - frigjor skrivelaasen FOR det evt. lange eksterne kallet
         if not vant:
@@ -82,6 +108,7 @@ class Kjoring:
         try:
             epost.send(til, emne, html)
         except Exception as e:  # noqa: BLE001 - klassifisering "feilet"/"ukjent" ikke avklart enna, se docstring
+            self.sendefeil_paa_rad += 1
             db.sett_sending_ukjent(self.con, nokkel, til, type_)
             detaljer = {"nokkel": nokkel, "type": type_, "feil": sikker_feiltekst(e)}
             if paamelding_id is not None:
@@ -89,34 +116,45 @@ class Kjoring:
             db.logg(self.con, "epost_ukjent", detaljer)
             self.con.commit()
             raise
+        self.sendefeil_paa_rad = 0
         db.sett_sendt(self.con, nokkel, til, type_)
         self.con.commit()  # resultatet er kort og lokalt - lagre det umiddelbart (avgrenser krasjvindu B)
         self.si(f"  sendt  {type_:<22} «{emne}»")  # ingen mottakeradresse i driftsutskriften
         return True
 
-    def send_admin_utsending(self, utsending_id: int) -> list[int]:
-        """Sender en manuell, forhaandsvist utsendelse - én e-post pr mottaker, ingen ser andres adresse.
+    def send_til_mange(self, nokkel: str, type_: str, mottakere, lag) -> Sendeutfall:
+        """Samme type melding til mange mottakere (rader med id = paamelding_id og epost), hver gjennom claim-motoren
+        (send_ferdigrendret_en_gang). `lag(mottaker)` gir (emne, html). En mottaker som alt har en rad (sendt, uavklart
+        eller paagaaende) faar den aldri paa nytt - heller ikke ved dobbeltklikk, to faner eller et nytt forsoek. En
+        feil hos én mottaker stopper ikke de andre; etter STOPP_ETTER feil paa rad utsettes resten (ikke reservert)."""
+        ut = Sendeutfall()
+        for m in mottakere:
+            if self.sending_stanset:
+                ut.ikke_forsokt += 1
+                continue
+            try:
+                emne, html = lag(m)
+                if self.send_ferdigrendret_en_gang(nokkel, m["epost"], type_, emne, html, paamelding_id=m["id"]):
+                    ut.sendt.append(m["id"])
+                elif db.allerede_sendt(self.con, nokkel, m["epost"], type_):
+                    ut.allerede += 1
+                else:
+                    ut.uavklart_fra_for += 1            # et annet forsoek er uavklart eller paagaar
+            except (maltekster.MalFeil, SendingStanset):
+                ut.ikke_forsokt += 1                    # ingenting reservert - kan sendes igjen senere
+            except Exception:  # noqa: BLE001 - motoren har alt satt 'ukjent' og logget (PII-fritt)
+                ut.uavklart += 1
+        return ut
 
-        Bruker utsendelsens egen, stabile nokkel til deduplisering: er den allerede sendt til en
-        mottaker (f.eks. fra et tidligere, tapt forsok), sendes den ikke paa nytt til akkurat den.
-        Returnerer paamelding_id-ene det faktisk ble sendt til naa (tom liste = alt var alt sendt fra for).
-        """
+    def send_admin_utsending(self, utsending_id: int) -> Sendeutfall:
+        """Sender en manuell, forhaandsvist utsendelse - én e-post pr mottaker, ingen ser andres adresse. Utsendelsens
+        egen, stabile nokkel dedupliserer via claim-motoren (se send_til_mange)."""
         rad = self.con.execute("SELECT * FROM admin_utsending WHERE id=?", (utsending_id,)).fetchone()
         if not rad:
-            return []
-        sendt_til = []
-        for m in db.admin_utsending_mottakere(self.con, utsending_id):
-            if db.allerede_sendt(self.con, rad["nokkel"], m["epost"], "admin_epost"):
-                continue
-            emne, html = epost.render("admin_melding", emne=rad["emne"], tekst=rad["tekst"], d=m)
-            if self.tor:
-                self.si(f"  [TØRR] admin_epost -> {m['epost']}  «{emne}»")
-            else:
-                epost.send(m["epost"], emne, html)
-                self.si(f"  sendt  admin_epost -> {m['epost']}  «{emne}»")
-            db.marker_sendt(self.con, rad["nokkel"], m["epost"], "admin_epost")
-            sendt_til.append(m["id"])
-        return sendt_til
+            return Sendeutfall()
+        return self.send_til_mange(
+            rad["nokkel"], "admin_epost", db.admin_utsending_mottakere(self.con, utsending_id),
+            lambda m: epost.render("admin_melding", emne=rad["emne"], tekst=rad["tekst"], d=m))
 
     def avslutt(self) -> None:
         if self.tor:

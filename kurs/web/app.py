@@ -6,6 +6,7 @@ import calendar
 import csv
 import hashlib
 import io
+import json
 import logging
 import re
 import secrets
@@ -1076,6 +1077,76 @@ def admin_aarsplan_slett(plan_id):
     return redirect(url_for("admin_aarsplan", aar=int(rad["fra_dato"][:4])))
 
 
+# ------- uavklarte operasjoner (e-post og faktura med ukjent utfall) -------
+
+def _foreslatt_belop(rad) -> int:
+    """Beloepet motoren ville fakturert: hele prisen, eller denne samlingens andel (samme deling som sveiper)."""
+    if rad["kursdag_id"] is None:
+        return rad["pris_nok"]
+    dager = [d["id"] for d in db.kursdager(con(), rad["kurs_id"])]
+    andeler = sveiper.delbelop(rad["pris_nok"], len(dager)) if dager else []
+    return andeler[dager.index(rad["kursdag_id"])] if rad["kursdag_id"] in dager else rad["pris_nok"]
+
+
+def _kurs_fra_nokkel(nokkel: str):
+    if nokkel.startswith("kurs:") and nokkel[5:].isdigit():
+        return con().execute("SELECT id, kursnr, navn FROM kurs WHERE id=?", (int(nokkel[5:]),)).fetchone()
+    return None
+
+
+@app.get("/admin/uavklart")
+@krever_admin
+def admin_uavklart():
+    """E-poster og fakturaer med uavklart utfall. De sendes/faktureres aldri automatisk paa nytt - her registrerer admin
+    hva som faktisk skjedde, etter kontroll i Outlook (Sendte elementer) eller Visma."""
+    eposter = [dict(r, kurs=_kurs_fra_nokkel(r["nokkel"])) for r in db.uavklarte_eposter(con())]
+    fakturaer = [dict(r, forslag=_foreslatt_belop(r)) for r in db.uavklarte_fakturaer(con())]
+    return render_template("admin_uavklart.html", eposter=eposter, fakturaer=fakturaer)
+
+
+@app.post("/admin/uavklart/epost")
+@krever_admin
+def admin_uavklart_epost():
+    f = request.form
+    if f.get("utfall") not in ("sendt", "ikke_sendt"):
+        abort(400)
+    with db.transaksjon(con()):
+        ok = db.avklar_epost(con(), f.get("nokkel", ""), f.get("mottaker", ""), f.get("type", ""),
+                             sendt=f["utfall"] == "sendt", aktor=_aktor())
+    flash("Registrert." if ok else "Denne e-posten er ikke lenger uavklart (noen andre kan ha avklart den).",
+          "ok" if ok else "info")
+    return redirect(url_for("admin_uavklart"))
+
+
+@app.post("/admin/uavklart/faktura/<int:forsok_id>")
+@krever_admin
+def admin_uavklart_faktura(forsok_id):
+    f = request.form
+    utfall = f.get("utfall")
+    if utfall not in ("fakturert", "ikke_fakturert"):
+        abort(400)
+    faktura_nr = (f.get("faktura_nr") or "").strip()
+    belop = f.get("belop_nok", type=int)
+    if utfall == "fakturert" and (not faktura_nr or len(faktura_nr) > 40 or belop is None or belop <= 0):
+        flash("Fyll inn fakturanummeret fra Visma og et beløp større enn 0.", "feil")
+        return redirect(url_for("admin_uavklart"))
+    try:
+        with db.transaksjon(con()):
+            ok = db.avklar_faktura(con(), forsok_id, fakturert=utfall == "fakturert", aktor=_aktor(),
+                                   faktura_nr=faktura_nr or None, belop_nok=belop,
+                                   visma_id=(f.get("visma_id") or "").strip()[:80] or None)
+    except db.IntegritetsFeil:
+        flash("Det finnes allerede en faktura for denne påmeldingen/samlingen. Ingenting er endret.", "feil")
+        return redirect(url_for("admin_uavklart"))
+    if not ok:
+        flash("Dette fakturaforsøket er ikke lenger uavklart (noen andre kan ha avklart det).", "info")
+    elif utfall == "fakturert":
+        flash(f"Faktura {faktura_nr} er registrert.", "ok")
+    else:
+        flash("Registrert som ikke fakturert. Fakturaen lages ved neste daglige kjøring.", "ok")
+    return redirect(url_for("admin_uavklart"))
+
+
 # ------- kursadministrasjon: faner -------
 
 @app.get("/admin/kurs/<int:kurs_id>")
@@ -1086,6 +1157,41 @@ def admin_kurs(kurs_id):
 
 def _hent_kurs(kurs_id: int):
     return con().execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone() or abort(404)
+
+
+# ------- optimistisk samtidighetskontroll («den som lagrer sist, vinner» skal ikke skje i det stille) -------
+# Skjemaet faar med et fingeravtrykk av feltene slik de var da siden ble vist. Er raden endret av noen andre (en annen
+# admin, eller morgenjobben som legger inn en Zoom-lenke) naar skjemaet lagres, lagres INGENTING og admin faar beskjed.
+# Klienter som ikke sender feltet (eldre skjema/API) kontrolleres ikke. Kontroll og lagring skjer i samme forespoersel,
+# saa vinduet er millisekunder - det lange vinduet (skjemaet staar aapent i minutter) er det som lukkes.
+_VERSJONSFELTER = {
+    "kurs": ("navn", "type", "sted", "zoom_url", "kapasitet", "pris_nok", "fakturering", "betaling", "faktura_dager_for",
+             "kursholder_epost", "notat", "paameldingsfrist"),
+    "person": ("navn", "epost", "telefon", "yrkestittel", "arbeidssted"),
+    "paamelding": ("betaler", "betaling", "org_navn", "org_nr", "faktura_adresse", "faktura_postnr", "faktura_sted",
+                   "faktura_ref", "faktura_kommentar", "intern_kommentar", "allergier", "tilrettelegging"),
+    "nettside": (paameldingsside.INTRO, paameldingsside.KNAPPETEKST),
+}
+_ENDRET_AV_ANDRE = ("Endringene ble ikke lagret: noen andre har endret dette mens du hadde siden åpen. Siden viser nå "
+                    "de nyeste verdiene – gjør endringen din på nytt.")
+
+
+def _versjon(hva: str, rad) -> str:
+    verdier = [None if rad[f] is None else str(rad[f]) for f in _VERSJONSFELTER[hva]]
+    return hashlib.sha256(json.dumps(verdier, ensure_ascii=False).encode()).hexdigest()[:20]
+
+
+@app.template_global()
+def versjon_for(hva: str, rad) -> str:
+    """Til skjult felt i skjemaet. Vises skjemaet paa nytt etter en valideringsfeil, beholdes versjonen det ble aapnet med."""
+    if request.method == "POST" and request.form.get("versjon"):
+        return request.form["versjon"]
+    return _versjon(hva, rad)
+
+
+def _endret_av_andre(hva: str, rad) -> bool:
+    mottatt = request.form.get("versjon")
+    return mottatt is not None and mottatt != _versjon(hva, rad)
 
 
 def _opprett_sharepoint_mappe(kurs_id: int, kode: str) -> str | None:
@@ -1132,6 +1238,7 @@ def admin_kurs_oppsett(kurs_id):
         "admin_kurs_oppsett.html", kurs=kurs, dager=dager, filer=filer, admins=admins,
         oppmote_antall=oppmote_antall, bekreftet_antall=db.antall_bekreftet(con(), kurs_id),
         faktura_laast=db.har_okonomisk_binding_for_kurs(con(), kurs_id),
+        uvarslede=_uvarslede_avlysninger(kurs_id) if kurs["status"] == "avlyst" else 0,
         kurs_statusvalg=db.KURS_STATUS_OVERGANGER.get(kurs["status"], ()), fane="oppsett")
 
 
@@ -1139,6 +1246,9 @@ def admin_kurs_oppsett(kurs_id):
 @krever_admin
 def admin_kurs_oppsett_lagre(kurs_id):
     kurs = _hent_kurs(kurs_id)
+    if _endret_av_andre("kurs", kurs):
+        flash(_ENDRET_AV_ANDRE, "feil")
+        return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
     f = request.form
     feil = []
     if not f.get("navn", "").strip():
@@ -1208,13 +1318,36 @@ def admin_kurs_status(kurs_id):
     return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
 
 
+def _avlysningsmottakere(kurs_id: int):
+    return con().execute(
+        """SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+           WHERE p.kurs_id=? AND p.status IN ('bekreftet','venteliste') ORDER BY p.id""", (kurs_id,)).fetchall()
+
+
+def _uvarslede_avlysninger(kurs_id: int) -> int:
+    """Mottakere av et avlyst kurs som ikke har fått varselet og kan få det nå: ingen forsøk, eller et forsøk som er
+    avklart som ikke sendt ('feilet'). Uavklarte forsøk vises under «Uavklarte operasjoner» og røres ikke her."""
+    return con().execute(
+        """SELECT COUNT(*) FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+           WHERE p.kurs_id=? AND p.status IN ('bekreftet','venteliste')
+             AND NOT EXISTS (SELECT 1 FROM utsending_logg u WHERE u.nokkel=? AND u.mottaker=d.epost
+                             AND u.type='avlysning' AND u.status != 'feilet')""",
+        (kurs_id, f"kurs:{kurs_id}")).fetchone()[0]
+
+
+def _send_avlysninger(k: Kjoring, kurs, mottakere):
+    """Avlysningsvarsel til alle - via claim-motoren (aldri to ganger til samme person, en feil stopper ikke de andre)."""
+    ut = k.send_til_mange(f"kurs:{kurs['id']}", "avlysning", mottakere,
+                          lambda d: k.render_for_sending("avlysning", d=d, kurs=kurs))
+    con().commit()
+    return ut
+
+
 @app.post("/admin/kurs/<int:kurs_id>/avlys")
 @krever_admin
 def admin_avlys_kurs(kurs_id):
     kurs = _hent_kurs(kurs_id)
-    mottakere = con().execute(
-        """SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
-           WHERE p.kurs_id=? AND p.status IN ('bekreftet','venteliste')""", (kurs_id,)).fetchall()
+    mottakere = _avlysningsmottakere(kurs_id)
     k = Kjoring(con(), idag=_idag())
     if kurs["status"] != "avlyst":
         # PREFLIGHT: forhaandsrender avlysningsmeldingen for ALLE mottakere FOER kursstatus endres og committes. Kun rendring -
@@ -1234,11 +1367,28 @@ def admin_avlys_kurs(kurs_id):
         con().rollback()
         flash(str(e), "feil")
         return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
-    for d in mottakere:
-        k.send_en_gang(f"kurs:{kurs_id}", d["epost"], "avlysning", "avlysning", paamelding_id=d["id"], d=d, kurs=kurs)
-    con().commit()
-    flash(f"Kurset er avlyst og {len(mottakere)} deltaker(e) er varslet på e-post. "
+    ut = _send_avlysninger(k, kurs, mottakere)
+    flash(f"Kurset er avlyst og {len(ut.sendt)} deltaker(e) er varslet på e-post. "
          "Husk å kreditere eventuelle fakturaer manuelt i Visma – det gjøres ikke automatisk.", "ok")
+    _flash_sendefeil(ut)
+    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/avlys/varsle")
+@krever_admin
+def admin_avlysning_varsle(kurs_id):
+    """Sender avlysningsvarselet til dem som ikke fikk det (f.eks. fordi e-posttjenesten var nede). Trygt å trykke flere
+    ganger: claim-motoren sender aldri to ganger til samme person, og uavklarte forsøk røres ikke."""
+    kurs = _hent_kurs(kurs_id)
+    if kurs["status"] != "avlyst":
+        flash("Kurset er ikke avlyst.", "feil")
+        return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
+    ut = _send_avlysninger(Kjoring(con(), idag=_idag()), kurs, _avlysningsmottakere(kurs_id))
+    if ut.sendt:
+        flash(f"Avlysningsvarsel sendt til {len(ut.sendt)} deltaker(e).", "ok")
+    elif not (ut.uavklart or ut.ikke_forsokt or ut.uavklart_fra_for):
+        flash("Alle har allerede fått avlysningsvarselet.", "info")
+    _flash_sendefeil(ut)
     return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
 
 
@@ -1301,6 +1451,9 @@ def admin_kurs_nettside_lagre(kurs_id):
     """Fase 12C5: lagrer introduksjonstekst og knappetekst. BEGGE valideres foer noe skrives; ved feil 400 og ingen
     endring. Ett samlet oppdater_kurs_felter-kall (logger kun feltnavn, aldri innhold). Tom verdi -> NULL (standard)."""
     kurs = _hent_kurs(kurs_id)
+    if _endret_av_andre("nettside", kurs):
+        flash(_ENDRET_AV_ANDRE, "feil")
+        return redirect(url_for("admin_kurs_nettside", kurs_id=kurs_id))
     intro, knappetekst = request.form.get("intro", ""), request.form.get("knappetekst", "")
     feil, verdier = [], {}
     for kolonne, verdi, normaliser in ((paameldingsside.INTRO, intro, paameldingsside.normaliser_intro),
@@ -1748,6 +1901,9 @@ def admin_deltaker(kurs_id, paamelding_id):
 def admin_deltaker_person(kurs_id, paamelding_id):
     _hent_kurs(kurs_id)
     p = _hent_paamelding(kurs_id, paamelding_id)
+    if _endret_av_andre("person", p):
+        flash(_ENDRET_AV_ANDRE, "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
     f = request.form
     if not f.get("navn", "").strip() or "@" not in f.get("epost", ""):
         flash("Fyll inn navn og en gyldig e-postadresse.", "feil")
@@ -1773,6 +1929,9 @@ def admin_deltaker_person(kurs_id, paamelding_id):
 def admin_deltaker_paamelding(kurs_id, paamelding_id):
     kurs = _hent_kurs(kurs_id)
     p = _hent_paamelding(kurs_id, paamelding_id)
+    if _endret_av_andre("paamelding", p):
+        flash(_ENDRET_AV_ANDRE, "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
     f = request.form
     betaler = f.get("betaler") if f.get("betaler") in ("person", "organisasjon") else p["betaler"]
     if betaler == "organisasjon" and not (f.get("org_navn", "").strip() and f.get("org_nr", "").strip()):
@@ -1966,6 +2125,19 @@ def admin_epost_forhandsvis(kurs_id):
                                             "eksempel_navn": eksempel["navn"], "eksempel_id": eksempel["id"]})
 
 
+def _flash_sendefeil(ut) -> None:
+    """Ærlig beskjed når ikke alle fikk e-posten (se Kjoring.send_til_mange)."""
+    if ut.uavklart:
+        flash(f"{ut.uavklart} e-post(er) fikk et uavklart utfall og sendes ikke automatisk på nytt. Se «Uavklarte "
+              "operasjoner» på oversikten.", "feil")
+    if ut.ikke_forsokt:
+        flash(f"{ut.ikke_forsokt} mottaker(e) fikk ikke e-posten fordi e-posttjenesten ikke svarte. Prøv igjen litt "
+              "senere – de som alt har fått den, får den ikke to ganger.", "feil")
+    if ut.uavklart_fra_for:
+        flash(f"{ut.uavklart_fra_for} mottaker(e) har et uavklart eller pågående forsøk fra før og fikk ikke e-posten "
+              "på nytt. Se «Uavklarte operasjoner» på oversikten.", "info")
+
+
 @app.post("/admin/kurs/<int:kurs_id>/epost/send")
 @krever_admin
 def admin_epost_send(kurs_id):
@@ -1975,14 +2147,15 @@ def admin_epost_send(kurs_id):
     if not rad:
         flash("Fant ikke utsendelsen. Forhåndsvis på nytt.", "feil")
         return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
-    sendt_til = Kjoring(con(), idag=_idag()).send_admin_utsending(utsending_id)
-    for pid in sendt_til:
+    ut = Kjoring(con(), idag=_idag()).send_admin_utsending(utsending_id)
+    for pid in ut.sendt:
         db.logg(con(), "admin_epost_sendt", {"paamelding_id": pid, "kurs_id": kurs_id}, aktor=_aktor())
     con().commit()
-    if sendt_til:
-        flash(f"E-post sendt til {len(sendt_til)} mottaker(e).", "ok")
-    else:
+    if ut.sendt:
+        flash(f"E-post sendt til {len(ut.sendt)} mottaker(e).", "ok")
+    elif not (ut.uavklart or ut.ikke_forsokt or ut.uavklart_fra_for):
         flash("Denne utsendelsen er allerede sendt – ingenting ble sendt på nytt.", "info")
+    _flash_sendefeil(ut)
     return redirect(url_for("admin_kurs_kommunikasjon", kurs_id=kurs_id))
 
 
