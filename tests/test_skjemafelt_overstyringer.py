@@ -53,12 +53,20 @@ def _nokler(skjema):
     return [f.nokkel for f in skjema.deltakerfelt]
 
 
+def _ulagringsbar_i_postgres(kol, verdi) -> bool:
+    """PostgreSQL er typesikker og kan ikke lagre NUL i tekst: slike «korrupte» verdier kan bare oppstaa i SQLite."""
+    if isinstance(verdi, bytes) or (isinstance(verdi, str) and "\x00" in verdi):
+        return True
+    return kol in ("synlig", "obligatorisk", "rekkefolge") and (isinstance(verdi, bool) or not isinstance(verdi, int))
+
+
 def _felt(skjema, nokkel):
     return next((f for f in skjema.deltakerfelt if f.nokkel == nokkel), None)
 
 
 # ============================ schema ============================
 
+@pytest.mark.kun_sqlite  # PRAGMA pk/fk-detaljer; PostgreSQL-skjemaet kontrolleres i test_skjema_speiling
 def test_init_oppretter_tabellen_med_riktige_kolonner_pk_og_fk(con):
     info = {r["name"]: r for r in con.execute("PRAGMA table_info(kurs_skjemafelt)")}
     assert list(info) == ["kurs_id", "felt", "synlig", "obligatorisk", "rekkefolge", "label", "hjelpetekst",
@@ -80,7 +88,8 @@ def test_ingen_check_paa_feltnavn(con):
 @pytest.mark.parametrize("kol,verdi", [("synlig", 2), ("synlig", "ja"), ("obligatorisk", -1), ("obligatorisk", "nei")])
 def test_check_paa_bool_kolonner(con, kol, verdi):
     kid = _kurs(con)
-    with pytest.raises(sqlite3.IntegrityError):
+    # SQLite: CHECK-brudd. PostgreSQL: CHECK-brudd for tall, typefeil (tekst i heltallskolonne) for tekst - begge avvises.
+    with pytest.raises(db.DatabaseFeil if db.er_postgres(con) else db.IntegritetsFeil):
         _sett_inn(con, kid, "telefon", **{kol: verdi})
 
 
@@ -101,7 +110,8 @@ def test_eksisterende_database_uten_tabellen_faar_den_ved_init(con):
 
 
 def test_sletting_av_kurs_fjerner_overstyringene(con):
-    assert con.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    if not db.er_postgres(con):                  # PostgreSQL haandhever alltid fremmednokler
+        assert con.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     kid, annet = _kurs(con), _kurs(con, "S2")
     db.lagre_skjemafelt(con, kid, "telefon", {"synlig": False})
     db.lagre_skjemafelt(con, kid, "hpr_nr", {"hjelpetekst": "Hjelp"})
@@ -262,7 +272,10 @@ def test_oppdatert_endres_kun_ved_reell_endring(con):
 
 def test_korrupt_eksisterende_rad_overskrives_rent_ved_lagring(con):
     kid = _kurs(con)
-    _sett_inn(con, kid, "telefon", rekkefolge="abc", label="\x00")
+    if db.er_postgres(con):     # typesikker kolonne / ingen NUL: korrupsjonen kan kun vaere et kontrolltegn
+        _sett_inn(con, kid, "telefon", label="\x01")
+    else:
+        _sett_inn(con, kid, "telefon", rekkefolge="abc", label="\x00")
     assert db.lagre_skjemafelt(con, kid, "telefon", {"label": "Mobil"}) is True
     rad = _rader(con, kid)[0]
     assert (rad["rekkefolge"], rad["label"]) == (None, "Mobil")
@@ -557,6 +570,8 @@ def test_hpr_ikke_tillatt_egenskap_ignoreres_hjelpetekst_i_samme_rad_brukes(con,
     ("label", b"\x00\x01", sf.UGYLDIG_TYPE), ("hjelpetekst", b"x", sf.UGYLDIG_TYPE),
 ])
 def test_ugyldig_egenskap_faller_tilbake_til_standard_resten_brukes(con, kol, verdi, grunn):
+    if db.er_postgres(con) and _ulagringsbar_i_postgres(kol, verdi):
+        pytest.skip("verdien kan ikke lagres i PostgreSQL (typesikker kolonne / NUL) - korrupsjonen kan ikke oppstaa der")
     kid = _kurs(con)
     _sett_inn(con, kid, "telefon", obligatorisk=1, **{kol: verdi})
     les = _les(con, kid)

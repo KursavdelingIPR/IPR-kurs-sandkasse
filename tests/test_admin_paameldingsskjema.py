@@ -342,8 +342,11 @@ def test_korrupt_overstyring_gir_trygg_advarsel(con, admin):
 
 def test_lagring_rydder_korrupte_verdier_for_redigerbare_felt(con, admin):
     kid = _kurs(con)
-    con.execute("INSERT INTO kurs_skjemafelt (kurs_id, felt, rekkefolge, label) VALUES (?, 'telefon', 'abc', ?)",
-                (kid, "\x00"))
+    if db.er_postgres(con):     # typesikker kolonne / ingen NUL i PostgreSQL: kun kontrolltegn-korrupsjon er mulig
+        con.execute("INSERT INTO kurs_skjemafelt (kurs_id, felt, label) VALUES (?, 'telefon', ?)", (kid, "\x01"))
+    else:
+        con.execute("INSERT INTO kurs_skjemafelt (kurs_id, felt, rekkefolge, label) VALUES (?, 'telefon', 'abc', ?)",
+                    (kid, "\x00"))
     con.commit()
     assert _lagre(admin, kid).status_code == 302
     assert _rader(con, kid) == []
@@ -390,6 +393,7 @@ def test_skrivefeil_ved_lagring_og_tilbakestilling_gir_503(con, admin, monkeypat
     def les_og_bryt(c, k):          # lesing OK, men tabellen forsvinner foer skrivingen -> kontrollert 503
         res = ekte(c, k)
         c.execute("DROP TABLE kurs_skjemafelt")
+        c.commit()                  # varig i begge databaser (PostgreSQL har transaksjonell DDL; SQLite autocommit-er DDL)
         return res
     monkeypatch.setattr(db, "hent_skjemaoverstyringer", les_og_bryt)
     r = _lagre(admin, kid, telefon_label="Ny")

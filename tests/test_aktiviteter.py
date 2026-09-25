@@ -38,6 +38,7 @@ def _kurs(con, kode, navn="Testkurs", start=None, **kw):
 
 # ---------------- migrering ----------------
 
+@pytest.mark.kun_sqlite  # lager en gammel SQLite-fil direkte med sqlite3 (migreringstest for lokale databaser)
 def test_migrering_legger_til_oppdatert_og_backfiller_uten_datatap(tmp_path):
     """Simulerer en database fra for feltene i fase 1 fantes. Ingen ALTER med ikke-konstant default."""
     sti = tmp_path / "gammel.db"
@@ -70,9 +71,9 @@ def test_migrering_legger_til_oppdatert_og_backfiller_uten_datatap(tmp_path):
 
 
 def test_ny_database_har_de_samme_kolonnene(con):
-    assert any(r["name"] == "ansvarlig_admin_id" for r in con.execute("PRAGMA table_info(kurs)"))
-    assert any(r["name"] == "yrkestittel" for r in con.execute("PRAGMA table_info(deltaker)"))
-    assert any(r["name"] == "oppdatert" for r in con.execute("PRAGMA table_info(paamelding)"))
+    assert "ansvarlig_admin_id" in db.kolonner(con, "kurs")
+    assert "yrkestittel" in db.kolonner(con, "deltaker")
+    assert "oppdatert" in db.kolonner(con, "paamelding")
 
 
 # ---------------- aktivitetsoversikt ----------------

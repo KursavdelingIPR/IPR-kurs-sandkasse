@@ -80,7 +80,8 @@ def _lagre(con, mal, felt, tekst):
 
 
 def _korrupt(con, mal, felt, tekst):
-    con.execute("INSERT OR REPLACE INTO mal_tekst (mal, felt, tekst) VALUES (?, ?, ?)", (mal, felt, tekst))
+    con.execute("INSERT INTO mal_tekst (mal, felt, tekst) VALUES (?, ?, ?) "
+                "ON CONFLICT (mal, felt) DO UPDATE SET tekst=excluded.tekst", (mal, felt, tekst))
     con.commit()
 
 

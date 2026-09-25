@@ -355,7 +355,7 @@ def test_korrupt_kilde_kopieres_ikke_men_gyldig_verdi_folger_med(con, admin, kor
 
 def test_begge_korrupte_gir_null_og_en_advarsel(con, admin):
     kid = _kurs(con)
-    _sett_raatt(con, kid, paamelding_intro="\x00", paamelding_knappetekst="x" * 99)
+    _sett_raatt(con, kid, paamelding_intro="\x01" if db.er_postgres(con) else "\x00", paamelding_knappetekst="x" * 99)
     html = _dupliser(admin, kid).get_data(as_text=True)
     ny = _nyeste(con)
     assert (ny["paamelding_intro"], ny["paamelding_knappetekst"]) == (None, None)
@@ -411,7 +411,7 @@ def test_eksisterende_database_migreres_med_null(tmp_path):
     c.execute("ALTER TABLE kurs DROP COLUMN paamelding_intro")
     c.execute("ALTER TABLE kurs DROP COLUMN paamelding_knappetekst")
     c.commit()
-    kolonner = {r["name"] for r in c.execute("PRAGMA table_info(kurs)")}
+    kolonner = set(db.kolonner(c, "kurs"))
     assert "paamelding_intro" not in kolonner
     db.init(c)
     db.init(c)                                         # idempotent

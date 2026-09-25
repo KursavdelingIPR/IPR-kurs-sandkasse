@@ -110,6 +110,31 @@ def teller_som_feil(res: Behandlingsresultat) -> bool:
     return res.forsokt and (res.kode == FEILET or (res.kode == UAVKLART and res.arsak_kode == "ukjent"))
 
 
+def _utfall(k: Kjoring, kurs_id: int, paamelding_id: int, rad) -> Behandlingsresultat:
+    """Tolker utfallet av ETT gjennomloep av motoren fra TILSTAND (motoren returnerer ingenting). Ren lesing."""
+    con = k.con
+    if rad["status"] == "bekreftet":
+        # Flagget, ELLER at sideeffektene beviselig er utfoert: en samtidig behandling (annen admin) kan ha sendt og
+        # fakturert uten aa ha rukket aa committe sveiper_kjort=1 ennaa - det er fullfoert, ikke en teknisk feil.
+        fullfort = (con.execute("SELECT sveiper_kjort FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()[0] == 1
+                    or sveiper.sideeffekter_ferdige(k, paamelding_id))
+    else:  # venteliste: sveiper_kjort settes med vilje ikke - bruk utsendelsesloggen
+        fullfort = db.allerede_sendt(con, f"kurs:{kurs_id}", rad["epost"], "venteliste")
+    if fullfort:
+        return _r(FULLFORT, "fullfort", "Ferdig behandlet", forsokt=True)
+    uavklart = db.uavklart_status_for_paamelding(con, kurs_id, rad["epost"], paamelding_id, _epost_type(rad))
+    if uavklart:
+        return _r(UAVKLART, uavklart, _UAVKLART_TEKST[uavklart], forsokt=True)
+    # Ikke fullfort og ingenting uavklart: enten en teknisk feil foer noe ble reservert, eller raden
+    # ble avmeldt/kurset avlyst mens vi holdt paa (motorens SQL-filter hoppet da over den).
+    ny_kurs = con.execute(_SQL_KURS, (kurs_id,)).fetchone()
+    ny_rad = con.execute(_SQL_RAD, (paamelding_id, kurs_id)).fetchone()
+    endret = klassifiser(con, ny_kurs, ny_rad) if ny_kurs and ny_rad else None
+    if endret and endret.kode == IKKE_BEHANDLINGSBAR:
+        return endret
+    return _r(FEILET, "teknisk", "Teknisk feil - ikke fullført. Daglig jobb prøver igjen automatisk.", forsokt=True)
+
+
 _SQL_KURS = "SELECT * FROM kurs WHERE id=?"
 _SQL_RAD = """SELECT p.id, p.status, p.sveiper_kjort, p.sveiper_utsatt, d.epost
               FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.id=? AND p.kurs_id=?"""
@@ -130,30 +155,20 @@ def behandle_holdt_paamelding(con, kurs_id: int, paamelding_id: int, idag, *, ak
     if avvist:
         return avvist  # ingenting er rort: hverken flagg, motor eller logg
 
-    sveiper.kjor(Kjoring(con, idag=idag), paamelding_id, ignorer_utsatt=True)
+    k = Kjoring(con, idag=idag)
+    sveiper.kjor(k, paamelding_id, ignorer_utsatt=True)
     con.commit()
-
-    if rad["status"] == "bekreftet":
-        fullfort = con.execute("SELECT sveiper_kjort FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()[0] == 1
-    else:  # venteliste: sveiper_kjort settes med vilje ikke - bruk utsendelsesloggen
-        fullfort = db.allerede_sendt(con, f"kurs:{kurs_id}", rad["epost"], "venteliste")
-
-    if fullfort:
-        resultat = _r(FULLFORT, "fullfort", "Ferdig behandlet", forsokt=True)
-    else:
-        uavklart = db.uavklart_status_for_paamelding(con, kurs_id, rad["epost"], paamelding_id, _epost_type(rad))
-        if uavklart:
-            resultat = _r(UAVKLART, uavklart, _UAVKLART_TEKST[uavklart], forsokt=True)
-        else:
-            # Ikke fullfort og ingenting uavklart: enten en teknisk feil foer noe ble reservert, eller raden
-            # ble avmeldt/kurset avlyst mens vi holdt paa (motorens SQL-filter hoppet da over den).
-            ny_kurs = con.execute(_SQL_KURS, (kurs_id,)).fetchone()
-            ny_rad = con.execute(_SQL_RAD, (paamelding_id, kurs_id)).fetchone()
-            endret = klassifiser(con, ny_kurs, ny_rad) if ny_kurs and ny_rad else None
-            if endret and endret.kode == IKKE_BEHANDLINGSBAR:
-                return endret  # endret underveis - flagget rores ikke
-            resultat = _r(FEILET, "teknisk", "Teknisk feil - ikke fullført. Daglig jobb prøver igjen automatisk.",
-                          forsokt=True)
+    resultat = _utfall(k, kurs_id, paamelding_id, rad)
+    if resultat.kode == FEILET and rad["status"] == "bekreftet" and db.allerede_sendt(
+            con, f"kurs:{kurs_id}", rad["epost"], "bekreftelse"):
+        # Bekreftelsen ER sendt (av en samtidig behandling som tapte oss claimen, og som naa staar mellom e-post og
+        # fakturaclaim), men fakturadelen er verken ferdig eller reservert. Det er ikke en teknisk feil: motoren er
+        # idempotent (claims), saa ett nytt gjennomloep fullfoerer fakturadelen selv eller taper claimen til den andre.
+        sveiper.fullfor_en(k, paamelding_id)
+        con.commit()
+        resultat = _utfall(k, kurs_id, paamelding_id, rad)
+    if resultat.kode == IKKE_BEHANDLINGSBAR:
+        return resultat  # endret underveis (avmeldt/avlyst) - flagget rores ikke
 
     # Betinget UPDATE: kun den som faktisk fjerner flagget skriver. Skjer ETTER behandlingen, aldri foer.
     con.execute("UPDATE paamelding SET sveiper_utsatt=0 WHERE id=? AND sveiper_utsatt=1", (paamelding_id,))

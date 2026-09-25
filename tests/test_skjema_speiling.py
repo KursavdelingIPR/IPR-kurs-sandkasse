@@ -93,6 +93,7 @@ PG_TAB, PG_IDX = _parse(PG_SKJEMA)
 
 # ============================ parseren er riktig (kontrollert mot SQLite selv) ============================
 
+@pytest.mark.kun_sqlite  # kontrollerer parseren mot SQLite sin egen katalog (se test_postgres_katalog for PostgreSQL)
 def test_parseren_ser_det_samme_som_sqlite(tmp_path):
     c = db.koble(tmp_path / "s.db")
     db.init(c)

@@ -50,11 +50,11 @@ def _kurs(con, kode="P1", **kw):
 
 
 def _krav(con, kid, frist: date, navn="Per Psykolog", epost_="per@x.no", beskrivelse="Kurspresentasjon"):
-    cur = con.execute(
-        "INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, beskrivelse, frist) VALUES (?,?,?,?,?)",
+    krav_id = db.sett_inn(
+        con, "INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, beskrivelse, frist) VALUES (?,?,?,?,?)",
         (kid, navn, epost_, beskrivelse, frist.isoformat()))
     con.commit()
-    return cur.lastrowid
+    return krav_id
 
 
 def _daglig(con, idag):
@@ -74,7 +74,8 @@ def _lagre(con, felt, tekst):
 
 
 def _korrupt(con, felt, tekst):
-    con.execute("INSERT OR REPLACE INTO mal_tekst (mal, felt, tekst) VALUES ('purring', ?, ?)", (felt, tekst))
+    con.execute("INSERT INTO mal_tekst (mal, felt, tekst) VALUES ('purring', ?, ?) "
+                "ON CONFLICT (mal, felt) DO UPDATE SET tekst=excluded.tekst", (felt, tekst))
     con.commit()
 
 

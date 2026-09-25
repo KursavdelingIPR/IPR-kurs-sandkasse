@@ -72,6 +72,7 @@ def test_allerede_sendt_kun_sant_for_status_sendt(con):
     assert db.allerede_sendt(con, "kurs:1", "a@x.no", "bekreftelse") is True
 
 
+@pytest.mark.kun_sqlite  # lager en gammel SQLite-fil direkte med sqlite3 (migreringstest for lokale databaser)
 def test_gamle_rader_uten_statuskolonne_tolkes_som_sendt(tmp_path):
     """Migrering: en rad skrevet av den gamle, ubetingede marker_sendt() skal fortsatt telle som sendt."""
     sti = tmp_path / "gammel.db"

@@ -1,14 +1,130 @@
+"""Felles testoppsett.
+
+Standard: hver test bruker sin EGEN SQLite-fil (tmp_path), uansett hva DATABASE_URL er satt til i miljoet eller i .env -
+en test skal aldri kunne skrive til en ekte driftsdatabase.
+
+PostgreSQL-modus (valgfri): settes TEST_DATABASE_URL til en TOM TESTDATABASE (aldri sandbox/prod), kjores HELE testsuiten
+mot ekte PostgreSQL. Hver SQLite-sti en test ber om (db.koble(sti) / config.DB_STI) faar da sitt eget, nyopprettede
+PostgreSQL-skjema, som slettes etter testen. Tester merket `kun_sqlite` (de som bevisst lager en gammel SQLite-fil med
+sqlite3 direkte) hoppes over i denne modusen; tester merket `kun_postgres` kjores KUN her.
+
+    TEST_DATABASE_URL=postgresql://bruker:passord@127.0.0.1:5432/ipr_test python -m pytest tests
+"""
+import hashlib
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+PG_TEST_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "kun_sqlite: SQLite-spesifikk test (hoppes over i PostgreSQL-modus)")
+    config.addinivalue_line("markers", "kun_postgres: kjores kun naar TEST_DATABASE_URL peker paa en PostgreSQL-testdatabase")
+
+
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        if PG_TEST_URL and "kun_sqlite" in item.keywords:
+            item.add_marker(pytest.mark.skip(reason="SQLite-spesifikk test (PostgreSQL-modus)"))
+        if not PG_TEST_URL and "kun_postgres" in item.keywords:
+            item.add_marker(pytest.mark.skip(reason="krever TEST_DATABASE_URL (PostgreSQL-testdatabase)"))
+
+
+class _PgTestskjemaer:
+    """Ett PostgreSQL-skjema per SQLite-sti i EN test. Alle tilkoblinger spores og lukkes foer skjemaene slettes, slik at
+    en tilkobling testen glemte aa lukke (aapen transaksjon) aldri kan blokkere DROP SCHEMA."""
+
+    _kontrollert = False
+
+    def __init__(self, url: str):
+        import psycopg
+        self._pg, self._url = psycopg, url
+        self._skjemaer: dict[str, str] = {}
+        self._tilkoblinger: list = []
+        if not _PgTestskjemaer._kontrollert:
+            self._krev_tom_testdatabase()
+            _PgTestskjemaer._kontrollert = True
+
+    def _krev_tom_testdatabase(self) -> None:
+        """Sikring: testene skal ALDRI kjoeres mot en database med data. `public` skal kun ha citext-utvidelsen - finnes
+        det tabeller der, er dette ikke en tom testdatabase (og tabellene ville dessuten skjult feil via search_path)."""
+        with self._pg.connect(self._url, autocommit=True) as c:
+            tabeller = c.execute("SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public'").fetchone()[0]
+            citext = c.execute("SELECT 1 FROM pg_extension WHERE extname = 'citext'").fetchone()
+        if tabeller:
+            pytest.exit(f"TEST_DATABASE_URL peker paa en database med {tabeller} tabell(er) i public. Bruk en TOM "
+                        "testdatabase (aldri sandbox/prod).", returncode=2)
+        if not citext:
+            pytest.exit("Testdatabasen mangler utvidelsen citext (CREATE EXTENSION citext; som eier/superbruker).",
+                        returncode=2)
+
+    def skjema_for(self, sti) -> str:
+        from kurs import config
+        nokkel = str(Path(sti or config.DB_STI).resolve())
+        if nokkel not in self._skjemaer:
+            navn = "t_" + hashlib.sha1(f"{nokkel}:{time.time_ns()}:{os.getpid()}".encode()).hexdigest()[:24]
+            with self._pg.connect(self._url, autocommit=True) as c:
+                c.execute(f'CREATE SCHEMA "{navn}"')
+            self._skjemaer[nokkel] = navn
+        return self._skjemaer[nokkel]
+
+    def koble(self, sti=None):
+        from kurs import db
+        skjema = self.skjema_for(sti)
+        raa = self._pg.connect(self._url, options=f"-c search_path={skjema},public", row_factory=db._rad_fabrikk)
+        self._tilkoblinger.append(raa)
+        return db._PgTilkobling(raa, self._pg)
+
+    def rydd(self) -> None:
+        for raa in self._tilkoblinger:
+            try:
+                raa.close()
+            except Exception:  # noqa: BLE001 - opprydding skal aldri feile testen
+                pass
+        if self._skjemaer:
+            with self._pg.connect(self._url, autocommit=True) as c:
+                for navn in self._skjemaer.values():
+                    c.execute(f'DROP SCHEMA IF EXISTS "{navn}" CASCADE')
+
+
+_AKTIV: "_PgTestskjemaer | None" = None
+
+
+def pg_skrivelaas_holdes(sti) -> bool:
+    """PostgreSQL-motstykket til SQLite sin «kan en annen forbindelse ta skrivelaasen naa?»: holder NOEN tilkobling en
+    skrivelaas (INSERT/UPDATE/DELETE i en uavsluttet transaksjon -> RowExclusiveLock eller sterkere) paa en tabell i
+    testens skjema? Brukes av tester som kontrollerer at ingen laas holdes over et eksternt (nettverks)kall."""
+    assert _AKTIV is not None, "kun i PostgreSQL-modus"
+    skjema = _AKTIV.skjema_for(sti)
+    with _AKTIV._pg.connect(_AKTIV._url, autocommit=True) as c:
+        antall = c.execute(
+            """SELECT COUNT(*) FROM pg_locks l JOIN pg_class k ON k.oid = l.relation
+               JOIN pg_namespace n ON n.oid = k.relnamespace
+               WHERE n.nspname = %s AND l.granted AND l.pid <> pg_backend_pid()
+                 AND l.mode IN ('RowExclusiveLock','ShareRowExclusiveLock','ExclusiveLock','AccessExclusiveLock')""",
+            (skjema,)).fetchone()[0]
+    return antall > 0
+
 
 @pytest.fixture(autouse=True)
-def _alltid_sqlite_i_tester(monkeypatch):
-    """Testene bruker ALLTID SQLite (egen midlertidig fil per test), ogsaa om DATABASE_URL skulle vaere satt i miljoet
-    eller i .env - en test skal aldri kunne skrive til en ekte PostgreSQL-database."""
-    from kurs import config
+def _database_i_tester(monkeypatch, request):
+    global _AKTIV
+    from kurs import config, db
     monkeypatch.setattr(config, "DATABASE_URL", "")
+    if not PG_TEST_URL or "kun_sqlite" in request.keywords:
+        yield None
+        return
+    skjemaer = _PgTestskjemaer(PG_TEST_URL)
+    monkeypatch.setattr(db, "koble", skjemaer.koble)
+    _AKTIV = skjemaer
+    try:
+        yield skjemaer
+    finally:
+        _AKTIV = None
+        skjemaer.rydd()

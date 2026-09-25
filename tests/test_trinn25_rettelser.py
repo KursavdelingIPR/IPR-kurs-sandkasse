@@ -62,7 +62,11 @@ def _tell(con, sql, *args):
 
 
 def _kan_skrive(sti) -> bool:
-    """Kan en ANNEN forbindelse ta skrivelaasen naa? (False = noen holder en skrivelaas.)"""
+    """Kan en ANNEN forbindelse ta skrivelaasen naa? (False = noen holder en skrivelaas.) I PostgreSQL-modus: holder noen
+    en skrivelaas paa en tabell i testens skjema (se conftest.pg_skrivelaas_holdes)?"""
+    import conftest
+    if conftest.PG_TEST_URL:
+        return not conftest.pg_skrivelaas_holdes(sti)
     c2 = sqlite3.connect(sti, timeout=0.2)
     try:
         c2.execute("BEGIN IMMEDIATE")
@@ -702,8 +706,8 @@ def test_teller_teller_kun_uavklarte_og_gamle_reserverte_i_begge_tabeller(con):
     for nokkel, status in [("a", "sendt"), ("b", "ukjent"), ("c", "reservert"), ("d", "reservert"), ("e", "feilet")]:
         con.execute("INSERT INTO utsending_logg (nokkel, mottaker, type, status) VALUES (?,?,?,?)",
                     (f"kurs:{nokkel}", "a@x.no", "bekreftelse", status))
-    con.execute("UPDATE utsending_logg SET sendt_ts=datetime('now', '-6 minutes') WHERE nokkel='kurs:d'")   # gammel
-    con.execute("UPDATE utsending_logg SET sendt_ts=datetime('now', '-2 minutes') WHERE nokkel='kurs:c'")   # fersk
+    con.execute("UPDATE utsending_logg SET sendt_ts=? WHERE nokkel='kurs:d'", (db.utc_minutter_siden(6),))   # gammel
+    con.execute("UPDATE utsending_logg SET sendt_ts=? WHERE nokkel='kurs:c'", (db.utc_minutter_siden(2),))   # fersk
     for kd, status in zip([None, *dager[:4]], ["ukjent", "reservert", "reservert", "feilet", "ukjent"]):
         con.execute("INSERT INTO faktura_forsok (paamelding_id, kursdag_id, status, opprettet) VALUES (?,?,?,?)",
                     (pid, kd, status, datetime.now().isoformat(timespec="seconds")))
@@ -745,6 +749,7 @@ def test_teller_er_live_og_ikke_kumulativ(con):
 
 # ==================== T11: gammel database migreres ====================
 
+@pytest.mark.kun_sqlite  # gjenskaper en gammel SQLite-tabell (COLLATE NOCASE/datetime) for trinn 2.5
 def test_gammel_database_faar_faktura_forsok_og_status_uten_a_miste_data(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_STI", tmp_path / "gammel.db")
     c = db.koble()
@@ -910,7 +915,7 @@ def test_staleness_grensen_ved_fire_og_seks_minutter_i_begge_tabeller(con):
     db.reserver_sending(con, "kurs:1", "a@x.no", "bekreftelse")
     db.reserver_faktura(con, pid, None)
     for minutter, forventet in [(db.UAVKLART_GRENSE_MIN - 1, 0), (db.UAVKLART_GRENSE_MIN + 1, 1)]:
-        con.execute("UPDATE utsending_logg SET sendt_ts=datetime('now', ?)", (f"-{minutter} minutes",))  # UTC
+        con.execute("UPDATE utsending_logg SET sendt_ts=?", (db.utc_minutter_siden(minutter),))  # UTC
         con.execute("UPDATE faktura_forsok SET opprettet=?",
                     ((datetime.now() - timedelta(minutes=minutter)).isoformat(timespec="seconds"),))  # lokal
         con.commit()

@@ -175,13 +175,33 @@ class _PgMarkor:
         return iter(self.fetchall())
 
 
+_ENDRINGSSTATUS = ("INSERT", "UPDATE", "DELETE")
+_SKRIVESTATUS = _ENDRINGSSTATUS + ("CREATE", "DROP", "ALTER", "TRUNCATE", "COMMENT", "GRANT", "REVOKE")
+
+
 class _PgTilkobling:
     """Tynt adapterlag rundt en psycopg-tilkobling. Transaksjoner fungerer som med sqlite3: forste setning starter en
     transaksjon, commit()/rollback() avslutter den (db.transaksjon er uendret). psycopg-feil oversettes til
-    PostgresFeil/PostgresIntegritetsFeil (del av db.DatabaseFeil/IntegritetsFeil)."""
+    PostgresFeil/PostgresIntegritetsFeil (del av db.DatabaseFeil/IntegritetsFeil).
+
+    Speiler ogsaa de sqlite3-egenskapene koden og testene bruker for aa kontrollere transaksjonsdisiplin:
+      * `in_transaction`: som sqlite3 i Pythons standardmodus, der en ren LESING aldri aapner en transaksjon. I PostgreSQL
+        aapner ogsaa en SELECT en (lese)transaksjon uten skrivelaaser; den teller derfor IKKE. True betyr: en transaksjon
+        med skriving (INSERT/UPDATE/DELETE/DDL) staar aapen, eller transaksjonen er avbrutt av en feil og maa rulles tilbake.
+      * `total_changes`: antall rader endret av INSERT/UPDATE/DELETE via denne tilkoblingen.
+      * `set_trace_callback`: kalles med hver SQL-setning som kjoeres."""
 
     def __init__(self, raa, psycopg_modul):
         self._raa, self._pg = raa, psycopg_modul
+        self._endringer = 0
+        self._har_skrevet = False
+        self._sporing = None
+
+    @property
+    def avbrutt(self) -> bool:
+        """True naar PostgreSQL har avbrutt transaksjonen etter en feil (alle videre setninger feiler til rollback)."""
+        status = getattr(getattr(self._raa, "info", None), "transaction_status", None)
+        return getattr(status, "name", "") == "INERROR"
 
     def _oversett(self, feil: Exception) -> Exception:
         diag = getattr(feil, "diag", None)
@@ -189,18 +209,46 @@ class _PgTilkobling:
         klasse = PostgresIntegritetsFeil if isinstance(feil, self._pg.IntegrityError) else PostgresFeil
         return klasse(melding)
 
+    @property
+    def in_transaction(self) -> bool:
+        status = getattr(getattr(self._raa, "info", None), "transaction_status", None)
+        navn = getattr(status, "name", "")
+        return navn == "INERROR" or (navn == "INTRANS" and self._har_skrevet)
+
+    @property
+    def total_changes(self) -> int:
+        return self._endringer
+
+    def set_trace_callback(self, callback) -> None:
+        self._sporing = callback
+
+    def _tell_endringer(self, cur) -> None:
+        status = (getattr(cur, "statusmessage", None) or "").split(" ", 1)[0].upper()
+        if status in _SKRIVESTATUS:
+            self._har_skrevet = True
+        if status in _ENDRINGSSTATUS and cur.rowcount and cur.rowcount > 0:
+            self._endringer += cur.rowcount
+
     def execute(self, sql: str, params=()):
+        if self._sporing:
+            self._sporing(sql)
         try:
             if params:
-                return _PgMarkor(self._raa.execute(_til_pg_sql(sql), [_pg_verdi(v) for v in params]))
-            return _PgMarkor(self._raa.execute(sql))
+                cur = self._raa.execute(_til_pg_sql(sql), [_pg_verdi(v) for v in params])
+            else:
+                cur = self._raa.execute(sql)
         except self._pg.Error as e:
             raise self._oversett(e) from e
+        self._tell_endringer(cur)
+        return _PgMarkor(cur)
 
     def executemany(self, sql: str, sekvens) -> None:
+        if self._sporing:
+            self._sporing(sql)
         try:
             with self._raa.cursor() as cur:
                 cur.executemany(_til_pg_sql(sql), [[_pg_verdi(v) for v in p] for p in sekvens])
+                self._tell_endringer(cur)
         except self._pg.Error as e:
             raise self._oversett(e) from e
 
@@ -216,8 +264,11 @@ class _PgTilkobling:
             self._raa.commit()
         except self._pg.Error as e:
             raise self._oversett(e) from e
+        finally:
+            self._har_skrevet = False
 
     def rollback(self) -> None:
+        self._har_skrevet = False
         self._raa.rollback()
 
     def close(self) -> None:
@@ -274,6 +325,16 @@ def har_kolonne(con, tabell: str, kolonne: str) -> bool:
             "SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
             "AND table_name = ? AND column_name = ?", (tabell, kolonne)).fetchone() is not None
     return any(r["name"] == kolonne for r in con.execute(f"PRAGMA table_info({tabell})"))
+
+
+def kolonner(con, tabell: str) -> list[str]:
+    """Kolonnenavnene i tabellen, i tabellens rekkefoelge (tom liste hvis tabellen ikke finnes). `tabell` er et fast navn
+    fra koden - aldri brukerinput."""
+    if er_postgres(con):
+        return [r["column_name"] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() "
+            "AND table_name = ? ORDER BY ordinal_position", (tabell,))]
+    return [r["name"] for r in con.execute(f"PRAGMA table_info({tabell})")]
 
 
 def har_admin_bruker(con) -> bool:
@@ -339,6 +400,37 @@ def transaksjon(con: sqlite3.Connection):
     except Exception:
         con.rollback()
         raise
+
+
+@contextmanager
+def isolert(con, navn: str = "isolert"):
+    """Kjoerer blokken i en SAVEPOINT. Feiler blokken, rulles KUN den tilbake og tilkoblingen kan brukes videre.
+
+    Noedvendig for PostgreSQL: der avbryter en feilet setning hele transaksjonen, og ALLE videre setninger feiler til den
+    rulles tilbake (SQLite fortsetter). Brukes rundt lesinger der en databasefeil oversettes til en kontrollert feil
+    (MalFeil/SkjemaLesefeil) og kalleren deretter fortsetter - f.eks. logger en hendelse eller viser en side. Committer
+    aldri selv. `navn` er et fast navn fra koden (aldri brukerinput)."""
+    con.execute(f"SAVEPOINT {navn}")
+    try:
+        yield con
+    except BaseException:
+        try:
+            con.execute(f"ROLLBACK TO SAVEPOINT {navn}")
+            con.execute(f"RELEASE SAVEPOINT {navn}")
+        except DatabaseFeil:
+            pass    # tilkoblingen er ubrukelig (f.eks. lukket) - den opprinnelige feilen sendes videre uansett
+        raise
+    con.execute(f"RELEASE SAVEPOINT {navn}")
+
+
+def rull_tilbake_hvis_avbrutt(con) -> bool:
+    """Etter en fanget feil: har PostgreSQL avbrutt transaksjonen, rulles den tilbake slik at tilkoblingen kan brukes
+    videre (f.eks. til aa logge feilen og fortsette med neste rad). Ikke-committet arbeid i den avbrutte transaksjonen er
+    uansett tapt. SQLite avbryter ikke transaksjoner slik - da gjoeres ingenting. True = rullet tilbake."""
+    if er_postgres(con) and con.avbrutt:
+        con.rollback()
+        return True
+    return False
 
 
 def logg(con: sqlite3.Connection, handling: str, detaljer: dict | str | None = None, aktor: str = "system") -> None:
@@ -1157,8 +1249,10 @@ def hent_skjemaoverstyringer(con, kurs_id: int) -> "skjemafelt.Leseresultat":
     En REELL lesefeil (DatabaseFeil) blir skjemafelt.SkjemaLesefeil - ALDRI et tomt resultat, siden «ingen overstyringer»
     ville latt f.eks. et obligatorisk eller skjult felt stille falle tilbake til standard."""
     try:
-        rader = [dict(r) for r in con.execute(
-            f"SELECT felt, {','.join(_SKJEMA_KOLONNER)} FROM kurs_skjemafelt WHERE kurs_id=? ORDER BY felt", (kurs_id,))]
+        with isolert(con, "skjema_les"):     # en lesefeil skal ikke avbryte kallerens transaksjon (PostgreSQL)
+            rader = [dict(r) for r in con.execute(
+                f"SELECT felt, {','.join(_SKJEMA_KOLONNER)} FROM kurs_skjemafelt WHERE kurs_id=? ORDER BY felt",
+                (kurs_id,))]
     except DatabaseFeil as e:
         raise skjemafelt.SkjemaLesefeil(kurs_id) from e
     return skjemafelt.les_overstyringer(rader)

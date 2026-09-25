@@ -57,12 +57,29 @@ def kjor(k: Kjoring, paamelding_id: int | None = None, *, ignorer_utsatt: bool =
         + (" AND p.id=?" if paamelding_id else ""),
         (paamelding_id,) if paamelding_id else ()).fetchall()
     for p in rader:
-        try:
-            _en(k, p)
-        except Exception as e:  # noqa: BLE001 – logg og fortsett med neste
-            feil = sikker_feiltekst(e)  # aldri str(e): kan inneholde e-post/URL/persondata
-            db.logg(k.con, "sveip_feil", {"paamelding_id": p["id"], "feil": feil})
-            k.si(f"  FEIL for påmelding {p['id']}: {feil}")
+        _en_trygt(k, p)
+
+
+def fullfor_en(k: Kjoring, paamelding_id: int) -> None:
+    """Ett nytt gjennomloep av «ved paamelding»-kjeden for AKKURAT denne paameldingen, uavhengig av sveiper_utsatt - samme
+    utvalgsregler og feilhaandtering som kjor(). Brukes av behandling.py naar en samtidig behandling har sendt bekreftelsen
+    og staar mellom e-post og fakturaclaim: claims gjoer gjennomloepet trygt (aldri dobbel e-post/faktura)."""
+    p = k.con.execute(
+        SQL_DELTAKER + """ WHERE p.id=? AND p.sveiper_kjort=0 AND p.status IN ('bekreftet','venteliste')
+                           AND k.status NOT IN ('avlyst','utkast')""", (paamelding_id,)).fetchone()
+    if p:
+        _en_trygt(k, p)
+
+
+def _en_trygt(k: Kjoring, p) -> None:
+    """_en() med feilisolering: en feil for EN paamelding logges (PII-fritt) og stopper aldri de neste."""
+    try:
+        _en(k, p)
+    except Exception as e:  # noqa: BLE001 – logg og fortsett med neste
+        db.rull_tilbake_hvis_avbrutt(k.con)   # PostgreSQL: en DB-feil avbryter transaksjonen - ellers feiler loggingen
+        feil = sikker_feiltekst(e)  # aldri str(e): kan inneholde e-post/URL/persondata
+        db.logg(k.con, "sveip_feil", {"paamelding_id": p["id"], "feil": feil})
+        k.si(f"  FEIL for påmelding {p['id']}: {feil}")
 
 
 def _en(k: Kjoring, p) -> None:
@@ -121,6 +138,20 @@ def _fakturering_ferdig(k: Kjoring, p, plan: "FakturaPlan") -> bool:
                 "SELECT 1 FROM faktura WHERE paamelding_id=? AND kursdag_id=?", (p["id"], dag["id"])).fetchone():
             return False
     return True
+
+
+def sideeffekter_ferdige(k: Kjoring, paamelding_id: int) -> bool:
+    """Er «ved paamelding»-kjeden FAKTISK utfoert for en bekreftet paamelding - bekreftelsen er bekreftet sendt og
+    faktureringen er ferdig etter planen - selv om sveiper_kjort=1 ikke er synlig ennaa? Ren lesing.
+
+    Brukes til aa tolke utfallet riktig naar en ANNEN prosess har gjort arbeidet og bare ikke rukket aa committe flagget
+    (PostgreSQL har radlaaser, saa to samtidige behandlinger kan overlappe slik; flagget committes rett etter)."""
+    p = k.con.execute(SQL_DELTAKER + " WHERE p.id=?", (paamelding_id,)).fetchone()
+    if not p or p["status"] != "bekreftet":
+        return False
+    if not db.allerede_sendt(k.con, f"kurs:{p['kurs_id']}", p["epost"], "bekreftelse"):
+        return False
+    return _fakturering_ferdig(k, p, _lag_plan(k, p))
 
 
 def _faktura_finnes(con, paamelding_id: int, kursdag_id: int | None) -> bool:
@@ -250,6 +281,7 @@ def forfalte_delfakturaer(k: Kjoring) -> None:
         try:
             fakturer(k, p)
         except Exception as e:  # noqa: BLE001
+            db.rull_tilbake_hvis_avbrutt(k.con)
             feil = sikker_feiltekst(e)
             db.logg(k.con, "faktura_feil", {"paamelding_id": p["id"], "feil": feil})
             k.si(f"  FEIL delfaktura for påmelding {p['id']}: {feil}")
@@ -281,6 +313,7 @@ def utsatte_fakturaer(k: Kjoring, paamelding_id: int | None = None) -> None:
         try:
             fakturer(k, p, FakturaPlan(PLAN_NA))
         except Exception as e:  # noqa: BLE001
+            db.rull_tilbake_hvis_avbrutt(k.con)
             feil = sikker_feiltekst(e)  # aldri str(e): kan inneholde e-post/URL/persondata
             db.logg(k.con, "faktura_feil", {"paamelding_id": p["id"], "feil": feil})
             k.si(f"  FEIL utsatt faktura for påmelding {p['id']}: {feil}")

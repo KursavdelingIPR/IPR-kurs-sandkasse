@@ -15,6 +15,10 @@ from kurs import config, db, migrer
 
 KURS_MAPPE = Path(__file__).resolve().parent.parent / "kurs"
 
+# Enhetstester med FALSK psycopg og tester av selve backend-valget i db.koble(). I PostgreSQL-testmodus (TEST_DATABASE_URL)
+# er db.koble erstattet av test-harnessen, og den ekte adapteren testes i stedet av hele suiten mot ekte PostgreSQL.
+pytestmark = pytest.mark.kun_sqlite
+
 
 # ============================ falsk psycopg ============================
 

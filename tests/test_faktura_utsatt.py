@@ -116,6 +116,7 @@ def _legacy_db(sti: Path):
 
 # ---- A. ny database ----
 
+@pytest.mark.kun_sqlite  # PRAGMA-detaljer (notnull/dflt_value); PostgreSQL-skjemaet kontrolleres i test_skjema_speiling
 def test_ny_database_har_begge_kolonnene_med_riktige_standardverdier(con):
     kol = _kolonner(con)
     assert "faktura_onskes_na" in kol and "faktura_tidligst_dato" in kol
@@ -129,6 +130,7 @@ def test_ny_database_har_begge_kolonnene_med_riktige_standardverdier(con):
 
 # ---- B. legacy-database ----
 
+@pytest.mark.kun_sqlite  # lager en gammel SQLite-fil direkte med sqlite3 (migreringstest for lokale databaser)
 def test_legacy_database_faar_kolonnene_uten_datatap(tmp_path):
     sti = tmp_path / "gammel.db"
     _legacy_db(sti)
@@ -147,6 +149,7 @@ def test_legacy_database_faar_kolonnene_uten_datatap(tmp_path):
 
 # ---- C. idempotent: ingen feil, ingen datatap, lagrede verdier overskrives ALDRI ----
 
+@pytest.mark.kun_sqlite  # lager en gammel SQLite-fil direkte med sqlite3 (migreringstest for lokale databaser)
 def test_migrering_kjort_paa_nytt_overskriver_ikke_lagrede_verdier(tmp_path):
     sti = tmp_path / "gammel.db"
     _legacy_db(sti)

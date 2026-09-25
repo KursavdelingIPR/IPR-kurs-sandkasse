@@ -44,7 +44,8 @@ def _feil(grunn, fn, *a, **kw) -> MalFeil:
 
 def _rad(con, mal, felt, tekst):
     """Skriver en rad DIREKTE (forbi service-laget) - simulerer korrupt/manuelt endret data."""
-    con.execute("INSERT OR REPLACE INTO mal_tekst (mal, felt, tekst, oppdatert) VALUES (?,?,?,'2027-01-01T00:00:00')",
+    con.execute("INSERT INTO mal_tekst (mal, felt, tekst, oppdatert) VALUES (?,?,?,'2027-01-01T00:00:00') "
+                "ON CONFLICT (mal, felt) DO UPDATE SET tekst=excluded.tekst, oppdatert=excluded.oppdatert",
                 (mal, felt, tekst))
     con.commit()
 
@@ -379,6 +380,8 @@ def test_slett_gir_standard_igjen(con):
 @pytest.mark.parametrize("ugyldig", ["Hei {ukjent}", "Hei {{ navn }}", "Hei {navn", "Hei }", "Hei" + chr(0) + "x",
                                      "x" * 5000, "", "   "])
 def test_ugyldig_lagret_override_gir_malfeil_ikke_fallback(con, ugyldig):
+    if db.er_postgres(con) and chr(0) in ugyldig:
+        pytest.skip("PostgreSQL kan ikke lagre NUL i tekst - denne korrupsjonen kan ikke oppstaa der")
     _rad(con, "venteliste", "tekst", ugyldig)                                   # korrupt rad, forbi service-laget
     feil = None
     with pytest.raises(MalFeil) as e:
@@ -522,7 +525,7 @@ def test_gammel_database_faar_mal_tekst_ved_oppstart(tmp_path, monkeypatch):
     db.init(c)
     db.init(c)                                                                     # idempotent
     assert c.execute("SELECT COUNT(*) FROM mal_tekst").fetchone()[0] == 0
-    assert [r["name"] for r in c.execute("PRAGMA table_info(mal_tekst)")] == ["mal", "felt", "tekst", "oppdatert", "oppdatert_av"]
+    assert db.kolonner(c, "mal_tekst") == ["mal", "felt", "tekst", "oppdatert", "oppdatert_av"]
     c.close()
 
 

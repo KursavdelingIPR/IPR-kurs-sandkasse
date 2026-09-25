@@ -387,7 +387,8 @@ def hent_overstyringer(con, mal: str) -> dict:
     if not isinstance(mal, str) or mal not in MALER:
         raise MalFeil(UKJENT_MAL, None, None, "Denne malen kan ikke redigeres.")
     try:
-        rader = db.hent_overstyringer_for_mal(con, mal)
+        with db.isolert(con, "maltekst_les"):   # en lesefeil skal ikke avbryte kallerens transaksjon (PostgreSQL)
+            rader = db.hent_overstyringer_for_mal(con, mal)
     except db.DatabaseFeil as e:
         raise MalFeil(DB_LESEFEIL, mal, None, "Kunne ikke lese maltekstene fra databasen.") from e
     ut = {}

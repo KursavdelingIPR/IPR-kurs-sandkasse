@@ -88,7 +88,8 @@ def _lagre(con, felt, tekst):
 
 
 def _korrupt(con, felt="innledning", tekst="Hei {ukjent_kode}"):
-    con.execute("INSERT OR REPLACE INTO mal_tekst (mal, felt, tekst) VALUES ('bekreftelse', ?, ?)", (felt, tekst))
+    con.execute("INSERT INTO mal_tekst (mal, felt, tekst) VALUES ('bekreftelse', ?, ?) "
+                "ON CONFLICT (mal, felt) DO UPDATE SET tekst=excluded.tekst", (felt, tekst))
     con.commit()
 
 

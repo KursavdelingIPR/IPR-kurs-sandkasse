@@ -286,6 +286,7 @@ def test_reaktivering_med_admin_aktor_og_nye_fakturafelter_oppdaterer_alt(con):
 
 # ---------------- migrering ----------------
 
+@pytest.mark.kun_sqlite  # lager en gammel SQLite-fil direkte med sqlite3 (migreringstest for lokale databaser)
 def test_migrering_legger_til_sveiper_utsatt_paa_gammel_database(tmp_path):
     sti = tmp_path / "gammel.db"
     gammel = sqlite3.connect(sti)

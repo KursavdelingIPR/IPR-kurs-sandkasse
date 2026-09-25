@@ -42,15 +42,24 @@ def _sekunder(a: str, b: str) -> float:
     return abs((datetime.strptime(a, "%Y-%m-%d %H:%M:%S") - datetime.strptime(b, "%Y-%m-%d %H:%M:%S")).total_seconds())
 
 
+def _db_naa(con, minutter: int = 0) -> str:
+    """Databasens EGEN «naa» (UTC) i lagringsformatet: SQLite datetime('now', ...) / PostgreSQL samme uttrykk som
+    standardverdiene i schema_postgres.sql."""
+    if db.er_postgres(con):
+        return con.execute("SELECT to_char((now() - make_interval(mins => ?)) AT TIME ZONE 'UTC', "
+                           "'YYYY-MM-DD HH24:MI:SS')", (minutter,)).fetchone()[0]
+    return con.execute("SELECT datetime('now', ?)", (f"-{minutter} minutes",)).fetchone()[0]
+
+
 def test_naa_utc_har_samme_format_og_tidssone_som_sqlite(con):
-    sqlite_naa = con.execute("SELECT datetime('now')").fetchone()[0]
+    sqlite_naa = _db_naa(con)
     python_naa = db.naa_utc()
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", python_naa)
     assert len(python_naa) == len(sqlite_naa) and _sekunder(python_naa, sqlite_naa) <= 2
 
 
 def test_utc_minutter_siden_er_som_sqlite_modifikator(con):
-    sqlite_verdi = con.execute("SELECT datetime('now', '-5 minutes')").fetchone()[0]
+    sqlite_verdi = _db_naa(con, 5)
     assert _sekunder(db.utc_minutter_siden(5), sqlite_verdi) <= 2
 
 
@@ -67,7 +76,7 @@ def test_sett_sendt_bruker_utc_tid(con):
     db.reserver_sending(con, "k:1", "a@eksempel.no", "t")
     db.sett_sendt(con, "k:1", "a@eksempel.no", "t")
     ts = con.execute("SELECT sendt_ts FROM utsending_logg").fetchone()[0]
-    assert _sekunder(ts, con.execute("SELECT datetime('now')").fetchone()[0]) <= 2
+    assert _sekunder(ts, _db_naa(con)) <= 2
 
 
 # ============================ RETURNING id ============================

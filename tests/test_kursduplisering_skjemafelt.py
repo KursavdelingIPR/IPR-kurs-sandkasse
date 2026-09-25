@@ -199,8 +199,10 @@ def _korrupt_kilde(con):
                 "VALUES (?, 'HEMMELIG_FELTNAVN', 'HEMMELIG-LABEL', 'HEMMELIG-HJELP')", (kid,))
     con.execute("INSERT INTO kurs_skjemafelt (kurs_id, felt, synlig, label, hjelpetekst) "
                 "VALUES (?, 'hpr_nr', 0, 'HEMMELIG-HPR', 'Gyldig HPR-hjelp')", (kid,))
+    # rekkefolge='abc' (feil type) kan bare lagres i SQLite - PostgreSQL er typesikker; der er kun label korrupt.
     con.execute("INSERT INTO kurs_skjemafelt (kurs_id, felt, obligatorisk, rekkefolge, label, oppdatert, oppdatert_av) "
-                "VALUES (?, 'telefon', 1, 'abc', ?, '2000-01-01T00:00:00', 'admin:kilde')", (kid, "HEMMELIG" + "x" * 90))
+                "VALUES (?, 'telefon', 1, ?, ?, '2000-01-01T00:00:00', 'admin:kilde')",
+                (kid, None if db.er_postgres(con) else "abc", "HEMMELIG" + "x" * 90))
     con.execute("INSERT INTO kurs_skjemafelt (kurs_id, felt, label) VALUES (?, 'navn', 'HEMMELIG-NAVN')", (kid,))
     con.commit()
     return kid

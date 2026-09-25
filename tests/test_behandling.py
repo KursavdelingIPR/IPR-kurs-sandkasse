@@ -110,7 +110,7 @@ def test_klassifiser_arsaker(con, oppsett, kode, arsak_kode, tekstbit):
     elif oppsett == "tidligere_gammel_reservert":
         con.execute("UPDATE paamelding SET sveiper_utsatt=0 WHERE id=?", (pid,))
         db.reserver_sending(con, nokkel, "a@x.no", "bekreftelse")
-        con.execute("UPDATE utsending_logg SET sendt_ts=datetime('now', '-6 minutes')")
+        con.execute("UPDATE utsending_logg SET sendt_ts=?", (db.utc_minutter_siden(6),))
     elif oppsett == "annen_pagar":
         con.execute("UPDATE paamelding SET sveiper_utsatt=0 WHERE id=?", (pid,))
         db.reserver_sending(con, nokkel, "a@x.no", "bekreftelse")
@@ -341,7 +341,7 @@ def test_uavklart_status_bruker_samme_grense_som_telleren(con):
     assert status() is None
     db.reserver_sending(con, nokkel, "a@x.no", "bekreftelse")
     assert status() == "pagar"                                      # fersk reservert
-    con.execute("UPDATE utsending_logg SET sendt_ts=datetime('now', ?)", (f"-{db.UAVKLART_GRENSE_MIN + 1} minutes",))
+    con.execute("UPDATE utsending_logg SET sendt_ts=?", (db.utc_minutter_siden(db.UAVKLART_GRENSE_MIN + 1),))
     assert status() == "ukjent"                                     # gammel reservert = trolig forlatt
     con.execute("UPDATE utsending_logg SET status='feilet'")
     assert status() is None                                         # kjent, trygg feil hores ikke med
@@ -365,7 +365,7 @@ def _uavklart_rad(con, kid, epost_, type_, status="ukjent"):
     if status == "ukjent":
         db.sett_sending_ukjent(con, nokkel, epost_, type_)
     elif status == "gammel_reservert":
-        con.execute("UPDATE utsending_logg SET sendt_ts=datetime('now', '-6 minutes') WHERE type=?", (type_,))
+        con.execute("UPDATE utsending_logg SET sendt_ts=? WHERE type=?", (db.utc_minutter_siden(6), type_))
     con.commit()
 
 
@@ -463,7 +463,7 @@ def test_G_forsidens_live_teller_teller_fortsatt_uavklart_ukefor_og_alle_andre_t
     for i, type_ in enumerate(["ukefor", "dagfor-2027-01-12", "kursbevis", "avlysning", "bekreftelse", "venteliste"]):
         _uavklart_rad(con, kid, f"m{i}@x.no", type_)
     con.execute("INSERT INTO faktura_forsok (paamelding_id, kursdag_id, status, opprettet) "
-                "VALUES (1, NULL, 'ukjent', datetime('now'))")
+                "VALUES (1, NULL, 'ukjent', ?)", (db.naa_utc(),))
     con.commit()
     assert db.uavklarte_operasjoner(con) == {"epost": 6, "faktura": 1, "totalt": 7}
     klient = webapp.app.test_client()

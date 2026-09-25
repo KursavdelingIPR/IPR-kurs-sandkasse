@@ -183,7 +183,7 @@ def test_duplisert_kurs_er_helt_selvstendig_ingen_historikk_folger_med(con):
     kid = _kildekurs(con)
     pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
     con.execute("INSERT INTO faktura (paamelding_id, belop_nok, status) VALUES (?, 14500, 'sendt')", (pid,))
-    con.execute("UPDATE materiell_krav SET levert_ts=datetime('now') WHERE kurs_id=?", (kid,))
+    con.execute("UPDATE materiell_krav SET levert_ts=? WHERE kurs_id=?", (db.naa_utc(), kid))
     con.commit()
     admin_id = _admin_id(con)
     klient = _klient()
