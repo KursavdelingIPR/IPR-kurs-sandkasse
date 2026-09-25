@@ -22,8 +22,9 @@ from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
-from .. import (behandling, config, daglig, db, import_deltakere, lenker, mal_eksempler, maltekster, migreringer,
-                paameldingsside, skjemafelt, sveiper)
+from .. import (behandling, config, daglig, db, deltakerliste, import_deltakere, lenker, mal_eksempler, maltekster,
+                migreringer, paameldingsside, skjemafelt, sveiper)
+from ..deltakerliste import fakturastatus as _fakturastatus
 from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
 from ..kjoring import Kjoring
@@ -155,7 +156,8 @@ def _krev_migrert_database():
 #   lese      - kun se: ingen POST, ingen eksport av personopplysninger, ingen allergiliste
 SYSTEM_ENDEPUNKTER = frozenset({"admin_brukere", "admin_bruker_deaktiver", "admin_bruker_rolle", "admin_daglig"})
 KUN_KURSADMIN_ENDEPUNKTER = frozenset({"admin_csv", "admin_eksporter_valgte_csv", "admin_allergiliste",
-                                       "admin_rapport_kurs_csv", "admin_rapport_deltakere_csv", "admin_utboks"})
+                                       "admin_deltakerliste_csv", "admin_rapport_kurs_csv",
+                                       "admin_rapport_deltakere_csv", "admin_utboks"})
 LESE_TILLATTE_POST = frozenset({"admin_logg_ut"})
 
 
@@ -243,22 +245,6 @@ def krever_deltaker(f):
 def qr_svg(tekst: str) -> Markup:
     img = qrcode.make(tekst, image_factory=qrcode.image.svg.SvgPathImage, box_size=20, border=2)
     return Markup(img.to_string(encoding="unicode"))
-
-
-def _fakturastatus(kurs, p) -> str:
-    """Utleder en lesbar fakturastatus fra fakturaradene til paameldingen. Ingen egen kolonne trengs.
-
-    NB: "Fakturert" betyr bare at fakturaen er sendt, ikke at den er betalt.
-    """
-    if kurs["fakturering"] != "person" or not kurs["pris_nok"]:
-        return "–"
-    if p["faktura_antall"] == 0:
-        return "Ikke fakturert"
-    if p["faktura_ubetalt"] == 0:
-        return "Betalt"
-    if p["faktura_ubetalt"] == p["faktura_antall"]:
-        return "Fakturert"
-    return "Delvis betalt"
 
 
 # ======================= offentlig =======================
@@ -2004,15 +1990,19 @@ def _deltaker_csv_select() -> str:
                FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id"""
 
 
-def _deltaker_csv_respons(rader, filnavn: str) -> Response:
+def _csv_respons(overskrifter, rader, filnavn: str) -> Response:
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    w.writerow(_DELTAKER_CSV_KOLONNER)
+    w.writerow(overskrifter)
     w.writerows([tuple(sikkerhet.csv_trygg(v) for v in r) for r in rader])
     # Inneholder personopplysninger (navn/e-post/telefon) - skal aldri mellomlagres av nettleser/proxy.
-    return Response("﻿" + buf.getvalue(), mimetype="text/csv",  # BOM -> Excel leser æøå riktig
+    return Response("\ufeff" + buf.getvalue(), mimetype="text/csv",  # BOM -> Excel leser æøå riktig
                     headers={"Content-Disposition": f"attachment; filename={filnavn}",
                              "Cache-Control": "no-store"})
+
+
+def _deltaker_csv_respons(rader, filnavn: str) -> Response:
+    return _csv_respons(_DELTAKER_CSV_KOLONNER, rader, filnavn)
 
 
 @app.get("/admin/kurs/<int:kurs_id>/deltakere.csv")
@@ -2043,6 +2033,40 @@ def admin_eksporter_valgte_csv(kurs_id):
     sql = _deltaker_csv_select() + f" WHERE p.kurs_id=? AND p.id IN ({plassholdere}) ORDER BY p.status, d.navn"
     rader = con().execute(sql, [kurs_id, *ider]).fetchall()
     return _deltaker_csv_respons(rader, f"deltakere_utvalg_{kurs_id}.csv")
+
+
+def _deltakerliste(kurs_id: int, *, csv: bool = False):
+    """Felles for utskrift og CSV: samme valg (fra adressen) gir samme rader og kolonner."""
+    kurs = _hent_kurs(kurs_id)
+    valg = deltakerliste.les_valg(request.args)
+    dager = db.kursdager(con(), kurs_id)
+    rader = deltakerliste.hent(con(), kurs_id, valg.status)
+    oppmott = deltakerliste.oppmote(con(), kurs_id) if "oppmote" in valg.nokler else set()
+    return kurs, valg, dager, deltakerliste.tabell(kurs, rader, valg, dager, oppmott, csv=csv)
+
+
+@app.get("/admin/kurs/<int:kurs_id>/deltakerliste")
+@krever_admin
+def admin_deltakerliste(kurs_id):
+    """Deltakerliste med kolonnevalg for utskrift / PDF (nettleserens «Lagre som PDF»). Personvernreglene står i
+    kurs/deltakerliste.py: bare nr og navn som standard, aldri allergier/tilrettelegging."""
+    kurs, valg, dager, tabell = _deltakerliste(kurs_id)
+    return render_template("admin_deltakerliste.html", kurs=kurs, valg=valg, tabell=tabell,
+                           katalog=deltakerliste.KOLONNER, grupper=deltakerliste.GRUPPER,
+                           statusvalg=deltakerliste.STATUSVALG, logo=deltakerliste.logo_fil(),
+                           datoer=deltakerliste.datoer_tekst(dager), utskrevet=_idag().strftime("%d.%m.%Y"))
+
+
+@app.get("/admin/kurs/<int:kurs_id>/deltakerliste.csv")
+@krever_admin
+def admin_deltakerliste_csv(kurs_id):
+    """Samme liste som CSV (uten tomme utfyllingskolonner). Eksporten logges - med kolonnenavn og antall, aldri
+    personopplysninger."""
+    kurs, valg, _, tabell = _deltakerliste(kurs_id, csv=True)
+    db.logg(con(), "deltakerliste_eksportert", {"kurs_id": kurs_id, "status": valg.status, "kolonner": valg.nokler,
+                                                "antall": len(tabell.rader)}, aktor=_aktor())
+    con().commit()
+    return _csv_respons(tabell.overskrifter, tabell.rader, f"deltakerliste_{kurs['kursnr'] or kurs_id}.csv")
 
 
 # Maks antall deltakere i én bulk-behandling (fase 11). Satt lavt bevisst: behandlingen innebaerer

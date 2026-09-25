@@ -1,0 +1,68 @@
+{% extends "admin_base.html" %}
+{% block tittel %}Deltakerliste – {{ kurs.navn }}{% endblock %}
+{% block hode %}<style>
+  .kolonnevalg fieldset { margin-top:10px; }
+  .kolonnevalg .valg { display:inline-flex; align-items:center; font-weight:normal; font-size:14px; margin:4px 18px 4px 0; }
+  .kolonnevalg .valg .dempet { margin-left:4px; }
+  .liste-hode { display:flex; align-items:center; gap:18px; margin:22px 0 12px; }
+  .liste-hode h2 { margin:0; font-size:22px; }
+  .liste-hode p { margin:2px 0 0; }
+  .liste-logo { max-height:60px; max-width:190px; }
+  table.liste .nr { width:1%; white-space:nowrap; }
+  table.liste .avkrysning { text-align:center; min-width:48px; }
+  table.liste .signatur { min-width:190px; }
+  table.liste .merknad { min-width:150px; }
+  @media print { table.liste td { height:26px; } .liste-hode { margin-top:0; } }
+</style>{% endblock %}
+{% block innhold %}
+<div class="ikke-utskrift">
+  <p class="liten"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">← Deltakere i {{ kurs.navn }}</a></p>
+  <h1>Deltakerliste</h1>
+  <p class="sub">Velg hvem og hvilke kolonner som skal med. Skriv ut, eller velg «Lagre som PDF» i utskriftsvinduet.
+    Har listen mange kolonner, velg liggende papirretning.</p>
+
+  <form method="get" class="kort kolonnevalg">
+    <input type="hidden" name="valgt" value="1">
+    <div class="rad">
+      <div><label for="f-status">Hvem skal med?</label>
+        <select id="f-status" name="status" data-send-ved-endring>
+          {% for verdi, tekst in statusvalg.items() %}<option value="{{ verdi }}" {{ 'selected' if valg.status == verdi }}>{{ tekst }}</option>{% endfor %}
+        </select></div>
+    </div>
+    {% for gruppe in grupper %}
+    <fieldset>
+      <legend class="etikett">{{ gruppe }}</legend>
+      {% for k in katalog if k.gruppe == gruppe %}<label class="valg"><input type="checkbox" name="kol" value="{{ k.nokkel }}"
+          {{ 'checked' if k in valg.kolonner }}{{ ' disabled' if k.laast }}{% if not k.laast %} data-send-ved-endring{% endif %}>
+        {{ k.tittel }}{% if k.laast %} <span class="dempet">(alltid med)</span>{% elif k.personopplysning %} <span class="dempet">(personopplysning)</span>{% endif %}</label>
+      {% endfor %}
+    </fieldset>
+    {% endfor %}
+    <p class="liten dempet">Personopplysninger tas bare med når du krysser av for dem. Allergier og tilrettelegging tas
+      aldri med her – de ligger i en egen liste der all visning logges.</p>
+    <div class="verktoylinje" style="margin:12px 0 0">
+      <button>Oppdater listen</button>
+      <button type="button" class="sekundar" data-skriv-ut>Skriv ut / lagre som PDF</button>
+      {% if admin_rolle != 'lese' %}<a class="knapp sekundar" href="{{ url_for('admin_deltakerliste_csv', kurs_id=kurs.id, **valg.som_args()) }}">Last ned som CSV (Excel)</a>{% endif %}
+    </div>
+  </form>
+</div>
+
+<section class="deltakerliste">
+  <div class="liste-hode">
+    {% if logo %}<img class="liste-logo" src="{{ url_for('static', filename=logo) }}" alt="Logo">{% endif %}
+    <div>
+      <h2>{{ kurs.navn }}</h2>
+      <p class="liten">Kursnr. {{ kurs.kursnr }}{% if datoer %} · {{ datoer }}{% endif %}{% if kurs.sted %} · {{ kurs.sted }}{% endif %}</p>
+      <p class="liten dempet">{{ statusvalg[valg.status] }}: {{ tabell.rader|length }} · Utskrevet {{ utskrevet }}</p>
+    </div>
+  </div>
+  <div class="tabellboks"><table class="liste">
+    <thead><tr>{% for o in tabell.overskrifter %}<th scope="col" class="{{ tabell.klasser[loop.index0] }}">{{ o }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for rad in tabell.rader %}<tr>{% for v in rad %}<td class="{{ tabell.klasser[loop.index0] }}">{{ v }}</td>{% endfor %}</tr>
+    {% else %}<tr><td colspan="{{ tabell.overskrifter|length }}" class="tom">Ingen deltakere med valgt status.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

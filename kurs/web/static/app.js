@@ -7,6 +7,7 @@
  *   <select data-skjul-hvis="samlet" data-mal="delfelt">   skjuler #delfelt når verdien er 'samlet'
  *   <form data-en-gang>                        knappen låses etter første innsending (dobbeltklikk-vern)
  *   <form data-status-bekreft>                 «Endre status til X?» der X er valgt verdi i select[name=status]
+ *   <button type=button data-skriv-ut>         åpner nettleserens utskrift (der kan man også velge «Lagre som PDF»)
  */
 (function () {
   "use strict";
@@ -51,6 +52,10 @@
       var mal = document.getElementById(el.getAttribute("data-mal"));
       if (mal) mal.classList.toggle("skjul", el.value === el.getAttribute("data-skjul-hvis"));
     }
+  });
+
+  document.addEventListener("click", function (e) {
+    if (e.target instanceof Element && e.target.closest("[data-skriv-ut]")) { e.preventDefault(); window.print(); }
   });
 
   // «Velg alle synlige» i deltakerlisten
