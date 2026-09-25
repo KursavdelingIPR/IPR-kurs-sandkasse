@@ -1,0 +1,76 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<h2>Legg til deltaker <span class="liten dempet" style="font-weight:400">– manuell registrering (f.eks. telefon/e-post)</span></h2>
+
+{% if kurs.status == 'utkast' %}
+<div class="flash info">Kurset er ikke publisert ennå. Deltakeren registreres uten at det sendes bekreftelse eller
+  opprettes faktura. Dette kan behandles manuelt når kurset er klart.</div>
+{% elif kurs.status in ('aapen', 'full', 'aktiv') %}
+<div class="flash info">Registreringen lagres uten å sende bekreftelse eller opprette faktura nå. Det gjøres senere,
+  eksplisitt, fra deltakerprofilen.</div>
+{% endif %}
+
+{% if plasser_igjen is not none %}
+<p class="liten dempet">{% if plasser_igjen > 0 %}{{ plasser_igjen }} plasser igjen.{% else %}Kurset er fullt – deltakeren settes på venteliste.{% endif %}</p>
+{% endif %}
+
+<form method="post" class="kort" style="max-width:720px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="rad">
+    <div><label for="f-navn">Navn *</label><input id="f-navn" name="navn" required value="{{ f.navn or '' }}"></div>
+    <div><label for="f-epost">E-post *</label><input id="f-epost" name="epost" type="email" required value="{{ f.epost or '' }}"></div>
+    <div><label for="f-telefon">Telefon</label><input id="f-telefon" name="telefon" value="{{ f.telefon or '' }}"></div>
+    <div><label for="f-yrkestittel">Yrkestittel</label><input id="f-yrkestittel" name="yrkestittel" value="{{ f.yrkestittel or '' }}"></div>
+    <div><label for="f-arbeidssted">Arbeidssted</label><input id="f-arbeidssted" name="arbeidssted" value="{{ f.arbeidssted or '' }}"></div>
+    <div><label for="f-hpr_nr">HPR-nummer</label><input id="f-hpr_nr" name="hpr_nr" value="{{ f.hpr_nr or '' }}"></div>
+  </div>
+
+  {% if kurs.fakturering == 'person' and kurs.pris_nok %}
+  <label style="margin-top:18px">Hvem betaler?</label>
+  <label style="font-weight:normal"><input type="radio" name="betaler" value="person" {{ 'checked' if f.betaler != 'organisasjon' }} data-skjul="org">Deltakeren betaler selv</label>
+  <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} data-vis="org">Arbeidsgiver betaler</label>
+  <div id="org" class="{{ '' if f.betaler == 'organisasjon' else 'skjul' }}">
+    <div class="rad">
+      <div><label for="f-org_navn">Firmanavn</label><input id="f-org_navn" name="org_navn" value="{{ f.org_navn or '' }}"></div>
+      <div><label for="f-org_nr">Organisasjonsnummer</label><input id="f-org_nr" name="org_nr" value="{{ f.org_nr or '' }}"></div>
+      <div><label for="f-faktura_ref">Fakturareferanse / bestillernr.</label><input id="f-faktura_ref" name="faktura_ref" value="{{ f.faktura_ref or '' }}"></div>
+      <div><label for="f-faktura_epost">E-post for faktura</label><input id="f-faktura_epost" name="faktura_epost" value="{{ f.faktura_epost or '' }}"></div>
+    </div>
+    <label style="font-weight:normal"><input type="checkbox" name="ehf" {{ 'checked' if f.ehf }}>Send som EHF (elektronisk faktura)</label>
+  </div>
+
+  {% if kurs.betaling == 'deltaker_velger' %}
+  <label style="margin-top:18px">Betaling</label>
+  <label style="font-weight:normal"><input type="radio" name="betaling" value="samlet" {{ 'checked' if f.betaling != 'per_samling' }}>
+    Hele beløpet i én faktura ({{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr)</label>
+  <label style="font-weight:normal"><input type="radio" name="betaling" value="per_samling" {{ 'checked' if f.betaling == 'per_samling' }}>
+    Delt opp – én faktura før hver samling (ca. {{ '{:,}'.format((kurs.pris_nok / dager|length)|round(0,'floor')|int).replace(',', ' ') }} kr × {{ dager|length }})</label>
+  {% elif kurs.betaling == 'per_samling' %}
+  <p class="liten" style="margin-top:18px">Kurset faktureres per samling: ca. {{ '{:,}'.format((kurs.pris_nok / dager|length)|round(0,'floor')|int).replace(',', ' ') }} kr før hver av de {{ dager|length }} samlingene.</p>
+  {% endif %}
+
+  <div class="rad">
+    <div><label for="f-faktura_adresse">Fakturaadresse</label><input id="f-faktura_adresse" name="faktura_adresse" value="{{ f.faktura_adresse or '' }}"></div>
+    <div><label for="f-faktura_postnr">Postnr.</label><input id="f-faktura_postnr" name="faktura_postnr" value="{{ f.faktura_postnr or '' }}"></div>
+    <div><label for="f-faktura_sted">Sted</label><input id="f-faktura_sted" name="faktura_sted" value="{{ f.faktura_sted or '' }}"></div>
+  </div>
+  {% endif %}
+
+  <label style="margin-top:18px">Kommentar til faktura/påmelding</label>
+  <textarea aria-label="Kommentar til faktura/påmelding" name="faktura_kommentar" rows="2">{{ f.faktura_kommentar or '' }}</textarea>
+
+  {% if kurs.type != 'digital' %}
+  <div class="rad" style="margin-top:12px">
+    <div><label for="f-allergier">Allergier / spesialkost</label><input id="f-allergier" name="allergier" value="{{ f.allergier or '' }}"></div>
+    <div><label for="f-tilrettelegging">Behov for tilrettelegging</label><input id="f-tilrettelegging" name="tilrettelegging" value="{{ f.tilrettelegging or '' }}"></div>
+  </div>
+  <p class="liten dempet">Opplysningene brukes kun til å planlegge kurset og slettes automatisk etter at kurset er gjennomført.</p>
+  {% endif %}
+
+  <p style="margin-top:16px"><button>Registrer deltaker</button>
+    <a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Avbryt</a></p>
+</form>
+{% endblock %}

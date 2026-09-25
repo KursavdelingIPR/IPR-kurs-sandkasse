@@ -8,7 +8,10 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS kurs (
     id              INTEGER PRIMARY KEY,
-    kode            TEXT UNIQUE NOT NULL,          -- kort kode brukt i URL-er, f.eks. EFT-2027-1
+    kursnr          INTEGER UNIQUE,                 -- permanent, numerisk kursnummer fra telleren 'kursnr' (aldri gjenbrukt,
+                                                    -- endres aldri). Settes ALLTID av db.opprett_kurs; NULL kun i en
+                                                    -- gammel database som ikke er migrert ennaa (migrering 1 fyller inn)
+    kode            TEXT UNIQUE NOT NULL,          -- nettadresse-del (slug) i offentlige lenker, f.eks. EFT-2027-1
     navn            TEXT NOT NULL,
     type            TEXT NOT NULL DEFAULT 'digital' CHECK (type IN ('digital','fysisk','hybrid')),
     status          TEXT NOT NULL DEFAULT 'aapen' CHECK (status IN ('utkast','aapen','full','aktiv','avsluttet','avlyst')),
@@ -31,6 +34,10 @@ CREATE TABLE IF NOT EXISTS kurs (
     zoom_pw         TEXT,
     sharepoint_mappe TEXT,                          -- sti/URL til kursmappe i SharePoint
     notat           TEXT,
+    ansvarlig_admin_id INTEGER REFERENCES admin_bruker(id),  -- intern eier i adm, brukes av "vis bare mine aktiviteter"
+    paameldingsfrist TEXT,                          -- ISO-dato, NULL = ingen frist
+    paamelding_intro TEXT,                          -- ren tekst over skjemaet (fase 12C5), NULL = ingen introduksjonstekst
+    paamelding_knappetekst TEXT,                    -- ren tekst paa paameldingsknappen, NULL = standard «Meld meg på»
     opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -51,6 +58,7 @@ CREATE TABLE IF NOT EXISTS deltaker (
     navn            TEXT NOT NULL,
     telefon         TEXT,
     arbeidssted     TEXT,
+    yrkestittel     TEXT,
     hpr_nr          TEXT,                           -- helsepersonellnr (aktuelt for spesialistutdanning)
     visma_kunde_id  TEXT,
     opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
@@ -75,7 +83,17 @@ CREATE TABLE IF NOT EXISTS paamelding (
     samtykke_ts     TEXT,                           -- tidspunkt for aksept av vilkaar/personvern
     kilde           TEXT NOT NULL DEFAULT 'skjema',
     sveiper_kjort   INTEGER NOT NULL DEFAULT 0,     -- 1 naar "ved paamelding"-kjeden er fullfort
+    sveiper_utsatt  INTEGER NOT NULL DEFAULT 0,     -- 1 = registrert (typisk manuelt av admin), men bevisst
+                                                     -- IKKE klar for automatisk e-post/fakturering ennaa
+    faktura_onskes_na INTEGER NOT NULL DEFAULT 0,   -- 1 = deltaker/admin har eksplisitt bedt om faktura med en gang
+                                                     -- (lagret valg - beregnes aldri fra datoer)
+    faktura_tidligst_dato TEXT,                     -- ISO-dato. NULL = ingen utsatt samlet faktura er planlagt. Dato =
+                                                     -- systemet har besluttet at samlet faktura ikke opprettes foer da
+    faktura_kommentar TEXT,                         -- merknad om registreringen/fakturaen
+    intern_kommentar  TEXT,                         -- kun synlig for administratorer
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver endring
+    avslatt_ts      TEXT,                           -- satt = IPR har avslått påmeldingen (status er da 'avmeldt'). Se db.avsla_paamelding
     UNIQUE (kurs_id, deltaker_id)
 );
 
@@ -100,6 +118,25 @@ CREATE TABLE IF NOT EXISTS faktura (
 
 -- Aldri dobbeltfakturering: én samlet faktura, eller én per samling. (COALESCE fordi NULL != NULL i SQLite.)
 CREATE UNIQUE INDEX IF NOT EXISTS faktura_unik ON faktura (paamelding_id, COALESCE(kursdag_id, 0));
+
+-- Sporer FORSOKET paa aa lage en faktura i Visma - helt adskilt fra selve `faktura`-tabellen, som
+-- fortsatt KUN faar en rad naar Visma faktisk har bekreftet noe (uendret betydning, se trinn 2.5-
+-- designet: en `faktura`-rad brukes bl.a. til aa laase pris/fakturafelt og summeres i rapporter, og
+-- maa derfor aldri opprettes "i god tro" for Visma har svart).
+-- status: reservert (forsok paagaar/kan ha blitt avbrutt), feilet (kjent trygt aa prove paa nytt),
+--         ukjent (utfallet er IKKE avklart - proves ALDRI automatisk paa nytt).
+-- Ved suksess slettes raden her og den ekte `faktura`-raden opprettes i samme lokale transaksjon.
+-- Etter at et claim er vunnet sjekkes `faktura` PAA NYTT (foer commit og Visma-kall): en annen prosess kan ha
+-- fullfort og slettet sitt forsok mellom foerste sjekk og claimen (ellers ville Visma faatt to fakturaer).
+CREATE TABLE IF NOT EXISTS faktura_forsok (
+    id              INTEGER PRIMARY KEY,
+    paamelding_id   INTEGER NOT NULL REFERENCES paamelding(id),
+    kursdag_id      INTEGER REFERENCES kursdag(id),
+    status          TEXT NOT NULL CHECK (status IN ('reservert','feilet','ukjent')),
+    feilmelding     TEXT,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS faktura_forsok_unik ON faktura_forsok (paamelding_id, COALESCE(kursdag_id, 0));
 
 CREATE TABLE IF NOT EXISTS oppmote (
     paamelding_id   INTEGER NOT NULL REFERENCES paamelding(id),
@@ -133,13 +170,77 @@ CREATE TABLE IF NOT EXISTS materiell_krav (
     levert_ts       TEXT
 );
 
--- Dedup for ALL utsending (Stians innkalling_logg, generalisert)
+-- Dedup for ALL utsending (Stians innkalling_logg, generalisert). For manuell e-post (fase 5) er
+-- nokkelen 'adhoc:<kurs_id>:<tilfeldig>' - unik PR UTSENDELSE (ikke pr type), satt naar admin
+-- forhaandsviser (se admin_utsending), slik at dobbeltklikk/refresh paa "Send" ikke sender to ganger,
+-- mens den samme meldingen godt kan sendes paa nytt som en HELT NY utsendelse senere.
+-- status: 'sendt' er standard (bakoverkompatibelt - alle rader skrevet av eldre kode/marker_sendt()
+-- ER faktisk sendt). 'reservert'/'feilet'/'ukjent' brukes KUN av den atomiske claim-flyten i
+-- Kjoring.send_en_gang() (se trinn 2.5-designet) - allerede_sendt() returnerer true KUN for 'sendt',
+-- slik at et uavklart forsok aldri kan vises/telles som en faktisk sendt melding.
 CREATE TABLE IF NOT EXISTS utsending_logg (
-    nokkel          TEXT NOT NULL,                  -- f.eks. 'kurs:3'  / 'materiell:7'
+    nokkel          TEXT NOT NULL,                  -- f.eks. 'kurs:3'  / 'materiell:7' / 'adhoc:3:a1b2c3d4'
     mottaker        TEXT NOT NULL COLLATE NOCASE,
     type            TEXT NOT NULL,                  -- 'bekreftelse', 'ukefor', 'dagfor-2027-01-12', 'purring-7' ...
+    status          TEXT NOT NULL DEFAULT 'sendt' CHECK (status IN ('reservert','sendt','feilet','ukjent')),
     sendt_ts        TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (nokkel, mottaker, type)
+);
+
+-- Manuell e-post fra admin (fase 5). Selve teksten lagres HER, ikke gjentatt pr mottaker i
+-- utsending_logg - koblingen mellom dem er nokkel. Raden opprettes ved forhaandsvisning (foer selve
+-- sendingen), slik at nokkelen finnes og kan folge med bekreftelsen naar "Send" trykkes.
+CREATE TABLE IF NOT EXISTS admin_utsending (
+    id              INTEGER PRIMARY KEY,
+    nokkel          TEXT UNIQUE NOT NULL,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id),
+    emne            TEXT NOT NULL,
+    tekst           TEXT NOT NULL,
+    sendt_av_admin_id INTEGER REFERENCES admin_bruker(id),
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Hvem utsendelsen var ment for, fastsatt (og validert mot kurs_id) ved forhaandsvisning - slik at
+-- selve sendingen ikke er avhengig av mottaker-ID-er som sendes inn paa nytt fra klienten.
+CREATE TABLE IF NOT EXISTS admin_utsending_mottaker (
+    utsending_id    INTEGER NOT NULL REFERENCES admin_utsending(id) ON DELETE CASCADE,
+    paamelding_id   INTEGER NOT NULL REFERENCES paamelding(id),
+    PRIMARY KEY (utsending_id, paamelding_id)
+);
+
+-- Bedriftspaamelding (fase 7): en kontaktperson melder paa flere deltakere til samme kurs i ett skjema.
+-- innsendingsnokkel er utledet av kurs + kontakt-epost + hele deltakerlisten (IKKE tilfeldig) - det er
+-- det som gjor at et dobbeltklikk/refresh gjenkjenner samme innsending i stedet for aa opprette en ny
+-- firmapaamelding og behandle deltakerne paa nytt. kvittering_token er derimot kryptografisk tilfeldig,
+-- og brukes kun i den offentlige kvitteringslenken.
+CREATE TABLE IF NOT EXISTS firmapaamelding (
+    id              INTEGER PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id),
+    innsendingsnokkel TEXT UNIQUE NOT NULL,
+    kvittering_token  TEXT UNIQUE NOT NULL,
+    kontakt_navn    TEXT NOT NULL,
+    kontakt_epost   TEXT NOT NULL,
+    kontakt_telefon TEXT,
+    firmanavn       TEXT NOT NULL,
+    org_nr          TEXT,
+    faktura_ref     TEXT,
+    faktura_adresse TEXT,
+    faktura_postnr  TEXT,
+    faktura_sted    TEXT,
+    ehf             INTEGER NOT NULL DEFAULT 0,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Utfallet for HVER rad som ble sendt inn, ogsaa de som feilet - en feilet meld_paa() oppretter ingen
+-- paamelding-rad og ville ellers ikke etterlatt seg noe spor. Vises paa den offentlige kvitteringssiden,
+-- men KUN navn og status/feilmelding derfra - ikke epost/telefon/HPR, som ikke trengs der.
+CREATE TABLE IF NOT EXISTS firmapaamelding_rad (
+    id                  INTEGER PRIMARY KEY,
+    firmapaamelding_id  INTEGER NOT NULL REFERENCES firmapaamelding(id) ON DELETE CASCADE,
+    navn                TEXT NOT NULL,
+    epost               TEXT NOT NULL,
+    paamelding_id       INTEGER REFERENCES paamelding(id),
+    feilmelding         TEXT
 );
 
 CREATE TABLE IF NOT EXISTS innlogging_token (
@@ -149,6 +250,34 @@ CREATE TABLE IF NOT EXISTS innlogging_token (
     brukt           INTEGER NOT NULL DEFAULT 0
 );
 
+-- Fase 10: korttidslagret forhaandsvisning av CSV-import (deltaker/kurs.import_deltakere.py).
+-- Radene kan inneholde sensitive opplysninger (allergi, faktura) - lever KUN server-side i
+-- token-ets levetid (se FORHAANDSVISNING_LEVETID_MIN), ryddes ved bruk/utlop, og skal aldri i
+-- hendelsesloggen. Nettleseren ser bare selve token-strengen, aldri radinnholdet.
+CREATE TABLE IF NOT EXISTS import_forhaandsvisning (
+    token           TEXT PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id),
+    admin_id        INTEGER NOT NULL REFERENCES admin_bruker(id),
+    rader_json      TEXT NOT NULL,
+    resultater_json TEXT NOT NULL,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    utloper         TEXT NOT NULL
+);
+
+-- Tellere som aldri gaar tilbake (kursnummer). db.neste_teller() bruker UPDATE ... RETURNING - atomisk i begge databaser.
+CREATE TABLE IF NOT EXISTS teller (
+    navn            TEXT PRIMARY KEY,
+    verdi           INTEGER NOT NULL
+);
+
+-- Versjonerte migreringer (kurs/migreringer.py): en rad per migrering som er kjoert. Appen nekter aa kjoere mot en
+-- database med annen versjon enn koden forventer (se migreringer.kontroller).
+CREATE TABLE IF NOT EXISTS schema_versjon (
+    versjon         INTEGER PRIMARY KEY,
+    navn            TEXT NOT NULL,
+    kjort           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Ansatte som kan logge inn i administrasjonen. Passord lagres kun som hash (aldri klartekst).
 CREATE TABLE IF NOT EXISTS admin_bruker (
     id              INTEGER PRIMARY KEY,
@@ -156,6 +285,11 @@ CREATE TABLE IF NOT EXISTS admin_bruker (
     navn            TEXT NOT NULL,
     passord_hash    TEXT NOT NULL,
     aktiv           INTEGER NOT NULL DEFAULT 1,
+    -- Rolle (fase 13): system = alt (brukere, daglig jobb), kursadmin = daglig kursarbeid, lese = kun se.
+    -- Haandheves server-side i kurs/web/app.py (krever_admin). Entra-brukere faar rollen fra Entra ved hver innlogging.
+    rolle           TEXT NOT NULL DEFAULT 'kursadmin' CHECK (rolle IN ('system','kursadmin','lese')),
+    entra_oid       TEXT UNIQUE,                    -- Microsoft Entra ID objekt-id (NULL = lokal bruker)
+    epost           TEXT,
     opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -191,4 +325,66 @@ CREATE TABLE IF NOT EXISTS henvendelse (
     status          TEXT NOT NULL CHECK (status IN ('besvart','til_adm','lukket')),
     kilder          TEXT,                           -- f.eks. 'K3,F1'
     grunn           TEXT
+);
+
+-- Overstyringer av redigerbare maltekster (fase 12B). KUN overstyringer: standardtekstene ligger i kode
+-- (kurs/maltekster.py) og kopieres ALDRI inn her. Ingen rad = standardtekst. Databasen lagrer bare tekst - den vet
+-- ingenting om {koder}; validering skjer i maltekster.py foer skriving og ved hvert oppslag.
+CREATE TABLE IF NOT EXISTS mal_tekst (
+    mal             TEXT NOT NULL,                  -- f.eks. 'bekreftelse'
+    felt            TEXT NOT NULL,                  -- f.eks. 'innledning'
+    tekst           TEXT NOT NULL,
+    oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver endring
+    oppdatert_av    TEXT,                           -- aktor, f.eks. 'admin:kari'
+    PRIMARY KEY (mal, felt)
+);
+
+-- Per-kurs overstyringer av det ordinaere paameldingsskjemaet (fase 12C2). KUN avvik fra kodet standard: registeret i
+-- kurs/skjemafelt.py er fasit for hvilke felt som finnes og hva som kan overstyres. Ingen rad = kodet standard.
+-- NULL i en egenskapskolonne = standard for den egenskapen. En rad der alle egenskaper er NULL skal ikke finnes.
+-- Bevisst INGEN CHECK paa `felt`: ukjente rader skal oppdages og ignoreres kontrollert ved lesing (med advarsel), uten
+-- at tabellen maa bygges om naar registeret utvides. Validering skjer i skjemafelt.py foer skriving og ved hver lesing.
+CREATE TABLE IF NOT EXISTS kurs_skjemafelt (
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    felt            TEXT NOT NULL,                  -- f.eks. 'telefon'
+    synlig          INTEGER CHECK (synlig IS NULL OR synlig IN (0,1)),
+    obligatorisk    INTEGER CHECK (obligatorisk IS NULL OR obligatorisk IN (0,1)),
+    rekkefolge      INTEGER,                        -- plass i den konfigurerbare gruppen (0 er en gyldig verdi)
+    label           TEXT,                           -- ren tekst, escapes ved rendring
+    hjelpetekst     TEXT,                           -- ren tekst, escapes ved rendring
+    oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver reell endring
+    oppdatert_av    TEXT,                           -- aktor, f.eks. 'admin:kari'
+    PRIMARY KEY (kurs_id, felt)
+);
+
+-- Årsplan / kurshjul: planlagte (foreløpige) aktiviteter og notater som ennå ikke er kurs. Vises sammen med kursdagene
+-- i årsplanen. 'plan' opptar datoene (teller i overlapp og ledige perioder), 'notat' er bare en påminnelse.
+CREATE TABLE IF NOT EXISTS planlagt_aktivitet (
+    id              INTEGER PRIMARY KEY,
+    type            TEXT NOT NULL DEFAULT 'plan' CHECK (type IN ('plan','notat')),
+    tittel          TEXT NOT NULL,
+    fra_dato        TEXT NOT NULL,                  -- ISO yyyy-mm-dd
+    til_dato        TEXT NOT NULL,                  -- ISO yyyy-mm-dd, lik fra_dato for én dag
+    sted            TEXT,
+    notat           TEXT,                           -- ren tekst, kun internt
+    opprettet_av    TEXT,                           -- aktor, f.eks. 'admin:kari'
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (til_dato >= fra_dato)
+);
+
+-- Innholdet i dokumenter systemet selv lager (i dag: kursbevis). Lagres i databasen - ikke som filer, som ikke
+-- overlever omstart/skalering i Azure App Service og ikke er med i databasens sikkerhetskopi. dokument.url er da 'db:'.
+CREATE TABLE IF NOT EXISTS dokument_innhold (
+    dokument_id     INTEGER PRIMARY KEY REFERENCES dokument(id) ON DELETE CASCADE,
+    mimetype        TEXT NOT NULL DEFAULT 'text/html',
+    innhold         TEXT NOT NULL
+);
+
+-- Tokens integrasjonene selv må fornye og huske (i dag: Visma sitt refresh-token, som byttes ut ved HVER fornyelse og
+-- ellers ville gått tapt ved omstart). Startverdien kommer fra miljøvariabel/Key Vault; deretter er denne raden fasit.
+-- Verdien logges og vises aldri.
+CREATE TABLE IF NOT EXISTS integrasjon_token (
+    navn            TEXT PRIMARY KEY,
+    verdi           TEXT NOT NULL,
+    oppdatert       TEXT NOT NULL DEFAULT (datetime('now'))
 );

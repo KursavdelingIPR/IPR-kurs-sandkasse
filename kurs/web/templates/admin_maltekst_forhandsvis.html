@@ -1,0 +1,16 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_maltekst_rediger', mal=mal) }}">← {{ mal_navn }}</a></p>
+<h1>Forhåndsvisning: {{ mal_navn }}</h1>
+<p class="sub">Med fiktive eksempeldata – ingen ekte deltaker-, kurs- eller firmaopplysninger. Ingen e-post sendes.</p>
+
+{% if feil %}
+<div class="flash feil">{{ feil }}</div>
+{% else %}
+  {% for v in visninger %}
+  {% if v.variant %}<h2>{{ v.variant }}</h2>{% endif %}
+  <p class="liten dempet" style="margin:0 0 6px"><strong>Emne:</strong> {{ v.emne }}</p>
+  <div class="kort" style="max-width:640px; background:#fafbfb">{{ v.html | safe }}</div>
+  {% endfor %}
+{% endif %}
+{% endblock %}

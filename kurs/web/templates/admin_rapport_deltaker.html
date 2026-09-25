@@ -1,0 +1,55 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_rapport_deltakere') }}">← Deltakerregister</a></p>
+<h1>{{ deltaker.navn }}</h1>
+<p class="sub">{{ deltaker.epost }}{% if deltaker.telefon %} · {{ deltaker.telefon }}{% endif %}{% if deltaker.arbeidssted %} · {{ deltaker.arbeidssted }}{% endif %}{% if deltaker.yrkestittel %} · {{ deltaker.yrkestittel }}{% endif %}</p>
+
+<h2>Kurs ({{ paameldinger|length }})</h2>
+<div class="tabellboks"><table>
+  <tr><th scope="col">Kurs</th><th scope="col">Påmeldingsstatus</th><th scope="col">Kursstatus</th><th scope="col">Påmeldt</th><th scope="col"></th></tr>
+  {% for p in paameldinger %}
+  <tr>
+    <td>{{ p.kursnr }} {{ p.kurs_navn }}</td>
+    <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra','avslått':'feil'}[p|paameldingsstatus] }}">{{ p|paameldingsstatus }}</span></td>
+    <td class="liten">{{ p.kurs_status }}</td>
+    <td class="liten dempet">{{ p.opprettet[:10] }}</td>
+    <td><a class="liten" href="{{ url_for('admin_deltaker', kurs_id=p.kurs_id, paamelding_id=p.paamelding_id) }}">Åpne påmelding →</a></td>
+  </tr>
+  {% else %}<tr><td colspan="5" class="dempet">Ingen påmeldinger.</td></tr>{% endfor %}
+</table></div>
+
+<h2>Fakturaer ({{ fakturaer.fakturaer|length }})</h2>
+{% if fakturaer.fakturaer %}
+<p class="liten dempet">Fakturert totalt: <strong>{{ fakturaer.totalt.belop|kr }}</strong>{% if fakturaer.totalt.kreditert %} (kreditert: {{ fakturaer.totalt.kreditert|kr }}){% endif %}.
+  Innbetalinger følges opp i Visma.</p>
+<div class="tabellboks"><table>
+  <thead><tr><th scope="col">Dato</th><th scope="col">Fakturanr.</th><th scope="col">Kurs</th><th scope="col">Gjelder</th><th scope="col">Betaler</th><th scope="col">Beløp</th><th scope="col">Status</th></tr></thead>
+  <tbody>
+  {% for f in fakturaer.fakturaer %}
+  <tr><td class="liten">{{ f.dato }}</td><td>{{ f.faktura_nr or '–' }}</td><td class="liten">{{ f.kursnr }} {{ f.kursnavn }}</td>
+      <td class="liten">{{ f.gjelder }}</td><td class="liten">{{ f.betaler_navn }}</td><td>{{ f.belop_nok|kr }}</td>
+      <td><span class="merke">{{ f.statusnavn }}</span></td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="liten dempet">Ingen fakturaer.</p>{% endif %}
+
+{% if admin_rolle == 'system' and not deltaker.epost.endswith('@anonymisert.invalid') %}
+<h2>Retten til sletting</h2>
+<div class="kort">
+  <p class="liten">Fjerner navn, e-post, telefon, arbeidssted, profesjon, HPR-nummer, fakturaadresser, kommentarer,
+    allergier/tilrettelegging, kursbevis, innloggingslenker og henvendelser for denne personen i hele påmeldingssystemet.
+    Anonyme tall (påmeldinger, oppmøte, fakturaer) beholdes, slik at statistikk og regnskap stemmer.
+    <strong>Kan ikke angres.</strong> Personer med aktive påmeldinger må meldes av først.</p>
+  <p class="liten dempet">Gjøres manuelt i tillegg: Visma (kundekort/faktura er regnskapsbilag – vurder), e-poster i kurs-postboksens
+    «Sendte elementer», personlige mapper i SharePoint og Zoom-rapporter. Se GDPR.md.</p>
+  <form method="post" action="{{ url_for('admin_anonymiser_deltaker', deltaker_id=deltaker.id) }}"
+        data-bekreft="Anonymisere {{ deltaker.navn }}? Dette kan ikke angres.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="f-bekreft">Skriv ANONYMISER for å bekrefte</label>
+    <input id="f-bekreft" name="bekreft" autocomplete="off" style="max-width:260px">
+    <p style="margin-top:8px"><button class="liten fare">Anonymiser personen</button></p>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

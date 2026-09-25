@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block tittel %}Kvittering – {{ kurs.navn }}{% endblock %}
+{% block innhold %}
+<h1>Kvittering – {{ kurs.navn }}</h1>
+<p class="sub">{{ firma.firmanavn }}</p>
+
+<div class="tabellboks"><table>
+  <tr><th>Navn</th><th>Status</th></tr>
+  {% for r in rader %}
+  <tr>
+    <td>{{ r.navn }}</td>
+    <td>
+      {% if r.paamelding_status == 'bekreftet' %}<span class="merke ok">Bekreftet</span>
+      {% elif r.paamelding_status == 'venteliste' %}<span class="merke gul">Venteliste</span>
+      {% else %}<span class="merke feil">Ikke registrert{% if r.feilmelding %} – {{ r.feilmelding }}{% endif %}</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table></div>
+
+<p class="liten dempet" style="margin-top:16px">En samlet kvittering er også sendt på e-post til kontaktpersonen som meldte på gruppen.</p>
+{% endblock %}

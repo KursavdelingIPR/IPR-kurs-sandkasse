@@ -1,0 +1,5 @@
+<nav class="faner">
+  <a class="{{ 'aktiv' if fane == 'deltaker' }}" href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}">Deltaker</a>
+  <a class="{{ 'aktiv' if fane == 'kommunikasjon' }}" href="{{ url_for('admin_deltaker_kommunikasjon', kurs_id=kurs.id, paamelding_id=p.id) }}">Kommunikasjon</a>
+  <a class="{{ 'aktiv' if fane == 'logger' }}" href="{{ url_for('admin_deltaker_logger', kurs_id=kurs.id, paamelding_id=p.id) }}">Logger</a>
+</nav>

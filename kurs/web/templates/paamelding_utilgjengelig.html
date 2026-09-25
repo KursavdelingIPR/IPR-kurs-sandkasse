@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block tittel %}Påmeldingen er midlertidig utilgjengelig – IPR Påmeldingssystem{% endblock %}
+{% block innhold %}
+{# Fase 12C3: vises (503) naar skjemaoppsettet ikke kan leses. Ingen feildetaljer, ingen persondata - kun kursnavnet. #}
+<div class="kort" style="max-width:560px">
+  <h1>Påmeldingen er midlertidig utilgjengelig</h1>
+{% if forhandsvisning %}
+  <p>Skjemaoppsettet for <strong>{{ kurs.navn }}</strong> kunne ikke leses, så forhåndsvisningen kan ikke vises akkurat nå.</p>
+  <p class="liten dempet">Standardskjemaet vises bevisst ikke i stedet – det kunne gitt et feil bilde av hva deltakerne ser. Prøv igjen om litt.</p>
+{% else %}
+  <p>Vi får ikke vist påmeldingsskjemaet for <strong>{{ kurs.navn }}</strong> akkurat nå. Prøv igjen om litt.</p>
+  <p class="liten dempet">Ingen påmelding er registrert. Hvis du nettopp sendte inn skjemaet, må du sende det på nytt.</p>
+{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_rapporter') }}">← Rapporter</a></p>
+<h1>Kurs-rapport</h1>
+<p class="sub">Alle kurs, uansett status.</p>
+
+<form method="get" class="rad" style="align-items:end; margin-bottom:10px">
+  <div><label for="f-sok">Søk på kursnavn</label><input id="f-sok" type="search" name="sok" value="{{ sok }}"></div>
+  <div><label for="f-fra">Fra dato</label><input id="f-fra" type="date" name="fra" value="{{ fra }}"></div>
+  <div><label for="f-til">Til dato</label><input id="f-til" type="date" name="til" value="{{ til }}"></div>
+  <div><label for="f-status">Status</label><select id="f-status" name="status">
+      <option value="" {{ 'selected' if not status }}>Alle</option>
+      {% for s in kurs_statusverdier %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ s|capitalize }}</option>{% endfor %}
+    </select>
+  </div>
+  <div><label for="f-ansvarlig">Ansvarlig</label><select id="f-ansvarlig" name="ansvarlig">
+      <option value="">Alle</option>
+      {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if ansvarlig == a.id }}>{{ a.navn }}</option>{% endfor %}
+    </select>
+  </div>
+  <div><button class="sekundar">Filtrer</button></div>
+</form>
+<p class="liten" style="margin-bottom:4px">
+  <a href="{{ url_for('admin_rapport_kurs_csv', sok=sok, fra=fra, til=til, status=status, ansvarlig=ansvarlig) }}">Eksporter CSV</a>
+  · Viser {{ rader|length }} kurs
+</p>
+<p class="liten dempet" style="margin-bottom:10px">«Fakturert» viser fakturaer opprettet/sendt fra systemet, ikke nødvendigvis innbetalt beløp.</p>
+
+<div class="tabellboks"><table>
+  <tr><th scope="col">Kursnr</th><th scope="col">Tittel</th><th scope="col">Periode</th><th scope="col">Status</th><th scope="col">Ansvarlig</th><th scope="col">Bekreftet/kapasitet</th><th scope="col">Fyllingsgrad</th><th scope="col">Venteliste</th><th scope="col">Avmeldt</th><th scope="col">Fakturert</th></tr>
+  {% for k in rader %}
+  <tr>
+    <td>{{ k.kursnr }}</td>
+    <td>{{ k.navn }}</td>
+    <td class="liten">{{ k.start or '–' }}{% if k.slutt and k.slutt != k.start %} – {{ k.slutt }}{% endif %}</td>
+    <td><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','avlyst':'feil','utkast':'gra'}.get(k.status,'gra') }}">{{ k.status }}</span></td>
+    <td class="liten">{{ k.ansvarlig_navn or '–' }}</td>
+    <td>{{ k.bekreftet }}{% if k.kapasitet %} / {{ k.kapasitet }}{% endif %}</td>
+    <td>{% if k.kapasitet %}{{ (k.bekreftet / k.kapasitet * 100) | round(0) | int }}%{% else %}–{% endif %}</td>
+    <td>{{ k.venteliste }}</td>
+    <td>{{ k.avmeldt }}</td>
+    <td>{{ '{:,}'.format(k.fakturert).replace(',', ' ') }} kr</td>
+  </tr>
+  {% else %}<tr><td colspan="10" class="dempet">Ingen kurs matcher filteret.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

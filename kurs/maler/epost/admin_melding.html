@@ -1,0 +1,5 @@
+Emne: {{ emne }}
+{% extends "_ramme.html" %}{% block innhold %}
+<p>Hei {{ d.navn }},</p>
+<p>{{ tekst | e | replace('\n', '<br>\n' | safe) }}</p>
+{% endblock %}

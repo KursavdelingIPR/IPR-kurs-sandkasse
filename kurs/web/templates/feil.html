@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block tittel %}{{ tittel }} – IPR Påmeldingssystem{% endblock %}
+{% block innhold %}
+{# Kontrollert feilside (404/500/503): aldri tekniske detaljer, sti, SQL eller persondata - kun en rolig forklaring. #}
+<div class="kort" style="max-width:560px">
+  <h1>{{ tittel }}</h1>
+  <p>{{ tekst }}</p>
+  <p class="liten dempet"><a href="{{ url_for('forside') }}">Til forsiden</a></p>
+</div>
+{% endblock %}

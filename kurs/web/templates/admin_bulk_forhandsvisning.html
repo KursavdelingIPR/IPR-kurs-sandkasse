@@ -1,0 +1,51 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<h2>Behandle valgte deltakere <span class="liten dempet" style="font-weight:400">– forhåndsvisning</span></h2>
+
+<div class="flash info">Ingenting er behandlet ennå – dette er kun en forhåndsvisning av hva som VILLE
+  skjedd. Ingen e-post er sendt, ingen faktura er opprettet.</div>
+
+<p class="liten dempet">{{ antall_behandlingsbare }} av {{ antall_totalt }} valgte kan behandles nå.</p>
+
+<div class="tabellboks"><table>
+  <tr><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Status</th><th scope="col">Kan behandles?</th><th scope="col">Hva skjer</th><th scope="col">Begrunnelse</th></tr>
+  {% for r in resultater %}
+  <tr>
+    <td>{{ r.navn }}</td>
+    <td class="liten">{{ r.epost }}</td>
+    <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}.get(r.status, 'gra') }}">{{ r.status }}</span></td>
+    <td>{% if r.behandlingsbar %}<span class="merke ok">Ja</span>{% else %}<span class="merke gra">Nei</span>{% endif %}</td>
+    <td class="liten">{{ r.hva_skjer or '–' }}</td>
+    <td class="liten dempet">{{ r.arsak }}</td>
+  </tr>
+  {% endfor %}
+</table></div>
+
+{% if antall_behandlingsbare %}
+<div class="flash info" style="margin-top:16px">
+  <strong>Når du bekrefter:</strong>
+  <ul style="margin:6px 0 0 18px">
+    <li>Bekreftede deltakere får bekreftelse på e-post, og fakturering behandles etter kursets faktureringsoppsett.</li>
+    <li>Deltakere på venteliste får ventelistebeskjed.</li>
+    <li>E-post og faktura kan ikke trekkes tilbake når de først er sendt.</li>
+    <li>Deltakerne behandles én om gangen. Hvis noe går galt flere ganger på rad, stopper behandlingen av resten,
+      og du får en oversikt over hva som ble gjort.</li>
+  </ul>
+</div>
+
+{# Kun rader som var behandlingsbare her sendes videre. Serveren sjekker hver enkelt på nytt før den behandles. #}
+<form method="post" action="{{ url_for('admin_bulk_behandle', kurs_id=kurs.id) }}" style="margin-top:16px" data-en-gang
+      data-bekreft="Behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }} nå? E-post sendes og faktura opprettes. Dette kan ikke angres.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% for r in resultater if r.behandlingsbar %}<input type="hidden" name="paamelding_id" value="{{ r.paamelding_id }}">{% endfor %}
+  <button data-venter="Behandler … vent litt">Send og behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }}</button>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Tilbake til deltakere</a>
+</form>
+{% else %}
+<p style="margin-top:16px" class="dempet">Ingen av de valgte deltakerne kan behandles nå.</p>
+<p><a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Tilbake til deltakere</a></p>
+{% endif %}
+{% endblock %}

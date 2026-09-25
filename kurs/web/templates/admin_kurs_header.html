@@ -1,0 +1,5 @@
+<p class="liten"><a href="{{ url_for('admin_aktiviteter') }}">← Aktiviteter</a></p>
+<h1>{{ kurs.navn }}</h1>
+<p class="sub">Kursnr. {{ kurs.kursnr }} · {{ kurs.type }}{% if kurs.sted %} · {{ kurs.sted }}{% endif %} · <span class="merke">{{ kurs.status }}</span>
+  · {{ kurs.pris_nok }} kr · fakturering: {{ kurs.fakturering }}
+  · betaling: {{ {'samlet':'samlet','per_samling':'per samling (' ~ kurs.faktura_dager_for ~ ' dager før)','deltaker_velger':'deltakeren velger'}[kurs.betaling] }}{% if kurs.spesialistlop %} · løp: {{ kurs.spesialistlop }}{% endif %}</p>

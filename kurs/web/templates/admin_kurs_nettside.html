@@ -1,0 +1,34 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<div class="kort" style="max-width:720px">
+  <p>Dette er den offentlige påmeldingssiden deltakerne ser for dette kurset.</p>
+  <div style="display:flex; gap:10px; flex-wrap:wrap">
+    <a class="knapp" href="{{ url_for('kursside', kode=kurs.kode) }}" target="_blank">Åpne offentlig side ↗</a>
+    <span class="liten dempet">Nettadresse: {{ url_for('kursside', kode=kurs.kode, _external=True) }}</span>
+    <a class="knapp sekundar" href="{{ url_for('admin_forhandsvis_paamelding', kurs_id=kurs.id) }}" target="_blank" rel="noopener">Forhåndsvis påmeldingsskjema</a>
+  </div>
+  <p class="liten dempet" style="margin-top:16px">Forhåndsvisningen viser skjemaet slik det faktisk er satt opp for dette kurset (felter, pris, betalingsvalg og tekstene under) - ingen påmelding kan sendes derfra. Lagre først for å se endringene.</p>
+</div>
+
+{# Fase 12C5. All tekst fra admin er ren tekst og escapes av Jinja - aldri |safe. #}
+<form method="post" action="{{ url_for('admin_kurs_nettside_lagre', kurs_id=kurs.id) }}" class="kort" style="max-width:720px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="versjon" value="{{ versjon_for('nettside', kurs) }}">
+  <strong>Tekster på påmeldingssiden</strong>
+
+  <label for="f-intro">Introduksjonstekst <span class="liten dempet">(valgfri, maks {{ maks_intro }} tegn, vises over påmeldingsskjemaet)</span></label>
+  {% if 'intro' in ugyldig %}<p class="liten" style="margin:0 0 4px"><span class="merke feil">Lagret tekst er ugyldig og vises ikke</span></p>{% endif %}
+  <textarea id="f-intro" name="intro" rows="5" maxlength="{{ maks_intro }}">{{ intro }}</textarea>
+  <p class="liten dempet" style="margin:4px 0 0">Ren tekst. Linjeskift beholdes. HTML og formatering vises som vanlig tekst.</p>
+
+  <label for="f-knappetekst">Tekst på påmeldingsknappen <span class="liten dempet">(valgfri, maks {{ maks_knappetekst }} tegn, én linje)</span></label>
+  {% if 'knappetekst' in ugyldig %}<p class="liten" style="margin:0 0 4px"><span class="merke feil">Lagret tekst er ugyldig og vises ikke</span></p>{% endif %}
+  <input id="f-knappetekst" name="knappetekst" maxlength="{{ maks_knappetekst }}" value="{{ knappetekst }}" placeholder="{{ standard_knappetekst }}">
+  <p class="liten dempet" style="margin:4px 0 0">Tom = «{{ standard_knappetekst }}».</p>
+
+  <p style="margin-top:16px"><button>Lagre</button></p>
+</form>
+{% endblock %}

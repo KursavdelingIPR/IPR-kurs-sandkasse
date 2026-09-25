@@ -1,0 +1,76 @@
+{% extends "admin_base.html" %}
+{% block tittel %}Økonomi {{ fra }}–{{ til }}{% endblock %}
+{% block innhold %}
+<p class="liten ikke-utskrift"><a href="{{ url_for('admin_rapporter') }}">← Rapporter</a></p>
+<h1>Økonomi</h1>
+<p class="sub">Fakturaer systemet har laget i Visma, etter fakturadato. Innbetalinger følges opp i Visma og hentes ikke
+  tilbake hit ennå – tallene viser derfor <strong>fakturert</strong> beløp, ikke innbetalt. Krediterte fakturaer er ikke
+  regnet med.</p>
+
+<form method="get" class="rad ikke-utskrift" style="align-items:end; margin-bottom:18px">
+  <div><label for="f-fra">Fra fakturadato</label><input id="f-fra" type="date" name="fra" value="{{ fra }}"></div>
+  <div><label for="f-til">Til fakturadato</label><input id="f-til" type="date" name="til" value="{{ til }}"></div>
+  <div><label for="f-kurs">Kurs</label><select id="f-kurs" name="kurs">
+      <option value="">Alle kurs</option>
+      {% for k in kursvalg %}<option value="{{ k.id }}" {{ 'selected' if kurs_id == k.id }}>{{ k.kursnr }} {{ k.navn }}</option>{% endfor %}
+    </select></div>
+  <div style="display:flex; gap:8px; align-items:center">
+    <button class="sekundar">Vis</button>
+    <button type="button" class="sekundar" data-skriv-ut>Skriv ut</button>
+  </div>
+</form>
+
+<div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); margin-bottom:8px">
+  <div class="kort"><div class="liten dempet">Fakturert i perioden</div><div class="stat">{{ r.totalt.belop|kr }}</div></div>
+  <div class="kort"><div class="liten dempet">Antall fakturaer</div><div class="stat">{{ r.totalt.antall }}</div></div>
+  <div class="kort"><div class="liten dempet">Snitt per faktura</div><div class="stat">{{ ((r.totalt.belop / r.totalt.antall)|round|int if r.totalt.antall else 0)|kr }}</div></div>
+  {% if r.totalt.kreditert %}<div class="kort"><div class="liten dempet">Kreditert (ikke med over)</div><div class="stat">{{ r.totalt.kreditert|kr }}</div></div>{% endif %}
+</div>
+
+<div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">
+  <div>
+    <h2>Per måned</h2>
+    <div class="tabellboks"><table>
+      <thead><tr><th scope="col">Måned</th><th scope="col">Fakturaer</th><th scope="col">Fakturert</th></tr></thead>
+      <tbody>
+      {% for mnd, s in r.per_maaned.items() %}<tr><td>{{ mnd|maaned }}</td><td>{{ s.antall }}</td><td>{{ s.belop|kr }}</td></tr>
+      {% else %}<tr><td colspan="3" class="tom">Ingen fakturaer i perioden.</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+  <div>
+    <h2>Per kurs</h2>
+    <div class="tabellboks"><table>
+      <thead><tr><th scope="col">Kurs</th><th scope="col">Fakturaer</th><th scope="col">Fakturert</th></tr></thead>
+      <tbody>
+      {% for k in r.per_kurs.values()|sort(attribute='sum.belop', reverse=true) %}
+      <tr><td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.kurs_id) }}">{{ k.kursnr }} {{ k.navn }}</a></td><td>{{ k.sum.antall }}</td><td>{{ k.sum.belop|kr }}</td></tr>
+      {% else %}<tr><td colspan="3" class="tom">Ingen fakturaer i perioden.</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<h2>Fakturaliste</h2>
+<div class="verktoylinje ikke-utskrift">
+  <span class="liten dempet">{{ r.fakturaer|length }} faktura{{ 'er' if r.fakturaer|length != 1 }}{% if r.fakturaer|length > maks %} – de {{ maks }} første vises; last ned for alle{% endif %}.</span>
+  {% if admin_rolle != 'lese' %}<a class="knapp sekundar liten plass" href="{{ url_for('admin_rapport_okonomi_csv', fra=fra, til=til, kurs=kurs_id) }}">Last ned som CSV (Excel)</a>{% endif %}
+</div>
+<div class="tabellboks"><table>
+  <thead><tr><th scope="col">Dato</th><th scope="col">Fakturanr.</th><th scope="col">Kurs</th><th scope="col">Gjelder</th><th scope="col">Deltaker</th><th scope="col">Betaler</th><th scope="col">Beløp</th><th scope="col">Status</th></tr></thead>
+  <tbody>
+  {% for f in r.fakturaer[:maks] %}
+  <tr>
+    <td class="liten">{{ f.dato }}</td>
+    <td>{{ f.faktura_nr or '–' }}</td>
+    <td class="liten">{{ f.kursnr }} {{ f.kursnavn }}</td>
+    <td class="liten">{{ f.gjelder }}</td>
+    <td class="liten"><a href="{{ url_for('admin_rapport_deltaker', deltaker_id=f.deltaker_id) }}">{{ f.navn }}</a></td>
+    <td class="liten">{{ f.betaler_navn }}</td>
+    <td>{{ f.belop_nok|kr }}</td>
+    <td><span class="merke {{ {'betalt':'ok','kreditert':'gra','feil':'feil'}.get(f.status, '') }}">{{ f.statusnavn }}</span></td>
+  </tr>
+  {% else %}<tr><td colspan="8" class="tom">Ingen fakturaer i perioden.</td></tr>{% endfor %}
+  </tbody>
+</table></div>
+{% endblock %}

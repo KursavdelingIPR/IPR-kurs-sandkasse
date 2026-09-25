@@ -5,38 +5,38 @@
 
 <h2>Til adm ({{ henvendelser | length }})</h2>
 <div class="tabellboks"><table>
-  <tr><th>Tid</th><th>Fra</th><th>Spørsmål</th><th>Årsak</th><th></th></tr>
+  <tr><th scope="col">Tid</th><th scope="col">Fra</th><th scope="col">Spørsmål</th><th scope="col">Årsak</th><th scope="col"></th></tr>
   {% for h in henvendelser %}
   <tr><td class="liten dempet">{{ h.ts }}</td><td class="liten">{{ h.epost or '–' }}</td><td>{{ h.sporsmal }}</td><td class="liten dempet">{{ h.grunn }}</td>
       <td style="white-space:nowrap"><a class="knapp liten" href="{{ url_for('admin_kunnskap', fra=h.id) }}#skjema">Lag godkjent svar</a>
-        <form method="post" action="{{ url_for('admin_lukk_henvendelse', hid=h.id) }}" style="display:inline"><button class="liten sekundar">Lukk</button></form></td></tr>
+        <form method="post" action="{{ url_for('admin_lukk_henvendelse', hid=h.id) }}" style="display:inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Lukk</button></form></td></tr>
   {% else %}<tr><td colspan="5" class="dempet">Ingen ubesvarte henvendelser.</td></tr>{% endfor %}
 </table></div>
 
 <h2 id="skjema">{{ 'Rediger svar' if rediger else 'Nytt svar' }}</h2>
 <form method="post" class="kort" style="max-width:820px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if rediger %}<input type="hidden" name="id" value="{{ rediger.id }}">{% endif %}
   {% if fra %}<input type="hidden" name="henvendelse_id" value="{{ fra.id }}"><p class="liten">Fra henvendelse #{{ fra.id }} – lukkes når svaret lagres. Husk å også svare personen direkte.</p>{% endif %}
   <div class="rad">
-    <div><label>Kategori</label><input name="kategori" required value="{{ rediger.kategori if rediger else '' }}" placeholder="avmelding, praktisk, faktura …"></div>
-    <div><label>Gjelder kurs</label><select name="kurs_id"><option value="">Alle kurs</option>
-      {% for k in kurs %}<option value="{{ k.id }}" {{ 'selected' if rediger and rediger.kurs_id == k.id }}>{{ k.kode }} – {{ k.navn }}</option>{% endfor %}</select></div>
-    <div><label>Gyldig til (valgfritt)</label><input type="date" name="gyldig_til" value="{{ rediger.gyldig_til or '' if rediger else '' }}"></div>
+    <div><label for="f-kategori">Kategori</label><input id="f-kategori" name="kategori" required value="{{ rediger.kategori if rediger else '' }}" placeholder="avmelding, praktisk, faktura …"></div>
+    <div><label for="f-kurs_id">Gjelder kurs</label><select id="f-kurs_id" name="kurs_id"><option value="">Alle kurs</option>
+      {% for k in kurs %}<option value="{{ k.id }}" {{ 'selected' if rediger and rediger.kurs_id == k.id }}>{{ k.kursnr }} – {{ k.navn }}</option>{% endfor %}</select></div>
+    <div><label for="f-gyldig_til">Gyldig til (valgfritt)</label><input id="f-gyldig_til" type="date" name="gyldig_til" value="{{ rediger.gyldig_til or '' if rediger else '' }}"></div>
   </div>
-  <label>Typiske spørsmål (ett per linje – ulike måter å spørre på)</label>
-  <textarea name="sporsmal" rows="3" required>{{ rediger.sporsmal if rediger else (fra.sporsmal if fra else '') }}</textarea>
-  <label>Godkjent svar (vises ordrett)</label>
-  <textarea name="svar" rows="4" required>{{ rediger.svar if rediger else '' }}</textarea>
+  <label for="f-sporsmal">Typiske spørsmål (ett per linje – ulike måter å spørre på)</label><textarea id="f-sporsmal" name="sporsmal" rows="3" required>{{ rediger.sporsmal if rediger else (fra.sporsmal if fra else '') }}</textarea>
+  <label for="f-svar">Godkjent svar (vises ordrett)</label><textarea id="f-svar" name="svar" rows="4" required>{{ rediger.svar if rediger else '' }}</textarea>
   <label style="font-weight:normal"><input type="checkbox" name="godkjent" {{ 'checked' if not rediger or rediger.godkjent }}>Godkjent – kan brukes av assistenten</label>
   <p style="margin-top:12px"><button>Lagre</button> {% if rediger or fra %}<a href="{{ url_for('admin_kunnskap') }}" class="liten">Avbryt</a>{% endif %}</p>
 </form>
 
 <h2>Kunnskapsbase ({{ oppforinger | length }})</h2>
 <div class="tabellboks"><table>
-  <tr><th>ID</th><th>Kategori</th><th>Spørsmål</th><th>Svar</th><th>Gjelder</th><th>Status</th><th></th></tr>
+  <tr><th scope="col">ID</th><th scope="col">Kategori</th><th scope="col">Spørsmål</th><th scope="col">Svar</th><th scope="col">Gjelder</th><th scope="col">Status</th><th scope="col"></th></tr>
   {% for k in oppforinger %}
   <tr><td class="liten">K{{ k.id }}</td><td>{{ k.kategori }}</td><td class="liten">{{ k.sporsmal | replace('\n', ' · ') }}</td><td class="liten">{{ k.svar }}</td>
-      <td class="liten">{{ k.kode or 'alle' }}</td>
+      <td class="liten">{{ k.kursnr or 'alle' }}</td>
       <td>{% if not k.godkjent %}<span class="merke gul">utkast</span>{% elif k.gyldig_til and k.gyldig_til < idag %}<span class="merke feil">utløpt</span>{% else %}<span class="merke ok">aktiv</span>{% endif %}
         <div class="liten dempet">{{ k.oppdatert[:10] }}</div></td>
       <td><a class="knapp liten sekundar" href="{{ url_for('admin_kunnskap', rediger=k.id) }}#skjema">Rediger</a></td></tr>
@@ -45,7 +45,7 @@
 
 <h2>Siste spørsmål til assistenten</h2>
 <div class="tabellboks"><table>
-  <tr><th>Tid</th><th>Spørsmål</th><th>Resultat</th><th>Kilder</th></tr>
+  <tr><th scope="col">Tid</th><th scope="col">Spørsmål</th><th scope="col">Resultat</th><th scope="col">Kilder</th></tr>
   {% for h in siste %}<tr><td class="liten dempet">{{ h.ts }}</td><td>{{ h.sporsmal }}</td>
     <td><span class="merke {{ {'besvart':'ok','til_adm':'gul','lukket':'gra'}[h.status] }}">{{ h.status }}</span></td><td class="liten">{{ h.kilder or '' }}</td></tr>{% endfor %}
 </table></div>

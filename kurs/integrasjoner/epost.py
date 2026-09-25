@@ -11,7 +11,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from .. import config
+from .. import config, lenker, maltekster
 from . import m365
 
 _maler = Environment(
@@ -20,11 +20,44 @@ _maler = Environment(
 )
 
 
-def render(mal: str, **data) -> tuple[str, str]:
-    """Returnerer (emne, html). Forste linje i malen er 'Emne: ...'."""
-    tekst = _maler.get_template(f"{mal}.html").render(base_url=config.BASE_URL, **data)
-    forste, _, html = tekst.partition("\n")
-    return forste.removeprefix("Emne:").strip(), html
+# Emnet er REN TEKST (e-postemne, ikke HTML): egen renderer UTEN autoescape. Ellers ble '&' til '&amp;' og '<' til
+# '&lt;' i selve emnefeltet. (Kroppen rendres fortsatt med autoescape.)
+_emne_env = Environment(autoescape=False)
+_KONTROLLTEGN = re.compile(r"[\x00-\x1f\x7f\x85\u2028\u2029]+")
+
+
+def har_kontrolltegn(tekst: str) -> bool:
+    """True hvis teksten inneholder linjeskift/kontrolltegn - brukes til aa AVVISE slike emner fra admin-skjema."""
+    return _KONTROLLTEGN.search(tekst) is not None
+
+
+def _rent_emne(tekst: str) -> str:
+    """Ett rent linjeskiftfritt emne: CR/LF og andre kontrolltegn (ogsaa Unicode-linjeskift) erstattes med mellomrom,
+    slik at verken kursnavn, deltakernavn eller admin-tekst kan lage ekstra e-posthoder eller lekke inn i kroppen."""
+    return _KONTROLLTEGN.sub(" ", tekst).strip()
+
+
+def render(mal: str, maltekst: dict | None = None, **data) -> tuple[str, str]:
+    """Returnerer (emne, html). Forste linje i malen er 'Emne: ...'.
+
+    Emnet rendres som ren tekst (se _emne_env); kroppen rendres fra resten av malen med HTML-escaping. Emne-linja
+    skilles ut paa KILDENIVAA (ikke ved aa dele ferdig output paa linjeskift), saa et linjeskift i en verdi aldri
+    kan flytte tekst mellom emne og kropp."""
+    kilde = _maler.loader.get_source(_maler, f"{mal}.html")[0]
+    forste, _, resten = kilde.partition("\n")
+    if maltekst is None and mal in maltekster.AKTIVE_MALER:
+        maltekst = maltekster.standard_maltekst(mal, data)   # direkte render (ingen DB): STANDARDtekst
+    verdier = {"base_url": config.BASE_URL, **data}
+    if "m" in data and "lever_lenke" not in data:     # purring: signert opplastingslenke (laast systemblokk i malen)
+        try:
+            verdier["lever_lenke"] = lenker.lever_lenke(data["m"]["id"])
+        except (KeyError, IndexError, TypeError, ValueError):
+            verdier["lever_lenke"] = ""
+    if maltekst is not None:
+        verdier["maltekst"] = maltekst    # ferdig rendret (emne: ren tekst, tekst: trygg Markup) fra maltekster - IKKE fra DB her
+    emne = _rent_emne(_emne_env.from_string(forste.rstrip("\r").removeprefix("Emne:")).render(**verdier))
+    html = _maler.from_string(resten).render(**verdier)
+    return emne, html
 
 
 def send(til: str, emne: str, html: str, vedlegg: list[Path] | None = None, kopi: str | None = None) -> None:

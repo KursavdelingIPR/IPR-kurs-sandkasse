@@ -1,10 +1,10 @@
 {% extends "admin_base.html" %}
 {% block innhold %}
-<p class="liten"><a href="{{ url_for('admin_kurs', kurs_id=kurs.id) }}">← {{ kurs.navn }}</a></p>
+<p class="liten"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">← {{ kurs.navn }}</a></p>
 <h1>Allergier og tilrettelegging</h1>
 <p class="sub">{{ kurs.navn }} · Sensitive opplysninger – visning logges, og dataene slettes automatisk etter kurset.</p>
 <div class="tabellboks"><table>
-  <tr><th>Navn</th><th>Allergier / spesialkost</th><th>Tilrettelegging</th></tr>
+  <tr><th scope="col">Navn</th><th scope="col">Allergier / spesialkost</th><th scope="col">Tilrettelegging</th></tr>
   {% for r in rader %}<tr><td>{{ r.navn }}</td><td>{{ r.allergier or '' }}</td><td>{{ r.tilrettelegging or '' }}</td></tr>
   {% else %}<tr><td colspan="3" class="dempet">Ingen registrert.</td></tr>{% endfor %}
 </table></div>

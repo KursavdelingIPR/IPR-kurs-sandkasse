@@ -5,7 +5,8 @@
   <p class="sub">{{ m.beskrivelse }} til <strong>{{ m.kursnavn }}</strong> · frist {{ m.frist }}</p>
   {% if m.levert_ts %}<p><span class="merke ok">Levert {{ m.levert_ts }}</span> – du kan laste opp en ny versjon.</p>{% endif %}
   <form method="post" enctype="multipart/form-data">
-    <label>Fil (PowerPoint, PDF …)</label><input type="file" name="fil" required>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="f-fil">Fil (PowerPoint, PDF …)</label><input id="f-fil" type="file" name="fil" required>
     <p style="margin-top:14px"><button>Last opp</button></p>
   </form>
 </div>

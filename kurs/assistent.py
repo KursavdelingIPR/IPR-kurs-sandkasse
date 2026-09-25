@@ -142,7 +142,7 @@ def _velg_claude(sporsmal: str, kand: dict[str, dict]) -> dict:
     import anthropic  # importeres kun i prod
 
     kilder_tekst = "\n\n".join(f"[{kid}]\nTypiske spørsmål: {k['sporsmal'] or '–'}\nTekst: {k['tekst']}" for kid, k in kand.items())
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, timeout=config.ASSISTENT_TIDSAVBRUDD_SEK, max_retries=1)
     resp = client.beta.messages.create(
         model=config.ASSISTENT_MODELL,
         max_tokens=4000,
@@ -179,6 +179,8 @@ def svar(con, sporsmal: str, *, deltaker_id: int | None = None, epost: str | Non
         return til_adm("kunnskapsbasen er tom")
     if velger is None:
         velger = _velg_demo if (config.DEMO or not config.ANTHROPIC_API_KEY) else _velg_claude
+    if velger is _velg_claude and _ki_kall_siste_dogn(con) >= config.ASSISTENT_MAKS_PER_DAG:
+        return til_adm("dagsgrensen for automatiske svar er nådd")   # kostnadsvern: ingen KI-kall over grensen
     try:
         valg = velger(sporsmal, kand)
     except Exception as e:  # noqa: BLE001 – ved enhver feil: ikke svar, send videre
@@ -196,9 +198,15 @@ def svar(con, sporsmal: str, *, deltaker_id: int | None = None, epost: str | Non
     return Svar(True, tekster=[kand[k]["tekst"] for k in kilder], kilder=kilder, grunn=valg.get("grunn", ""), henvendelse_id=hid)
 
 
+def _ki_kall_siste_dogn(con) -> int:
+    """Antall henvendelser siste 24 timer (alle som naadde velgeren). Enkel, lokal kostnadsgrense uten ekstern tjeneste."""
+    return con.execute("SELECT COUNT(*) FROM henvendelse WHERE ts >= ?",
+                       (db.utc_minutter_siden(24 * 60),)).fetchone()[0]
+
+
 def _logg(con, deltaker_id, epost, sporsmal, status, kilder, grunn) -> int:
-    cur = con.execute(
-        "INSERT INTO henvendelse (deltaker_id, epost, sporsmal, status, kilder, grunn) VALUES (?,?,?,?,?,?)",
+    hid = db.sett_inn(
+        con, "INSERT INTO henvendelse (deltaker_id, epost, sporsmal, status, kilder, grunn) VALUES (?,?,?,?,?,?)",
         (deltaker_id, epost, sporsmal, status, ",".join(kilder), grunn))
     con.commit()
-    return cur.lastrowid
+    return hid

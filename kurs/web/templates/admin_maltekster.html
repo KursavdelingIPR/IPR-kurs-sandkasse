@@ -1,0 +1,21 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<h1>E-postmaler</h1>
+<p class="sub">Rediger teksten i de automatiske e-postene. Kursdager, klokkeslett, Zoom-info, faktura og lignende er alltid systemstyrt og kan ikke endres her.</p>
+
+<div class="rutenett">
+{% for m in maler %}
+  <div class="kort">
+    <div style="display:flex; justify-content:space-between; align-items:start; gap:10px">
+      <strong>{{ m.navn }}</strong>
+      <span class="merke {{ 'gul' if m.tilpasset else 'gra' }}">{{ 'Tilpasset' if m.tilpasset else 'Standard' }}</span>
+    </div>
+    <p class="liten dempet" style="margin:8px 0 14px">{{ m.beskrivelse }}</p>
+    <div style="display:flex; gap:8px">
+      <a class="knapp liten" href="{{ url_for('admin_maltekst_rediger', mal=m.mal) }}">Rediger</a>
+      <a class="knapp liten sekundar" href="{{ url_for('admin_maltekst_forhandsvis', mal=m.mal) }}">Forhåndsvis</a>
+    </div>
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

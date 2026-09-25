@@ -1,0 +1,91 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); margin-bottom:18px">
+  <div class="kort"><div class="liten dempet">Bekreftet</div><div class="stat">{{ tellere.bekreftet or 0 }}</div></div>
+  <div class="kort"><div class="liten dempet">Venteliste</div><div class="stat">{{ tellere.venteliste or 0 }}</div></div>
+  <div class="kort"><div class="liten dempet">Avmeldt</div><div class="stat">{{ tellere.avmeldt or 0 }}</div></div>
+  {% if tellere.avslatt %}<div class="kort"><div class="liten dempet">Avslått</div><div class="stat">{{ tellere.avslatt }}</div></div>{% endif %}
+  <div class="kort"><div class="liten dempet">Totalt registrert</div><div class="stat">{{ totalt }}</div></div>
+</div>
+
+<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px">
+  <a class="knapp liten" href="{{ url_for('admin_deltaker_ny', kurs_id=kurs.id) }}">+ Legg til deltaker</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_import_deltakere', kurs_id=kurs.id) }}">Importer deltakere</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_deltakerliste', kurs_id=kurs.id) }}">Deltakerliste (utskrift/PDF)</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_csv', kurs_id=kurs.id, sok=sok or None, status=status or None) }}">Eksporter {{ 'treff (Excel)' if (sok or status) else 'deltakerliste (Excel)' }}</a>
+  {% if kurs.type != 'digital' %}<a class="knapp sekundar liten" href="{{ url_for('admin_allergiliste', kurs_id=kurs.id) }}">Allergi-/tilretteleggingsliste</a>{% endif %}
+  {% if tellere.bekreftet %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='bekreftet') }}">Send e-post til alle bekreftede</a>{% endif %}
+  {% if tellere.venteliste %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='venteliste') }}">Send e-post til venteliste</a>{% endif %}
+</div>
+
+<!-- Egen (tom) form som avkrysningsboksene i tabellen peker paa via HTML5 "form"-attributtet,
+     slik at den ikke kolliderer med per-rad-skjemaene inni tabellen (skjema kan ikke nestes).
+     Flere knapper under peker paa DENNE samme formen med formaction/formmethod, slik at samme
+     utvalg kan brukes til flere handlinger uten aa duplisere avkrysningsboksene. -->
+<form id="valgte-deltakere" method="post" action="{{ url_for('admin_epost_ny', kurs_id=kurs.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
+
+<form method="get" class="rad" style="align-items:end; margin-bottom:16px">
+  <div><label for="f-sok">Søk (navn/e-post)</label><input id="f-sok" type="search" name="sok" value="{{ sok }}" placeholder="Søk…"></div>
+  <div><label for="f-status">Status</label><select id="f-status" name="status" data-send-ved-endring>
+      <option value="" {{ 'selected' if not status }}>Alle</option>
+      <option value="bekreftet" {{ 'selected' if status == 'bekreftet' }}>Bekreftet</option>
+      <option value="venteliste" {{ 'selected' if status == 'venteliste' }}>Venteliste</option>
+      <option value="avmeldt" {{ 'selected' if status == 'avmeldt' }}>Avmeldt</option>
+      <option value="avslatt" {{ 'selected' if status == 'avslatt' }}>Avslått</option>
+    </select>
+  </div>
+  <div><button class="sekundar">Søk</button></div>
+</form>
+
+<p class="liten dempet">Viser {{ deltakere|length }} deltaker{{ 's' if deltakere|length != 1 }}.
+  {% if deltakere %}<label style="font-weight:normal; margin-left:10px"><input type="checkbox" id="velg-alle-synlige"> Velg alle synlige</label>
+  <span id="antall-valgt" class="dempet"></span>{% endif %}</p>
+<div class="tabellboks"><table>
+  <tr><th scope="col"></th><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Telefon</th><th scope="col">Arbeidssted</th><th scope="col">Fakturastatus</th><th scope="col">Påmeldingsstatus</th><th scope="col">Sist oppdatert</th><th scope="col"></th></tr>
+  {% for p in deltakere %}
+  <tr style="{{ 'opacity:.5' if p.status == 'avmeldt' }}">
+    <td><input type="checkbox" class="valgt-deltaker" name="paamelding_id" value="{{ p.id }}" form="valgte-deltakere" aria-label="Velg {{ p.navn }}"></td>
+    <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}"><strong>{{ p.navn }}</strong></a></td>
+    <td class="liten">{{ p.epost }}</td>
+    <td class="liten">{{ p.telefon or '' }}</td>
+    <td class="liten">{{ p.arbeidssted or '' }}</td>
+    <td><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(p.fakturastatus, 'gra') }}">{{ p.fakturastatus }}</span></td>
+    <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra','avslått':'feil'}[p|paameldingsstatus] }}">{{ p|paameldingsstatus }}</span></td>
+    <td class="liten dempet">{{ p.oppdatert[:16].replace('T', ' ') }}</td>
+    <td>{% if p.status != 'avmeldt' and kurs.status != 'avsluttet' %}<form method="post" action="{{ url_for('admin_meld_av', pid=p.id) }}" data-bekreft="Melde av {{ p.navn }}?" style="margin:0">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Meld av</button></form>{% endif %}</td>
+  </tr>
+  {% else %}<tr><td colspan="9" class="dempet">Ingen deltakere matcher søket.</td></tr>{% endfor %}
+</table></div>
+{% if deltakere %}
+<p class="liten" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
+  <button form="valgte-deltakere" class="liten sekundar">Send e-post til valgte</button>
+  <button form="valgte-deltakere" formaction="{{ url_for('admin_eksporter_valgte_csv', kurs_id=kurs.id) }}" formmethod="post" class="liten sekundar">Eksporter valgte</button>
+  <button form="valgte-deltakere" formaction="{{ url_for('admin_bulk_forhandsvis', kurs_id=kurs.id) }}" formmethod="post" class="liten">Behandle valgte</button>
+</p>
+{% endif %}
+
+<h2 id="oppmote">Oppmøteregistrering</h2>
+<p class="liten dempet">Klikk på en dag for å registrere/fjerne oppmøte manuelt. Q = QR, K = kode, Z = Zoom, M = manuell.</p>
+<div class="tabellboks"><table>
+  <tr><th scope="col">Navn</th>{% for d in dager %}<th scope="col" style="text-align:center">{{ d.dato[5:] }}</th>{% endfor %}</tr>
+  {% for p in deltakere if p.status == 'bekreftet' %}
+  <tr>
+    <td>{{ p.navn }}</td>
+    {% for d in dager %}{% set k = oppmote.get((p.id, d.id)) %}
+    <td style="text-align:center">
+      <form method="post" action="{{ url_for('admin_oppmote', kurs_id=kurs.id) }}" style="margin:0">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="paamelding_id" value="{{ p.id }}"><input type="hidden" name="kursdag_id" value="{{ d.id }}">
+        <button class="liten {{ '' if k else 'sekundar' }}" style="min-width:34px" title="{{ k or 'ikke registrert' }}">{{ {'qr':'Q','kode':'K','zoom':'Z','manuell':'M'}.get(k, '–') }}</button>
+      </form>
+    </td>
+    {% endfor %}
+  </tr>
+  {% else %}<tr><td colspan="{{ dager|length + 1 }}" class="dempet">Ingen bekreftede deltakere.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

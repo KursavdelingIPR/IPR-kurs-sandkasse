@@ -1,0 +1,52 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<h1>Rapporter</h1>
+<p class="sub">Oversikt på tvers av alle kurs.</p>
+
+<form method="get" class="rad" style="align-items:end; margin-bottom:8px">
+  <div><label for="f-fra">Fra dato</label><input id="f-fra" type="date" name="fra" value="{{ fra }}"></div>
+  <div><label for="f-til">Til dato</label><input id="f-til" type="date" name="til" value="{{ til }}"></div>
+  <div><button class="sekundar">Filtrer</button></div>
+</form>
+<p class="liten dempet" style="margin-bottom:20px">Perioden gjelder kursdatoer (når kursene faktisk holdes/ble holdt) – bortsett fra «Fakturert», som er basert på fakturadato.</p>
+
+<div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); margin-bottom:24px">
+  <div class="kort"><div class="liten dempet">Bekreftede påmeldinger i perioden</div><div class="stat">{{ deltakelser }}</div></div>
+  <div class="kort"><div class="liten dempet">Kurs med venteliste</div><div class="stat">{{ venteliste_kurs|length }}</div></div>
+  <div class="kort"><div class="liten dempet">Avlyste kurs i perioden</div><div class="stat">{{ avlyste_kurs|length }}</div></div>
+  <div class="kort"><div class="liten dempet">Avmeldt i perioden</div><div class="stat">{{ avmeldt_antall }}</div></div>
+  <div class="kort"><div class="liten dempet">Fakturert (fakturadato)</div><div class="stat">{{ '{:,}'.format(fakturert_sum).replace(',', ' ') }} kr</div>
+    <p class="liten dempet" style="margin:6px 0 0">Fakturert beløp viser fakturaer opprettet/sendt fra systemet, ikke nødvendigvis innbetalt beløp.
+      <a href="{{ url_for('admin_rapport_okonomi', fra=fra or None, til=til or None) }}">Se økonomi →</a></p></div>
+  <div class="kort">
+    <div class="liten dempet">Deltakere med flere kurs hos oss</div><div class="stat">{{ flere_kurs_antall }}</div>
+    <a class="liten" href="{{ url_for('admin_rapport_deltakere', kun_flere_kurs=1) }}">Se hvem →</a>
+  </div>
+</div>
+
+{% if venteliste_kurs %}
+<h2>Kurs med venteliste</h2>
+<div class="tabellboks"><table>
+  <tr><th scope="col">Kurs</th><th scope="col">Antall på venteliste</th></tr>
+  {% for k in venteliste_kurs %}
+  <tr><td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}">{{ k.kursnr }} {{ k.navn }}</a></td><td>{{ k.antall }}</td></tr>
+  {% endfor %}
+</table></div>
+{% endif %}
+
+{% if avlyste_kurs %}
+<h2>Avlyste kurs i perioden</h2>
+<div class="tabellboks"><table>
+  <tr><th scope="col">Kurs</th></tr>
+  {% for k in avlyste_kurs %}
+  <tr><td><a href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}">{{ k.kursnr }} {{ k.navn }}</a></td></tr>
+  {% endfor %}
+</table></div>
+{% endif %}
+
+<p style="margin-top:20px; display:flex; gap:8px; flex-wrap:wrap">
+  <a class="knapp sekundar liten" href="{{ url_for('admin_rapport_kurs', fra=fra, til=til) }}">Full kurs-rapport →</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_rapport_deltakere') }}">Deltakerregister →</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_rapport_okonomi', fra=fra or None, til=til or None) }}">Økonomi og fakturaliste →</a>
+</p>
+{% endblock %}

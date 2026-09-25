@@ -1,0 +1,48 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">← {{ kurs.navn }}</a></p>
+<h1>Send e-post</h1>
+<p class="sub">{{ mottakere|length }} mottaker{{ 'e' if mottakere|length != 1 }}: {{ mottakere|map(attribute='navn')|join(', ') }}</p>
+<p class="liten dempet">Sendes som {{ mottakere|length }} separate e-poster – ingen mottaker ser hvem andre som fikk den.</p>
+
+<form method="post" action="{{ url_for('admin_epost_forhandsvis', kurs_id=kurs.id) }}" class="kort" style="max-width:640px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% for m in mottakere %}<input type="hidden" name="paamelding_id" value="{{ m.id }}">{% endfor %}
+  <label for="f-emne">Emne * <span class="liten dempet">(maks {{ emne_maks }} tegn)</span></label>
+  <input id="f-emne" name="emne" required maxlength="{{ emne_maks }}" value="{{ emne }}">
+  <label for="f-tekst">Melding * <span class="liten dempet">(maks {{ tekst_maks }} tegn)</span></label>
+  <textarea id="f-tekst" name="tekst" rows="8" required maxlength="{{ tekst_maks }}">{{ tekst }}</textarea>
+  <p style="margin-top:16px"><button class="liten sekundar">{{ 'Oppdater forhåndsvisning' if forhandsvisning else 'Forhåndsvis' }}</button></p>
+</form>
+
+{% if forhandsvisning %}
+<h2>Forhåndsvisning for {{ forhandsvisning.eksempel_navn }}</h2>
+<p class="liten dempet">Hver mottaker får e-posten med sitt eget navn – dette er kun eksempelet du ser her.</p>
+{% if mottakere|length > 1 %}
+<form method="post" action="{{ url_for('admin_epost_forhandsvis', kurs_id=kurs.id) }}" style="margin-bottom:10px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% for m in mottakere %}<input type="hidden" name="paamelding_id" value="{{ m.id }}">{% endfor %}
+  <input type="hidden" name="emne" value="{{ emne }}">
+  <input type="hidden" name="tekst" value="{{ tekst }}">
+  <label for="f-eksempel" style="display:inline; margin-right:8px">Vis eksempel for:</label>
+  <select id="f-eksempel" name="eksempel_paamelding_id" data-send-ved-endring style="width:auto; display:inline-block">
+    {% for m in mottakere %}<option value="{{ m.id }}" {{ 'selected' if m.id == forhandsvisning.eksempel_id }}>{{ m.navn }}</option>{% endfor %}
+  </select>
+</form>
+{% endif %}
+<div class="kort" style="max-width:640px; background:#fafbfb">{{ forhandsvisning.html | safe }}</div>
+
+<h2>Mottakere ({{ mottakere|length }})</h2>
+<div class="tabellboks" style="max-width:640px"><table>
+  <tr><th scope="col">Navn</th><th scope="col">E-post</th></tr>
+  {% for m in mottakere %}<tr><td>{{ m.navn }}</td><td class="liten">{{ m.epost }}</td></tr>{% endfor %}
+</table></div>
+
+<form method="post" action="{{ url_for('admin_epost_send', kurs_id=kurs.id) }}"
+      data-bekreft="Sende denne e-posten til {{ mottakere|length }} mottaker(e)? Dette kan ikke angres.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="utsending_id" value="{{ forhandsvisning.utsending_id }}">
+  <p style="margin-top:16px"><button class="liten">Bekreft og send til {{ mottakere|length }} mottaker(e)</button></p>
+</form>
+{% endif %}
+{% endblock %}

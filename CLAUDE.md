@@ -8,7 +8,7 @@ og vis hva som endres før du gjør større ting.
 
 ```powershell
 $py = ".\.venv\Scripts\python.exe"   # lages av oppsett.bat
-& $py -m pytest tests            # ALLTID etter en endring
+& $py -m pytest tests            # ALLTID etter en endring (mot PostgreSQL: se OPERATIONS.md)
 & $py -m kurs.seed_demo          # nullstill demodata
 & $py kjor.py                    # start lokalt (eller dobbeltklikk start.bat) på http://127.0.0.1:5000 (admin: demo)
 & $py -m kurs.daglig --tor --dato 2027-01-10   # se hva morgenjobben gjør en gitt dag
@@ -26,8 +26,9 @@ $py = ".\.venv\Scripts\python.exe"   # lages av oppsett.bat
 5. **Daglig jobb skal være idempotent.** Kjøres den to ganger samme dag, skal ingenting skje andre gang. Skriv test for det.
 6. **Fakturering:** aldri to fakturaer per påmelding (`faktura.paamelding_id` er UNIQUE). Endringer i `visma.py`
    testes i demo og mot Visma sandbox før prod.
-7. **Databaseendringer:** oppdater `schema.sql`. Når systemet er i drift må endringer skje som migrering
-   (ikke slette/lage tabeller på nytt) – spør Jan før du endrer eksisterende kolonner.
+7. **Databaseendringer:** oppdater `schema.sql` **og** `schema_postgres.sql`, og legg til en ny migrering i
+   `kurs/migreringer.py` (aldri endre en gammel, ikke slette/lage tabeller på nytt – se `MIGRATIONS.md`).
+   Spør Jan før du endrer eksisterende kolonner.
 8. **Ikke kjør noe mot prod** (`MODUS=prod`) uten at brukeren uttrykkelig ber om det.
 
 ## Stil
@@ -39,5 +40,5 @@ $py = ".\.venv\Scripts\python.exe"   # lages av oppsett.bat
 ## Vanlige oppgaver
 
 - **Endre tekst i en e-post:** rediger fila i `kurs/maler/epost/`. Første linje er `Emne: ...`.
-- **Nytt felt i påmeldingsskjema:** `schema.sql` → `db.meld_paa`-kall i `web/app.py` (`kursside`) → `web/templates/kurs.html` → evt. `admin_kurs.html`.
+- **Nytt felt i påmeldingsskjema:** `schema.sql` → `db.meld_paa`-kall i `web/app.py` (`kursside`) → `web/templates/kurs.html` → evt. `admin_kurs_deltakere.html`.
 - **Ny påminnelse:** legg til i `daglig.py` etter samme mønster som `_innkallinger` / `_purring`, og skriv test i `tests/test_flyt.py`.
