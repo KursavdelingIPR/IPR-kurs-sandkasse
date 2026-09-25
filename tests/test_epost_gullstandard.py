@@ -351,12 +351,11 @@ def test_laast_admin_melding_escaper_tekst():
     assert "Hei &lt;b&gt;alle&lt;/b&gt;" in html and "Ny linje" in html and "<b>" not in html
 
 
-@pytest.mark.xfail(strict=True, reason="KJENT EKSISTERENDE FEIL (funnet i 12A, ikke rettet der): admin_melding.html bruker "
-                                       "`replace('\n', '<br>\n')` paa en Markup-verdi, og Markup.replace escaper erstatningen - "
-                                       "linjeskift vises som bokstavelig '<br>' i mottakers e-post. Fjern xfail naar det rettes.")
-def test_kjent_feil_linjeskift_i_manuell_epost_blir_ekte_br():
-    _, html = _render("admin_melding", emne="Viktig", tekst="Linje 1\nLinje 2", d=DELTAKER)
-    assert "Linje 1<br>" in html and "&lt;br&gt;" not in html
+def test_linjeskift_i_manuell_epost_blir_ekte_br():
+    """Rettet (var kjent feil fra 12A): Markup.replace escaper en vanlig streng som erstatning, saa erstatningen maa
+    vaere Markup. Teksten fra admin er fortsatt escapet - bare linjeskiftene blir <br>."""
+    _, html = _render("admin_melding", emne="Viktig", tekst="Linje 1\n<b>Linje 2</b>", d=DELTAKER)
+    assert "Linje 1<br>" in html and "&lt;b&gt;Linje 2&lt;/b&gt;" in html and "&lt;br&gt;" not in html
 
 
 # ====================================================================================

@@ -10,11 +10,27 @@
   {% for p in paameldinger %}
   <tr>
     <td>{{ p.kursnr }} {{ p.kurs_navn }}</td>
-    <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}[p.status] }}">{{ p.status }}</span></td>
+    <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra','avslått':'feil'}[p|paameldingsstatus] }}">{{ p|paameldingsstatus }}</span></td>
     <td class="liten">{{ p.kurs_status }}</td>
     <td class="liten dempet">{{ p.opprettet[:10] }}</td>
     <td><a class="liten" href="{{ url_for('admin_deltaker', kurs_id=p.kurs_id, paamelding_id=p.paamelding_id) }}">Åpne påmelding →</a></td>
   </tr>
   {% else %}<tr><td colspan="5" class="dempet">Ingen påmeldinger.</td></tr>{% endfor %}
 </table></div>
+
+<h2>Fakturaer ({{ fakturaer.fakturaer|length }})</h2>
+{% if fakturaer.fakturaer %}
+<p class="liten dempet">Fakturert totalt: <strong>{{ fakturaer.totalt.belop|kr }}</strong>{% if fakturaer.totalt.kreditert %} (kreditert: {{ fakturaer.totalt.kreditert|kr }}){% endif %}.
+  Innbetalinger følges opp i Visma.</p>
+<div class="tabellboks"><table>
+  <thead><tr><th scope="col">Dato</th><th scope="col">Fakturanr.</th><th scope="col">Kurs</th><th scope="col">Gjelder</th><th scope="col">Betaler</th><th scope="col">Beløp</th><th scope="col">Status</th></tr></thead>
+  <tbody>
+  {% for f in fakturaer.fakturaer %}
+  <tr><td class="liten">{{ f.dato }}</td><td>{{ f.faktura_nr or '–' }}</td><td class="liten">{{ f.kursnr }} {{ f.kursnavn }}</td>
+      <td class="liten">{{ f.gjelder }}</td><td class="liten">{{ f.betaler_navn }}</td><td>{{ f.belop_nok|kr }}</td>
+      <td><span class="merke">{{ f.statusnavn }}</span></td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="liten dempet">Ingen fakturaer.</p>{% endif %}
 {% endblock %}

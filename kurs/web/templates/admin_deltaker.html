@@ -44,7 +44,8 @@
 <div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); margin-bottom:16px">
   <div class="kort">
     <div class="liten dempet">Påmeldingsstatus</div>
-    <p style="margin:6px 0 10px"><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}[p.status] }}">{{ p.status }}</span></p>
+    <p style="margin:6px 0 10px"><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra','avslått':'feil'}[p|paameldingsstatus] }}">{{ p|paameldingsstatus }}</span></p>
+    {% if p.avslatt_ts %}<p class="liten dempet" style="margin:0 0 8px">Avslått {{ p.avslatt_ts[:10] }}. Deltakeren kan ikke melde seg på igjen selv – endre status for å gjenopprette påmeldingen.</p>{% endif %}
     {% if statusvalg %}
     <form method="post" action="{{ url_for('admin_deltaker_status', kurs_id=kurs.id, paamelding_id=p.id) }}"
           data-status-bekreft>
@@ -57,6 +58,19 @@
     </form>
     {% endif %}
   </div>
+  {% if p.status in ('bekreftet', 'venteliste') and admin_rolle != 'lese' %}
+  <div class="kort">
+    <div class="liten dempet">Avslå påmeldingen</div>
+    <form method="post" action="{{ url_for('admin_deltaker_avsla', kurs_id=kurs.id, paamelding_id=p.id) }}"
+          data-bekreft="Avslå påmeldingen til {{ p.navn }}? Plassen går til den første på ventelisten.{% if p.faktura_antall %} Fakturaen krediteres ikke automatisk.{% endif %}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="f-melding">Begrunnelse til deltakeren (valgfri)</label>
+      <textarea id="f-melding" name="melding" rows="2" maxlength="2000"></textarea>
+      <label style="font-weight:normal"><input type="checkbox" name="send_epost" value="1" checked> Send avslaget på e-post</label>
+      <p style="margin-top:8px"><button class="liten fare">Avslå påmelding</button></p>
+    </form>
+  </div>
+  {% endif %}
   <div class="kort">
     <div class="liten dempet">Fakturastatus</div>
     <p style="margin:6px 0 10px"><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(fakturastatus, 'gra') }}">{{ fakturastatus }}</span></p>

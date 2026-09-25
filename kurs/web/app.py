@@ -24,7 +24,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
 from .. import (aarsplan, behandling, config, daglig, db, deltakerliste, import_deltakere, lenker, mal_eksempler,
-                maltekster, migreringer, paameldingsside, skjemafelt, sveiper)
+                maltekster, migreringer, okonomi, paameldingsside, skjemafelt, sveiper)
 from ..deltakerliste import fakturastatus as _fakturastatus
 from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
@@ -157,7 +157,7 @@ def _krev_migrert_database():
 #   lese      - kun se: ingen POST, ingen eksport av personopplysninger, ingen allergiliste
 SYSTEM_ENDEPUNKTER = frozenset({"admin_brukere", "admin_bruker_deaktiver", "admin_bruker_rolle", "admin_daglig"})
 KUN_KURSADMIN_ENDEPUNKTER = frozenset({"admin_csv", "admin_eksporter_valgte_csv", "admin_allergiliste",
-                                       "admin_deltakerliste_csv", "admin_rapport_kurs_csv",
+                                       "admin_deltakerliste_csv", "admin_rapport_kurs_csv", "admin_rapport_okonomi_csv",
                                        "admin_rapport_deltakere_csv", "admin_utboks"})
 LESE_TILLATTE_POST = frozenset({"admin_logg_ut"})
 
@@ -1632,7 +1632,7 @@ def _deltaker_sok_status(request_args) -> tuple[str, str]:
     skjermen - uten aa duplisere valideringsregelen flere steder."""
     sok = request_args.get("sok", "").strip()
     status = request_args.get("status", "")
-    if status not in ("", "bekreftet", "venteliste", "avmeldt"):
+    if status not in ("", "bekreftet", "venteliste", "avmeldt", "avslatt"):
         status = ""
     return sok, status
 
@@ -1642,7 +1642,11 @@ def _deltaker_filter_vilkar(sok: str, status: str) -> tuple[str, list]:
     if sok:
         vilkar_sql += " AND (LOWER(d.navn) LIKE ? OR LOWER(d.epost) LIKE ?)"
         args += [f"%{sok.lower()}%", f"%{sok.lower()}%"]
-    if status:
+    if status == "avslatt":                      # fase 17: avslått = avmeldt + avslatt_ts
+        vilkar_sql += " AND p.status='avmeldt' AND p.avslatt_ts IS NOT NULL"
+    elif status == "avmeldt":
+        vilkar_sql += " AND p.status='avmeldt' AND p.avslatt_ts IS NULL"
+    elif status:
         vilkar_sql += " AND p.status=?"
         args.append(status)
     return vilkar_sql, args
@@ -1666,7 +1670,9 @@ def admin_kurs_deltakere(kurs_id):
     deltakere = [dict(r, fakturastatus=_fakturastatus(kurs, r)) for r in con().execute(sql, args)]
 
     tellere = {r["status"]: r["antall"] for r in con().execute(
-        "SELECT status, COUNT(*) AS antall FROM paamelding WHERE kurs_id=? GROUP BY status", (kurs_id,))}
+        """SELECT CASE WHEN avslatt_ts IS NOT NULL THEN 'avslatt' ELSE status END AS status, COUNT(*) AS antall
+           FROM paamelding WHERE kurs_id=? GROUP BY CASE WHEN avslatt_ts IS NOT NULL THEN 'avslatt' ELSE status END""",
+        (kurs_id,))}
     oppmote = {(r["paamelding_id"], r["kursdag_id"]): r["kilde"] for r in con().execute(
         "SELECT o.* FROM oppmote o JOIN kursdag kd ON kd.id=o.kursdag_id WHERE kd.kurs_id=?", (kurs_id,))}
     return render_template("admin_kurs_deltakere.html", kurs=kurs, dager=dager, deltakere=deltakere,
@@ -1985,6 +1991,45 @@ def admin_deltaker_status(kurs_id, paamelding_id):
     return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
 
 
+@app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/avsla")
+@krever_admin
+def admin_deltaker_avsla(kurs_id, paamelding_id):
+    """Fase 17: avslå påmeldingen. Plassen frigjøres (første på ventelisten rykker opp og behandles), og deltakeren får
+    et avslag på e-post hvis admin ikke har valgt det bort. Begrunnelsen står bare i e-posten - den lagres og logges ikke."""
+    kurs = _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)
+    melding = (request.form.get("melding") or "").strip()
+    if len(melding) > 2000:
+        flash("Begrunnelsen kan være høyst 2000 tegn.", "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    try:
+        opprykket = db.avsla_paamelding(con(), paamelding_id, aktor=_aktor())
+        con().commit()
+    except db.Paameldingsfeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    k = Kjoring(con(), idag=_idag())
+    if request.form.get("send_epost"):
+        try:
+            k.send_en_gang(f"kurs:{kurs_id}", p["epost"], "avslag", "avslag", paamelding_id=paamelding_id,
+                           d={"navn": p["navn"]}, kurs=kurs, melding=melding)
+            flash("Påmeldingen er avslått, og deltakeren har fått beskjed på e-post.", "ok")
+        except Exception:  # noqa: BLE001 - motoren har alt satt 'ukjent' og logget (PII-fritt)
+            flash("Påmeldingen er avslått, men e-posten til deltakeren fikk et uavklart utfall. Se «Uavklarte "
+                  "operasjoner» på oversikten.", "feil")
+    else:
+        flash("Påmeldingen er avslått. Deltakeren er ikke varslet.", "ok")
+    con().commit()
+    if p["faktura_antall"]:
+        flash("Deltakeren er allerede fakturert. Fakturaen krediteres ikke automatisk – det må gjøres i Visma.", "info")
+    if opprykket:
+        sveiper.kjor(k, opprykket)
+        con().commit()
+        flash("Første på ventelisten har rykket opp og fått plassen.", "info")
+    return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+
+
 @app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/behandle")
 @krever_admin
 def admin_deltaker_behandle(kurs_id, paamelding_id):
@@ -2250,7 +2295,8 @@ _DELTAKER_CSV_KOLONNER = ["Navn", "E-post", "Telefon", "Arbeidssted", "Status", 
                          "Organisasjon", "Org.nr", "Fakturanr", "Fakturert (kr)"]
 def _deltaker_csv_select() -> str:
     """Felles SELECT for deltaker-CSV. Tekstaggregatet kommer fra db.sql_tekstliste (riktig funksjon per databasebackend)."""
-    return f"""SELECT d.navn, d.epost, d.telefon, d.arbeidssted, p.status, p.betaler, p.betaling,
+    return f"""SELECT d.navn, d.epost, d.telefon, d.arbeidssted,
+                      CASE WHEN p.avslatt_ts IS NOT NULL THEN 'avslått' ELSE p.status END AS status, p.betaler, p.betaling,
                       p.org_navn, p.org_nr,
                       (SELECT {db.sql_tekstliste(con(), "faktura_nr")} FROM faktura WHERE paamelding_id=p.id) AS faktura_nr,
                       (SELECT COALESCE(SUM(belop_nok),0) FROM faktura WHERE paamelding_id=p.id) AS fakturert_belop
@@ -2617,11 +2663,67 @@ def admin_rapport_deltakere_csv():
 def admin_rapport_deltaker(deltaker_id):
     deltaker = con().execute("SELECT * FROM deltaker WHERE id=?", (deltaker_id,)).fetchone() or abort(404)
     paameldinger = con().execute(
-        """SELECT p.id AS paamelding_id, p.kurs_id, p.status, p.opprettet, k.navn AS kurs_navn, k.kursnr, k.kode,
+        """SELECT p.id AS paamelding_id, p.kurs_id, p.status, p.avslatt_ts, p.opprettet, k.navn AS kurs_navn, k.kursnr, k.kode,
                   k.status AS kurs_status
            FROM paamelding p JOIN kurs k ON k.id=p.kurs_id WHERE p.deltaker_id=? ORDER BY p.opprettet DESC""",
         (deltaker_id,)).fetchall()
-    return render_template("admin_rapport_deltaker.html", deltaker=deltaker, paameldinger=paameldinger)
+    fakturaer = okonomi.rapport(okonomi.fakturaer(con(), date(2000, 1, 1), date(2100, 12, 31), deltaker_id=deltaker_id))
+    return render_template("admin_rapport_deltaker.html", deltaker=deltaker, paameldinger=paameldinger,
+                           fakturaer=fakturaer)
+
+
+# ---------- oekonomi (fase 14) ----------
+
+MAKS_FAKTURALISTE = 500          # flere rader vises ikke paa skjermen (CSV har alle)
+
+
+def _okonomi_utvalg():
+    fra, til = okonomi.periode(request.args, _idag())
+    kurs_id = request.args.get("kurs", type=int) or None
+    return fra, til, kurs_id, okonomi.fakturaer(con(), fra, til, kurs_id)
+
+
+@app.get("/admin/rapporter/okonomi")
+@krever_admin
+def admin_rapport_okonomi():
+    fra, til, kurs_id, rader = _okonomi_utvalg()
+    kursvalg = con().execute(
+        """SELECT id, kursnr, navn FROM kurs WHERE id IN (SELECT p.kurs_id FROM faktura f
+             JOIN paamelding p ON p.id=f.paamelding_id) ORDER BY kursnr DESC""").fetchall()
+    return render_template("admin_rapport_okonomi.html", r=okonomi.rapport(rader), fra=fra, til=til, kurs_id=kurs_id,
+                           kursvalg=kursvalg, maks=MAKS_FAKTURALISTE)
+
+
+@app.get("/admin/rapporter/okonomi.csv")
+@krever_admin
+def admin_rapport_okonomi_csv():
+    fra, til, kurs_id, rader = _okonomi_utvalg()
+    db.logg(con(), "rapport_eksportert", {"rapport": "okonomi", "fra": fra.isoformat(), "til": til.isoformat(),
+                                          "kurs_id": kurs_id, "antall_rader": len(rader)}, aktor=_aktor())
+    con().commit()
+    return _csv_respons(okonomi.CSV_KOLONNER, okonomi.csv_rader(rader), f"fakturaliste_{fra}_{til}.csv")
+
+
+@app.template_filter("paameldingsstatus")
+def _paameldingsstatus(p) -> str:
+    """Status slik den vises: en avslått påmelding har status 'avmeldt' + avslatt_ts (fase 17)."""
+    try:
+        return "avslått" if p["avslatt_ts"] else p["status"]
+    except (KeyError, IndexError):
+        return p["status"]
+
+
+@app.template_filter("kr")
+def _kr(belop) -> str:
+    """12345 -> «12 345 kr» (hardt mellomrom, saa beloepet aldri deles over to linjer)."""
+    return f"{int(belop or 0):,}".replace(",", "\u00a0") + "\u00a0kr"
+
+
+@app.template_filter("maaned")
+def _maaned(aar_maaned: str) -> str:
+    """'2027-01' -> 'januar 2027'."""
+    aar, _, mnd = aar_maaned.partition("-")
+    return f"{aarsplan.MAANEDER[int(mnd) - 1].lower()} {aar}" if mnd.isdigit() and 1 <= int(mnd) <= 12 else aar_maaned
 
 
 @app.get("/admin/rapporter")
@@ -2659,7 +2761,7 @@ def admin_rapporter():
 
     flere_kurs_antall = con().execute(
         """SELECT COUNT(*) FROM (SELECT deltaker_id FROM paamelding WHERE status='bekreftet'
-             GROUP BY deltaker_id HAVING COUNT(DISTINCT kurs_id) > 1)""").fetchone()[0]
+             GROUP BY deltaker_id HAVING COUNT(DISTINCT kurs_id) > 1) AS flere""").fetchone()[0]   # alias: PostgreSQL < 16
 
     return render_template(
         "admin_rapporter.html", fra=fra, til=til, deltakelser=deltakelser, venteliste_kurs=venteliste_kurs,

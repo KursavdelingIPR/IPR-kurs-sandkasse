@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS paamelding (
     intern_kommentar  TEXT,                         -- kun synlig for administratorer
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
     oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver endring
+    avslatt_ts      TEXT,                           -- satt = IPR har avslått påmeldingen (status er da 'avmeldt'). Se db.avsla_paamelding
     UNIQUE (kurs_id, deltaker_id)
 );
 

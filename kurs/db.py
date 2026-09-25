@@ -779,8 +779,8 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
         # sveiper_utsatt nullstilles ogsaa: en administrativ bekreftelse er en bevisst handling som
         # skal fore til faktisk sending/fakturering naa - en tidligere "vent"-markering fra en manuell
         # registrering skal ikke stille denne handlingen ut av spill.
-        con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, sveiper_utsatt=0, oppdatert=? WHERE id=?",
-                   (na, paamelding_id))
+        con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, sveiper_utsatt=0, avslatt_ts=NULL, "
+                    "oppdatert=? WHERE id=?", (na, paamelding_id))
         _frigi_gammel_faktura_hold(con, paamelding_id)
         logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "bekreftet"}, aktor=aktor)
         return paamelding_id
@@ -788,8 +788,8 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
     if ny_status == "venteliste":
         if gammel_status == "bekreftet":
             raise Paameldingsfeil("Kan ikke sette en bekreftet deltaker til venteliste direkte – meld av i stedet.")
-        con.execute("UPDATE paamelding SET status='venteliste', sveiper_kjort=0, sveiper_utsatt=0, oppdatert=? WHERE id=?",
-                   (na, paamelding_id))
+        con.execute("UPDATE paamelding SET status='venteliste', sveiper_kjort=0, sveiper_utsatt=0, avslatt_ts=NULL, "
+                    "oppdatert=? WHERE id=?", (na, paamelding_id))
         _frigi_gammel_faktura_hold(con, paamelding_id)
         logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "venteliste"}, aktor=aktor)
         return None
@@ -968,10 +968,12 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
     deltaker_id = finn_eller_opprett_deltaker(
         con, epost, navn, beskytt_eksisterende_felt=beskytt_eksisterende_felt, **(deltaker or {}))
     finnes = con.execute(
-        "SELECT id, status FROM paamelding WHERE kurs_id=? AND deltaker_id=?", (kurs_id, deltaker_id)
+        "SELECT id, status, avslatt_ts FROM paamelding WHERE kurs_id=? AND deltaker_id=?", (kurs_id, deltaker_id)
     ).fetchone()
     if finnes and finnes["status"] != "avmeldt":
         raise Paameldingsfeil("Du er allerede påmeldt dette kurset")
+    if finnes and finnes["avslatt_ts"]:     # et avslag står: bare admin kan gjenopprette det (statusendring på deltakersiden)
+        raise Paameldingsfeil("Påmeldingen til dette kurset er ikke godkjent. Ta kontakt med kursadministrasjonen.")
 
     fullt = kurs["kapasitet"] is not None and antall_bekreftet(con, kurs_id) >= kurs["kapasitet"]
     status = "venteliste" if fullt else "bekreftet"
@@ -1010,6 +1012,22 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
     logg(con, "paamelding", {"paamelding_id": pid, "kurs_id": kurs_id, "status": status},
         aktor=aktor or f"deltaker:{deltaker_id}")
     return pid, status
+
+
+def avsla_paamelding(con, paamelding_id: int, aktor: str = "admin") -> int | None:
+    """Fase 17: IPR avslår påmeldingen (f.eks. fordi opptakskravene ikke er oppfylt). Behandles som en avmelding - plassen
+    frigjøres og første på ventelisten rykker opp (meld_av), ingen ny faktura, innkalling eller kursbevis - men merkes
+    avslått, og deltakeren kan ikke melde seg på igjen selv (meld_paa). Admin kan gjenopprette med en statusendring.
+    Returnerer paamelding_id som rykket opp fra venteliste (eller None). Fakturaer krediteres ikke automatisk."""
+    p = con.execute("SELECT status FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()
+    if not p:
+        raise Paameldingsfeil("Ukjent påmelding")
+    if p["status"] not in ("bekreftet", "venteliste"):
+        raise Paameldingsfeil("Bare bekreftede påmeldinger og påmeldinger på venteliste kan avslås.")
+    opprykket = meld_av(con, paamelding_id, aktor=aktor)
+    con.execute("UPDATE paamelding SET avslatt_ts=? WHERE id=?", (naa_utc(), paamelding_id))
+    logg(con, "paamelding_avslatt", {"paamelding_id": paamelding_id, "fra": p["status"]}, aktor=aktor)
+    return opprykket
 
 
 def meld_av(con, paamelding_id: int, aktor: str = "admin") -> int | None:

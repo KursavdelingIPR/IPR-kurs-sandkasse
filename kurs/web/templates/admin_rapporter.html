@@ -16,7 +16,8 @@
   <div class="kort"><div class="liten dempet">Avlyste kurs i perioden</div><div class="stat">{{ avlyste_kurs|length }}</div></div>
   <div class="kort"><div class="liten dempet">Avmeldt i perioden</div><div class="stat">{{ avmeldt_antall }}</div></div>
   <div class="kort"><div class="liten dempet">Fakturert (fakturadato)</div><div class="stat">{{ '{:,}'.format(fakturert_sum).replace(',', ' ') }} kr</div>
-    <p class="liten dempet" style="margin:6px 0 0">Fakturert beløp viser fakturaer opprettet/sendt fra systemet, ikke nødvendigvis innbetalt beløp.</p></div>
+    <p class="liten dempet" style="margin:6px 0 0">Fakturert beløp viser fakturaer opprettet/sendt fra systemet, ikke nødvendigvis innbetalt beløp.
+      <a href="{{ url_for('admin_rapport_okonomi', fra=fra or None, til=til or None) }}">Se økonomi →</a></p></div>
   <div class="kort">
     <div class="liten dempet">Deltakere med flere kurs hos oss</div><div class="stat">{{ flere_kurs_antall }}</div>
     <a class="liten" href="{{ url_for('admin_rapport_deltakere', kun_flere_kurs=1) }}">Se hvem →</a>
@@ -46,5 +47,6 @@
 <p style="margin-top:20px; display:flex; gap:8px; flex-wrap:wrap">
   <a class="knapp sekundar liten" href="{{ url_for('admin_rapport_kurs', fra=fra, til=til) }}">Full kurs-rapport →</a>
   <a class="knapp sekundar liten" href="{{ url_for('admin_rapport_deltakere') }}">Deltakerregister →</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_rapport_okonomi', fra=fra or None, til=til or None) }}">Økonomi og fakturaliste →</a>
 </p>
 {% endblock %}

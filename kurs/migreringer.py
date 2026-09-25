@@ -96,12 +96,20 @@ def _m5_integrasjonstoken(con) -> None:
     _opprett_tabell_fra_skjema(con, "integrasjon_token")
 
 
+def _m6_avslatt(con) -> None:
+    """Fase 17: paamelding.avslatt_ts (IPR har avslått påmeldingen). Ny, tom kolonne - eksisterende kolonner (ogsaa
+    status og dens CHECK) er uroert: en avslått påmelding har status 'avmeldt' og behandles likt med den."""
+    if not db.har_kolonne(con, "paamelding", "avslatt_ts"):
+        con.execute("ALTER TABLE paamelding ADD COLUMN avslatt_ts TEXT")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
     (3, "aarsplan", _m3_aarsplan),
     (4, "kursbevis_i_database", _m4_kursbevis_i_database),
     (5, "integrasjonstoken", _m5_integrasjonstoken),
+    (6, "avslatt", _m6_avslatt),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS paamelding (
     intern_kommentar  TEXT,
     opprettet       TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
     oppdatert       TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
+    avslatt_ts      TEXT,
     UNIQUE (kurs_id, deltaker_id)
 );
 

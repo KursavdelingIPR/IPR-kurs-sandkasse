@@ -37,7 +37,7 @@ KOLONNER = (
     Kolonne("epost", "E-post", KONTAKT, personopplysning=True),
     Kolonne("telefon", "Telefon", KONTAKT, personopplysning=True),
     Kolonne("arbeidssted", "Arbeidssted", ARBEID, personopplysning=True),
-    Kolonne("yrkestittel", "Yrkestittel", ARBEID, personopplysning=True),
+    Kolonne("yrkestittel", "Profesjon", ARBEID, personopplysning=True),        # feltet heter yrkestittel i skjemaet
     Kolonne("hpr_nr", "HPR-nummer", ARBEID, personopplysning=True),
     Kolonne("betaler", "Betaler", FAKTURA),
     Kolonne("org_navn", "Organisasjon", FAKTURA),
@@ -47,7 +47,8 @@ KOLONNER = (
     Kolonne("merknad", "Merknad", UTFYLLING, kun_utskrift=True),
 )
 
-STATUSVALG = {"bekreftet": "Bekreftede", "venteliste": "Venteliste", "avmeldt": "Avmeldte", "alle": "Alle"}
+STATUSVALG = {"bekreftet": "Bekreftede", "venteliste": "Venteliste", "avmeldt": "Avmeldte", "avslatt": "Avslåtte",
+              "alle": "Alle"}
 _STATUSNAVN = {"bekreftet": "Bekreftet", "venteliste": "Venteliste", "avmeldt": "Avmeldt"}
 _BETALER = {"person": "Deltaker", "organisasjon": "Organisasjon"}
 
@@ -113,13 +114,18 @@ def _sortering(navn: str) -> str:
 
 def hent(con, kurs_id: int, status: str) -> list[dict]:
     """Påmeldingene til kurset med valgt status, sortert på navn. Leser aldri tabellen sensitivt."""
-    sql = """SELECT p.id, p.status, p.betaler, p.org_navn, p.opprettet, d.navn, d.epost, d.telefon, d.arbeidssted,
+    sql = """SELECT p.id, p.status, p.avslatt_ts, p.betaler, p.org_navn, p.opprettet, d.navn, d.epost, d.telefon,
+                    d.arbeidssted,
                     d.yrkestittel, d.hpr_nr,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id) AS faktura_antall,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id AND status!='betalt') AS faktura_ubetalt
              FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.kurs_id=?"""
     args = [kurs_id]
-    if status != "alle":
+    if status == "avslatt":                    # fase 17: avslått = avmeldt + avslatt_ts
+        sql += " AND p.status='avmeldt' AND p.avslatt_ts IS NOT NULL"
+    elif status == "avmeldt":
+        sql += " AND p.status='avmeldt' AND p.avslatt_ts IS NULL"
+    elif status != "alle":
         sql += " AND p.status=?"
         args.append(status)
     return sorted((dict(r) for r in con.execute(sql, args)), key=lambda r: (_sortering(r["navn"]), r["id"]))
@@ -149,7 +155,7 @@ def _verdi(nokkel: str, nr: int, r: dict, kurs) -> str:
     if nokkel == "nr":
         return str(nr)
     if nokkel == "status":
-        return _STATUSNAVN.get(r["status"], r["status"])
+        return "Avslått" if r.get("avslatt_ts") else _STATUSNAVN.get(r["status"], r["status"])
     if nokkel == "paameldt":
         return _norsk_dato(r["opprettet"])
     if nokkel == "betaler":
