@@ -7,7 +7,7 @@
 
 <p class="liten dempet">E-post sendt til {{ p.navn }} for dette kurset – automatisk og manuelt.</p>
 <div class="tabellboks"><table>
-  <tr><th>Type/emne</th><th>Sendt</th></tr>
+  <tr><th scope="col">Type/emne</th><th scope="col">Sendt</th></tr>
   {% for m in meldinger %}
   <tr><td>{% if m.utsending_id %}<a href="{{ url_for('admin_epost_detalj', kurs_id=kurs.id, utsending_id=m.utsending_id) }}">{{ m.emne }}</a>{% else %}{{ m.type }}{% endif %}</td>
       <td class="liten dempet">{{ m.sendt_ts }}</td></tr>

@@ -1,8 +1,28 @@
 {% extends "admin_base.html" %}
 {% block innhold %}
-<h1>Kursoversikt</h1>
-<p class="sub">Alt som skjer automatisk, og det som trenger deg.</p>
+<div class="verktoylinje" style="align-items:flex-start">
+  <div><h1>Oversikt</h1><p class="sub" style="margin-bottom:0">Kommende og pågående kurs. Alt som skjer automatisk, og det som trenger deg.</p></div>
+  {% if admin_rolle != 'lese' %}<a class="knapp plass" href="{{ url_for('admin_ny_kurs') }}">Nytt kurs +</a>{% endif %}
+</div>
 
+<h2 style="margin-top:14px">Kurs</h2>
+<div class="tabellboks"><table>
+  <tr><th scope="col">Kurs</th><th scope="col">Datoer</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col">Påmeldt</th><th scope="col">Venteliste</th><th scope="col">Fakturert</th></tr>
+  {% for k in kurs if k.status != 'avsluttet' and k.status != 'avlyst' %}
+  <tr>
+    <td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a><div class="liten dempet">Kursnr. {{ k.kursnr }}</div></td>
+    <td class="liten">{{ k.start }}{% if k.slutt != k.start %} – {{ k.slutt }}{% endif %}</td>
+    <td>{{ k.type }}</td>
+    <td><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','utkast':'gra'}.get(k.status,'gra') }}">{{ k.status }}</span></td>
+    <td>{{ k.bekreftet }}{% if k.kapasitet %} / {{ k.kapasitet }}{% endif %}</td>
+    <td>{{ k.venteliste or '' }}</td>
+    <td>{% if k.fakturering == 'person' %}{{ k.fakturert }}{% else %}<span class="dempet liten">{{ k.fakturering }}</span>{% endif %}</td>
+  </tr>
+  {% else %}<tr><td colspan="7" class="tom">Ingen kommende eller pågående kurs. {% if admin_rolle != 'lese' %}<a href="{{ url_for('admin_ny_kurs') }}">Opprett et nytt kurs</a>, eller {% endif %}<a href="{{ url_for('admin_aktiviteter') }}">se alle aktiviteter</a>.</td></tr>{% endfor %}
+</table></div>
+<p class="liten dempet" style="margin-top:8px">Avsluttede og avlyste kurs finner du under <a href="{{ url_for('admin_aktiviteter') }}">Aktiviteter</a>.</p>
+
+<h2>Status</h2>
 <div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
   <div class="kort"><div class="liten dempet">Aktive / åpne kurs</div><div class="stat">{{ kurs | selectattr('status','in',['aapen','full','aktiv']) | list | length }}</div></div>
   <div class="kort"><div class="liten dempet">Påmeldte (åpne kurs)</div><div class="stat">{{ kurs | selectattr('status','in',['aapen','full','aktiv']) | sum(attribute='bekreftet') }}</div></div>
@@ -10,26 +30,10 @@
   <div class="kort"><div class="liten dempet">Uavklarte operasjoner som krever manuell kontroll</div><div class="stat" style="color:{{ 'var(--feil)' if uavklart.totalt else 'inherit' }}">{{ uavklart.totalt }}</div>{% if uavklart.totalt %}<div class="liten dempet">E-post: {{ uavklart.epost }} · Faktura: {{ uavklart.faktura }}. Sendes/faktureres ikke automatisk på nytt.</div>{% endif %}</div>
 </div>
 
-<h2>Kurs</h2>
-<div class="tabellboks"><table>
-  <tr><th>Kurs</th><th>Datoer</th><th>Type</th><th>Status</th><th>Påmeldt</th><th>Venteliste</th><th>Fakturert</th></tr>
-  {% for k in kurs %}
-  <tr>
-    <td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a><div class="liten dempet">Kursnr. {{ k.kursnr }}</div></td>
-    <td class="liten">{{ k.start }}{% if k.slutt != k.start %} – {{ k.slutt }}{% endif %}</td>
-    <td>{{ k.type }}</td>
-    <td><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra'}.get(k.status,'gra') }}">{{ k.status }}</span></td>
-    <td>{{ k.bekreftet }}{% if k.kapasitet %} / {{ k.kapasitet }}{% endif %}</td>
-    <td>{{ k.venteliste or '' }}</td>
-    <td>{% if k.fakturering == 'person' %}{{ k.fakturert }}{% else %}<span class="dempet liten">{{ k.fakturering }}</span>{% endif %}</td>
-  </tr>
-  {% endfor %}
-</table></div>
-
 {% if mangler %}
 <h2>Materiell som mangler</h2>
 <div class="tabellboks"><table>
-  <tr><th>Kurs</th><th>Ansvarlig</th><th>Frist</th><th></th></tr>
+  <tr><th scope="col">Kurs</th><th scope="col">Ansvarlig</th><th scope="col">Frist</th><th scope="col"><span class="skjul-visuelt">Lenke</span></th></tr>
   {% for m in mangler %}
   <tr><td>{{ m.kursnr }} {{ m.kursnavn }}</td><td>{{ m.ansvarlig_navn }}<div class="liten dempet">{{ m.ansvarlig_epost }}</div></td>
       <td><span class="merke {{ 'feil' if m.frist < idag else 'gul' }}">{{ m.frist }}</span></td>
@@ -40,7 +44,7 @@
 
 <h2>Siste hendelser</h2>
 <div class="tabellboks"><table>
-  <tr><th>Tid</th><th>Hvem</th><th>Hendelse</th><th>Detaljer</th></tr>
+  <tr><th scope="col">Tid</th><th scope="col">Hvem</th><th scope="col">Hendelse</th><th scope="col">Detaljer</th></tr>
   {% for h in hendelser %}<tr><td class="liten dempet">{{ h.ts }}</td><td class="liten">{{ h.aktor }}</td><td>{{ h.handling }}</td><td class="liten dempet">{{ h.detaljer or '' }}</td></tr>{% endfor %}
 </table></div>
 {% endblock %}

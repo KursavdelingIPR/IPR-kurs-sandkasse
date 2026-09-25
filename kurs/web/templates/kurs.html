@@ -23,11 +23,11 @@
   <strong>Påmelding</strong>
   <fieldset>
   <div class="rad">
-    <div><label>Navn *</label><input name="navn" required value="{{ f.navn }}"></div>
-    <div><label>E-post *</label><input name="epost" type="email" required value="{{ f.epost }}"></div>
+    <div><label for="f-navn">Navn *</label><input id="f-navn" name="navn" required value="{{ f.navn }}"></div>
+    <div><label for="f-epost">E-post *</label><input id="f-epost" name="epost" type="email" required value="{{ f.epost }}"></div>
     {#- Deltakerfelt fra skjemafelt-registeret (kurs/skjemafelt.py): konfigurerbar gruppe, deretter ev. HPR. -#}
     {% for felt in skjema.deltakerfelt %}
-    <div><label>{{ felt.label }}{% if felt.obligatorisk %} *{% endif %}</label><input name="{{ felt.nokkel }}"{% if felt.obligatorisk %} required{% endif %}{% if felt.hjelpetekst %} aria-describedby="hjelp-{{ felt.nokkel }}"{% endif %} value="{{ f[felt.nokkel] }}">{% if felt.hjelpetekst %}<p id="hjelp-{{ felt.nokkel }}" class="liten dempet" style="white-space:pre-line; margin:4px 0 0">{{ felt.hjelpetekst }}</p>{% endif %}</div>
+    <div><label for="f-{{ felt.nokkel }}">{{ felt.label }}{% if felt.obligatorisk %} *{% endif %}</label><input id="f-{{ felt.nokkel }}" name="{{ felt.nokkel }}"{% if felt.obligatorisk %} required{% endif %}{% if felt.hjelpetekst %} aria-describedby="hjelp-{{ felt.nokkel }}"{% endif %} value="{{ f[felt.nokkel] }}">{% if felt.hjelpetekst %}<p id="hjelp-{{ felt.nokkel }}" class="liten dempet" style="white-space:pre-line; margin:4px 0 0">{{ felt.hjelpetekst }}</p>{% endif %}</div>
     {% endfor %}
   </div>
 
@@ -37,10 +37,10 @@
   <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} data-vis="org">Arbeidsgiver betaler</label>
   <div id="org" class="{{ '' if f.betaler == 'organisasjon' else 'skjul' }}">
     <div class="rad">
-      <div><label>Organisasjon</label><input name="org_navn" value="{{ f.org_navn }}"></div>
-      <div><label>Org.nr.</label><input name="org_nr" value="{{ f.org_nr }}"></div>
-      <div><label>Fakturareferanse / bestillernr.</label><input name="faktura_ref" value="{{ f.faktura_ref }}"></div>
-      <div><label>E-post for faktura</label><input name="faktura_epost" value="{{ f.faktura_epost }}"></div>
+      <div><label for="f-org_navn">Organisasjon</label><input id="f-org_navn" name="org_navn" value="{{ f.org_navn }}"></div>
+      <div><label for="f-org_nr">Org.nr.</label><input id="f-org_nr" name="org_nr" value="{{ f.org_nr }}"></div>
+      <div><label for="f-faktura_ref">Fakturareferanse / bestillernr.</label><input id="f-faktura_ref" name="faktura_ref" value="{{ f.faktura_ref }}"></div>
+      <div><label for="f-faktura_epost">E-post for faktura</label><input id="f-faktura_epost" name="faktura_epost" value="{{ f.faktura_epost }}"></div>
     </div>
     <label style="font-weight:normal"><input type="checkbox" name="ehf" {{ 'checked' if f.ehf }}>Send som EHF (elektronisk faktura)</label>
   </div>
@@ -55,16 +55,16 @@
   {% endif %}
 
   <div class="rad">
-    <div><label>Fakturaadresse</label><input name="faktura_adresse" value="{{ f.faktura_adresse }}"></div>
-    <div><label>Postnr.</label><input name="faktura_postnr" value="{{ f.faktura_postnr }}"></div>
-    <div><label>Sted</label><input name="faktura_sted" value="{{ f.faktura_sted }}"></div>
+    <div><label for="f-faktura_adresse">Fakturaadresse</label><input id="f-faktura_adresse" name="faktura_adresse" value="{{ f.faktura_adresse }}"></div>
+    <div><label for="f-faktura_postnr">Postnr.</label><input id="f-faktura_postnr" name="faktura_postnr" value="{{ f.faktura_postnr }}"></div>
+    <div><label for="f-faktura_sted">Sted</label><input id="f-faktura_sted" name="faktura_sted" value="{{ f.faktura_sted }}"></div>
   </div>
   {% endif %}
 
   {% if skjema.vis_sensitive_felt %}
   <div class="rad">
-    <div><label>Allergier / spesialkost</label><input name="allergier" value="{{ f.allergier }}"></div>
-    <div><label>Behov for tilrettelegging</label><input name="tilrettelegging" value="{{ f.tilrettelegging }}"></div>
+    <div><label for="f-allergier">Allergier / spesialkost</label><input id="f-allergier" name="allergier" value="{{ f.allergier }}"></div>
+    <div><label for="f-tilrettelegging">Behov for tilrettelegging</label><input id="f-tilrettelegging" name="tilrettelegging" value="{{ f.tilrettelegging }}"></div>
   </div>
   <p class="liten dempet">Opplysningene brukes kun til å planlegge kurset og slettes automatisk etter at kurset er gjennomført.</p>
   {% endif %}

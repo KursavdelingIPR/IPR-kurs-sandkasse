@@ -18,14 +18,14 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <strong>Tekster på påmeldingssiden</strong>
 
-  <label>Introduksjonstekst <span class="liten dempet">(valgfri, maks {{ maks_intro }} tegn, vises over påmeldingsskjemaet)</span></label>
+  <label for="f-intro">Introduksjonstekst <span class="liten dempet">(valgfri, maks {{ maks_intro }} tegn, vises over påmeldingsskjemaet)</span></label>
   {% if 'intro' in ugyldig %}<p class="liten" style="margin:0 0 4px"><span class="merke feil">Lagret tekst er ugyldig og vises ikke</span></p>{% endif %}
-  <textarea name="intro" rows="5" maxlength="{{ maks_intro }}">{{ intro }}</textarea>
+  <textarea id="f-intro" name="intro" rows="5" maxlength="{{ maks_intro }}">{{ intro }}</textarea>
   <p class="liten dempet" style="margin:4px 0 0">Ren tekst. Linjeskift beholdes. HTML og formatering vises som vanlig tekst.</p>
 
-  <label>Tekst på påmeldingsknappen <span class="liten dempet">(valgfri, maks {{ maks_knappetekst }} tegn, én linje)</span></label>
+  <label for="f-knappetekst">Tekst på påmeldingsknappen <span class="liten dempet">(valgfri, maks {{ maks_knappetekst }} tegn, én linje)</span></label>
   {% if 'knappetekst' in ugyldig %}<p class="liten" style="margin:0 0 4px"><span class="merke feil">Lagret tekst er ugyldig og vises ikke</span></p>{% endif %}
-  <input name="knappetekst" maxlength="{{ maks_knappetekst }}" value="{{ knappetekst }}" placeholder="{{ standard_knappetekst }}">
+  <input id="f-knappetekst" name="knappetekst" maxlength="{{ maks_knappetekst }}" value="{{ knappetekst }}" placeholder="{{ standard_knappetekst }}">
   <p class="liten dempet" style="margin:4px 0 0">Tom = «{{ standard_knappetekst }}».</p>
 
   <p style="margin-top:16px"><button>Lagre</button></p>

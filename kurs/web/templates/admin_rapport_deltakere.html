@@ -5,7 +5,7 @@
 <p class="sub">Alle personer i systemet, på tvers av kurs.</p>
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:10px">
-  <div><label>Søk (navn/e-post/arbeidssted)</label><input type="search" name="sok" value="{{ sok }}"></div>
+  <div><label for="f-sok">Søk (navn/e-post/arbeidssted)</label><input id="f-sok" type="search" name="sok" value="{{ sok }}"></div>
   <div style="padding-bottom:9px">
     <label style="font-weight:normal; display:flex; align-items:center; gap:6px; margin:0">
       <input type="checkbox" name="kun_flere_kurs" value="1" {{ 'checked' if kun_flere_kurs }} data-send-ved-endring> Kun de med flere kurs
@@ -19,7 +19,7 @@
 </p>
 
 <div class="tabellboks"><table>
-  <tr><th>Navn</th><th>E-post</th><th>Telefon</th><th>Arbeidssted</th><th>Antall kurs (bekreftet)</th></tr>
+  <tr><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Telefon</th><th scope="col">Arbeidssted</th><th scope="col">Antall kurs (bekreftet)</th></tr>
   {% for d in rader %}
   <tr>
     <td><a href="{{ url_for('admin_rapport_deltaker', deltaker_id=d.id) }}"><strong>{{ d.navn }}</strong></a></td>

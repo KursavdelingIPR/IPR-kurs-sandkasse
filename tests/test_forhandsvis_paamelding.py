@@ -124,7 +124,7 @@ def test_a_preview_bruker_offentlig_layout_identisk_med_ekte_siden(con):
     forhandsvisning = _innlogget().get(f"/admin/kurs/{kid}/forhandsvis-paamelding").get_data(as_text=True)
     offentlig = _klient().get("/kurs/P1").get_data(as_text=True)
     import re as _re
-    uten_nonce = lambda h: _re.sub(r'nonce="[^"]*"', 'nonce="<nonce>"', h.split("<main>")[0])   # noqa: E731
+    uten_nonce = lambda h: _re.sub(r'nonce="[^"]*"', 'nonce="<nonce>"', h.split("<main id=\"innhold\">")[0])   # noqa: E731
     header_fv, header_off = uten_nonce(forhandsvisning), uten_nonce(offentlig)
     assert header_fv == header_off
     assert "<style>" in header_fv   # samme felles CSS/stil som resten av det offentlige systemet

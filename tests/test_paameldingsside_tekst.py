@@ -192,7 +192,7 @@ def _lagre(admin, kid, intro="", knappetekst=""):
 def test_nettside_viser_redigeringsfelt(con, admin):
     kid = _kurs(con, intro="Hei", knapp="Send")
     html = admin.get(f"/admin/kurs/{kid}/nettside").get_data(as_text=True)
-    assert '<textarea name="intro" rows="5" maxlength="1000">Hei</textarea>' in html
+    assert '<textarea id="f-intro" name="intro" rows="5" maxlength="1000">Hei</textarea>' in html
     assert 'name="knappetekst" maxlength="40" value="Send" placeholder="Meld meg på"' in html
     assert "Introduksjonstekst" in html and "Tekst på påmeldingsknappen" in html and "Tom = «Meld meg på»" in html
     assert "kommer i en senere fase" not in html and "paamelding_intro" not in html

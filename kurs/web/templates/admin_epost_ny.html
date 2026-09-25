@@ -8,10 +8,10 @@
 <form method="post" action="{{ url_for('admin_epost_forhandsvis', kurs_id=kurs.id) }}" class="kort" style="max-width:640px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% for m in mottakere %}<input type="hidden" name="paamelding_id" value="{{ m.id }}">{% endfor %}
-  <label>Emne * <span class="liten dempet">(maks {{ emne_maks }} tegn)</span></label>
-  <input name="emne" required maxlength="{{ emne_maks }}" value="{{ emne }}">
-  <label>Melding * <span class="liten dempet">(maks {{ tekst_maks }} tegn)</span></label>
-  <textarea name="tekst" rows="8" required maxlength="{{ tekst_maks }}">{{ tekst }}</textarea>
+  <label for="f-emne">Emne * <span class="liten dempet">(maks {{ emne_maks }} tegn)</span></label>
+  <input id="f-emne" name="emne" required maxlength="{{ emne_maks }}" value="{{ emne }}">
+  <label for="f-tekst">Melding * <span class="liten dempet">(maks {{ tekst_maks }} tegn)</span></label>
+  <textarea id="f-tekst" name="tekst" rows="8" required maxlength="{{ tekst_maks }}">{{ tekst }}</textarea>
   <p style="margin-top:16px"><button class="liten sekundar">{{ 'Oppdater forhåndsvisning' if forhandsvisning else 'Forhåndsvis' }}</button></p>
 </form>
 
@@ -23,9 +23,9 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% for m in mottakere %}<input type="hidden" name="paamelding_id" value="{{ m.id }}">{% endfor %}
   <input type="hidden" name="emne" value="{{ emne }}">
-  <textarea name="tekst" style="display:none">{{ tekst }}</textarea>
-  <label style="display:inline; margin-right:8px">Vis eksempel for:</label>
-  <select name="eksempel_paamelding_id" data-send-ved-endring style="width:auto; display:inline-block">
+  <input type="hidden" name="tekst" value="{{ tekst }}">
+  <label for="f-eksempel" style="display:inline; margin-right:8px">Vis eksempel for:</label>
+  <select id="f-eksempel" name="eksempel_paamelding_id" data-send-ved-endring style="width:auto; display:inline-block">
     {% for m in mottakere %}<option value="{{ m.id }}" {{ 'selected' if m.id == forhandsvisning.eksempel_id }}>{{ m.navn }}</option>{% endfor %}
   </select>
 </form>
@@ -34,7 +34,7 @@
 
 <h2>Mottakere ({{ mottakere|length }})</h2>
 <div class="tabellboks" style="max-width:640px"><table>
-  <tr><th>Navn</th><th>E-post</th></tr>
+  <tr><th scope="col">Navn</th><th scope="col">E-post</th></tr>
   {% for m in mottakere %}<tr><td>{{ m.navn }}</td><td class="liten">{{ m.epost }}</td></tr>{% endfor %}
 </table></div>
 

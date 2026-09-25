@@ -29,7 +29,7 @@
 {% endif %}
 
 <div class="tabellboks"><table>
-  <tr><th>Navn</th><th>E-post</th><th>Resultat</th><th>Forklaring</th></tr>
+  <tr><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Resultat</th><th scope="col">Forklaring</th></tr>
   {% for r in resultater %}
   <tr>
     <td>{{ r.navn }}</td>

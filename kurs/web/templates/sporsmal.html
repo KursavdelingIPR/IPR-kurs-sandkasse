@@ -22,9 +22,8 @@
 
   <form method="post" class="kort">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>Spørsmål</label>
-    <textarea name="sporsmal" rows="3" required maxlength="2000" placeholder="F.eks. «Hva er fristen for å melde seg av?»"></textarea>
-    {% if not session.deltaker_id %}<label>E-post (hvis du vil ha svar fra oss)</label><input name="epost" type="email">{% endif %}
+    <label for="f-sporsmal">Spørsmål</label><textarea id="f-sporsmal" name="sporsmal" rows="3" required maxlength="2000" placeholder="F.eks. «Hva er fristen for å melde seg av?»"></textarea>
+    {% if not session.deltaker_id %}<label for="f-epost">E-post (hvis du vil ha svar fra oss)</label><input id="f-epost" name="epost" type="email">{% endif %}
     <p class="liten dempet">Ikke skriv helseopplysninger eller andre sensitive opplysninger her.</p>
     <p style="margin-top:12px"><button>Send</button></p>
   </form>

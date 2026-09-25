@@ -37,7 +37,7 @@ def _innlogget():
 
 def _flash(resp):
     side = resp.get_data(as_text=True)
-    return [t.strip() for t in re.findall(r'class="flash[^"]*">\s*([^<]+)', side)]
+    return [t.strip() for t in re.findall(r'class="flash[^"]*"[^>]*>\s*([^<]+)', side)]
 
 
 LAASTE = ["innlogging", "eskalering", "admin_melding"]

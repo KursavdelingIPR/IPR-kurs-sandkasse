@@ -22,11 +22,11 @@
   <form method="post" action="{{ url_for('admin_maltekst_lagre', mal=mal, felt=f.navn) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {% if f.type == 'emne' %}
-    <label style="margin-top:12px">Tekst <span class="liten dempet">(maks {{ f.maks }} tegn, ingen linjeskift)</span></label>
-    <input name="tekst" maxlength="{{ f.maks }}" value="{{ f.tekst }}" {% if not f.tom_tillatt %}required{% endif %}>
+    <label for="f-{{ f.navn }}" style="margin-top:12px">Tekst <span class="liten dempet">(maks {{ f.maks }} tegn, ingen linjeskift)</span></label>
+    <input id="f-{{ f.navn }}" name="tekst" maxlength="{{ f.maks }}" value="{{ f.tekst }}" {% if not f.tom_tillatt %}required{% endif %}>
     {% else %}
-    <label style="margin-top:12px">Tekst <span class="liten dempet">(maks {{ f.maks }} tegn{{ ', kan være tom' if f.tom_tillatt }})</span></label>
-    <textarea name="tekst" rows="4" maxlength="{{ f.maks }}">{{ f.tekst }}</textarea>
+    <label for="f-{{ f.navn }}" style="margin-top:12px">Tekst <span class="liten dempet">(maks {{ f.maks }} tegn{{ ', kan være tom' if f.tom_tillatt }})</span></label>
+    <textarea id="f-{{ f.navn }}" name="tekst" rows="4" maxlength="{{ f.maks }}">{{ f.tekst }}</textarea>
     {% endif %}
 
     <p class="liten dempet" style="margin:10px 0 4px">Tillatte koder i dette feltet:</p>

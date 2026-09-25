@@ -638,7 +638,7 @@ AVLYS_FEILMELDING = ("Kurset ble ikke avlyst fordi avlysningsmeldingen ikke kunn
 def _flasher(klient, resp) -> list:
     import re
     side = klient.get(resp.headers["Location"]).get_data(as_text=True)
-    return [t.strip() for t in re.findall(r'class="flash[^"]*">\s*([^<]+)', side)]
+    return [t.strip() for t in re.findall(r'class="flash[^"]*"[^>]*>\s*([^<]+)', side)]
 
 
 @pytest.mark.parametrize("skade", [_avl_ugyldig_override, _avl_ukjent_felt, _avl_db_lesefeil])

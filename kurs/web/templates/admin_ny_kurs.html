@@ -10,58 +10,57 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if fra_kurs %}<input type="hidden" name="fra" value="{{ fra_kurs.id }}">{% endif %}
   <div class="rad">
-    <div style="grid-column:span 3"><label>Kursnavn *</label><input name="navn" required value="{{ fra_kurs.navn if fra_kurs else '' }}"></div>
+    <div style="grid-column:span 3"><label for="f-navn">Kursnavn *</label><input id="f-navn" name="navn" required value="{{ fra_kurs.navn if fra_kurs else '' }}"></div>
   </div>
   <div class="rad">
-    <div><label>Type</label><select name="type">
+    <div><label for="f-type">Type</label><select id="f-type" name="type">
       <option value="fysisk" {{ 'selected' if (fra_kurs.type if fra_kurs else 'fysisk') == 'fysisk' }}>Fysisk</option>
       <option value="digital" {{ 'selected' if fra_kurs and fra_kurs.type == 'digital' }}>Digitalt</option>
       <option value="hybrid" {{ 'selected' if fra_kurs and fra_kurs.type == 'hybrid' }}>Hybrid</option>
     </select></div>
-    <div><label>Sted</label><input name="sted" value="{{ fra_kurs.sted if fra_kurs and fra_kurs.sted else '' }}"></div>
-    <div><label>Kapasitet</label><input name="kapasitet" type="number" min="1" value="{{ fra_kurs.kapasitet if fra_kurs and fra_kurs.kapasitet else '' }}"></div>
+    <div><label for="f-sted">Sted</label><input id="f-sted" name="sted" value="{{ fra_kurs.sted if fra_kurs and fra_kurs.sted else '' }}"></div>
+    <div><label for="f-kapasitet">Kapasitet</label><input id="f-kapasitet" name="kapasitet" type="number" min="1" value="{{ fra_kurs.kapasitet if fra_kurs and fra_kurs.kapasitet else '' }}"></div>
   </div>
   <div class="rad">
-    <div><label>Kursdatoer * (én per linje, ÅÅÅÅ-MM-DD)</label><textarea name="datoer" rows="4" required></textarea>
+    <div><label for="f-datoer">Kursdatoer * (én per linje, ÅÅÅÅ-MM-DD)</label><textarea id="f-datoer" name="datoer" rows="4" required></textarea>
       {% if kildedatoer %}<p class="liten dempet" style="margin-top:6px">Kildekursets datoer (kun til referanse – fylles ikke inn automatisk): {{ kildedatoer|join(', ') }}</p>{% endif %}</div>
-    <div><label>Fra kl.</label><input name="start_kl" value="{{ fra_kurs.start_kl if fra_kurs else '09:00' }}">
-      <label>Til kl.</label><input name="slutt_kl" value="{{ fra_kurs.slutt_kl if fra_kurs else '16:00' }}"></div>
-    <div><label>Timer per dag (kursbevis)</label><input name="timer_pr_dag" type="number" step="0.5" value="{{ fra_kurs.timer_pr_dag if fra_kurs else 6 }}">
-         <label>Spesialistløp (valgfritt)</label><input name="spesialistlop" placeholder="EFT" value="{{ fra_kurs.spesialistlop if fra_kurs and fra_kurs.spesialistlop else '' }}"></div>
+    <div><label for="f-start_kl">Fra kl.</label><input id="f-start_kl" name="start_kl" value="{{ fra_kurs.start_kl if fra_kurs else '09:00' }}">
+      <label for="f-slutt_kl">Til kl.</label><input id="f-slutt_kl" name="slutt_kl" value="{{ fra_kurs.slutt_kl if fra_kurs else '16:00' }}"></div>
+    <div><label for="f-timer_pr_dag">Timer per dag (kursbevis)</label><input id="f-timer_pr_dag" name="timer_pr_dag" type="number" step="0.5" value="{{ fra_kurs.timer_pr_dag if fra_kurs else 6 }}">
+         <label for="f-spesialistlop">Spesialistløp (valgfritt)</label><input id="f-spesialistlop" name="spesialistlop" placeholder="EFT" value="{{ fra_kurs.spesialistlop if fra_kurs and fra_kurs.spesialistlop else '' }}"></div>
   </div>
   <div class="rad">
-    <div><label>Pris eks. mva (kr)</label><input name="pris_nok" type="number" min="0" value="{{ fra_kurs.pris_nok if fra_kurs else 0 }}"></div>
-    <div><label>Fakturering</label><select name="fakturering">
+    <div><label for="f-pris_nok">Pris eks. mva (kr)</label><input id="f-pris_nok" name="pris_nok" type="number" min="0" value="{{ fra_kurs.pris_nok if fra_kurs else 0 }}"></div>
+    <div><label for="f-fakturering">Fakturering</label><select id="f-fakturering" name="fakturering">
       <option value="person" {{ 'selected' if (fra_kurs.fakturering if fra_kurs else 'person') == 'person' }}>Per deltaker (automatisk)</option>
       <option value="organisasjon" {{ 'selected' if fra_kurs and fra_kurs.fakturering == 'organisasjon' }}>Samlet til organisasjon</option>
       <option value="ingen" {{ 'selected' if fra_kurs and fra_kurs.fakturering == 'ingen' }}>Ingen</option>
     </select></div>
   </div>
   <div class="rad">
-    <div><label>Betaling</label>
+    <div><label for="betaling">Betaling</label>
       <select name="betaling" id="betaling" data-skjul-hvis="samlet" data-mal="delfelt">
         <option value="samlet" {{ 'selected' if (fra_kurs.betaling if fra_kurs else 'samlet') == 'samlet' }}>Hele beløpet i én faktura</option>
         <option value="per_samling" {{ 'selected' if fra_kurs and fra_kurs.betaling == 'per_samling' }}>Delt opp – én faktura før hver samling</option>
         <option value="deltaker_velger" {{ 'selected' if fra_kurs and fra_kurs.betaling == 'deltaker_velger' }}>La deltakeren velge ved påmelding</option>
       </select></div>
-    <div id="delfelt" class="{{ '' if fra_kurs and fra_kurs.betaling == 'per_samling' else 'skjul' }}"><label>Delfaktura sendes (dager før hver samling)</label>
-      <input name="faktura_dager_for" type="number" min="0" max="180" value="{{ fra_kurs.faktura_dager_for if fra_kurs else 14 }}"></div>
+    <div id="delfelt" class="{{ '' if fra_kurs and fra_kurs.betaling == 'per_samling' else 'skjul' }}"><label for="f-faktura_dager_for">Delfaktura sendes (dager før hver samling)</label><input id="f-faktura_dager_for" name="faktura_dager_for" type="number" min="0" max="180" value="{{ fra_kurs.faktura_dager_for if fra_kurs else 14 }}"></div>
   </div>
   <p class="liten dempet">Ved oppdelt betaling lages én faktura per kursdag. Beløpet deles likt, og eventuell rest legges på den første fakturaen.</p>
   <div class="rad">
-    <div><label>Ansvarlig</label><select name="ansvarlig_admin_id">
+    <div><label for="f-ansvarlig_admin_id">Ansvarlig</label><select id="f-ansvarlig_admin_id" name="ansvarlig_admin_id">
       <option value="">– Ikke satt –</option>
       {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if fra_kurs and fra_kurs.ansvarlig_admin_id == a.id }}>{{ a.navn }}</option>{% endfor %}
     </select></div>
-    <div><label>Påmeldingsfrist</label><input name="paameldingsfrist" type="date">
+    <div><label for="f-paameldingsfrist">Påmeldingsfrist</label><input id="f-paameldingsfrist" name="paameldingsfrist" type="date">
       <p class="liten dempet" style="margin:4px 0 0">Tom = ingen frist.</p></div>
   </div>
   <div class="rad">
-    <div><label>Kursholder navn</label><input name="kursholder_navn" value="{{ kursholder_navn_forslag }}"></div>
-    <div><label>Kursholder e-post</label><input name="kursholder_epost" type="email" value="{{ fra_kurs.kursholder_epost if fra_kurs and fra_kurs.kursholder_epost else '' }}"></div>
-    <div><label>Frist for presentasjon</label><input name="materiell_frist" type="date"></div>
+    <div><label for="f-kursholder_navn">Kursholder navn</label><input id="f-kursholder_navn" name="kursholder_navn" value="{{ kursholder_navn_forslag }}"></div>
+    <div><label for="f-kursholder_epost">Kursholder e-post</label><input id="f-kursholder_epost" name="kursholder_epost" type="email" value="{{ fra_kurs.kursholder_epost if fra_kurs and fra_kurs.kursholder_epost else '' }}"></div>
+    <div><label for="f-materiell_frist">Frist for presentasjon</label><input id="f-materiell_frist" name="materiell_frist" type="date"></div>
   </div>
-  <label>Praktisk info (tas med i velkomst-e-post)</label><textarea name="notat" rows="3">{{ fra_kurs.notat if fra_kurs and fra_kurs.notat else '' }}</textarea>
+  <label for="f-notat">Praktisk info (tas med i velkomst-e-post)</label><textarea id="f-notat" name="notat" rows="3">{{ fra_kurs.notat if fra_kurs and fra_kurs.notat else '' }}</textarea>
   <p style="margin-top:16px"><button>Opprett kurs</button></p>
 </form>
 {% endblock %}

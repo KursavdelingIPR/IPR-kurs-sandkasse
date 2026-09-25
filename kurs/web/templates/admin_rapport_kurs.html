@@ -5,17 +5,15 @@
 <p class="sub">Alle kurs, uansett status.</p>
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:10px">
-  <div><label>Søk på kursnavn</label><input type="search" name="sok" value="{{ sok }}"></div>
-  <div><label>Fra dato</label><input type="date" name="fra" value="{{ fra }}"></div>
-  <div><label>Til dato</label><input type="date" name="til" value="{{ til }}"></div>
-  <div><label>Status</label>
-    <select name="status">
+  <div><label for="f-sok">Søk på kursnavn</label><input id="f-sok" type="search" name="sok" value="{{ sok }}"></div>
+  <div><label for="f-fra">Fra dato</label><input id="f-fra" type="date" name="fra" value="{{ fra }}"></div>
+  <div><label for="f-til">Til dato</label><input id="f-til" type="date" name="til" value="{{ til }}"></div>
+  <div><label for="f-status">Status</label><select id="f-status" name="status">
       <option value="" {{ 'selected' if not status }}>Alle</option>
       {% for s in kurs_statusverdier %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ s|capitalize }}</option>{% endfor %}
     </select>
   </div>
-  <div><label>Ansvarlig</label>
-    <select name="ansvarlig">
+  <div><label for="f-ansvarlig">Ansvarlig</label><select id="f-ansvarlig" name="ansvarlig">
       <option value="">Alle</option>
       {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if ansvarlig == a.id }}>{{ a.navn }}</option>{% endfor %}
     </select>
@@ -29,7 +27,7 @@
 <p class="liten dempet" style="margin-bottom:10px">«Fakturert» viser fakturaer opprettet/sendt fra systemet, ikke nødvendigvis innbetalt beløp.</p>
 
 <div class="tabellboks"><table>
-  <tr><th>Kursnr</th><th>Tittel</th><th>Periode</th><th>Status</th><th>Ansvarlig</th><th>Bekreftet/kapasitet</th><th>Fyllingsgrad</th><th>Venteliste</th><th>Avmeldt</th><th>Fakturert</th></tr>
+  <tr><th scope="col">Kursnr</th><th scope="col">Tittel</th><th scope="col">Periode</th><th scope="col">Status</th><th scope="col">Ansvarlig</th><th scope="col">Bekreftet/kapasitet</th><th scope="col">Fyllingsgrad</th><th scope="col">Venteliste</th><th scope="col">Avmeldt</th><th scope="col">Fakturert</th></tr>
   {% for k in rader %}
   <tr>
     <td>{{ k.kursnr }}</td>

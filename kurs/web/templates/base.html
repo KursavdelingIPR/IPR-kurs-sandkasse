@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block tittel %}IPR Påmeldingssystem{% endblock %}</title>
 <style>
-  :root { --bla:#1f5c73; --bla-lys:#e7f0f3; --tekst:#1d2a33; --dempet:#5d6b75; --linje:#dfe5e8; --bg:#f7f8f7; --ok:#2e7d4f; --feil:#b3261e; --gul:#9a6b00; }
+  :root { --bla:#1f5c73; --bla-mork:#174a5d; --bla-lys:#e7f0f3; --tekst:#1d2a33; --dempet:#5d6b75; --linje:#dfe5e8; --bg:#f7f8f7; --ok:#2e7d4f; --feil:#b3261e; --gul:#9a6b00; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color:var(--tekst); background:var(--bg); font-size:15px; line-height:1.5; }
   header { background:#fff; border-bottom:1px solid var(--linje); }
@@ -12,8 +12,9 @@
   header .inner { display:flex; align-items:center; gap:24px; height:58px; }
   header .logo { font-weight:650; color:var(--bla); text-decoration:none; letter-spacing:.01em; }
   header nav { display:flex; gap:18px; margin-left:auto; flex-wrap:wrap; }
-  header nav a { color:var(--dempet); text-decoration:none; font-size:14px; }
+  header nav a { color:var(--dempet); text-decoration:none; font-size:14px; padding:4px 2px; border-radius:4px; }
   header nav a:hover { color:var(--bla); }
+  header nav a[aria-current="page"] { color:var(--bla); font-weight:620; }
   main { padding-block: 28px 60px; }
   h1 { font-size: 26px; margin: 0 0 6px; font-weight: 620; }
   h2 { font-size: 18px; margin: 32px 0 10px; font-weight: 620; }
@@ -21,11 +22,26 @@
   a { color: var(--bla); }
   .kort { background:#fff; border:1px solid var(--linje); border-radius:10px; padding:18px 20px; margin-bottom:14px; }
   .rutenett { display:grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap:14px; }
-  .knapp, button { display:inline-block; background:var(--bla); color:#fff; border:0; border-radius:7px; padding:9px 16px; font:inherit; font-size:14px; cursor:pointer; text-decoration:none; }
+  .knapp, button { display:inline-block; background:var(--bla); color:#fff; border:1px solid var(--bla); border-radius:7px; padding:9px 16px; font:inherit; font-size:14px; line-height:1.3; cursor:pointer; text-decoration:none; transition:background-color .12s, box-shadow .12s; }
+  .knapp:hover, button:hover { background:var(--bla-mork); border-color:var(--bla-mork); box-shadow:0 1px 3px rgba(0,0,0,.15); }
   .knapp.sekundar, button.sekundar { background:#fff; color:var(--bla); border:1px solid var(--bla); }
+  .knapp.sekundar:hover, button.sekundar:hover { background:var(--bla-lys); border-color:var(--bla-mork); }
+  .knapp.fare, button.fare { background:#fff; color:var(--feil); border-color:var(--feil); }
+  .knapp.fare:hover, button.fare:hover { background:#fbe7e5; }
+  button:disabled, button:disabled:hover { opacity:.55; cursor:default; box-shadow:none; }
   button.liten, .knapp.liten { padding:4px 10px; font-size:13px; }
-  label { display:block; font-size:13px; font-weight:600; margin:12px 0 4px; }
+  :focus-visible { outline:3px solid #f3a53d; outline-offset:2px; }
+  a:hover { color:var(--bla-mork); }
+  .hopp { position:absolute; left:8px; top:-60px; background:#fff; padding:8px 12px; border-radius:6px; z-index:10; }
+  .hopp:focus { top:8px; }
+  label, .etikett { display:block; font-size:13px; font-weight:600; margin:12px 0 4px; }
   input, select, textarea { width:100%; padding:8px 10px; border:1px solid #c7d0d5; border-radius:6px; font:inherit; background:#fff; }
+  input:hover, select:hover, textarea:hover { border-color:#9aa8b0; }
+  .verktoylinje { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+  .verktoylinje .plass { margin-left:auto; }
+  tbody tr:hover td, table tr:hover td { background:#f5f8f9; }
+  .kort h2:first-child { margin-top:0; }
+  .tom { color:var(--dempet); padding:18px; text-align:center; }
   fieldset { border:0; margin:0; padding:0; min-width:0; }
   input[type=checkbox], input[type=radio] { width:auto; margin-right:6px; }
   .rad { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:0 14px; }
@@ -54,6 +70,7 @@
 {% block hode %}{% endblock %}
 </head>
 <body>
+<a class="hopp" href="#innhold">Hopp til innhold</a>
 {% if demo %}<div class="demo-banner">DEMOMODUS – ingen ekte e-post, faktura eller Zoom. Systemdato: {{ idag }}</div>{% endif %}
 <header><div class="inner">
   <a class="logo" href="{{ url_for('forside') }}">IPR Påmeldingssystem</a>
@@ -68,8 +85,8 @@
     {% endblock %}
   </nav>
 </div></header>
-<main>
-  {% for kat, msg in get_flashed_messages(with_categories=true) %}<div class="flash {{ kat }}">{{ msg }}</div>{% endfor %}
+<main id="innhold">
+  {% for kat, msg in get_flashed_messages(with_categories=true) %}<div class="flash {{ kat }}" role="{{ 'alert' if kat == 'feil' else 'status' }}">{{ msg }}</div>{% endfor %}
   {% block innhold %}{% endblock %}
 </main>
 </body></html>

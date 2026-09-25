@@ -27,9 +27,8 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:16px">
-  <div><label>Søk (navn/e-post)</label><input type="search" name="sok" value="{{ sok }}" placeholder="Søk…"></div>
-  <div><label>Status</label>
-    <select name="status" data-send-ved-endring>
+  <div><label for="f-sok">Søk (navn/e-post)</label><input id="f-sok" type="search" name="sok" value="{{ sok }}" placeholder="Søk…"></div>
+  <div><label for="f-status">Status</label><select id="f-status" name="status" data-send-ved-endring>
       <option value="" {{ 'selected' if not status }}>Alle</option>
       <option value="bekreftet" {{ 'selected' if status == 'bekreftet' }}>Bekreftet</option>
       <option value="venteliste" {{ 'selected' if status == 'venteliste' }}>Venteliste</option>
@@ -43,10 +42,10 @@
   {% if deltakere %}<label style="font-weight:normal; margin-left:10px"><input type="checkbox" id="velg-alle-synlige"> Velg alle synlige</label>
   <span id="antall-valgt" class="dempet"></span>{% endif %}</p>
 <div class="tabellboks"><table>
-  <tr><th></th><th>Navn</th><th>E-post</th><th>Telefon</th><th>Arbeidssted</th><th>Fakturastatus</th><th>Påmeldingsstatus</th><th>Sist oppdatert</th><th></th></tr>
+  <tr><th scope="col"></th><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Telefon</th><th scope="col">Arbeidssted</th><th scope="col">Fakturastatus</th><th scope="col">Påmeldingsstatus</th><th scope="col">Sist oppdatert</th><th scope="col"></th></tr>
   {% for p in deltakere %}
   <tr style="{{ 'opacity:.5' if p.status == 'avmeldt' }}">
-    <td><input type="checkbox" class="valgt-deltaker" name="paamelding_id" value="{{ p.id }}" form="valgte-deltakere"></td>
+    <td><input type="checkbox" class="valgt-deltaker" name="paamelding_id" value="{{ p.id }}" form="valgte-deltakere" aria-label="Velg {{ p.navn }}"></td>
     <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}"><strong>{{ p.navn }}</strong></a></td>
     <td class="liten">{{ p.epost }}</td>
     <td class="liten">{{ p.telefon or '' }}</td>
@@ -70,7 +69,7 @@
 <h2 id="oppmote">Oppmøteregistrering</h2>
 <p class="liten dempet">Klikk på en dag for å registrere/fjerne oppmøte manuelt. Q = QR, K = kode, Z = Zoom, M = manuell.</p>
 <div class="tabellboks"><table>
-  <tr><th>Navn</th>{% for d in dager %}<th style="text-align:center">{{ d.dato[5:] }}</th>{% endfor %}</tr>
+  <tr><th scope="col">Navn</th>{% for d in dager %}<th scope="col" style="text-align:center">{{ d.dato[5:] }}</th>{% endfor %}</tr>
   {% for p in deltakere if p.status == 'bekreftet' %}
   <tr>
     <td>{{ p.navn }}</td>

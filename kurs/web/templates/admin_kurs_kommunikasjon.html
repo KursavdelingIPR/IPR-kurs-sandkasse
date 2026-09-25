@@ -6,7 +6,7 @@
 <h2>Manuelt sendt</h2>
 <p class="liten dempet">Send til deltakere via avkrysning i Deltakere-fanen, eller til én deltaker fra deltakerprofilen.</p>
 <div class="tabellboks"><table>
-  <tr><th>Emne</th><th>Sendt av</th><th>Mottakere</th><th>Tidspunkt</th></tr>
+  <tr><th scope="col">Emne</th><th scope="col">Sendt av</th><th scope="col">Mottakere</th><th scope="col">Tidspunkt</th></tr>
   {% for m in manuelle %}
   <tr><td><a href="{{ url_for('admin_epost_detalj', kurs_id=kurs.id, utsending_id=m.id) }}">{{ m.emne }}</a></td>
       <td class="liten">{{ m.sendt_av_navn or '–' }}</td><td>{{ m.antall_sendt }}</td>
@@ -16,7 +16,7 @@
 
 <h2>Automatisk e-post</h2>
 <div class="tabellboks"><table>
-  <tr><th>Type</th><th>Mottaker</th><th>Sendt</th></tr>
+  <tr><th scope="col">Type</th><th scope="col">Mottaker</th><th scope="col">Sendt</th></tr>
   {% for m in meldinger %}
   <tr><td>{{ m.type }}</td><td>{{ m.mottaker }}</td><td class="liten dempet">{{ m.sendt_ts }}</td></tr>
   {% else %}<tr><td colspan="3" class="dempet">Ingen automatisk e-post sendt for dette kurset ennå.</td></tr>{% endfor %}

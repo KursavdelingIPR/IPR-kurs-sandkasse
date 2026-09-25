@@ -8,7 +8,7 @@
   <p class="sub">Ingen passord – vi sender deg en innloggingslenke på e-post.</p>
   <form method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>E-post</label><input name="epost" type="email" required autocomplete="email">
+    <label for="f-epost">E-post</label><input id="f-epost" name="epost" type="email" required autocomplete="email">
     <p style="margin-top:16px"><button style="width:100%">Send innloggingslenke</button></p>
   </form>
   {% endif %}

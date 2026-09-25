@@ -15,7 +15,7 @@
     <form method="post" action="{{ url_for('admin_kurs_status', kurs_id=kurs.id) }}"
           data-status-bekreft>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <select name="status" required>
+      <select name="status" required aria-label="Ny status">
         <option value="" selected disabled>Velg ny status</option>
         {% for s in kurs_statusvalg %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
       </select>
@@ -32,7 +32,7 @@
     <form method="post" action="{{ url_for('admin_avlys_kurs', kurs_id=kurs.id) }}"
           data-bekreft="Avlyse «{{ kurs.navn }}»? Alle bekreftede og de på venteliste varsles på e-post med én gang. Fakturaer krediteres ikke automatisk – det må gjøres manuelt i Visma.">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <p style="margin-top:8px"><button class="liten sekundar" style="color:var(--feil); border-color:var(--feil)">Avlys kurs</button></p>
+      <p style="margin-top:8px"><button class="liten fare">Avlys kurs</button></p>
     </form>
     {% endif %}
   </div>
@@ -42,7 +42,7 @@
     <p class="liten dempet" style="margin:4px 0 10px">Brukes til «vis bare mine aktiviteter».</p>
     <form method="post" action="{{ url_for('admin_sett_ansvarlig', kurs_id=kurs.id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <select name="ansvarlig_admin_id">
+      <select name="ansvarlig_admin_id" aria-label="Ansvarlig">
         <option value="">– Ikke satt –</option>
         {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if kurs.ansvarlig_admin_id == a.id }}>{{ a.navn }}</option>{% endfor %}
       </select>
@@ -57,16 +57,16 @@
       class="kort" style="max-width:820px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="rad">
-    <div style="grid-column:span 3"><label>Kursnavn *</label><input name="navn" required value="{{ kurs.navn }}"></div>
+    <div style="grid-column:span 3"><label for="f-navn">Kursnavn *</label><input id="f-navn" name="navn" required value="{{ kurs.navn }}"></div>
   </div>
   <div class="rad">
-    <div><label>Type</label><select name="type">
+    <div><label for="f-type">Type</label><select id="f-type" name="type">
       <option value="fysisk" {{ 'selected' if kurs.type == 'fysisk' }}>Fysisk</option>
       <option value="digital" {{ 'selected' if kurs.type == 'digital' }}>Digitalt</option>
       <option value="hybrid" {{ 'selected' if kurs.type == 'hybrid' }}>Hybrid</option>
     </select></div>
-    <div><label>Sted</label><input name="sted" value="{{ kurs.sted or '' }}"></div>
-    <div><label>Zoom-lenke</label><input name="zoom_url" value="{{ kurs.zoom_url or '' }}">
+    <div><label for="f-sted">Sted</label><input id="f-sted" name="sted" value="{{ kurs.sted or '' }}"></div>
+    <div><label for="f-zoom_url">Zoom-lenke</label><input id="f-zoom_url" name="zoom_url" value="{{ kurs.zoom_url or '' }}">
       <p class="liten dempet" style="margin:4px 0 0">Tom = opprettes automatisk 8 dager før start (kun digitalt/hybrid).</p></div>
   </div>
   {% if bekreftet_antall %}
@@ -74,50 +74,50 @@
     varsles du før lagring – det kan gjøre informasjon som allerede er sendt utdatert.</p>
   {% endif %}
   <div class="rad">
-    <div><label>Kapasitet</label><input name="kapasitet" type="number" min="1" value="{{ kurs.kapasitet or '' }}">
+    <div><label for="f-kapasitet">Kapasitet</label><input id="f-kapasitet" name="kapasitet" type="number" min="1" value="{{ kurs.kapasitet or '' }}">
       <p class="liten dempet" style="margin:4px 0 0">Tom = ubegrenset. Øker du kapasiteten, rykker ventelisten automatisk opp.</p></div>
-    <div><label>Påmeldingsfrist</label><input name="paameldingsfrist" type="date" value="{{ kurs.paameldingsfrist or '' }}">
+    <div><label for="f-paameldingsfrist">Påmeldingsfrist</label><input id="f-paameldingsfrist" name="paameldingsfrist" type="date" value="{{ kurs.paameldingsfrist or '' }}">
       <p class="liten dempet" style="margin:4px 0 0">Tom = ingen frist.</p></div>
   </div>
 
   {% if faktura_laast %}
   <p class="liten dempet" style="margin-top:16px">Pris og fakturaoppsett kan ikke endres – kurset har en faktura som er opprettet, forsøkt eller planlagt.</p>
   <div class="rad">
-    <div><label>Pris eks. mva</label><p class="liten dempet" style="margin-top:8px">{{ kurs.pris_nok }} kr</p></div>
-    <div><label>Fakturering</label><p class="liten dempet" style="margin-top:8px">{{ kurs.fakturering }}</p></div>
-    <div><label>Betaling</label><p class="liten dempet" style="margin-top:8px">{{ kurs.betaling }}</p></div>
+    <div><div class="etikett">Pris eks. mva</div><p class="liten dempet" style="margin-top:8px">{{ kurs.pris_nok }} kr</p></div>
+    <div><div class="etikett">Fakturering</div><p class="liten dempet" style="margin-top:8px">{{ kurs.fakturering }}</p></div>
+    <div><div class="etikett">Betaling</div><p class="liten dempet" style="margin-top:8px">{{ kurs.betaling }}</p></div>
   </div>
   {% else %}
   <div class="rad">
-    <div><label>Pris eks. mva (kr)</label><input name="pris_nok" type="number" min="0" value="{{ kurs.pris_nok }}"></div>
-    <div><label>Fakturering</label><select name="fakturering">
+    <div><label for="f-pris_nok">Pris eks. mva (kr)</label><input id="f-pris_nok" name="pris_nok" type="number" min="0" value="{{ kurs.pris_nok }}"></div>
+    <div><label for="f-fakturering">Fakturering</label><select id="f-fakturering" name="fakturering">
       <option value="person" {{ 'selected' if kurs.fakturering == 'person' }}>Per deltaker (automatisk)</option>
       <option value="organisasjon" {{ 'selected' if kurs.fakturering == 'organisasjon' }}>Samlet til organisasjon</option>
       <option value="ingen" {{ 'selected' if kurs.fakturering == 'ingen' }}>Ingen</option>
     </select></div>
-    <div><label>Betaling</label><select name="betaling">
+    <div><label for="f-betaling">Betaling</label><select id="f-betaling" name="betaling">
       <option value="samlet" {{ 'selected' if kurs.betaling == 'samlet' }}>Hele beløpet i én faktura</option>
       <option value="per_samling" {{ 'selected' if kurs.betaling == 'per_samling' }}>Delt opp – én faktura før hver samling</option>
       <option value="deltaker_velger" {{ 'selected' if kurs.betaling == 'deltaker_velger' }}>La deltakeren velge</option>
     </select></div>
   </div>
   <div class="rad">
-    <div><label>Delfaktura sendes (dager før hver samling)</label><input name="faktura_dager_for" type="number" min="0" max="180" value="{{ kurs.faktura_dager_for }}"></div>
+    <div><label for="f-faktura_dager_for">Delfaktura sendes (dager før hver samling)</label><input id="f-faktura_dager_for" name="faktura_dager_for" type="number" min="0" max="180" value="{{ kurs.faktura_dager_for }}"></div>
   </div>
   {% endif %}
 
   <div class="rad">
-    <div><label>Kursholder e-post</label><input name="kursholder_epost" type="email" value="{{ kurs.kursholder_epost or '' }}">
+    <div><label for="f-kursholder_epost">Kursholder e-post</label><input id="f-kursholder_epost" name="kursholder_epost" type="email" value="{{ kurs.kursholder_epost or '' }}">
       <p class="liten dempet" style="margin:4px 0 0">Oppdaterer også hvem ikke-leverte materiellpurringer sendes til.</p></div>
   </div>
-  <label>Praktisk info (tas med i velkomst-e-post)</label><textarea name="notat" rows="3">{{ kurs.notat or '' }}</textarea>
+  <label for="f-notat">Praktisk info (tas med i velkomst-e-post)</label><textarea id="f-notat" name="notat" rows="3">{{ kurs.notat or '' }}</textarea>
 
   <p style="margin-top:16px"><button class="liten">Lagre kursinnstillinger</button></p>
 </form>
 
 <h2>Kursdager og innsjekk</h2>
 <div class="tabellboks"><table>
-  <tr><th>Dato</th><th>Kode</th><th>Oppmøte</th><th></th></tr>
+  <tr><th scope="col">Dato</th><th scope="col">Kode</th><th scope="col">Oppmøte</th><th scope="col"></th></tr>
   {% for d in dager %}
   <tr><td>{{ d.dato }}{% if d.dato == idag %} <span class="merke ok">i dag</span>{% endif %}</td>
       <td><code style="font-size:15px; letter-spacing:.1em">{{ d.innsjekk_kode }}</code></td>

@@ -185,10 +185,10 @@ def test_mal_rendrer_obligatorisk_felt_med_stjerne_og_required():
     """Grenen er ubrukt i 12C1 (ingen felt kan bli obligatoriske ennaa), men malens utforming for 12C2+ bevises her."""
     skjema = sf.EffektivtSkjema((sf.EffektivtFelt("telefon", "Mobil", True),), False, False)
     html = _render_kurs_html(skjema=skjema)
-    assert '<div><label>Mobil *</label><input name="telefon" required value=""></div>' in html
+    assert '<div><label for="f-telefon">Mobil *</label><input id="f-telefon" name="telefon" required value=""></div>' in html
 
 
 def test_mal_escaper_label():
     skjema = sf.EffektivtSkjema((sf.EffektivtFelt("telefon", "<b>Tlf</b> & {{ 7*7 }}", False),), False, False)
     html = _render_kurs_html(skjema=skjema)
-    assert "<label>&lt;b&gt;Tlf&lt;/b&gt; &amp; {{ 7*7 }}</label>" in html and "<b>Tlf</b>" not in html
+    assert '<label for="f-telefon">&lt;b&gt;Tlf&lt;/b&gt; &amp; {{ 7*7 }}</label>' in html and "<b>Tlf</b>" not in html

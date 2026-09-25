@@ -4,8 +4,8 @@
 <p class="sub">Oversikt på tvers av alle kurs.</p>
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:8px">
-  <div><label>Fra dato</label><input type="date" name="fra" value="{{ fra }}"></div>
-  <div><label>Til dato</label><input type="date" name="til" value="{{ til }}"></div>
+  <div><label for="f-fra">Fra dato</label><input id="f-fra" type="date" name="fra" value="{{ fra }}"></div>
+  <div><label for="f-til">Til dato</label><input id="f-til" type="date" name="til" value="{{ til }}"></div>
   <div><button class="sekundar">Filtrer</button></div>
 </form>
 <p class="liten dempet" style="margin-bottom:20px">Perioden gjelder kursdatoer (når kursene faktisk holdes/ble holdt) – bortsett fra «Fakturert», som er basert på fakturadato.</p>
@@ -26,7 +26,7 @@
 {% if venteliste_kurs %}
 <h2>Kurs med venteliste</h2>
 <div class="tabellboks"><table>
-  <tr><th>Kurs</th><th>Antall på venteliste</th></tr>
+  <tr><th scope="col">Kurs</th><th scope="col">Antall på venteliste</th></tr>
   {% for k in venteliste_kurs %}
   <tr><td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}">{{ k.kursnr }} {{ k.navn }}</a></td><td>{{ k.antall }}</td></tr>
   {% endfor %}
@@ -36,7 +36,7 @@
 {% if avlyste_kurs %}
 <h2>Avlyste kurs i perioden</h2>
 <div class="tabellboks"><table>
-  <tr><th>Kurs</th></tr>
+  <tr><th scope="col">Kurs</th></tr>
   {% for k in avlyste_kurs %}
   <tr><td><a href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}">{{ k.kursnr }} {{ k.navn }}</a></td></tr>
   {% endfor %}

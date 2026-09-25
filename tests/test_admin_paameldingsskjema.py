@@ -440,7 +440,7 @@ def test_admin_til_offentlig_skjema_til_post(con, admin):
                   telefon_hjelpetekst="Nummer vi kan nå deg på", arbeidssted_synlig=None).status_code == 302
     k = _klient()
     html = k.get("/kurs/A1").get_data(as_text=True)
-    assert "<label>Mobilnummer *</label>" in html and "Nummer vi kan nå deg på" in html
+    assert '<label for="f-telefon">Mobilnummer *</label>' in html and "Nummer vi kan nå deg på" in html
     assert 'name="arbeidssted"' not in html
     basis = {"navn": "Test Person", "epost": "test@eksempel.no", "samtykke": "on", "arbeidssted": "MANIPULERT"}
     r = k.post("/kurs/A1", data=basis)

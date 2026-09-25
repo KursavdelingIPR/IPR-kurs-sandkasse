@@ -8,7 +8,7 @@
 
 <h2>Mottakere ({{ mottakere|length }})</h2>
 <div class="tabellboks" style="max-width:640px"><table>
-  <tr><th>Navn</th><th>E-post</th></tr>
+  <tr><th scope="col">Navn</th><th scope="col">E-post</th></tr>
   {% for m in mottakere %}<tr><td>{{ m.navn }}</td><td class="liten">{{ m.epost }}</td></tr>{% endfor %}
 </table></div>
 {% endblock %}

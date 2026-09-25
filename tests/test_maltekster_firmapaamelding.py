@@ -267,7 +267,7 @@ def test_korrupt_override_gir_ingen_registrering_ingen_bekreftelser_ingen_kvitte
     assert r.status_code == 400
     tekst = r.get_data(as_text=True)
     import re
-    flash_tekster = [t.strip() for t in re.findall(r'class="flash[^"]*">\s*([^<]+)', tekst)]
+    flash_tekster = [t.strip() for t in re.findall(r'class="flash[^"]*"[^>]*>\s*([^<]+)', tekst)]
     assert any("kunne ikke fullføres" in t.lower() for t in flash_tekster)
     for t in flash_tekster:                                                  # trygg melding: ingen intern info/PII
         for forbudt in ("MalFeil", grunn, "Ola Nordmann", "Kari HR", "Hei {"):

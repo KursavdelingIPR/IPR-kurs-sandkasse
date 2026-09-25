@@ -385,7 +385,7 @@ def test_label_fra_overstyring_escapes_ved_rendring(con):
         from kurs import paameldingsside   # 12C5: malen krever side
         html = render_template("kurs.html", kurs=kurs, dager=[], f={}, plasser_igjen=None, skjema=skjema,
                                side=paameldingsside.effektiv_side(kurs))
-    assert "<label>&lt;script&gt;x&lt;/script&gt; {{ 7*7 }}</label>" in html
+    assert '<label for="f-telefon">&lt;script&gt;x&lt;/script&gt; {{ 7*7 }}</label>' in html
     assert "<script>x</script>" not in html
 
 

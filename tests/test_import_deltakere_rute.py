@@ -5,6 +5,8 @@ Selve bekreft/import-ruten (trinn 3) er IKKE bygget ennaa - preview-knappen er b
 import io
 from datetime import date, datetime, timedelta
 
+import re
+
 import pytest
 
 from kurs import config, db, import_deltakere as imp
@@ -168,7 +170,7 @@ def test_bekreft_knapp_peker_til_bekreft_ruten(con):
     _logg_inn(klient)
     tekst = _last_opp(klient, kid, _csv("Kari Nordmann;kari@x.no", header="Navn;E-post")).get_data(as_text=True)
     assert f"/admin/kurs/{kid}/deltakere/importer/bekreft" in tekst
-    assert "disabled" not in tekst
+    assert not re.search(r"<button[^>]*\sdisabled", tekst)
 
 
 # ==================== blokkerende fil ====================

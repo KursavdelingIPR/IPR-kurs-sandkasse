@@ -6,10 +6,8 @@
   {% if kd %}<p class="sub">{{ kd.navn }} · {{ kd.dato }}</p>{% else %}<p class="sub">Skriv inn koden som vises på skjermen i kurslokalet.</p>{% endif %}
   <form method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {% if med_kode %}<label>Innsjekkkode</label>
-    <input name="kode" required autocomplete="off" autocapitalize="characters" maxlength="8" style="font-size:24px; letter-spacing:.2em; text-transform:uppercase">{% endif %}
-    <label>E-posten du meldte deg på med</label>
-    <input name="epost" type="email" required autocomplete="email">
+    {% if med_kode %}<label for="f-kode">Innsjekkkode</label><input id="f-kode" name="kode" required autocomplete="off" autocapitalize="characters" maxlength="8" style="font-size:24px; letter-spacing:.2em; text-transform:uppercase">{% endif %}
+    <label for="f-epost">E-posten du meldte deg på med</label><input id="f-epost" name="epost" type="email" required autocomplete="email">
     {% if not med_kode %}<label style="font-weight:normal"><input type="checkbox" name="husk" checked>Husk meg på denne telefonen (neste gang holder det å skanne)</label>{% endif %}
     <p style="margin-top:16px"><button style="width:100%; padding:12px">Sjekk inn</button></p>
   </form>

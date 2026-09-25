@@ -4,7 +4,7 @@
 <p class="sub">I drift går denne automatisk hver morgen kl. 07. {% if demo %}Her kan du kjøre den manuelt – og «spole» til en annen dato for å se hva som skjer.{% else %}Her kan du bare <strong>tørrkjøre</strong> den (se hva som ville skjedd) – ingenting sendes eller lagres herfra.{% endif %}</p>
 <form method="post" class="kort" style="max-width:520px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>Dato</label><input type="date" name="dato" value="{{ idag }}">
+  <label for="f-dato">Dato</label><input id="f-dato" type="date" name="dato" value="{{ idag }}">
   <label style="font-weight:normal"><input type="checkbox" name="tor" {{ 'checked disabled' if not demo }}>Tørrkjøring (vis hva som ville skjedd, uten å sende/lagre)</label>
   <p style="margin-top:14px"><button>Kjør</button></p>
 </form>

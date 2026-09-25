@@ -11,7 +11,7 @@
 <p class="liten dempet">{{ antall_behandlingsbare }} av {{ antall_totalt }} valgte kan behandles nå.</p>
 
 <div class="tabellboks"><table>
-  <tr><th>Navn</th><th>E-post</th><th>Status</th><th>Kan behandles?</th><th>Hva skjer</th><th>Begrunnelse</th></tr>
+  <tr><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Status</th><th scope="col">Kan behandles?</th><th scope="col">Hva skjer</th><th scope="col">Begrunnelse</th></tr>
   {% for r in resultater %}
   <tr>
     <td>{{ r.navn }}</td>

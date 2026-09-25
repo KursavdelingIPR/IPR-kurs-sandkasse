@@ -121,7 +121,7 @@ def test_datofelt_tomt_men_kildedatoer_vises_som_referanse(con):
     klient = _klient()
     _logg_inn(klient)
     t = klient.get(f"/admin/kurs/ny?fra={kid}").get_data(as_text=True)
-    assert '<textarea name="datoer" rows="4" required></textarea>' in t
+    assert '<textarea id="f-datoer" name="datoer" rows="4" required></textarea>' in t
     kildedatoer = [d["dato"] for d in db.kursdager(con, kid)]
     assert "kun til referanse" in t
     for dato in kildedatoer:
@@ -135,8 +135,8 @@ def test_paameldingsfrist_og_materiellfrist_alltid_tomme_ved_duplisering(con):
     klient = _klient()
     _logg_inn(klient)
     t = klient.get(f"/admin/kurs/ny?fra={kid}").get_data(as_text=True)
-    assert '<input name="paameldingsfrist" type="date">' in t
-    assert '<input name="materiell_frist" type="date">' in t
+    assert '<input id="f-paameldingsfrist" name="paameldingsfrist" type="date">' in t
+    assert '<input id="f-materiell_frist" name="materiell_frist" type="date">' in t
     assert "2020-01-01" not in t
 
 

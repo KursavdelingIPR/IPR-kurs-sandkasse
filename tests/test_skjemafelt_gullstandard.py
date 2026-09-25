@@ -296,8 +296,8 @@ def test_deltakerfeltene_har_uendrede_labels_og_ingen_type(sider):
     t = dom(html)
     for label, navn in [("Telefon", "telefon"), ("Arbeidssted", "arbeidssted"), ("HPR-nummer", "hpr_nr")]:
         i = t.index("#" + label)
-        assert t[i - 2:i + 4] == ["<div>", "<label>", "#" + label, "</label>", f"<input name={navn!r} value=''>",
-                                  "</div>"]
+        assert t[i - 2:i + 4] == ["<div>", f"<label for='f-{navn}'>", "#" + label, "</label>",
+                                  f"<input id='f-{navn}' name={navn!r} value=''>", "</div>"]
 
 
 def test_post_feil_viser_innsendte_verdier_igjen_escaped(sider):

@@ -10,11 +10,11 @@
 <form method="post" action="{{ url_for('admin_deltaker_person', kurs_id=kurs.id, paamelding_id=p.id) }}" class="kort" style="max-width:640px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="rad">
-    <div><label>Navn *</label><input name="navn" required value="{{ p.navn }}"></div>
-    <div><label>E-post *</label><input name="epost" type="email" required value="{{ p.epost }}"></div>
-    <div><label>Telefon</label><input name="telefon" value="{{ p.telefon or '' }}"></div>
-    <div><label>Yrkestittel</label><input name="yrkestittel" value="{{ p.yrkestittel or '' }}"></div>
-    <div><label>Arbeidssted</label><input name="arbeidssted" value="{{ p.arbeidssted or '' }}"></div>
+    <div><label for="f-navn">Navn *</label><input id="f-navn" name="navn" required value="{{ p.navn }}"></div>
+    <div><label for="f-epost">E-post *</label><input id="f-epost" name="epost" type="email" required value="{{ p.epost }}"></div>
+    <div><label for="f-telefon">Telefon</label><input id="f-telefon" name="telefon" value="{{ p.telefon or '' }}"></div>
+    <div><label for="f-yrkestittel">Yrkestittel</label><input id="f-yrkestittel" name="yrkestittel" value="{{ p.yrkestittel or '' }}"></div>
+    <div><label for="f-arbeidssted">Arbeidssted</label><input id="f-arbeidssted" name="arbeidssted" value="{{ p.arbeidssted or '' }}"></div>
   </div>
   <p style="margin-top:16px"><button class="liten">Lagre personopplysninger</button></p>
 </form>
@@ -48,7 +48,7 @@
     <form method="post" action="{{ url_for('admin_deltaker_status', kurs_id=kurs.id, paamelding_id=p.id) }}"
           data-status-bekreft>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <select name="status" required>
+      <select name="status" required aria-label="Ny status">
         <option value="" selected disabled>Velg ny status</option>
         {% for s in statusvalg %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
       </select>
@@ -66,25 +66,24 @@
 <form method="post" action="{{ url_for('admin_deltaker_paamelding', kurs_id=kurs.id, paamelding_id=p.id) }}" class="kort" style="max-width:720px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="rad">
-    <div><label>Hvem betaler</label>
-      <select name="betaler">
+    <div><label for="f-betaler">Hvem betaler</label><select id="f-betaler" name="betaler">
         <option value="person" {{ 'selected' if p.betaler != 'organisasjon' }}>Privat</option>
         <option value="organisasjon" {{ 'selected' if p.betaler == 'organisasjon' }}>Firma</option>
       </select></div>
-    <div><label>Firmanavn</label><input name="org_navn" value="{{ p.org_navn or '' }}"></div>
-    <div><label>Organisasjonsnummer</label><input name="org_nr" value="{{ p.org_nr or '' }}"></div>
+    <div><label for="f-org_navn">Firmanavn</label><input id="f-org_navn" name="org_navn" value="{{ p.org_navn or '' }}"></div>
+    <div><label for="f-org_nr">Organisasjonsnummer</label><input id="f-org_nr" name="org_nr" value="{{ p.org_nr or '' }}"></div>
   </div>
   <div class="rad">
-    <div><label>Fakturaadresse</label><input name="faktura_adresse" value="{{ p.faktura_adresse or '' }}"></div>
-    <div><label>Postnr.</label><input name="faktura_postnr" value="{{ p.faktura_postnr or '' }}"></div>
-    <div><label>Sted</label><input name="faktura_sted" value="{{ p.faktura_sted or '' }}"></div>
+    <div><label for="f-faktura_adresse">Fakturaadresse</label><input id="f-faktura_adresse" name="faktura_adresse" value="{{ p.faktura_adresse or '' }}"></div>
+    <div><label for="f-faktura_postnr">Postnr.</label><input id="f-faktura_postnr" name="faktura_postnr" value="{{ p.faktura_postnr or '' }}"></div>
+    <div><label for="f-faktura_sted">Sted</label><input id="f-faktura_sted" name="faktura_sted" value="{{ p.faktura_sted or '' }}"></div>
   </div>
   <div class="rad">
-    <div><label>Fakturareferanse / «Faktura merkes med»</label><input name="faktura_ref" value="{{ p.faktura_ref or '' }}"></div>
-    <div><label>Pris</label><p class="liten dempet" style="margin-top:8px">{{ kurs.pris_nok }} kr – styres av kurset</p></div>
-    <div><label>Prisvalg</label>
+    <div><label for="f-faktura_ref">Fakturareferanse / «Faktura merkes med»</label><input id="f-faktura_ref" name="faktura_ref" value="{{ p.faktura_ref or '' }}"></div>
+    <div><div class="etikett">Pris</div><p class="liten dempet" style="margin-top:8px">{{ kurs.pris_nok }} kr – styres av kurset</p></div>
+    <div><div class="etikett">Prisvalg</div>
       {% if prisvalg_redigerbar %}
-      <select name="betaling">
+      <select name="betaling" aria-label="Prisvalg">
         <option value="samlet" {{ 'selected' if p.betaling != 'per_samling' }}>Samlet</option>
         <option value="per_samling" {{ 'selected' if p.betaling == 'per_samling' }}>Per samling</option>
       </select>
@@ -95,18 +94,17 @@
     </div>
   </div>
 
-  <label>Kommentar til faktura/påmelding</label>
-  <textarea name="faktura_kommentar" rows="2">{{ p.faktura_kommentar or '' }}</textarea>
+  <label for="f-faktura_kommentar">Kommentar til faktura/påmelding</label><textarea id="f-faktura_kommentar" name="faktura_kommentar" rows="2">{{ p.faktura_kommentar or '' }}</textarea>
 
   {% if kurs.type != 'digital' %}
   <div class="rad">
-    <div><label>Allergier/spesialkost</label><input name="allergier" value="{{ p.allergier or '' }}"></div>
-    <div><label>Behov for tilrettelegging</label><input name="tilrettelegging" value="{{ p.tilrettelegging or '' }}"></div>
+    <div><label for="f-allergier">Allergier/spesialkost</label><input id="f-allergier" name="allergier" value="{{ p.allergier or '' }}"></div>
+    <div><label for="f-tilrettelegging">Behov for tilrettelegging</label><input id="f-tilrettelegging" name="tilrettelegging" value="{{ p.tilrettelegging or '' }}"></div>
   </div>
   {% endif %}
 
-  <label>Intern kommentar <span class="liten dempet" style="text-transform:none; letter-spacing:normal">(kun synlig for administratorer)</span></label>
-  <textarea name="intern_kommentar" rows="2">{{ p.intern_kommentar or '' }}</textarea>
+  <label for="f-intern_kommentar">Intern kommentar <span class="liten dempet" style="text-transform:none; letter-spacing:normal">(kun synlig for administratorer)</span></label>
+  <textarea id="f-intern_kommentar" name="intern_kommentar" rows="2">{{ p.intern_kommentar or '' }}</textarea>
 
   <p style="margin-top:16px"><button class="liten">Lagre</button></p>
 </form>

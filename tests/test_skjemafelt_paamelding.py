@@ -140,7 +140,7 @@ def test_get_og_forhaandsvisning_viser_samme_overstyrte_skjema(con):
         assert r.status_code == 200
         assert _deltakerfelt(html) == ["arbeidssted", "hpr_nr"]
         assert "required" in _attrs(html, "arbeidssted")
-        assert '<label>Arbeidsgiver *</label>' in html
+        assert '<label for="f-arbeidssted">Arbeidsgiver *</label>' in html
         assert "Brukes på kursbeviset." in html and "Finnes i Helsepersonellregisteret." in html
         assert "required" not in _attrs(html, "hpr_nr")
     offentlig, preview = (r.get_data(as_text=True) for r in sider)
@@ -158,9 +158,9 @@ def test_forhaandsvisning_er_fortsatt_get_only_og_uten_registrering(con):
 def test_standardskjema_uten_overstyringer_er_uendret(con):
     _kurs(con, kode="STD", spesialistlop="EFT")
     html = _klient().get("/kurs/STD").get_data(as_text=True)
-    assert '<div><label>Telefon</label><input name="telefon" value=""></div>' in html
-    assert '<div><label>Arbeidssted</label><input name="arbeidssted" value=""></div>' in html
-    assert '<div><label>HPR-nummer</label><input name="hpr_nr" value=""></div>' in html
+    assert '<div><label for="f-telefon">Telefon</label><input id="f-telefon" name="telefon" value=""></div>' in html
+    assert '<div><label for="f-arbeidssted">Arbeidssted</label><input id="f-arbeidssted" name="arbeidssted" value=""></div>' in html
+    assert '<div><label for="f-hpr_nr">HPR-nummer</label><input id="f-hpr_nr" name="hpr_nr" value=""></div>' in html
     assert 'id="hjelp-' not in html and "aria-describedby" not in html
 
 
@@ -527,7 +527,7 @@ def test_toctou_skjult_i_a_synlig_i_b_ignorerer_fortsatt_verdien(con, endre_ette
     assert _post("TB", telefon="MANIPULERT").status_code == 200
     assert _deltaker(con)["telefon"] is None                              # lagret etter A
     html = _klient().get("/kurs/TB").get_data(as_text=True)              # neste request: B
-    assert "<label>Mobil</label>" in html
+    assert '<label for="f-telefon">Mobil</label>' in html
 
 
 # ============================ korrupte overstyringer / advarsler ============================
@@ -556,8 +556,8 @@ def test_korrupt_overstyring_gir_fungerende_side_uten_logging_ved_visning(con):
         html = r.get_data(as_text=True)
         assert r.status_code == 200
         assert _deltakerfelt(html) == ["telefon", "arbeidssted", "hpr_nr"]    # HPR kan ikke skjules
-        assert "<label>Telefon *</label>" in html                              # gyldig del av raden brukes
-        assert "Gyldig HPR-hjelp" in html and "<label>HPR-nummer</label>" in html
+        assert '<label for="f-telefon">Telefon *</label>' in html                              # gyldig del av raden brukes
+        assert "Gyldig HPR-hjelp" in html and '<label for="f-hpr_nr">HPR-nummer</label>' in html
         assert "HEMMELIG" not in html
     assert _antall(con, "hendelse") == foer                                     # ingen skriving ved visning
 

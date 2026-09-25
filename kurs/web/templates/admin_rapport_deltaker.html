@@ -6,7 +6,7 @@
 
 <h2>Kurs ({{ paameldinger|length }})</h2>
 <div class="tabellboks"><table>
-  <tr><th>Kurs</th><th>Påmeldingsstatus</th><th>Kursstatus</th><th>Påmeldt</th><th></th></tr>
+  <tr><th scope="col">Kurs</th><th scope="col">Påmeldingsstatus</th><th scope="col">Kursstatus</th><th scope="col">Påmeldt</th><th scope="col"></th></tr>
   {% for p in paameldinger %}
   <tr>
     <td>{{ p.kursnr }} {{ p.kurs_navn }}</td>

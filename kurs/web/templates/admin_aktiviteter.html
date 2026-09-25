@@ -1,34 +1,32 @@
 {% extends "admin_base.html" %}
 {% block innhold %}
-<h1>Aktiviteter</h1>
-<p class="sub">Oversikt over alle kurs/aktiviteter.</p>
+<div class="verktoylinje" style="align-items:flex-start">
+  <div><h1>Aktiviteter</h1><p class="sub" style="margin-bottom:0">Oversikt over alle kurs/aktiviteter.</p></div>
+  {% if admin_rolle != 'lese' %}<a class="knapp plass" href="{{ url_for('admin_ny_kurs') }}">Nytt kurs +</a>{% endif %}
+</div>
 {% set visning = 'liste' %}
 {% include "admin_aktivitet_faner.html" %}
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:16px">
-  <div><label>Søk på kursnavn eller kursnr.</label><input type="search" name="sok" value="{{ sok }}" placeholder="Navn eller kursnr."></div>
-  <div><label>Sted</label>
-    <select name="sted">
+  <div><label for="f-sok">Søk på kursnavn eller kursnr.</label><input id="f-sok" type="search" name="sok" value="{{ sok }}" placeholder="Navn eller kursnr."></div>
+  <div><label for="f-sted">Sted</label><select id="f-sted" name="sted">
       <option value="" {{ 'selected' if not sted }}>Alle steder</option>
       <option value="bergen" {{ 'selected' if sted == 'bergen' }}>Bergen</option>
       <option value="oslo" {{ 'selected' if sted == 'oslo' }}>Oslo</option>
       <option value="online" {{ 'selected' if sted == 'online' }}>Online</option>
     </select>
   </div>
-  <div><label>Ansvarlig</label>
-    <select name="ansvarlig">
+  <div><label for="f-ansvarlig">Ansvarlig</label><select id="f-ansvarlig" name="ansvarlig">
       <option value="">Alle</option>
       {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if ansvarlig == a.id }}>{{ a.navn }}</option>{% endfor %}
     </select>
   </div>
-  <div><label>Status</label>
-    <select name="status">
+  <div><label for="f-status">Status</label><select id="f-status" name="status">
       <option value="" {{ 'selected' if not status }}>Alle</option>
       {% for s in kurs_statusverdier %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ s|capitalize }}</option>{% endfor %}
     </select>
   </div>
-  <div><label>Antall rader</label>
-    <select name="antall" data-send-ved-endring>
+  <div><label for="f-antall">Antall rader</label><select id="f-antall" name="antall" data-send-ved-endring>
       {% for n in (10, 25, 50, 100) %}<option value="{{ n }}" {{ 'selected' if antall == n }}>{{ n }}</option>{% endfor %}
     </select>
   </div>
@@ -45,15 +43,15 @@
 
 <div class="tabellboks"><table>
   <tr>
-    <th>{{ sorterlenke('kursnr', 'Kursnr') }}</th>
-    <th>{{ sorterlenke('tittel', 'Tittel') }}</th>
-    <th>{{ sorterlenke('start', 'Start') }}</th>
-    <th>Sted / Online</th>
-    <th>Påmeldte / kapasitet</th>
-    <th>Totalt registrert</th>
-    <th>{{ sorterlenke('status', 'Status') }}</th>
-    <th>{{ sorterlenke('ansvarlig', 'Ansvarlig') }}</th>
-    <th></th>
+    <th scope="col">{{ sorterlenke('kursnr', 'Kursnr') }}</th>
+    <th scope="col">{{ sorterlenke('tittel', 'Tittel') }}</th>
+    <th scope="col">{{ sorterlenke('start', 'Start') }}</th>
+    <th scope="col">Sted / Online</th>
+    <th scope="col">Påmeldte / kapasitet</th>
+    <th scope="col">Totalt registrert</th>
+    <th scope="col">{{ sorterlenke('status', 'Status') }}</th>
+    <th scope="col">{{ sorterlenke('ansvarlig', 'Ansvarlig') }}</th>
+    <th scope="col"></th>
   </tr>
   {% for k in kurs %}
   <tr>
@@ -68,11 +66,11 @@
     <td class="liten" style="white-space:nowrap">
       <div style="display:flex; align-items:center; gap:8px">
         <a class="knapp liten sekundar" href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}">Rediger</a>
-        <a class="knapp liten sekundar" href="{{ url_for('admin_ny_kurs', fra=k.id) }}" title="Dupliser «{{ k.navn }}»">Dupliser</a>
+        {% if admin_rolle != 'lese' %}<a class="knapp liten sekundar" href="{{ url_for('admin_ny_kurs', fra=k.id) }}" title="Dupliser «{{ k.navn }}»">Dupliser</a>{% endif %}
       </div>
     </td>
   </tr>
-  {% else %}<tr><td colspan="9" class="dempet">Ingen kurs matcher søket.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="9" class="tom">Ingen kurs matcher søket.{% if admin_rolle != 'lese' %} <a href="{{ url_for('admin_ny_kurs') }}">Opprett et nytt kurs</a>.{% endif %}</td></tr>{% endfor %}
 </table></div>
 
 <p class="liten dempet" style="margin-top:10px">

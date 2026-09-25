@@ -23,8 +23,7 @@
 
   <form method="post" enctype="multipart/form-data">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>Velg CSV-fil</label>
-    <input type="file" name="fil" accept=".csv,text/csv" required>
+    <label for="f-fil">Velg CSV-fil</label><input id="f-fil" type="file" name="fil" accept=".csv,text/csv" required>
     <p style="margin-top:16px"><button>Forhåndsvis import</button>
       <a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Avbryt</a></p>
   </form>

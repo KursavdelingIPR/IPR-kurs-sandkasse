@@ -38,10 +38,10 @@
     <label style="font-weight:normal"><input type="checkbox" name="{{ n }}_synlig" {{ 'checked' if x.synlig }}>Vis feltet</label>
     <label style="font-weight:normal; margin-top:6px"><input type="checkbox" name="{{ n }}_obligatorisk" {{ 'checked' if x.obligatorisk }}>Obligatorisk</label>
     <p class="liten dempet" style="margin:2px 0 0">Gjelder bare når feltet vises. Innstillingen beholdes selv om feltet skjules.</p>
-    <label>Ledetekst <span class="liten dempet">(maks {{ maks_label }} tegn, tom = «{{ register[n].label }}»)</span></label>
-    <input name="{{ n }}_label" maxlength="{{ maks_label }}" value="{{ x.label }}">
-    <label>Hjelpetekst <span class="liten dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn, vises under feltet)</span></label>
-    <textarea name="{{ n }}_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ x.hjelpetekst }}</textarea>
+    <label for="f-{{ n }}-label">Ledetekst <span class="liten dempet">(maks {{ maks_label }} tegn, tom = «{{ register[n].label }}»)</span></label>
+    <input id="f-{{ n }}-label" name="{{ n }}_label" maxlength="{{ maks_label }}" value="{{ x.label }}">
+    <label for="f-{{ n }}-hjelpetekst">Hjelpetekst <span class="liten dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn, vises under feltet)</span></label>
+    <textarea id="f-{{ n }}-hjelpetekst" name="{{ n }}_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ x.hjelpetekst }}</textarea>
   </div>
   {% endfor %}
 
@@ -55,8 +55,8 @@
     <div style="display:flex; justify-content:space-between; gap:10px"><strong>HPR-nummer</strong><span><span class="merke gra">Systemstyrt</span> {{ merke(v.hpr_nr.tilpasset) }}</span></div>
     <p class="liten dempet" style="margin:6px 0 0">Vises bare når kurset er del av et spesialistløp, og er aldri obligatorisk. Kun hjelpeteksten kan endres.
       {% if kurs.spesialistlop %}Dette kurset er i spesialistløpet «{{ kurs.spesialistlop }}», så feltet vises.{% else %}Dette kurset har ikke spesialistløp, så feltet vises ikke nå.{% endif %}</p>
-    <label>Hjelpetekst <span class="liten dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn)</span></label>
-    <textarea name="hpr_nr_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ v.hpr_nr.hjelpetekst }}</textarea>
+    <label for="f-hpr_nr_hjelpetekst">Hjelpetekst <span class="liten dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn)</span></label>
+    <textarea id="f-hpr_nr_hjelpetekst" name="hpr_nr_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ v.hpr_nr.hjelpetekst }}</textarea>
   </div>
 
   <div class="kort" style="max-width:720px">

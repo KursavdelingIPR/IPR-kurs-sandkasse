@@ -8,22 +8,19 @@
 <form method="get" class="rad" style="align-items:end; margin-bottom:14px">
   <input type="hidden" name="aar" value="{{ aar }}">
   <input type="hidden" name="maned" value="{{ maned }}">
-  <div><label>Sted</label>
-    <select name="sted">
+  <div><label for="f-sted">Sted</label><select id="f-sted" name="sted">
       <option value="" {{ 'selected' if not sted }}>Alle steder</option>
       <option value="bergen" {{ 'selected' if sted == 'bergen' }}>Bergen</option>
       <option value="oslo" {{ 'selected' if sted == 'oslo' }}>Oslo</option>
       <option value="online" {{ 'selected' if sted == 'online' }}>Online</option>
     </select>
   </div>
-  <div><label>Ansvarlig</label>
-    <select name="ansvarlig">
+  <div><label for="f-ansvarlig">Ansvarlig</label><select id="f-ansvarlig" name="ansvarlig">
       <option value="">Alle</option>
       {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if ansvarlig == a.id }}>{{ a.navn }}</option>{% endfor %}
     </select>
   </div>
-  <div><label>Status</label>
-    <select name="status">
+  <div><label for="f-status">Status</label><select id="f-status" name="status">
       <option value="" {{ 'selected' if not status }}>Alle</option>
       {% for s in kurs_statusverdier %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ s|capitalize }}</option>{% endfor %}
     </select>
@@ -43,7 +40,7 @@
 <div class="tabellboks">
 <table style="table-layout:fixed; width:100%">
   <tr>
-    {% for dagnavn in ('Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn') %}<th style="width:14.28%">{{ dagnavn }}</th>{% endfor %}
+    {% for dagnavn in ('Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn') %}<th scope="col" style="width:14.28%">{{ dagnavn }}</th>{% endfor %}
   </tr>
   {% for uke in uker %}
   <tr>
