@@ -126,7 +126,13 @@
   {% endfor %}
 </table></div>
 
-<h2>Kursmateriell (SharePoint: {{ kurs.sharepoint_mappe }}/Presentasjoner)</h2>
+{% if kurs.sharepoint_mappe %}<h2>Kursmateriell (SharePoint: {{ kurs.sharepoint_mappe }}/Presentasjoner)</h2>
+{% else %}<h2>Kursmateriell</h2>
+<div class="flash info" role="status">Kurset har ingen SharePoint-mappe ennå (den kunne ikke lages da kurset ble opprettet).
+  Kursholder kan likevel laste opp – mappen lages da automatisk.
+  {% if admin_rolle != 'lese' %}<form method="post" action="{{ url_for('admin_sharepoint_mappe', kurs_id=kurs.id) }}" style="margin:8px 0 0">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten">Lag SharePoint-mappe</button></form>{% endif %}</div>
+{% endif %}
 {% if filer %}<ul>{% for f in filer %}<li>{{ f.navn }} <span class="dempet liten">({{ (f.storrelse / 1024) | round(0) | int }} kB)</span></li>{% endfor %}</ul>
 {% else %}<p class="dempet">Ingen filer ennå. Kursholder laster opp via opplastingslenken i purre-e-posten.</p>{% endif %}
 {% endblock %}

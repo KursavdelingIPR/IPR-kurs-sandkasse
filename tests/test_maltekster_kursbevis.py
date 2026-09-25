@@ -61,8 +61,12 @@ def _deltaker(con, kid, navn="Ola Nordmann", epost_="ola@x.no"):
     return pid
 
 
-def _fil(kode, deltaker_id):
-    return config.ROT / "data" / "kursbevis" / kode / f"{deltaker_id}.html"
+def _innhold(con, kode, deltaker_id):
+    """Det lagrede kursbeviset (tabellen dokument_innhold), eller None hvis det ikke er utstedt."""
+    rad = con.execute("""SELECT i.innhold FROM dokument_innhold i JOIN dokument d ON d.id=i.dokument_id
+                         JOIN kurs k ON k.id=d.kurs_id WHERE d.type='kursbevis' AND k.kode=? AND d.deltaker_id=?""",
+                      (kode, deltaker_id)).fetchone()
+    return rad["innhold"] if rad else None
 
 
 def _utsted(con):
@@ -237,7 +241,7 @@ def test_korrupt_override_gir_ingen_fil_ingen_dokumentrad_ingen_claim_ingen_mail
     _utsted(con)   # MalFeil isoleres INNE i kursbevis.kjor() - skal IKKE unnslippe til kalleren (jf. daglig.py sitt moenster)
 
     assert sendt == []
-    assert not _fil("K1", did).exists()                                                        # ingen orphan-fil
+    assert _innhold(con, "K1", did) is None                                                    # intet lagret bevis
     assert con.execute("SELECT COUNT(*) FROM dokument").fetchone()[0] == 0                      # ingen dokumentrad
     assert con.execute("SELECT COUNT(*) FROM utsending_logg").fetchone()[0] == 0                # 0 claims
     hendelser = [json.loads(r["detaljer"]) for r in con.execute(
@@ -275,7 +279,7 @@ def test_rekkefolge_render_skjer_foer_fil_og_dokumentrad(con, sendt, monkeypatch
     ekte_render = Kjoring.render_for_sending
 
     def spion(self, mal, **d):
-        observert.append((self.con.execute("SELECT COUNT(*) FROM dokument").fetchone()[0], _fil("K1", did).exists()))
+        observert.append((self.con.execute("SELECT COUNT(*) FROM dokument").fetchone()[0], _innhold(self.con, "K1", did) is not None))
         return ekte_render(self, mal, **d)
 
     monkeypatch.setattr(Kjoring, "render_for_sending", spion)
@@ -375,7 +379,7 @@ def test_retry_etter_retting_utsteder_kursbevis_uten_duplikat(con, sendt, rett):
 
     _utsted(con)                                                                # 1. forsok: MalFeil, ingen sideeffekt
     assert sendt == [] and con.execute("SELECT COUNT(*) FROM dokument").fetchone()[0] == 0
-    assert not _fil("K1", did).exists()
+    assert _innhold(con, "K1", did) is None
 
     if rett == "slett_overstyring":
         con.execute("DELETE FROM mal_tekst")
@@ -386,7 +390,7 @@ def test_retry_etter_retting_utsteder_kursbevis_uten_duplikat(con, sendt, rett):
     _utsted(con)                                                                # 2. nytt forsok: lykkes
     assert len(_mine(sendt)) == 1
     assert con.execute("SELECT COUNT(*) FROM dokument").fetchone()[0] == 1      # ett dokument, ikke to
-    assert _fil("K1", did).exists()
+    assert _innhold(con, "K1", did) is not None
     if rett == "erstatt_med_gyldig":
         assert "Rettet tekst for Ola Nordmann" in _n(_mine(sendt)[0][2])
 
@@ -426,7 +430,7 @@ def test_graph_feil_gir_ukjent_status_dokument_finnes_men_ingen_automatisk_retry
     assert len(kall) == 1
     assert con.execute("SELECT status FROM utsending_logg WHERE mottaker='ola@x.no'").fetchone()[0] == "ukjent"
     assert con.execute("SELECT COUNT(*) FROM dokument").fetchone()[0] == 1        # kursbeviset er reelt utstedt
-    assert _fil("K1", did).exists()
+    assert _innhold(con, "K1", did) is not None
 
     kursbevis.kjor(Kjoring(con, idag=IDAG))                                       # kjort paa nytt: ingen automatisk retry
     con.commit()

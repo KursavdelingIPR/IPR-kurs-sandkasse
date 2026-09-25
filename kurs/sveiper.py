@@ -363,8 +363,9 @@ def _opprett(k: Kjoring, p, kursdag_id: int | None, belop: int, linjetekst: str)
       5. visma.fakturer                   (eksternt kall, ingen laas)
       6. EN kort lokal transaksjon: INSERT faktura + oppdater kunde-id + DELETE forsok + logg, commit
 
-    Ekte faktura-rad opprettes ALDRI foer Visma har bekreftet. Taksonomien for Visma-feil er uavklart -
-    ALLE feil er 'ukjent' og proves aldri automatisk paa nytt.
+    Ekte faktura-rad opprettes ALDRI foer Visma har bekreftet. Taksonomien for Visma-feil er uavklart - alle feil er
+    'ukjent' og proves aldri automatisk paa nytt, med ETT unntak: visma.IkkeSendt (tilgangen/oppsettet feilet foer
+    noe kall mot regnskapsdata) er beviselig trygt og blir 'feilet', som proeves igjen neste kjoering.
     """
     if _faktura_finnes(k.con, p["id"], kursdag_id):
         return  # allerede fakturert – unik indeks i databasen er ekstra sikring
@@ -407,6 +408,14 @@ def _opprett(k: Kjoring, p, kursdag_id: int | None, belop: int, linjetekst: str)
 
     try:
         res = visma.fakturer(g)
+    except visma.IkkeSendt as e:
+        # Beviselig INGENTING sendt til Visma sine regnskapsdata (tilgang/oppsett feilet foer foerste kall): trygg feil,
+        # forsoeket kan tas paa nytt ved neste kjoering (reserver_faktura_pa_nytt). Ingen risiko for dobbel faktura.
+        feil = sikker_feiltekst(e)
+        db.sett_faktura_forsok_feilet(k.con, p["id"], kursdag_id, feil)
+        db.logg(k.con, "faktura_feilet", {"paamelding_id": p["id"], "kursdag_id": kursdag_id, "feil": feil})
+        k.con.commit()
+        raise
     except Exception as e:  # noqa: BLE001 - klassifisering "feilet"/"ukjent" ikke avklart enna, se send_en_gang()
         # Taksonomien for Visma-feil er IKKE avklart enna (se trinn 2.5-designet / visma.py). Inntil
         # videre klassifiseres ALT konservativt som ukjent - ALDRI automatisk retry, siden vi ikke kan

@@ -98,6 +98,13 @@ def _pg(svar=None):
     return db._PgTilkobling(raa, FALSK_PSYCOPG), raa
 
 
+def _alt_finnes(sql, p):
+    """Alt «finnes» allerede - men det er ingen gamle kursbevisfiler aa flytte (migrering 4 leser dokument-rader)."""
+    if "FROM dokument" in sql:
+        return FalskMarkor([], description=[("id",), ("url",)])
+    return FalskMarkor([_rad(x=1)], description=[("x",)])
+
+
 # ============================ plassholdere ============================
 
 @pytest.mark.parametrize("sqlite_sql,pg_sql", [
@@ -269,7 +276,7 @@ def test_har_tabell_og_kolonne_bruker_information_schema_i_postgres():
 
 
 def test_init_paa_postgres_bruker_postgres_skjemaet():
-    pg, raa = _pg(lambda sql, p: FalskMarkor([_rad(x=1)], description=[("x",)]))   # alt «finnes» allerede
+    pg, raa = _pg(_alt_finnes)
     db.init(pg)
     assert raa.kall[0][0] == (KURS_MAPPE / "schema_postgres.sql").read_text(encoding="utf-8")
     assert not any("ALTER TABLE" in sql for sql, _ in raa.kall)                      # ingen manglende kolonner
@@ -371,7 +378,7 @@ def test_migrer_i_prod_med_eksisterende_admin_krever_ikke_passord(sqlite_migreri
 def test_migrer_skriver_aldri_ut_tilkoblingsstrengen(monkeypatch, capsys):
     monkeypatch.setattr(config, "DATABASE_URL", "postgresql://bruker:HEMMELIG-PASSORD@vert/db")
     monkeypatch.setattr(config, "DEMO", True)
-    pg, _ = _pg(lambda sql, p: FalskMarkor([_rad(x=1)], description=[("x",)]))
+    pg, _ = _pg(_alt_finnes)
     monkeypatch.setattr(db, "_koble_postgres", lambda url: pg)
     assert migrer.kjor() == 0
     ut = capsys.readouterr().out

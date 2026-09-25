@@ -322,3 +322,15 @@ CREATE TABLE IF NOT EXISTS planlagt_aktivitet (
     opprettet       TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
     CHECK (til_dato >= fra_dato)
 );
+
+CREATE TABLE IF NOT EXISTS dokument_innhold (
+    dokument_id     BIGINT PRIMARY KEY REFERENCES dokument(id) ON DELETE CASCADE,
+    mimetype        TEXT NOT NULL DEFAULT 'text/html',
+    innhold         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS integrasjon_token (
+    navn            TEXT PRIMARY KEY,
+    verdi           TEXT NOT NULL,
+    oppdatert       TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
+);

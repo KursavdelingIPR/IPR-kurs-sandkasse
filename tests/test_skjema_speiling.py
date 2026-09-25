@@ -112,7 +112,7 @@ def test_parseren_ser_det_samme_som_sqlite(tmp_path):
 
 
 def test_parseren_fant_alle_tabeller_og_indekser():
-    assert len(SQLITE_TAB) == 26 and set(SQLITE_IDX) == {"faktura_unik", "faktura_forsok_unik"}
+    assert len(SQLITE_TAB) == 28 and set(SQLITE_IDX) == {"faktura_unik", "faktura_forsok_unik"}
 
 
 # ============================ speiling ============================

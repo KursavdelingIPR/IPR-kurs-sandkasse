@@ -370,3 +370,20 @@ CREATE TABLE IF NOT EXISTS planlagt_aktivitet (
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
     CHECK (til_dato >= fra_dato)
 );
+
+-- Innholdet i dokumenter systemet selv lager (i dag: kursbevis). Lagres i databasen - ikke som filer, som ikke
+-- overlever omstart/skalering i Azure App Service og ikke er med i databasens sikkerhetskopi. dokument.url er da 'db:'.
+CREATE TABLE IF NOT EXISTS dokument_innhold (
+    dokument_id     INTEGER PRIMARY KEY REFERENCES dokument(id) ON DELETE CASCADE,
+    mimetype        TEXT NOT NULL DEFAULT 'text/html',
+    innhold         TEXT NOT NULL
+);
+
+-- Tokens integrasjonene selv må fornye og huske (i dag: Visma sitt refresh-token, som byttes ut ved HVER fornyelse og
+-- ellers ville gått tapt ved omstart). Startverdien kommer fra miljøvariabel/Key Vault; deretter er denne raden fasit.
+-- Verdien logges og vises aldri.
+CREATE TABLE IF NOT EXISTS integrasjon_token (
+    navn            TEXT PRIMARY KEY,
+    verdi           TEXT NOT NULL,
+    oppdatert       TEXT NOT NULL DEFAULT (datetime('now'))
+);

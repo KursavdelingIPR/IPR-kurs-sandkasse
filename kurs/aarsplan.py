@@ -20,7 +20,7 @@ MAKS_TITTEL, MAKS_STED, MAKS_NOTAT, MAKS_DAGER = 120, 80, 1000, 366
 FORSTE_AAR, SISTE_AAR = 2000, 2100
 
 _KONTROLLTEGN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-_ISO_DATO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ISO_DATO = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 class AarsplanFeil(ValueError):
@@ -243,7 +243,7 @@ def _tekst(verdi, navn: str, maks: int, *, paakrevd: bool = False, flerlinjet: b
 
 def _dato(verdi, navn: str) -> date:
     tekst = (verdi or "").strip()
-    if not _ISO_DATO.match(tekst):
+    if not _ISO_DATO.fullmatch(tekst):
         raise AarsplanFeil(f"{navn} må være en dato (ÅÅÅÅ-MM-DD).")
     try:
         d = date.fromisoformat(tekst)

@@ -231,10 +231,10 @@ def test_krever_innlogging(con):
 
 def test_migrering_3_lager_tabellen_i_en_database_uten_den(con):
     con.execute("DROP TABLE planlagt_aktivitet")
-    con.execute("DELETE FROM schema_versjon WHERE versjon=3")
+    con.execute("DELETE FROM schema_versjon WHERE versjon >= 3")             # databasen slik den var foer migrering 3
     con.commit()
     assert not db.har_tabell(con, "planlagt_aktivitet") and migreringer.gjeldende_versjon(con) == 2
-    assert migreringer.kjor_manglende(con) == [3]
+    assert migreringer.kjor_manglende(con) == list(range(3, migreringer.KODEVERSJON + 1))
     assert db.kolonner(con, "planlagt_aktivitet") == ["id", "type", "tittel", "fra_dato", "til_dato", "sted", "notat",
                                                       "opprettet_av", "opprettet"]
     assert migreringer.kjor_manglende(con) == []                             # idempotent

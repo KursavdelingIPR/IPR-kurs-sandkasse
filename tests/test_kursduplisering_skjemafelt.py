@@ -397,7 +397,7 @@ def test_db_feil_under_kopiering_ruller_tilbake_alt(con, admin, sp_kall, monkeyp
     r = _dupliser(admin, kid, kursholder_epost="k@eksempel.no", materiell_frist="2099-01-01")
     assert r.status_code == 200 and "Kunne ikke opprette kurs" in r.get_data(as_text=True)
     assert len(kall) == 2 and _telle(con) == foer                          # kurs/kursdag/skjema/materiell/hendelse
-    assert len(sp_kall) == 1                                               # dokumentert: mappen ER laget (backlog)
+    assert sp_kall == []                                                   # ingen mappe for et kurs som ikke ble lagret
 
 
 # ============================ ingen andre data kopieres ============================

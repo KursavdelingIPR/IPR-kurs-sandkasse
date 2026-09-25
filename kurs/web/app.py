@@ -679,7 +679,11 @@ def dokument(dok_id):
                                             (d["deltaker_id"] is None and _har_tilgang_kurs(did, d["kurs_id"]))))
     if not lov:
         abort(403)
-    if d["url"].startswith("lokal:"):
+    if d["url"] == "db:":                               # laget av systemet selv (kursbevis) - lagret i databasen
+        innhold = con().execute("SELECT mimetype, innhold FROM dokument_innhold WHERE dokument_id=?",
+                                (dok_id,)).fetchone() or abort(404)
+        return Response(innhold["innhold"], mimetype=innhold["mimetype"])
+    if d["url"].startswith("lokal:"):                   # eldre kursbevis som ennå ikke er migrert (migrering 4)
         rot = (config.ROT / "data").resolve()
         sti = (config.ROT / d["url"][6:]).resolve()
         if rot not in sti.parents or not sti.is_file():
@@ -709,6 +713,9 @@ def _send_fil(sti: str):
         innhold = sharepoint.hent_fil(sti)
     except (FileNotFoundError, PermissionError):
         abort(404)
+    except Exception as e:  # noqa: BLE001 - SharePoint utilgjengelig: si fra, ikke krasj
+        logging.getLogger("kurs.integrasjoner").warning("Henting fra SharePoint feilet: %s", sikker_feiltekst(e))
+        abort(503)
     filnavn = secure_filename(sti.rsplit("/", 1)[-1]) or "fil"
     return Response(innhold, mimetype="application/octet-stream",
                     headers={"Content-Disposition": f'attachment; filename="{filnavn}"', "X-Content-Type-Options": "nosniff"})
@@ -725,8 +732,8 @@ def lever(krav_id, signatur):
     kun kjente filtyper og en stoerrelsesgrense godtas, og opplastinger takbegrenses."""
     if not lenker.signatur_ok(signatur, "lever", krav_id):
         abort(404)
-    m = con().execute("SELECT m.*, k.navn AS kursnavn, k.sharepoint_mappe FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id WHERE m.id=?",
-                      (krav_id,)).fetchone() or abort(404)
+    m = con().execute("SELECT m.*, k.navn AS kursnavn, k.kode, k.sharepoint_mappe FROM materiell_krav m "
+                      "JOIN kurs k ON k.id=m.kurs_id WHERE m.id=?", (krav_id,)).fetchone() or abort(404)
     if request.method == "POST":
         sikkerhet.krev_kvote("lever")
         request.max_content_length = MATERIELL_MAKS_BYTES + 64 * 1024
@@ -746,9 +753,17 @@ def lever(krav_id, signatur):
             if len(innhold) > MATERIELL_MAKS_BYTES:
                 flash(f"Filen er for stor (maks {MATERIELL_MAKS_BYTES // (1024 * 1024)} MB).", "feil")
                 return render_template("lever.html", m=m), 413
-            if not m["sharepoint_mappe"]:
-                abort(404)
-            sharepoint.last_opp(f"{m['sharepoint_mappe']}/Presentasjoner", filnavn, innhold)
+            mappe = m["sharepoint_mappe"] or _opprett_sharepoint_mappe(m["kurs_id"], m["kode"])
+            try:
+                if not mappe:
+                    raise RuntimeError("SharePoint-mappen mangler")
+                sharepoint.last_opp(f"{mappe}/Presentasjoner", filnavn, innhold)
+            except Exception as e:  # noqa: BLE001 - opplastingen kan trygt proeves igjen (samme sti overskrives)
+                db.logg(con(), "materiell_opplasting_feilet", {"krav_id": krav_id, "feil": sikker_feiltekst(e)},
+                        aktor=f"materiell:{krav_id}")
+                con().commit()
+                flash("Filen kunne ikke lastes opp akkurat nå. Prøv igjen litt senere.", "feil")
+                return render_template("lever.html", m=m), 503
             con().execute("UPDATE materiell_krav SET levert_ts=? WHERE id=?", (db.naa_utc(), krav_id))
             db.logg(con(), "materiell_levert", {"krav_id": krav_id, "fil": filnavn}, aktor=f"materiell:{krav_id}")
             con().commit()
@@ -1071,6 +1086,36 @@ def admin_kurs(kurs_id):
 
 def _hent_kurs(kurs_id: int):
     return con().execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone() or abort(404)
+
+
+def _opprett_sharepoint_mappe(kurs_id: int, kode: str) -> str | None:
+    """Lager kursets SharePoint-mappe og lagrer stien. Kalles først NÅR kurset er lagret: en feil her stopper aldri
+    kurset, og det blir aldri en foreldreløs mappe for et kurs som ikke finnes. Idempotent - kan prøves igjen.
+    Returnerer mappen, eller None hvis den ikke kunne lages nå (feilen logges uten personopplysninger)."""
+    try:
+        mappe = sharepoint.opprett_kursmappe(kode)
+    except Exception as e:  # noqa: BLE001 - nett, Graph eller oppsett: kurset står, mappen mangler og kan lages senere
+        db.logg(con(), "sharepoint_mappe_feilet", {"kurs_id": kurs_id, "feil": sikker_feiltekst(e)}, aktor=_aktor())
+        con().commit()
+        logging.getLogger("kurs.integrasjoner").warning("SharePoint-mappe for kurs %s feilet: %s", kurs_id,
+                                                        sikker_feiltekst(e))
+        return None
+    con().execute("UPDATE kurs SET sharepoint_mappe=? WHERE id=? AND sharepoint_mappe IS NULL", (mappe, kurs_id))
+    con().commit()
+    return mappe
+
+
+@app.post("/admin/kurs/<int:kurs_id>/sharepoint-mappe")
+@krever_admin
+def admin_sharepoint_mappe(kurs_id):
+    kurs = _hent_kurs(kurs_id)
+    if kurs["sharepoint_mappe"]:
+        flash("Kurset har allerede en SharePoint-mappe.", "info")
+    elif _opprett_sharepoint_mappe(kurs_id, kurs["kode"]):
+        flash("SharePoint-mappen er laget.", "ok")
+    else:
+        flash("SharePoint-mappen kunne ikke lages nå. Prøv igjen litt senere, eller kontakt systemansvarlig.", "feil")
+    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
 
 
 @app.get("/admin/kurs/<int:kurs_id>/oppsett")
@@ -1791,7 +1836,7 @@ def admin_deltaker_behandle(kurs_id, paamelding_id):
     Ruten her gjor kun 404 for feil kurs, kall, og oversettelse av resultatet til flash-tekst.
     POST-only (GET skal ikke kunne utlose noe). utkast/avlyst blokkeres i klassifiseringen, foer noe roeres.
     """
-    kurs = _hent_kurs(kurs_id)
+    _hent_kurs(kurs_id)                           # 404 hvis kurset ikke finnes
     p = _hent_paamelding(kurs_id, paamelding_id)  # 404 hvis paameldingen ikke hoerer til dette kurset
     res = behandling.behandle_holdt_paamelding(con(), kurs_id, paamelding_id, _idag(), aktor=_aktor())
     tilbake = redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
@@ -2527,7 +2572,7 @@ def admin_ny_kurs():
                     betaling=f.get("betaling", "samlet"), faktura_dager_for=faktura_dager_for,
                     spesialistlop=f.get("spesialistlop") or None, kursholder_epost=f.get("kursholder_epost") or None,
                     notat=f.get("notat") or None, ansvarlig_admin_id=f.get("ansvarlig_admin_id", type=int),
-                    paameldingsfrist=paameldingsfrist, sharepoint_mappe=sharepoint.opprett_kursmappe(kode),
+                    paameldingsfrist=paameldingsfrist,
                 )
                 if er_duplikat:
                     # Et duplisert kurs skal gjennomgås og åpnes bevisst - ikke være synlig/åpent for påmelding med en gang.
@@ -2541,8 +2586,13 @@ def admin_ny_kurs():
                     con().execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
                                   (kid, f.get("kursholder_navn") or f["kursholder_epost"], f["kursholder_epost"], f["materiell_frist"]))
             kursnr = con().execute("SELECT kursnr FROM kurs WHERE id=?", (kid,)).fetchone()["kursnr"]
-            flash(f"Kurset er opprettet med kursnummer {kursnr}, og har fått påmeldingsside, SharePoint-mappe og "
-                  "innsjekkkoder.", "ok")
+            if _opprett_sharepoint_mappe(kid, kode):   # ekstern sideeffekt: først når kurset er lagret
+                flash(f"Kurset er opprettet med kursnummer {kursnr}, og har fått påmeldingsside, SharePoint-mappe og "
+                      "innsjekkkoder.", "ok")
+            else:
+                flash(f"Kurset er opprettet med kursnummer {kursnr}, og har fått påmeldingsside og innsjekkkoder. "
+                      "SharePoint-mappen kunne ikke lages akkurat nå – bruk knappen «Lag SharePoint-mappe» under "
+                      "Kursmateriell for å prøve igjen.", "info")
             if kopi_advarsel:
                 flash(_SKJEMA_KOPI_ADVARSEL, "info")
             if side_advarsel:

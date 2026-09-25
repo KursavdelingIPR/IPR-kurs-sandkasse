@@ -91,10 +91,17 @@ def _zoom(k, kurs, forste, utsett: bool = False):
         k.si("  [TØRR] oppretter Zoom-møte")
         return kurs
     m = zoom.opprett_mote(kurs["navn"])
-    k.con.execute("UPDATE kurs SET zoom_url=?, zoom_id=?, zoom_pw=? WHERE id=?",
-                  (m["join_url"], str(m["id"]), m.get("password"), kurs["id"]))
-    db.logg(k.con, "zoom_opprettet", {"kurs_id": kurs["id"], "zoom_id": m["id"]})
-    k.si(f"  Zoom-møte opprettet: {m['join_url']}")
+    # Lagres og committes STRAKS (før e-postene som inneholder lenken): en senere feil i samme kjøring skal aldri kunne
+    # rulle tilbake lenken, slik at neste kjøring lager et nytt møte med en annen lenke enn den deltakerne alt har fått.
+    # «AND zoom_url IS NULL»: en lenke admin har lagt inn i mellomtiden overskrives aldri.
+    lagret = k.con.execute("UPDATE kurs SET zoom_url=?, zoom_id=?, zoom_pw=? WHERE id=? AND zoom_url IS NULL",
+                           (m["join_url"], str(m["id"]), m.get("password"), kurs["id"])).rowcount == 1
+    db.logg(k.con, "zoom_opprettet" if lagret else "zoom_mote_ubrukt", {"kurs_id": kurs["id"], "zoom_id": m["id"]})
+    k.con.commit()
+    if lagret:
+        k.si(f"  Zoom-møte opprettet (møte-ID {m['id']})")   # aldri selve lenken i loggen (den gir adgang til møtet)
+    else:
+        k.si(f"  Zoom-møte {m['id']} ble ikke brukt: kurset fikk en lenke i mellomtiden (kan slettes i Zoom)")
     return k.con.execute("SELECT * FROM kurs WHERE id=?", (kurs["id"],)).fetchone()
 
 

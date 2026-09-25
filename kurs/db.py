@@ -324,6 +324,18 @@ def neste_teller(con, navn: str) -> int:
     return int(rad["verdi"])
 
 
+def hent_integrasjonstoken(con, navn: str) -> str | None:
+    rad = con.execute("SELECT verdi FROM integrasjon_token WHERE navn=?", (navn,)).fetchone()
+    return rad["verdi"] if rad else None
+
+
+def lagre_integrasjonstoken(con, navn: str, verdi: str) -> None:
+    """Lagrer (eller erstatter) et token. Kalleren committer. Verdien skal aldri logges."""
+    con.execute("""INSERT INTO integrasjon_token (navn, verdi, oppdatert) VALUES (?,?,?)
+                   ON CONFLICT (navn) DO UPDATE SET verdi=excluded.verdi, oppdatert=excluded.oppdatert""",
+                (navn, verdi, naa_utc()))
+
+
 def har_tabell(con, tabell: str) -> bool:
     if er_postgres(con):
         sql = ("SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() "

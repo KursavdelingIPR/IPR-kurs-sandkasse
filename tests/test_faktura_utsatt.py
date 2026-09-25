@@ -679,6 +679,29 @@ def test_m_visma_ukjent_gir_ingen_automatisk_nytt_forsok_og_ingen_dobbeltfaktura
     assert _tilstand(con, pid)[0] == 1                                                  # sveiper_kjort uendret (hold-kjeden var ferdig)
 
 
+def test_m2_visma_ikke_sendt_er_trygg_feil_som_proves_igjen_uten_dobbeltfaktura(con, ute, monkeypatch):
+    """visma.IkkeSendt (tilgangen feilet FOER noe kall mot regnskapsdata) er den ene trygge feilen: forsoeket blir
+    'feilet' og tas paa nytt neste kjoering - og det blir aldri mer enn én faktura."""
+    kid, pid = _hold(con, ute)
+    ekte, forsok = visma.fakturer, []
+
+    def tilgang_nede_forste_gang(g):
+        forsok.append(1)
+        if len(forsok) == 1:
+            raise visma.IkkeSendt("Visma-tilgangen kunne ikke fornyes (HTTP 503).")
+        return ekte(g)
+    monkeypatch.setattr(visma, "fakturer", tilgang_nede_forste_gang)
+    daglig.kjor(Kjoring(con, idag=GRENSE))
+    rad = con.execute("SELECT status, feilmelding FROM faktura_forsok WHERE paamelding_id=?", (pid,)).fetchone()
+    assert (rad["status"], rad["feilmelding"]) == ("feilet", "IkkeSendt") and _antall(con, "faktura") == 0
+    assert con.execute("SELECT COUNT(*) FROM hendelse WHERE handling='faktura_feilet'").fetchone()[0] == 1
+    daglig.kjor(Kjoring(con, idag=GRENSE + timedelta(days=1)))
+    assert forsok == [1, 1] and _antall(con, "faktura") == 1
+    assert con.execute("SELECT COUNT(*) FROM faktura_forsok WHERE paamelding_id=?", (pid,)).fetchone()[0] == 0
+    daglig.kjor(Kjoring(con, idag=GRENSE + timedelta(days=2)))
+    assert forsok == [1, 1] and _antall(con, "faktura") == 1                           # aldri dobbelt
+
+
 def test_en_feil_paa_en_utsatt_faktura_stopper_ikke_de_andre(con, ute, monkeypatch):
     kid, pid = _hold(con, ute)
     andre = _paamelding(con, kid, "b@x.no")

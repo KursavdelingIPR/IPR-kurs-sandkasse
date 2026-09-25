@@ -60,8 +60,12 @@ def _deltaker(con, kid, navn="Ola Nordmann", epost_="ola@x.no", moter=None):
     return pid
 
 
-def _fil(kode, deltaker_id):
-    return config.ROT / "data" / "kursbevis" / kode / f"{deltaker_id}.html"
+def _innhold(con, kode, deltaker_id):
+    """Det lagrede kursbeviset (tabellen dokument_innhold), eller None hvis det ikke er utstedt."""
+    rad = con.execute("""SELECT i.innhold FROM dokument_innhold i JOIN dokument d ON d.id=i.dokument_id
+                         JOIN kurs k ON k.id=d.kurs_id WHERE d.type='kursbevis' AND k.kode=? AND d.deltaker_id=?""",
+                      (kode, deltaker_id)).fetchone()
+    return rad["innhold"] if rad else None
 
 
 def _utsted(con):
@@ -71,9 +75,10 @@ def _utsted(con):
 
 def _bevis(con, kode="K1", navn="Ola Nordmann"):
     """Returnerer (normalisert html, dokument-rad, deltaker_id) for det utstedte beviset."""
-    d = con.execute("SELECT * FROM dokument WHERE type='kursbevis' AND url LIKE ?", (f"%/{kode}/%",)).fetchone()
+    d = con.execute("SELECT d.* FROM dokument d JOIN kurs k ON k.id=d.kurs_id WHERE d.type='kursbevis' AND k.kode=?",
+                    (kode,)).fetchone()
     assert d is not None, "ingen kursbevis utstedt"
-    return _n(_fil(kode, d["deltaker_id"]).read_text(encoding="utf-8")), d, d["deltaker_id"]
+    return _n(_innhold(con, kode, d["deltaker_id"])), d, d["deltaker_id"]
 
 
 # ============================ innhold: faste elementer ============================
@@ -170,8 +175,8 @@ def test_lagring_dokumentrad_og_filsti(con, sendt):
     _, dok, did = _bevis(con)
     assert dok["kurs_id"] == kid and dok["type"] == "kursbevis" and dok["publisert"] == 1
     assert dok["tittel"] == "Kursbevis – Veiledning i praksis"
-    assert dok["url"] == f"lokal:data/kursbevis/K1/{did}.html"
-    assert _fil("K1", did).exists()
+    assert dok["url"] == "db:"                                                  # lagret i databasen, ikke som fil
+    assert _innhold(con, "K1", did) is not None and not (config.ROT / "data").exists()
 
 
 def test_kursbevis_varsles_paa_epost_med_lenke_til_min_side(con, sendt):
@@ -217,7 +222,7 @@ def test_utstedt_kursbevis_regenereres_aldri_og_paavirkes_ikke_av_senere_malendr
     _deltaker(con, kid)
     _utsted(con)
     _, dok, did = _bevis(con)
-    for_ = _fil("K1", did).read_bytes()
+    for_ = _innhold(con, "K1", did)
 
     class _AnnenMal:
         def render(self, **kw):
@@ -226,6 +231,6 @@ def test_utstedt_kursbevis_regenereres_aldri_og_paavirkes_ikke_av_senere_malendr
     monkeypatch.setattr(kursbevis._env, "get_template", lambda navn: kalt.append(navn) or _AnnenMal())
     _utsted(con)                                                                   # kjorer daglig jobb igjen
     assert kalt == []                                                              # malen brukes ikke paa nytt
-    assert _fil("K1", did).read_bytes() == for_
+    assert _innhold(con, "K1", did) == for_
     assert con.execute("SELECT COUNT(*) FROM dokument WHERE type='kursbevis'").fetchone()[0] == 1
     assert len(sendt) == 1                                                         # og ingen ny e-post

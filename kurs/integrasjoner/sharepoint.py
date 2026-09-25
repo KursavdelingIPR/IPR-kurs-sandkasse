@@ -9,25 +9,54 @@ Struktur i dokumentbiblioteket:
   Kurs/<kurskode>/Deltakere/<epost>/... -> personlige dokumenter (kontrakt o.l.)
 
 Demo: samme struktur under data/sharepoint_demo/.
+
+Microsoft Graph (drift) - dokumenterte kall, testet med etterligning (tests/test_integrasjoner.py), IKKE mot en ekte
+tenant ennå:
+  * mappe:  POST /sites/{site}/drive/root[:/{forelder}:]/children  {"name", "folder": {}, conflictBehavior: "fail"}
+            409 (nameAlreadyExists) = mappen finnes - kallet er dermed idempotent og kan aldri erstatte en mappe.
+            Graph lager ikke mellomnivåer selv, så Kurs, Kurs/<kode> og undermappene lages hver for seg.
+  * liste:  GET  .../drive/root:/{mappe}:/children
+  * hent:   GET  .../drive/root:/{sti}:/content          (404 -> FileNotFoundError)
+  * last opp: PUT .../drive/root:/{sti}:/content         (enkel opplasting, filer opp til 4 MB i ett kall)
 """
-from pathlib import Path
+import re
 from urllib.parse import quote
+
+import requests
 
 from .. import config
 from . import m365
 
 DEMO_ROT = config.ROT / "data" / "sharepoint_demo"
+_KURSKODE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,79}")      # db.generer_kode lager f.eks. EFT-2027-2
+UNDERMAPPER = ("Presentasjoner", "Deltakere")
+
+
+def _sikre_mappe(forelder: str, navn: str) -> None:
+    """Lager mappen `navn` under `forelder` ('' = rot) hvis den ikke finnes. Eksisterer den (409), er alt i orden."""
+    sted = f":/{quote(forelder)}:" if forelder else ""
+    try:
+        m365.graph("POST", f"/sites/{config.SHAREPOINT_SITE_ID}/drive/root{sted}/children",
+                   json={"name": navn, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"})
+    except requests.HTTPError as e:
+        if e.response is None or e.response.status_code != 409:
+            raise
 
 
 def opprett_kursmappe(kurskode: str) -> str:
+    """Kurs/<kode> med undermappene. Idempotent: kan kjøres på nytt (f.eks. etter en feil) uten å røre innholdet."""
+    if not _KURSKODE.fullmatch(kurskode or ""):          # fullmatch: ogsaa et avsluttende linjeskift avvises
+        raise ValueError("Ugyldig kurskode for SharePoint-mappe")
+    mappe = f"Kurs/{kurskode}"
     if config.DEMO:
-        for under in ("Presentasjoner", "Deltakere"):
-            (DEMO_ROT / "Kurs" / kurskode / under).mkdir(parents=True, exist_ok=True)
-        return f"Kurs/{kurskode}"
-    for under in ("Presentasjoner", "Deltakere"):
-        m365.graph("POST", f"/sites/{config.SHAREPOINT_SITE_ID}/drive/root:/Kurs/{quote(kurskode)}:/children", json={
-            "name": under, "folder": {}, "@microsoft.graph.conflictBehavior": "replace"})
-    return f"Kurs/{kurskode}"
+        for under in UNDERMAPPER:
+            (DEMO_ROT / mappe / under).mkdir(parents=True, exist_ok=True)
+        return mappe
+    _sikre_mappe("", "Kurs")
+    _sikre_mappe("Kurs", kurskode)
+    for under in UNDERMAPPER:
+        _sikre_mappe(mappe, under)
+    return mappe
 
 
 def list_filer(mappe: str) -> list[dict]:
@@ -50,7 +79,12 @@ def hent_fil(sti: str) -> bytes:
         if DEMO_ROT.resolve() not in full.parents:
             raise PermissionError(sti)
         return full.read_bytes()
-    return m365.graph("GET", f"/sites/{config.SHAREPOINT_SITE_ID}/drive/root:/{quote(sti)}:/content").content
+    try:
+        return m365.graph("GET", f"/sites/{config.SHAREPOINT_SITE_ID}/drive/root:/{quote(sti)}:/content").content
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            raise FileNotFoundError(sti) from None
+        raise
 
 
 def last_opp(mappe: str, filnavn: str, innhold: bytes) -> str:

@@ -16,7 +16,7 @@ tabeller «paa direkten». Regler:
 """
 import re
 
-from . import db
+from . import config, db
 
 KURSNR_START = 1000   # foerste kursnummer blir 1001
 
@@ -76,10 +76,32 @@ def _m3_aarsplan(con) -> None:
     _opprett_tabell_fra_skjema(con, "planlagt_aktivitet")
 
 
+def _m4_kursbevis_i_database(con) -> None:
+    """Kursbevis lagres i databasen (tabellen dokument_innhold) i stedet for som filer under data/kursbevis/, som ikke
+    overlever omstart/skalering i Azure og ikke er med i databasens sikkerhetskopi. Eksisterende kursbevisfiler flyttes
+    inn (url blir 'db:'). Filene slettes IKKE (kan fjernes manuelt etter kontroll). Mangler en fil, staar raden uroert."""
+    _opprett_tabell_fra_skjema(con, "dokument_innhold")
+    rot = (config.ROT / "data").resolve()
+    for rad in con.execute("SELECT id, url FROM dokument WHERE url LIKE 'lokal:data/kursbevis/%' ORDER BY id").fetchall():
+        sti = (config.ROT / rad["url"][len("lokal:"):]).resolve()
+        if rot not in sti.parents or not sti.is_file():
+            continue
+        con.execute("INSERT INTO dokument_innhold (dokument_id, mimetype, innhold) VALUES (?,?,?) "
+                    "ON CONFLICT (dokument_id) DO NOTHING", (rad["id"], "text/html", sti.read_text(encoding="utf-8")))
+        con.execute("UPDATE dokument SET url='db:' WHERE id=?", (rad["id"],))
+
+
+def _m5_integrasjonstoken(con) -> None:
+    """Tabellen integrasjon_token: varig lagring av tokens som roteres (Visma sitt refresh-token). Ren tilfoeyelse."""
+    _opprett_tabell_fra_skjema(con, "integrasjon_token")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
     (3, "aarsplan", _m3_aarsplan),
+    (4, "kursbevis_i_database", _m4_kursbevis_i_database),
+    (5, "integrasjonstoken", _m5_integrasjonstoken),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

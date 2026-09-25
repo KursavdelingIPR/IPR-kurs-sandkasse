@@ -1,7 +1,7 @@
 """Kursbevis for avsluttede kurs.
 
-Lages som HTML (kan skrives ut / lagres som PDF fra nettleseren). Hvis weasyprint er installert
-lages PDF direkte. Legges paa Min side og varsles paa e-post.
+Lages som HTML (kan skrives ut / lagres som PDF fra nettleseren) og lagres i databasen (tabellen dokument_innhold).
+Legges paa Min side og varsles paa e-post.
 
 Terskel for kursbevis (andel dager med oppmote) er et spørsmål til kartleggingen – default 100 %.
 For kurs i et spesialistlop vises akkumulert timetall paa tvers av alle samlinger.
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from . import config, db, maltekster
+from . import db, maltekster
 from .kjoring import Kjoring
 
 MIN_ANDEL = 1.0
@@ -63,12 +63,11 @@ def kjor(k: Kjoring) -> None:
             timer=len(mott) * r["timer_pr_dag"],
             lop_timer=timer_i_lop(k.con, r["deltaker_id"], r["spesialistlop"]) if r["spesialistlop"] else None,
         )
-        mappe = config.ROT / "data" / "kursbevis" / r["kode"]
-        mappe.mkdir(parents=True, exist_ok=True)
-        fil = mappe / f"{r['deltaker_id']}.html"
-        fil.write_text(bevis_html, encoding="utf-8")
-        k.con.execute(
-            "INSERT INTO dokument (kurs_id, deltaker_id, type, tittel, url) VALUES (?,?,?,?,?)",
-            (r["id"], r["deltaker_id"], "kursbevis", f"Kursbevis – {r['navn']}", f"lokal:{fil.relative_to(config.ROT).as_posix()}"))
+        # Lagres i databasen (dokument_innhold), ikke som fil: overlever omstart/skalering i Azure og er med i backup.
+        dok_id = db.sett_inn(
+            k.con, "INSERT INTO dokument (kurs_id, deltaker_id, type, tittel, url) VALUES (?,?,?,?,?)",
+            (r["id"], r["deltaker_id"], "kursbevis", f"Kursbevis – {r['navn']}", "db:"))
+        k.con.execute("INSERT INTO dokument_innhold (dokument_id, mimetype, innhold) VALUES (?,?,?)",
+                      (dok_id, "text/html", bevis_html))
         k.send_ferdigrendret_en_gang(f"kurs:{r['id']}", r["epost"], "kursbevis", emne, epost_html,
                                      paamelding_id=r["pid"])
