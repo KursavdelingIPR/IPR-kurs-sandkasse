@@ -2,7 +2,7 @@
 {% block nav %}
 {% set her = request.endpoint or '' %}
 <a href="{{ url_for('admin') }}" {% if her == 'admin' %}aria-current="page"{% endif %}>Oversikt</a>
-<a href="{{ url_for('admin_aktiviteter') }}" {% if her.startswith('admin_aktiviteter') or her.startswith('admin_kalender') or her.startswith('admin_kurs') or her.startswith('admin_ny_kurs') or her.startswith('admin_deltaker') or her.startswith('admin_epost') or her.startswith('admin_bulk') or her.startswith('admin_import') or her.startswith('admin_kurshjul') %}aria-current="page"{% endif %}>Aktiviteter</a>
+<a href="{{ url_for('admin_aktiviteter') }}" {% if her.startswith('admin_aktiviteter') or her.startswith('admin_kalender') or her.startswith('admin_kurs') or her.startswith('admin_ny_kurs') or her.startswith('admin_deltaker') or her.startswith('admin_epost') or her.startswith('admin_bulk') or her.startswith('admin_import') or her.startswith('admin_aarsplan') %}aria-current="page"{% endif %}>Aktiviteter</a>
 <a href="{{ url_for('admin_rapporter') }}" {% if her.startswith('admin_rapport') %}aria-current="page"{% endif %}>Rapporter</a>
 <a href="{{ url_for('admin_maltekster') }}" {% if her.startswith('admin_maltekst') %}aria-current="page"{% endif %}>E-postmaler</a>
 <a href="{{ url_for('admin_kunnskap') }}" {% if her.startswith('admin_kunnskap') %}aria-current="page"{% endif %}>Kunnskapsbase</a>

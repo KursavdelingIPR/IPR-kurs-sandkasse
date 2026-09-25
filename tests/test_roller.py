@@ -100,7 +100,7 @@ def test_migrering_2_gir_eksisterende_brukere_systemrolle(tmp_path, monkeypatch)
     raa.commit()
     raa.close()
     c = db.koble()
-    assert db.init(c) == [2]
+    assert db.init(c) == list(range(2, migreringer.KODEVERSJON + 1))   # 2 og alle senere
     assert [tuple(r) for r in c.execute("SELECT brukernavn, rolle, entra_oid FROM admin_bruker ORDER BY id")] == [
         ("a", "system", None), ("b", "system", None)]
     assert migreringer.gjeldende_versjon(c) == migreringer.KODEVERSJON

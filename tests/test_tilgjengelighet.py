@@ -2,7 +2,7 @@
 
   * hvert skjemafelt (input/select/textarea, unntatt hidden) har en ledetekst: <label for=id>, er inni en <label>,
     eller har aria-label
-  * tabeller har <th scope="col">
+  * tabeller har <th scope="col"> (eller scope="row" for radoverskrifter)
   * hopp-til-innhold-lenke og <main id="innhold">
   * flash-meldinger har role=alert/status
   * «Nytt kurs +» finnes paa Aktiviteter og Oversikt, men ikke i toppmenyen (ingen duplisert navigasjon)
@@ -40,7 +40,8 @@ def test_alle_skjemafelt_har_ledetekst(fil):
 @pytest.mark.parametrize("fil", sorted(p.name for p in MALER.glob("admin*.html")))
 def test_tabelloverskrifter_har_scope(fil):
     html = (MALER / fil).read_text(encoding="utf-8")
-    assert not re.search(r"<th(\s[^>]*)?>", html.replace('<th scope="col"', "")), fil
+    uten_scope = html.replace('<th scope="col"', "").replace('<th scope="row"', "")
+    assert not re.search(r"<th(\s[^>]*)?>", uten_scope), fil
 
 
 def test_ingen_inline_stil_for_fargekoding_alene():

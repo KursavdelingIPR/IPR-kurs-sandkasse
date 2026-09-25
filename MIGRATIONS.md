@@ -29,6 +29,8 @@ python -m kurs.migrer              # kjør manglende migreringer (idempotent –
 | Nr | Navn | Hva | Rollback |
 |---|---|---|---|
 | 1 | `kursnummer` | Kolonnen `kurs.kursnr` (permanent numerisk kursnummer), telleren `teller('kursnr')`, nummer til alle eksisterende kurs i stigende id-rekkefølge (1001, 1002 …). | Ny kode er ikke avhengig av at raden i `schema_versjon` finnes for å vise sider, men **eldre kode** ignorerer kolonnen. Rollback = gjenopprett sikkerhetskopi tatt før migreringen. Kolonnen kan stå igjen ubrukt uten skade. |
+| 2 | `roller` | Kolonnene `admin_bruker.rolle` (system/kursadmin/lese), `entra_oid` (unik) og `epost`. Alle eksisterende brukere får rollen `system`, så ingen mister tilgang. | Eldre kode ignorerer kolonnene. Rollback = forrige kode + gjenopprett sikkerhetskopi. Kolonnene kan stå igjen ubrukt. |
+| 3 | `aarsplan` | Ny tabell `planlagt_aktivitet` (planlagte aktiviteter og notater i årsplanen). Ingen eksisterende tabell endres. Tabellen lages fra definisjonen i skjemafilen, så ny og migrert database blir like. | Eldre kode ignorerer tabellen. Rollback = forrige kode; tabellen kan stå igjen, eller fjernes med `DROP TABLE planlagt_aktivitet` (mister da planene). |
 
 ## Prosedyre i drift (Azure, PostgreSQL)
 

@@ -14,6 +14,8 @@ tabeller «paa direkten». Regler:
   * Appen og den daglige jobben nekter aa kjoere mot en database med en annen versjon enn koden forventer
     (kontroller()) - baade en umigrert og en NYERE database gir en tydelig feil, aldri stille feil oppfoersel.
 """
+import re
+
 from . import db
 
 KURSNR_START = 1000   # foerste kursnummer blir 1001
@@ -56,9 +58,28 @@ def _m2_roller(con) -> None:
         con.execute("ALTER TABLE admin_bruker ADD COLUMN epost TEXT")
 
 
+def _opprett_tabell_fra_skjema(con, tabell: str) -> None:
+    """Oppretter en NY tabell med definisjonen fra riktig skjemafil (schema.sql / schema_postgres.sql), slik at
+    migreringen og en ny database alltid faar noeyaktig samme tabell. Gjoer ingenting hvis tabellen finnes."""
+    if db.har_tabell(con, tabell):
+        return
+    skjema = (db._SCHEMA_POSTGRES if db.er_postgres(con) else db._SCHEMA).read_text(encoding="utf-8")
+    treff = re.search(rf"^CREATE TABLE IF NOT EXISTS {re.escape(tabell)} \(.*?^\);", skjema, re.S | re.M)
+    if not treff:
+        raise VersjonsFeil(f"Tabellen {tabell} mangler i skjemafilen.")
+    con.execute(treff.group(0).rstrip(";"))
+
+
+def _m3_aarsplan(con) -> None:
+    """Aarsplan / kurshjul: tabellen planlagt_aktivitet (planlagte aktiviteter og notater). Ren tilfoeyelse - ingen
+    eksisterende tabell endres."""
+    _opprett_tabell_fra_skjema(con, "planlagt_aktivitet")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
+    (3, "aarsplan", _m3_aarsplan),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

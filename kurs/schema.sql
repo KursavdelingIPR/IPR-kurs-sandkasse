@@ -355,3 +355,18 @@ CREATE TABLE IF NOT EXISTS kurs_skjemafelt (
     oppdatert_av    TEXT,                           -- aktor, f.eks. 'admin:kari'
     PRIMARY KEY (kurs_id, felt)
 );
+
+-- Årsplan / kurshjul: planlagte (foreløpige) aktiviteter og notater som ennå ikke er kurs. Vises sammen med kursdagene
+-- i årsplanen. 'plan' opptar datoene (teller i overlapp og ledige perioder), 'notat' er bare en påminnelse.
+CREATE TABLE IF NOT EXISTS planlagt_aktivitet (
+    id              INTEGER PRIMARY KEY,
+    type            TEXT NOT NULL DEFAULT 'plan' CHECK (type IN ('plan','notat')),
+    tittel          TEXT NOT NULL,
+    fra_dato        TEXT NOT NULL,                  -- ISO yyyy-mm-dd
+    til_dato        TEXT NOT NULL,                  -- ISO yyyy-mm-dd, lik fra_dato for én dag
+    sted            TEXT,
+    notat           TEXT,                           -- ren tekst, kun internt
+    opprettet_av    TEXT,                           -- aktor, f.eks. 'admin:kari'
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (til_dato >= fra_dato)
+);

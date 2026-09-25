@@ -22,8 +22,8 @@ from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
-from .. import (behandling, config, daglig, db, deltakerliste, import_deltakere, lenker, mal_eksempler, maltekster,
-                migreringer, paameldingsside, skjemafelt, sveiper)
+from .. import (aarsplan, behandling, config, daglig, db, deltakerliste, import_deltakere, lenker, mal_eksempler,
+                maltekster, migreringer, paameldingsside, skjemafelt, sveiper)
 from ..deltakerliste import fakturastatus as _fakturastatus
 from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
@@ -1010,6 +1010,55 @@ def admin_kalender():
         forrige_lenke=maanedlenke(forrige_aar, forrige_maned), neste_lenke=maanedlenke(neste_aar, neste_maned),
         nullstill_lenke=url_for("admin_kalender", aar=aar, maned=maned),
         ansvarlig=ansvarlig, status=status, sted=sted, admins=admins, kurs_statusverdier=KURS_STATUSVERDIER)
+
+
+def _vis_aarsplan(aar: int, skjema=None, status: int = 200):
+    idag = _idag()
+    plan = aarsplan.hent(con(), aar)
+    return render_template(
+        "admin_aarsplan.html", aar=aar, idag=idag, visning="aarsplan", rutenett=aarsplan.rutenett(plan, idag),
+        maaneder=aarsplan.per_maaned(plan), overlapp=aarsplan.overlapp(plan), ledige=aarsplan.ledige_perioder(plan),
+        antall_kurs=len(plan.kurs), antall_kursdager=sum(len(k["datoer"]) for k in plan.kurs),
+        antall_planer=sum(p["type"] == "plan" for p in plan.planer), skjema=skjema or {}), status
+
+
+@app.get("/admin/aktiviteter/aarsplan")
+@krever_admin
+def admin_aarsplan():
+    """Årsplan (kurshjul): alle kurs i året automatisk, pluss planlagte aktiviteter og notater, overlapp og ledige
+    perioder. Se kurs/aarsplan.py."""
+    aar = request.args.get("aar", type=int) or _idag().year
+    if not aarsplan.FORSTE_AAR <= aar <= aarsplan.SISTE_AAR:
+        aar = _idag().year
+    return _vis_aarsplan(aar)
+
+
+@app.post("/admin/aktiviteter/aarsplan/ny")
+@krever_admin
+def admin_aarsplan_ny():
+    try:
+        verdier = aarsplan.valider(request.form)
+    except aarsplan.AarsplanFeil as e:
+        flash(str(e), "feil")
+        aar = request.form.get("aar", type=int) or _idag().year
+        if not aarsplan.FORSTE_AAR <= aar <= aarsplan.SISTE_AAR:
+            aar = _idag().year
+        return _vis_aarsplan(aar, skjema=request.form, status=400)
+    with db.transaksjon(con()):
+        aarsplan.opprett(con(), verdier, _aktor())
+    flash(f"{aarsplan.TYPER[verdier['type']]} lagt inn i årsplanen.", "ok")
+    return redirect(url_for("admin_aarsplan", aar=int(verdier["fra_dato"][:4])))
+
+
+@app.post("/admin/aktiviteter/aarsplan/<int:plan_id>/slett")
+@krever_admin
+def admin_aarsplan_slett(plan_id):
+    with db.transaksjon(con()):
+        rad = aarsplan.slett(con(), plan_id, _aktor())
+    if not rad:
+        abort(404)
+    flash("Fjernet fra årsplanen.", "ok")
+    return redirect(url_for("admin_aarsplan", aar=int(rad["fra_dato"][:4])))
 
 
 # ------- kursadministrasjon: faner -------
