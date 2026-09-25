@@ -6,6 +6,7 @@
 <p class="liten"><a href="{{ url_for('kursside', kode=kurs.kode) }}">← Meld på én person i stedet</a></p>
 
 <form method="post" class="kort" style="max-width:900px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <strong>Kontaktperson og firma</strong>
   <div class="rad">
     <div><label>Kontaktperson – navn *</label><input name="kontakt_navn" required value="{{ f.kontakt_navn or '' }}"></div>
@@ -63,23 +64,4 @@
   <p style="margin-top:16px"><button>Meld på gruppen</button></p>
 </form>
 
-<script>
-function oppdaterFjernKnapper() {
-  var flereEnnEn = document.querySelectorAll('.deltaker-rad').length > 1;
-  document.querySelectorAll('.fjern-rad').forEach(function (knapp) { knapp.hidden = !flereEnnEn; });
-}
-document.getElementById('legg-til-rad').addEventListener('click', function () {
-  var mal = document.getElementById('rad-mal');
-  document.getElementById('deltaker-rader').appendChild(mal.content.cloneNode(true));
-  oppdaterFjernKnapper();
-});
-document.getElementById('deltaker-rader').addEventListener('click', function (e) {
-  if (!e.target.classList.contains('fjern-rad')) return;
-  if (document.querySelectorAll('.deltaker-rad').length > 1) {
-    e.target.closest('.deltaker-rad').remove();
-    oppdaterFjernKnapper();
-  }
-});
-oppdaterFjernKnapper();
-</script>
 {% endblock %}

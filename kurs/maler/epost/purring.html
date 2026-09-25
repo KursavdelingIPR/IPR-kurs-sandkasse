@@ -3,6 +3,6 @@ Emne: {% if igjen > 0 %}{{ maltekst.emne_frist_om_dager }}{% else %}{{ maltekst.
 {{ maltekst.innledning }}
 {#- LAAST SYSTEMBLOKK: opplastingslenken. Bygges av systemet fra materiell-kravets id (ikke hemmelig - staar allerede
     i URL-en i dag), aldri fra admintekst. -#}
-<p><a href="{{ base_url }}/lever/{{ m.id }}">Last opp her</a> – så blir materiellet automatisk tilgjengelig for deltakerne.</p>
+<p><a href="{{ lever_lenke }}">Last opp her</a> – så blir materiellet automatisk tilgjengelig for deltakerne.</p>
 {{ maltekst.avslutning }}
 {% endblock %}

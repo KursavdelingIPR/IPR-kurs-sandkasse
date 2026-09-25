@@ -144,6 +144,9 @@ def test_migrering_kjoerer_i_egen_transaksjon_og_registreres_ikke_ved_feil(con, 
 def test_appen_svarer_503_i_drift_til_migreringen_er_kjoert(con, monkeypatch):
     from kurs.web import app as webapp
     monkeypatch.setattr(config, "DEMO", False)
+    monkeypatch.setattr(config, "HEMMELIG_NOKKEL", "x" * 40)         # ellers stopper produksjonskontrollen foerst
+    monkeypatch.setattr(config, "WEBHOOK_HEMMELIG", "y" * 40)
+    monkeypatch.setattr(config, "BASE_URL", "https://kurs.eksempel.no")
     monkeypatch.setattr(webapp, "_database_klar", False)
     con.execute("DELETE FROM schema_versjon")
     con.commit()

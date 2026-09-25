@@ -28,6 +28,7 @@
 {% endif %}
 
 <form method="post" action="{{ url_for('admin_kurs_paameldingsskjema_lagre', kurs_id=kurs.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {{ fast_felt('Navn', 'Alltid synlig og obligatorisk.') }}
   {{ fast_felt('E-post', 'Alltid synlig og obligatorisk. Brukes til bekreftelse og innlogging på Min side.') }}
 
@@ -69,7 +70,8 @@
 </form>
 
 <form method="post" action="{{ url_for('admin_kurs_paameldingsskjema_tilbakestill', kurs_id=kurs.id) }}"
-      onsubmit="return confirm('Tilbakestille påmeldingsskjemaet for dette kurset til standard? Alle tilpasninger av telefon, arbeidssted og HPR-hjelpetekst fjernes.')">
+      data-bekreft="Tilbakestille påmeldingsskjemaet for dette kurset til standard? Alle tilpasninger av telefon, arbeidssted og HPR-hjelpetekst fjernes.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <button class="sekundar liten">Tilbakestill til standard</button>
 </form>
 {% endif %}

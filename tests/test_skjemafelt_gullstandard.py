@@ -44,8 +44,14 @@ class _Dom(HTMLParser):
         self.inputs: list[tuple[str, dict]] = []
 
     def handle_starttag(self, tag, attrs):
+        # Tilfeldige sikkerhetsverdier (CSRF-token, CSP-nonce) er ulike per request og maskeres - alt annet tas med.
+        a = dict(attrs)
+        if tag == "input" and a.get("name") == "csrf_token":
+            attrs = [(k, "<csrf>" if k == "value" else v) for k, v in attrs]
+        if tag == "script":
+            attrs = [(k, "<nonce>" if k == "nonce" else v) for k, v in attrs]
         if tag == "input":
-            self.inputs.append((dict(attrs).get("name"), dict(attrs)))
+            self.inputs.append((a.get("name"), dict(attrs)))
         self.tokens.append("<" + " ".join([tag, *(f"{k}={v!r}" if v is not None else k for k, v in attrs)]) + ">")
 
     def handle_startendtag(self, tag, attrs):
@@ -72,8 +78,9 @@ def dom(html: str) -> list[str]:
 
 
 def skjemafelt_i_rekkefolge(html: str) -> list[tuple[str, dict]]:
-    """(name, attributter) for alle input paa siden (kun paameldingsskjemaet har input), i dokumentrekkefolge."""
-    return _parse(html).inputs
+    """(name, attributter) for alle input paa siden (kun paameldingsskjemaet har input), i dokumentrekkefolge -
+    uten CSRF-feltet, som ikke er et skjemafelt deltakeren ser."""
+    return [(n, a) for n, a in _parse(html).inputs if n != "csrf_token"]
 
 
 # ============================ scenarier ============================

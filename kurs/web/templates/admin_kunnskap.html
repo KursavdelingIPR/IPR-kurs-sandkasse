@@ -9,12 +9,14 @@
   {% for h in henvendelser %}
   <tr><td class="liten dempet">{{ h.ts }}</td><td class="liten">{{ h.epost or '–' }}</td><td>{{ h.sporsmal }}</td><td class="liten dempet">{{ h.grunn }}</td>
       <td style="white-space:nowrap"><a class="knapp liten" href="{{ url_for('admin_kunnskap', fra=h.id) }}#skjema">Lag godkjent svar</a>
-        <form method="post" action="{{ url_for('admin_lukk_henvendelse', hid=h.id) }}" style="display:inline"><button class="liten sekundar">Lukk</button></form></td></tr>
+        <form method="post" action="{{ url_for('admin_lukk_henvendelse', hid=h.id) }}" style="display:inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Lukk</button></form></td></tr>
   {% else %}<tr><td colspan="5" class="dempet">Ingen ubesvarte henvendelser.</td></tr>{% endfor %}
 </table></div>
 
 <h2 id="skjema">{{ 'Rediger svar' if rediger else 'Nytt svar' }}</h2>
 <form method="post" class="kort" style="max-width:820px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if rediger %}<input type="hidden" name="id" value="{{ rediger.id }}">{% endif %}
   {% if fra %}<input type="hidden" name="henvendelse_id" value="{{ fra.id }}"><p class="liten">Fra henvendelse #{{ fra.id }} – lukkes når svaret lagres. Husk å også svare personen direkte.</p>{% endif %}
   <div class="rad">

@@ -126,9 +126,9 @@ def test_preview_skriver_ingenting_til_databasen(con):
             con.execute("SELECT COUNT(*) FROM sensitivt").fetchone()[0],
             con.execute("SELECT COUNT(*) FROM hendelse").fetchone()[0],
         )
-    foer = _snapshot()
     klient = _klient()
-    _logg_inn(klient)
+    _logg_inn(klient)                             # innlogging logges - foer tilstandsbildet
+    foer = _snapshot()
     _last_opp(klient, kid, _csv("Kari Nordmann;kari@x.no", header="Navn;E-post"))
     assert _snapshot() == foer
 

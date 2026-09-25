@@ -49,6 +49,7 @@
   th a { color:inherit; text-decoration:none; } th a:hover { color:var(--bla); }
   @media (max-width: 600px) { header .inner { height:auto; padding-block:10px; flex-wrap:wrap; gap:8px; } header nav { margin-left:0; } }
 </style>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='app.js') }}" defer></script>
 {% block hode %}{% endblock %}
 </head>
 <body>

@@ -8,6 +8,7 @@
   gjelder den også på {{ andre_paameldinger }} annen{{ 'e' if andre_paameldinger != 1 }} aktiv{{ 'e' if andre_paameldinger != 1 }}
   påmelding{{ 'er' if andre_paameldinger != 1 }} vedkommende har.</div>
 <form method="post" action="{{ url_for('admin_deltaker_person', kurs_id=kurs.id, paamelding_id=p.id) }}" class="kort" style="max-width:640px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="rad">
     <div><label>Navn *</label><input name="navn" required value="{{ p.navn }}"></div>
     <div><label>E-post *</label><input name="epost" type="email" required value="{{ p.epost }}"></div>
@@ -31,7 +32,8 @@
   <p class="liten dempet" style="margin:0">Kurset er avlyst og kan ikke behandles.</p>
   {% else %}
   <form method="post" action="{{ url_for('admin_deltaker_behandle', kurs_id=kurs.id, paamelding_id=p.id) }}"
-        onsubmit="return confirm('{{ 'Send ventelistebeskjed nå?' if p.status == 'venteliste' else 'Send bekreftelse og behandle fakturering nå?' }}')">
+        data-bekreft="{{ 'Send ventelistebeskjed nå?' if p.status == 'venteliste' else 'Send bekreftelse og behandle fakturering nå?' }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button>{{ 'Send ventelistebeskjed nå' if p.status == 'venteliste' else 'Send bekreftelse og behandle fakturering nå' }}</button>
   </form>
   {% endif %}
@@ -44,7 +46,8 @@
     <p style="margin:6px 0 10px"><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}[p.status] }}">{{ p.status }}</span></p>
     {% if statusvalg %}
     <form method="post" action="{{ url_for('admin_deltaker_status', kurs_id=kurs.id, paamelding_id=p.id) }}"
-          onsubmit="return confirm('Endre status til ' + this.status.value + '?')">
+          data-status-bekreft>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <select name="status" required>
         <option value="" selected disabled>Velg ny status</option>
         {% for s in statusvalg %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
@@ -61,6 +64,7 @@
 </div>
 
 <form method="post" action="{{ url_for('admin_deltaker_paamelding', kurs_id=kurs.id, paamelding_id=p.id) }}" class="kort" style="max-width:720px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="rad">
     <div><label>Hvem betaler</label>
       <select name="betaler">

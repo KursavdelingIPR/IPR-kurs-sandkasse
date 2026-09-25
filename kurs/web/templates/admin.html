@@ -33,7 +33,7 @@
   {% for m in mangler %}
   <tr><td>{{ m.kursnr }} {{ m.kursnavn }}</td><td>{{ m.ansvarlig_navn }}<div class="liten dempet">{{ m.ansvarlig_epost }}</div></td>
       <td><span class="merke {{ 'feil' if m.frist < idag else 'gul' }}">{{ m.frist }}</span></td>
-      <td class="liten"><a href="{{ url_for('lever', krav_id=m.id) }}">Opplastingslenke</a> · purres automatisk</td></tr>
+      <td class="liten"><a href="{{ lever_lenke(m.id) }}">Opplastingslenke</a> · purres automatisk</td></tr>
   {% endfor %}
 </table></div>
 {% endif %}

@@ -106,7 +106,7 @@ class _Inputs(HTMLParser):
 def _inputs(html) -> list[dict]:
     p = _Inputs()
     p.feed(html)
-    return p.inputs
+    return [a for a in p.inputs if a.get("name") != "csrf_token"]   # CSRF-feltet er ikke et skjemafelt
 
 
 def _navn(html) -> list[str]:
@@ -151,7 +151,7 @@ def test_forhaandsvisning_er_fortsatt_get_only_og_uten_registrering(con):
     kid = _sett_opp_overstyrt(con)
     assert _admin().post(f"/admin/kurs/{kid}/forhandsvis-paamelding", data=BASIS).status_code == 405
     html = _admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding").get_data(as_text=True)
-    assert 'onsubmit="return false"' in html and '<button type="button">Meld meg på</button>' in html
+    assert "data-ingen-innsending" in html and '<button type="button">Meld meg på</button>' in html
     assert _antall(con, "paamelding") == 0
 
 
@@ -550,8 +550,9 @@ def _skjemaadvarsler(con):
 def test_korrupt_overstyring_gir_fungerende_side_uten_logging_ved_visning(con):
     kid = _kurs(con, kode="KO", spesialistlop="EFT")
     _korrupt(con, kid)
+    admin = _admin()                                 # innlogging logges (admin_innlogget) - telles foer visningene
     foer = _antall(con, "hendelse")
-    for r in (_klient().get("/kurs/KO"), _admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding")):
+    for r in (_klient().get("/kurs/KO"), admin.get(f"/admin/kurs/{kid}/forhandsvis-paamelding")):
         html = r.get_data(as_text=True)
         assert r.status_code == 200
         assert _deltakerfelt(html) == ["telefon", "arbeidssted", "hpr_nr"]    # HPR kan ikke skjules

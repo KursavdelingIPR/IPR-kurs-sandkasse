@@ -69,6 +69,9 @@ WEBHOOK_HEMMELIG = get("WEBHOOK_HEMMELIG", "demo-webhook-hemmelighet")
 # KI-assistent (Claude). Uten nokkel / i demo brukes enkel ordmatching mot kunnskapsbasen.
 ANTHROPIC_API_KEY = get("ANTHROPIC_API_KEY")
 ASSISTENT_MODELL = get("ASSISTENT_MODELL", "claude-opus-5")
+ASSISTENT_AKTIV = get("ASSISTENT_AKTIV", "1") == "1"          # 0 = «Spør oss»-siden er skrudd av (404)
+ASSISTENT_MAKS_PER_DAG = int(get("ASSISTENT_MAKS_PER_DAG", "300"))  # kostnadsgrense: KI-kall per dag, deretter kun til adm
+ASSISTENT_TIDSAVBRUDD_SEK = int(get("ASSISTENT_TIDSAVBRUDD_SEK", "20"))
 
 # Personvern
 SLETT_SENSITIVT_ETTER_DAGER = int(get("SLETT_SENSITIVT_ETTER_DAGER", "14"))

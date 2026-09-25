@@ -80,7 +80,10 @@ def _kall(metode: str, sti: str, **kw):
 
 
 def _finn_eller_opprett_kunde(g: Fakturagrunnlag) -> str:
-    filter_ = f"CorporateIdentityNumber eq '{g.org_nr}'" if g.org_nr else f"EmailAddress eq '{g.kunde_epost}'"
+    def odata(verdi: str) -> str:          # OData-strenglitteral: apostrof dobles - aldri raa brukerverdi i filteret
+        return str(verdi).replace("'", "''")
+    filter_ = (f"CorporateIdentityNumber eq '{odata(g.org_nr)}'" if g.org_nr
+               else f"EmailAddress eq '{odata(g.kunde_epost)}'")
     treff = _kall("GET", "/customers", params={"$filter": filter_}).get("Data", [])
     if treff:
         return treff[0]["Id"]

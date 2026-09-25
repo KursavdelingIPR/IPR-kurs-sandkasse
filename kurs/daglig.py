@@ -18,7 +18,7 @@ Rekkefolge:
 import argparse
 from datetime import date, timedelta
 
-from . import config, db, import_deltakere, kursbevis, maltekster, sveiper
+from . import config, db, import_deltakere, kursbevis, lenker, maltekster, sveiper
 from .integrasjoner import zoom
 from .kjoring import Kjoring
 
@@ -218,7 +218,8 @@ def _purring(k):
             type_ = "purring-7" if igjen > 2 else ("purring-2" if igjen > 0 else "purring-0")
             if not db.allerede_sendt(k.con, nokkel, m["ansvarlig_epost"], type_):
                 try:
-                    k.send_en_gang(nokkel, m["ansvarlig_epost"], type_, "purring", m=m, igjen=igjen)
+                    k.send_en_gang(nokkel, m["ansvarlig_epost"], type_, "purring", m=m, igjen=igjen,
+                                   lever_lenke=lenker.lever_lenke(m["id"]))
                 except maltekster.MalFeil as e:
                     db.logg(k.con, "purring_mal_feil", {"kurs_id": m["kurs_id"], "materiell_id": m["id"], **e.detaljer()})
                     k.si(f"  FEIL purring ({type_}): {e} - materiellkrav {m['id']} fikk ikke påminnelsen")

@@ -316,7 +316,7 @@ def test_tilbakestill_er_kun_post_med_bekreftelse(con, admin):
     assert admin.get(_url(kid, "/tilbakestill")).status_code == 405
     html = admin.get(_url(kid)).get_data(as_text=True)
     assert f'action="/admin/kurs/{kid}/paameldingsskjema/tilbakestill"' in html
-    assert "onsubmit=\"return confirm('Tilbakestille påmeldingsskjemaet" in html
+    assert 'data-bekreft="Tilbakestille påmeldingsskjemaet' in html
 
 
 # ============================ 18: korrupt overstyring ============================

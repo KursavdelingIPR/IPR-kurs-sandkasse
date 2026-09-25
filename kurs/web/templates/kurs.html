@@ -18,7 +18,8 @@
   {% if plasser_igjen is not none %}<p class="liten">{% if plasser_igjen > 0 %}{{ plasser_igjen }} plasser igjen{% else %}<span class="merke gul">Fullt – du settes på venteliste</span>{% endif %}</p>{% endif %}
 </div>
 
-<form method="post" class="kort" style="grid-column: span 2"{% if forhandsvisning %} onsubmit="return false"{% endif %}>
+<form method="post" class="kort" style="grid-column: span 2"{% if forhandsvisning %} data-ingen-innsending{% endif %}>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <strong>Påmelding</strong>
   <fieldset>
   <div class="rad">
@@ -32,8 +33,8 @@
 
   {% if skjema.vis_fakturablokk %}
   <label style="margin-top:18px">Hvem betaler?</label>
-  <label style="font-weight:normal"><input type="radio" name="betaler" value="person" {{ 'checked' if f.betaler != 'organisasjon' }} onchange="org.classList.add('skjul')">Jeg betaler selv</label>
-  <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} onchange="org.classList.remove('skjul')">Arbeidsgiver betaler</label>
+  <label style="font-weight:normal"><input type="radio" name="betaler" value="person" {{ 'checked' if f.betaler != 'organisasjon' }} data-skjul="org">Jeg betaler selv</label>
+  <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} data-vis="org">Arbeidsgiver betaler</label>
   <div id="org" class="{{ '' if f.betaler == 'organisasjon' else 'skjul' }}">
     <div class="rad">
       <div><label>Organisasjon</label><input name="org_navn" value="{{ f.org_navn }}"></div>

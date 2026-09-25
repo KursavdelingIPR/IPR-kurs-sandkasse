@@ -8,7 +8,7 @@
   <div><label>Søk (navn/e-post/arbeidssted)</label><input type="search" name="sok" value="{{ sok }}"></div>
   <div style="padding-bottom:9px">
     <label style="font-weight:normal; display:flex; align-items:center; gap:6px; margin:0">
-      <input type="checkbox" name="kun_flere_kurs" value="1" {{ 'checked' if kun_flere_kurs }} onchange="this.form.submit()"> Kun de med flere kurs
+      <input type="checkbox" name="kun_flere_kurs" value="1" {{ 'checked' if kun_flere_kurs }} data-send-ved-endring> Kun de med flere kurs
     </label>
   </div>
   <div><button class="sekundar">Søk</button></div>

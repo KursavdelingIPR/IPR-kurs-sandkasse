@@ -230,10 +230,10 @@ def test_ingen_databaseendring_ved_forhaandsvisning(con):
     kid = _kurs(con, kapasitet=5)
     pid, _ = _manuell(con, kid)
     con.commit()
+    klient = _klient()
+    _logg_inn(klient)                             # innlogging logges - foer tilstandsbildet
     foer = _snapshot(con)
     rad_foer = dict(con.execute("SELECT sveiper_kjort, sveiper_utsatt FROM paamelding WHERE id=?", (pid,)).fetchone())
-    klient = _klient()
-    _logg_inn(klient)
     _forhandsvis(klient, kid, [pid])
     assert _snapshot(con) == foer
     rad_etter = dict(con.execute("SELECT sveiper_kjort, sveiper_utsatt FROM paamelding WHERE id=?", (pid,)).fetchone())
@@ -273,9 +273,9 @@ def test_ingen_persondata_i_hendelseslogg(con):
     kid = _kurs(con, kapasitet=5)
     pid, _ = _manuell(con, kid, epost="hemmelig.person@x.no", navn="Hemmelig Person")
     con.commit()
-    foer = con.execute("SELECT COUNT(*) FROM hendelse").fetchone()[0]
     klient = _klient()
-    _logg_inn(klient)
+    _logg_inn(klient)                             # innlogging logges - foer tellingen
+    foer = con.execute("SELECT COUNT(*) FROM hendelse").fetchone()[0]
     _forhandsvis(klient, kid, [pid])
     assert con.execute("SELECT COUNT(*) FROM hendelse").fetchone()[0] == foer  # ingen ny logg i det hele tatt
     for r in con.execute("SELECT detaljer FROM hendelse"):

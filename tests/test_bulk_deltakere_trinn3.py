@@ -228,7 +228,7 @@ def test_X_preview_sender_kun_behandlingsbare_videre_og_har_aktiv_knapp(con):
     assert f"/admin/kurs/{kid}/deltakere/bulk/behandle" in html
     skjema = re.search(r"<form[^>]*bulk/behandle.*?</form>", html, re.S).group(0)
     assert not re.search(r"<button[^>]*disabled", skjema)          # knappen er aktiv
-    assert "this.dataset.sendt" in html                              # dobbeltklikk-beskyttelse i nettleseren
+    assert "data-en-gang" in skjema                                  # dobbeltklikk-beskyttelse i nettleseren (static/app.js)
     assert "Bekreftelse på e-post og fakturering" in html and "Hva skjer" in html
 
 

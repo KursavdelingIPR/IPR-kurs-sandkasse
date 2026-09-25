@@ -13,7 +13,8 @@
     <p style="margin:6px 0 10px"><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','avlyst':'feil','utkast':'gra'}.get(kurs.status,'gra') }}">{{ kurs.status }}</span></p>
     {% if kurs_statusvalg %}
     <form method="post" action="{{ url_for('admin_kurs_status', kurs_id=kurs.id) }}"
-          onsubmit="return confirm('Endre status til ' + this.status.value + '?')">
+          data-status-bekreft>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <select name="status" required>
         <option value="" selected disabled>Velg ny status</option>
         {% for s in kurs_statusvalg %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
@@ -23,12 +24,14 @@
     {% endif %}
     {% if kurs.status == 'avlyst' %}
     <form method="post" action="{{ url_for('admin_gjenaapne_kurs', kurs_id=kurs.id) }}"
-          onsubmit="return confirm('Gjenåpne dette kurset? Deltakerne varsles ikke automatisk om dette.')">
+          data-bekreft="Gjenåpne dette kurset? Deltakerne varsles ikke automatisk om dette.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <p style="margin-top:8px"><button class="liten sekundar">Gjenåpne</button></p>
     </form>
     {% elif kurs.status != 'avsluttet' %}
     <form method="post" action="{{ url_for('admin_avlys_kurs', kurs_id=kurs.id) }}"
-          onsubmit="return confirm('Avlyse «{{ kurs.navn }}»? Alle bekreftede og de på venteliste varsles på e-post med én gang. Fakturaer krediteres ikke automatisk – det må gjøres manuelt i Visma.')">
+          data-bekreft="Avlyse «{{ kurs.navn }}»? Alle bekreftede og de på venteliste varsles på e-post med én gang. Fakturaer krediteres ikke automatisk – det må gjøres manuelt i Visma.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <p style="margin-top:8px"><button class="liten sekundar" style="color:var(--feil); border-color:var(--feil)">Avlys kurs</button></p>
     </form>
     {% endif %}
@@ -38,6 +41,7 @@
     <strong>Ansvarlig</strong>
     <p class="liten dempet" style="margin:4px 0 10px">Brukes til «vis bare mine aktiviteter».</p>
     <form method="post" action="{{ url_for('admin_sett_ansvarlig', kurs_id=kurs.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <select name="ansvarlig_admin_id">
         <option value="">– Ikke satt –</option>
         {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if kurs.ansvarlig_admin_id == a.id }}>{{ a.navn }}</option>{% endfor %}
@@ -49,9 +53,9 @@
 
 <h2>Kursinnstillinger</h2>
 <form id="kursform" method="post" action="{{ url_for('admin_kurs_oppsett_lagre', kurs_id=kurs.id) }}"
-      onsubmit="return sjekkTypeStedEndring(this)" class="kort" style="max-width:820px">
-  <input type="hidden" id="opprinnelig_type" value="{{ kurs.type }}">
-  <input type="hidden" id="opprinnelig_sted" value="{{ kurs.sted or '' }}">
+      data-type-sted-vakt="{{ bekreftet_antall }}" data-opprinnelig-type="{{ kurs.type }}" data-opprinnelig-sted="{{ kurs.sted or '' }}"
+      class="kort" style="max-width:820px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="rad">
     <div style="grid-column:span 3"><label>Kursnavn *</label><input name="navn" required value="{{ kurs.navn }}"></div>
   </div>
@@ -110,19 +114,6 @@
 
   <p style="margin-top:16px"><button class="liten">Lagre kursinnstillinger</button></p>
 </form>
-
-<script>
-function sjekkTypeStedEndring(form) {
-  var harBekreftede = {{ 'true' if bekreftet_antall else 'false' }};
-  if (!harBekreftede) return true;
-  var typeEndret = form.type.value !== document.getElementById('opprinnelig_type').value;
-  var stedEndret = form.sted.value !== document.getElementById('opprinnelig_sted').value;
-  if (typeEndret || stedEndret) {
-    return confirm('Dette kurset har allerede {{ bekreftet_antall }} bekreftede deltakere. Å endre type eller sted kan gjøre informasjon som allerede er sendt til dem (f.eks. Zoom-lenke eller sted) utdatert. Fortsette?');
-  }
-  return true;
-}
-</script>
 
 <h2>Kursdager og innsjekk</h2>
 <div class="tabellboks"><table>

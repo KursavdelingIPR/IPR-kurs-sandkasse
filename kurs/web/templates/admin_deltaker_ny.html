@@ -18,6 +18,7 @@
 {% endif %}
 
 <form method="post" class="kort" style="max-width:720px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="rad">
     <div><label>Navn *</label><input name="navn" required value="{{ f.navn or '' }}"></div>
     <div><label>E-post *</label><input name="epost" type="email" required value="{{ f.epost or '' }}"></div>
@@ -29,8 +30,8 @@
 
   {% if kurs.fakturering == 'person' and kurs.pris_nok %}
   <label style="margin-top:18px">Hvem betaler?</label>
-  <label style="font-weight:normal"><input type="radio" name="betaler" value="person" {{ 'checked' if f.betaler != 'organisasjon' }} onchange="org.classList.add('skjul')">Deltakeren betaler selv</label>
-  <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} onchange="org.classList.remove('skjul')">Arbeidsgiver betaler</label>
+  <label style="font-weight:normal"><input type="radio" name="betaler" value="person" {{ 'checked' if f.betaler != 'organisasjon' }} data-skjul="org">Deltakeren betaler selv</label>
+  <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} data-vis="org">Arbeidsgiver betaler</label>
   <div id="org" class="{{ '' if f.betaler == 'organisasjon' else 'skjul' }}">
     <div class="rad">
       <div><label>Firmanavn</label><input name="org_navn" value="{{ f.org_navn or '' }}"></div>

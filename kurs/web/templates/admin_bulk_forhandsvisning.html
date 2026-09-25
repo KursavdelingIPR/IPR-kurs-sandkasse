@@ -37,14 +37,11 @@
 </div>
 
 {# Kun rader som var behandlingsbare her sendes videre. Serveren sjekker hver enkelt på nytt før den behandles. #}
-<form method="post" action="{{ url_for('admin_bulk_behandle', kurs_id=kurs.id) }}" style="margin-top:16px"
-      onsubmit="if (this.dataset.sendt) { return false; }
-                if (!confirm('Behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }} nå? E-post sendes og faktura opprettes. Dette kan ikke angres.')) { return false; }
-                this.dataset.sendt = '1';
-                var k = this.querySelector('button'); k.disabled = true; k.textContent = 'Behandler … vent litt';
-                return true;">
+<form method="post" action="{{ url_for('admin_bulk_behandle', kurs_id=kurs.id) }}" style="margin-top:16px" data-en-gang
+      data-bekreft="Behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }} nå? E-post sendes og faktura opprettes. Dette kan ikke angres.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% for r in resultater if r.behandlingsbar %}<input type="hidden" name="paamelding_id" value="{{ r.paamelding_id }}">{% endfor %}
-  <button>Send og behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }}</button>
+  <button data-venter="Behandler … vent litt">Send og behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }}</button>
   <a class="knapp sekundar liten" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Tilbake til deltakere</a>
 </form>
 {% else %}

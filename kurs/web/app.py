@@ -4,7 +4,9 @@
 """
 import calendar
 import csv
+import hashlib
 import io
+import logging
 import re
 import secrets
 import time
@@ -16,19 +18,83 @@ import qrcode.image.svg
 from flask import (Flask, Response, abort, flash, g, make_response, redirect, render_template, request, session,
                    url_for)
 from markupsafe import Markup
-from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
+from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.utils import secure_filename
 
-from .. import (behandling, config, daglig, db, import_deltakere, mal_eksempler, maltekster, migreringer, paameldingsside,
-                skjemafelt, sveiper)
+from .. import (behandling, config, daglig, db, import_deltakere, lenker, mal_eksempler, maltekster, migreringer,
+                paameldingsside, skjemafelt, sveiper)
 from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
 from ..kjoring import Kjoring
 from ..kursbevis import timer_i_lop
+from . import sikkerhet
 
 app = Flask(__name__)
 app.secret_key = config.HEMMELIG_NOKKEL
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
-                  PERMANENT_SESSION_LIFETIME=timedelta(days=30))
+# Sesjonscookien: HttpOnly + SameSite=Lax alltid; Secure i drift (HTTPS bak App Service sin proxy - ProxyFix leser
+# X-Forwarded-Proto/-For, slik at request.is_secure og klientens IP blir riktige). Cookie-levetiden gjelder deltakernes
+# «husk meg» (innsjekk); admin-oekter har egne, kortere grenser i krever_admin (ADMIN_MAKS_TIMER / ADMIN_INAKTIV_MIN).
+MATERIELL_MAKS_BYTES = 40 * 1024 * 1024   # stoerste tillatte opplasting (kursmateriell); andre ruter setter lavere grenser
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=not config.DEMO,
+                  PERMANENT_SESSION_LIFETIME=timedelta(days=30), MAX_CONTENT_LENGTH=MATERIELL_MAKS_BYTES + 128 * 1024,
+                  MAX_FORM_MEMORY_SIZE=2 * 1024 * 1024, PREFERRED_URL_SCHEME="http" if config.DEMO else "https")
+if not config.DEMO:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+sikkerhet.installer(app)
+
+ADMIN_MAKS_TIMER = 12      # absolutt levetid for en admin-oekt
+ADMIN_INAKTIV_MIN = 90     # logges ut etter saa lang inaktivitet
+
+
+@app.errorhandler(HTTPException)
+def _http_feil(e):
+    """Kontrollerte feilsider (404/403/405/413/429/...) uten tekniske detaljer. JSON-endepunkter faar JSON."""
+    if request.path.startswith("/api/"):
+        return {"status": "feil", "melding": e.name}, e.code
+    tekster = {
+        404: ("Siden finnes ikke", "Adressen er feil, eller siden er fjernet."),
+        403: ("Ingen tilgang", "Du har ikke tilgang til denne siden."),
+        405: ("Ikke tillatt", "Denne handlingen kan ikke utføres slik."),
+        413: ("For stor forespørsel", "Filen eller skjemaet er for stort."),
+        429: ("For mange forsøk", "Vent noen minutter og prøv igjen."),
+        503: ("Tjenesten er midlertidig utilgjengelig", "Prøv igjen om noen minutter."),
+    }
+    tittel, tekst = tekster.get(e.code, ("Noe gikk galt", "Prøv igjen, eller ta kontakt med kursadministrasjonen."))
+    return render_template("feil.html", tittel=tittel, tekst=tekst), e.code
+
+
+@app.errorhandler(Exception)
+def _uventet_feil(e):
+    """500 uten traceback til brukeren. Loggen faar referanse (request-id), rute og feiltype - aldri skjemadata,
+    persondata eller feilmeldingens tekst (kan inneholde e-post/URL, se feil.py)."""
+    if app.debug or app.testing and app.config.get("PROPAGATE_EXCEPTIONS"):
+        raise e
+    ref = getattr(g, "request_id", "-")
+    app.logger.error("Uventet feil [ref %s] %s %s: %s", ref, request.method, request.url_rule, sikker_feiltekst(e))
+    c = g.pop("con", None)
+    if c:
+        try:
+            c.rollback()
+            c.close()
+        except Exception:  # noqa: BLE001 - opprydding skal aldri skjule den opprinnelige feilen
+            pass
+    tekst = f"Prøv igjen om litt. Vedvarer feilen, oppgi referansen {ref} til kursadministrasjonen."
+    try:
+        return render_template("feil.html", tittel="Noe gikk galt", tekst=tekst), 500
+    except Exception:  # noqa: BLE001 - selv feilsiden feilet: enkel tekst, aldri traceback
+        return Response(f"Noe gikk galt. {tekst}", status=500, mimetype="text/plain; charset=utf-8")
+
+
+@app.after_request
+def _tilgangslogg(respons):
+    """Drift: én linje per request med rutemoenster (aldri konkret sti - den kan inneholde tokens), status og
+    referanse. Ingen spoerrestreng, ingen skjemadata."""
+    if not config.DEMO and not app.testing:
+        app.logger.info("%s %s %s [ref %s]", request.method, request.url_rule or request.path.split("/")[1:2],
+                        respons.status_code, getattr(g, "request_id", "-"))
+    return respons
 
 
 @app.context_processor
@@ -68,20 +134,47 @@ def _krev_migrert_database():
     global _database_klar
     if config.DEMO or _database_klar:
         return None
+    for feil in sikkerhet.produksjonsfeil():
+        app.logger.error("Utrygg produksjonskonfigurasjon: %s", feil)
     try:
+        if sikkerhet.produksjonsfeil():
+            raise migreringer.VersjonsFeil("konfigurasjon")
         migreringer.kontroller(con())
     except migreringer.VersjonsFeil:
-        app.logger.error("Databasen har feil versjon - kjoer python -m kurs.migrer (503 til migreringen er kjoert)")
+        app.logger.error("Databasen har feil versjon eller konfigurasjonen er utrygg - se loggen over (503)")
         return render_template("feil.html", tittel="Tjenesten er midlertidig utilgjengelig",
                                tekst="Systemet vedlikeholdes. Prøv igjen om noen minutter."), 503
     _database_klar = True
     return None
 
 
+def _admin_okt_gyldig() -> bool:
+    """Server-side kontroll av admin-oekten ved HVER request: bruker finnes og er aktiv (deaktivering virker straks),
+    absolutt levetid og inaktivitetsgrense. Ugyldig oekt fjernes fra sesjonen."""
+    admin_id = session.get("admin_id")
+    if not admin_id:
+        return False
+    naa = time.time()
+    start, sist = session.get("admin_start", 0), session.get("admin_sist", 0)
+    utlopt = naa - start > ADMIN_MAKS_TIMER * 3600 or naa - sist > ADMIN_INAKTIV_MIN * 60
+    aktiv = not utlopt and con().execute("SELECT 1 FROM admin_bruker WHERE id=? AND aktiv=1", (admin_id,)).fetchone()
+    if not aktiv:
+        _admin_logg_ut()
+        return False
+    if naa - sist > 60:                        # skriv cookien paa nytt hoeyst hvert minutt
+        session["admin_sist"] = naa
+    return True
+
+
+def _admin_logg_ut() -> None:
+    for n in ("admin_id", "admin_brukernavn", "admin_navn", "admin_start", "admin_sist", "admin_rolle"):
+        session.pop(n, None)
+
+
 def krever_admin(f):
     @wraps(f)
     def inner(*a, **kw):
-        if not session.get("admin_id"):
+        if not _admin_okt_gyldig():
             return redirect(url_for("admin_login", neste=request.path))
         return f(*a, **kw)
     return inner
@@ -208,6 +301,7 @@ def kursside(kode):
         return _render_paameldingsside(kurs, dager, {},
                                        None if kurs["kapasitet"] is None
                                        else kurs["kapasitet"] - db.antall_bekreftet(con(), kurs["id"]), skjema)
+    sikkerhet.krev_kvote("paamelding")
     # Herfra er `f` KUN de feltene snapshotet viser - raa request.form brukes ikke lenger.
     f = _tillatte_innsendte_verdier(request.form, skjema)
     feil = []
@@ -277,6 +371,7 @@ def kurs_gruppe(kode):
     if request.method == "GET":
         return render_template("kurs_gruppe.html", kurs=kurs, f={}, deltakere=[{}], maks_deltakere=MAKS_DELTAKERE_GRUPPE)
 
+    sikkerhet.krev_kvote("paamelding")
     f = request.form
     feil = []
     if kurs["status"] not in ("aapen", "full", "aktiv"):
@@ -454,6 +549,7 @@ def innsjekk_qr(token):
 def innsjekk_kode():
     if request.method == "GET":
         return render_template("innsjekk.html", kd=None, med_kode=True)
+    sikkerhet.krev_kvote("innsjekk")
     kode = db.alfanumerisk(request.form.get("kode", ""))
     kd = con().execute(
         "SELECT kd.*, k.navn FROM kursdag kd JOIN kurs k ON k.id=kd.kurs_id WHERE innsjekk_kode=? AND dato=?",
@@ -471,6 +567,8 @@ def innsjekk_kode():
 def logg_inn():
     if request.method == "POST":
         adr = request.form.get("epost", "").strip().lower()
+        sikkerhet.krev_kvote("innloggingslenke")
+        sikkerhet.krev_kvote("innloggingslenke_epost", adr)
         d = con().execute("SELECT * FROM deltaker WHERE epost=?", (adr,)).fetchone()
         if d:
             token = secrets.token_urlsafe(32)
@@ -495,8 +593,9 @@ def logg_inn_token(token):
         return redirect(url_for("logg_inn"))
     con().execute("UPDATE innlogging_token SET brukt=1 WHERE token=?", (token,))
     con().commit()
+    session.clear()                                     # ny identitet -> ny sesjon (mot session fixation)
     session.permanent, session["deltaker_id"] = True, t["deltaker_id"]
-    return redirect(request.args.get("neste") or url_for("min_side"))
+    return redirect(sikkerhet.trygg_neste(request.args.get("neste"), url_for("min_side")))
 
 
 @app.get("/logg-ut")
@@ -549,13 +648,17 @@ def dokument(dok_id):
     if not lov:
         abort(403)
     if d["url"].startswith("lokal:"):
+        rot = (config.ROT / "data").resolve()
         sti = (config.ROT / d["url"][6:]).resolve()
-        if config.ROT.resolve() not in sti.parents:
-            abort(403)
+        if rot not in sti.parents or not sti.is_file():
+            abort(404)
         return Response(sti.read_bytes(), mimetype="text/html" if sti.suffix == ".html" else "application/octet-stream")
     if d["url"].startswith("sp:"):
         return _send_fil(d["url"][3:])
-    return redirect(d["url"])
+    try:
+        return redirect(sikkerhet.trygt_url_felt(d["url"]))
+    except ValueError:
+        abort(404)
 
 
 @app.get("/materiell/<int:kurs_id>/<path:navn>")
@@ -564,6 +667,8 @@ def materiell(kurs_id, navn):
     kurs = con().execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone() or abort(404)
     if not _har_tilgang_kurs(session["deltaker_id"], kurs_id):
         abort(403)
+    if not kurs["sharepoint_mappe"] or "/" in navn or "\\" in navn or navn in (".", "..") or "\x00" in navn:
+        abort(404)                                      # aldri sti-deler i filnavnet
     return _send_fil(f"{kurs['sharepoint_mappe']}/Presentasjoner/{navn}")
 
 
@@ -572,28 +677,51 @@ def _send_fil(sti: str):
         innhold = sharepoint.hent_fil(sti)
     except (FileNotFoundError, PermissionError):
         abort(404)
+    filnavn = secure_filename(sti.rsplit("/", 1)[-1]) or "fil"
     return Response(innhold, mimetype="application/octet-stream",
-                    headers={"Content-Disposition": f'attachment; filename="{sti.rsplit("/", 1)[-1]}"'})
+                    headers={"Content-Disposition": f'attachment; filename="{filnavn}"', "X-Content-Type-Options": "nosniff"})
 
 
 # ---------- levering av materiell (kursholder) ----------
 
-@app.route("/lever/<int:krav_id>", methods=["GET", "POST"])
-def lever(krav_id):
-    # NB prototype: lenken er uten token. I prod: signert lenke eller Microsoft-innlogging for ansatte.
+MATERIELL_FILTYPER = frozenset({"pdf", "pptx", "ppt", "docx", "doc", "xlsx", "odp", "odt", "txt", "zip", "key"})
+
+
+@app.route("/lever/<int:krav_id>/<signatur>", methods=["GET", "POST"])
+def lever(krav_id, signatur):
+    """Kursholder laster opp materiell. Lenken er signert (ingen innlogging for eksterne kursholdere), filnavnet renses,
+    kun kjente filtyper og en stoerrelsesgrense godtas, og opplastinger takbegrenses."""
+    if not lenker.signatur_ok(signatur, "lever", krav_id):
+        abort(404)
     m = con().execute("SELECT m.*, k.navn AS kursnavn, k.sharepoint_mappe FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id WHERE m.id=?",
                       (krav_id,)).fetchone() or abort(404)
     if request.method == "POST":
-        fil = request.files.get("fil")
-        if not fil or not fil.filename:
+        sikkerhet.krev_kvote("lever")
+        request.max_content_length = MATERIELL_MAKS_BYTES + 64 * 1024
+        try:
+            fil = request.files.get("fil")
+        except RequestEntityTooLarge:
+            flash(f"Filen er for stor (maks {MATERIELL_MAKS_BYTES // (1024 * 1024)} MB).", "feil")
+            return render_template("lever.html", m=m), 413
+        filnavn = secure_filename(fil.filename) if fil and fil.filename else ""
+        endelse = filnavn.rsplit(".", 1)[-1].lower() if "." in filnavn else ""
+        if not filnavn:
             flash("Velg en fil.", "feil")
+        elif endelse not in MATERIELL_FILTYPER:
+            flash("Filtypen støttes ikke. Last opp PDF, PowerPoint, Word, Excel eller en zip-fil.", "feil")
         else:
-            sharepoint.last_opp(f"{m['sharepoint_mappe']}/Presentasjoner", fil.filename, fil.read())
+            innhold = fil.stream.read(MATERIELL_MAKS_BYTES + 1)
+            if len(innhold) > MATERIELL_MAKS_BYTES:
+                flash(f"Filen er for stor (maks {MATERIELL_MAKS_BYTES // (1024 * 1024)} MB).", "feil")
+                return render_template("lever.html", m=m), 413
+            if not m["sharepoint_mappe"]:
+                abort(404)
+            sharepoint.last_opp(f"{m['sharepoint_mappe']}/Presentasjoner", filnavn, innhold)
             con().execute("UPDATE materiell_krav SET levert_ts=? WHERE id=?", (db.naa_utc(), krav_id))
-            db.logg(con(), "materiell_levert", {"krav_id": krav_id, "fil": fil.filename}, aktor=m["ansvarlig_epost"])
+            db.logg(con(), "materiell_levert", {"krav_id": krav_id, "fil": filnavn}, aktor=f"materiell:{krav_id}")
             con().commit()
             flash("Takk! Filen er lastet opp og er nå tilgjengelig for deltakerne på Min side.", "ok")
-            return redirect(url_for("lever", krav_id=krav_id))
+            return redirect(url_for("lever", krav_id=krav_id, signatur=signatur))
     return render_template("lever.html", m=m)
 
 
@@ -602,12 +730,25 @@ def lever(krav_id):
 @app.route("/admin/logg-inn", methods=["GET", "POST"])
 def admin_login():
     if request.method == "POST":
-        bruker = db.verifiser_admin(con(), request.form.get("brukernavn", ""), request.form.get("passord", ""))
+        brukernavn = request.form.get("brukernavn", "")
+        sikkerhet.krev_kvote("admin_login")
+        sikkerhet.krev_kvote("admin_login_bruker", brukernavn)
+        bruker = db.verifiser_admin(con(), brukernavn, request.form.get("passord", ""))
         if bruker:
+            deltaker_id = session.get("deltaker_id")
+            session.clear()                             # ny sesjon ved innlogging (mot session fixation)
+            if deltaker_id:
+                session["deltaker_id"] = deltaker_id
             session.permanent = True
             session["admin_id"], session["admin_brukernavn"], session["admin_navn"] = (
                 bruker["id"], bruker["brukernavn"], bruker["navn"])
-            return redirect(request.args.get("neste") or url_for("admin"))
+            session["admin_start"] = session["admin_sist"] = time.time()
+            db.logg(con(), "admin_innlogget", {"admin_id": bruker["id"]}, aktor=f"admin:{bruker['brukernavn']}")
+            con().commit()
+            return redirect(sikkerhet.trygg_neste(request.args.get("neste"), url_for("admin")))
+        db.logg(con(), "admin_innlogging_avvist", {"brukernavn_hash": hashlib.sha256(
+            brukernavn.strip().lower().encode()).hexdigest()[:16]})
+        con().commit()
         flash("Feil brukernavn eller passord.", "feil")
     return render_template("admin_login.html")
 
@@ -636,9 +777,18 @@ def admin_brukere():
 @app.post("/admin/brukere/<int:bid>/deaktiver")
 @krever_admin
 def admin_bruker_deaktiver(bid):
+    bruker = con().execute("SELECT * FROM admin_bruker WHERE id=?", (bid,)).fetchone() or abort(404)
+    if bid == session.get("admin_id"):
+        flash("Du kan ikke deaktivere din egen bruker.", "feil")
+        return redirect(url_for("admin_brukere"))
+    aktive = con().execute("SELECT COUNT(*) FROM admin_bruker WHERE aktiv=1").fetchone()[0]
+    if bruker["aktiv"] and aktive <= 1:
+        flash("Den siste aktive brukeren kan ikke deaktiveres.", "feil")
+        return redirect(url_for("admin_brukere"))
     con().execute("UPDATE admin_bruker SET aktiv = 1 - aktiv WHERE id=?", (bid,))
-    db.logg(con(), "admin_bruker_endret", {"id": bid}, aktor=_aktor())
+    db.logg(con(), "admin_bruker_endret", {"id": bid, "aktiv": 0 if bruker["aktiv"] else 1}, aktor=_aktor())
     con().commit()
+    flash("Brukeren er deaktivert." if bruker["aktiv"] else "Brukeren er aktivert igjen.", "ok")
     return redirect(url_for("admin_brukere"))
 
 
@@ -864,6 +1014,7 @@ def admin_kurs_oppsett_lagre(kurs_id):
         feil.append("Ugyldig betalingsvalg.")
     kapasitet = pris_nok = faktura_dager_for = None
     paameldingsfrist = f.get("paameldingsfrist") or None
+    zoom_url = None
     try:
         kapasitet = int(f["kapasitet"]) if f.get("kapasitet") else None
         pris_nok = int(f.get("pris_nok") or 0)
@@ -874,6 +1025,10 @@ def admin_kurs_oppsett_lagre(kurs_id):
         feil.append("Kapasitet, pris og «dager før faktura» må være tall, og fristen en gyldig dato.")
     except db.Paameldingsfeil as e:
         feil.append(str(e))
+    try:
+        zoom_url = sikkerhet.trygt_url_felt(f.get("zoom_url"))
+    except ValueError as e:
+        feil.append(f"Zoom-lenke: {e}")
     if feil:
         for x in feil:
             flash(x, "feil")
@@ -881,7 +1036,7 @@ def admin_kurs_oppsett_lagre(kurs_id):
 
     felter = {
         "navn": f["navn"].strip(), "type": f["type"], "sted": f.get("sted", "").strip() or None,
-        "zoom_url": f.get("zoom_url", "").strip() or None, "pris_nok": pris_nok,
+        "zoom_url": zoom_url, "pris_nok": pris_nok,
         "fakturering": f["fakturering"], "betaling": f["betaling"], "faktura_dager_for": faktura_dager_for,
         "kursholder_epost": f.get("kursholder_epost", "").strip() or None,
         "notat": f.get("notat", "").strip() or None, "paameldingsfrist": paameldingsfrist,
@@ -969,8 +1124,10 @@ def admin_gjenaapne_kurs(kurs_id):
 @krever_admin
 def admin_sett_ansvarlig(kurs_id):
     _hent_kurs(kurs_id)
-    verdi = request.form.get("ansvarlig_admin_id") or None
-    con().execute("UPDATE kurs SET ansvarlig_admin_id=? WHERE id=?", (int(verdi) if verdi else None, kurs_id))
+    verdi = request.form.get("ansvarlig_admin_id", type=int)
+    if verdi and not con().execute("SELECT 1 FROM admin_bruker WHERE id=?", (verdi,)).fetchone():
+        abort(400)
+    con().execute("UPDATE kurs SET ansvarlig_admin_id=? WHERE id=?", (verdi or None, kurs_id))
     db.logg(con(), "kurs_ansvarlig_endret", {"kurs_id": kurs_id, "ansvarlig_admin_id": verdi}, aktor=_aktor())
     con().commit()
     flash("Ansvarlig oppdatert.", "ok")
@@ -1613,16 +1770,18 @@ def _hent_epost_mottakere(kurs_id: int, ider: list[int]) -> list:
         (kurs_id, *ider)).fetchall()
 
 
-@app.get("/admin/kurs/<int:kurs_id>/epost/ny")
+@app.route("/admin/kurs/<int:kurs_id>/epost/ny", methods=["GET", "POST"])
 @krever_admin
 def admin_epost_ny(kurs_id):
+    """GET med ?gruppe=... (alle bekreftede/venteliste) eller POST med valgte paamelding_id fra deltakerlisten (POST, slik
+    at utvalget og CSRF-tokenet aldri havner i en URL)."""
     kurs = _hent_kurs(kurs_id)
     gruppe = request.args.get("gruppe")
     if gruppe in ("bekreftet", "venteliste"):
         ider = [r["id"] for r in con().execute(
             "SELECT id FROM paamelding WHERE kurs_id=? AND status=?", (kurs_id, gruppe))]
     else:
-        ider = request.args.getlist("paamelding_id", type=int)
+        ider = request.values.getlist("paamelding_id", type=int)
     mottakere = _hent_epost_mottakere(kurs_id, ider)
     if not mottakere:
         flash("Velg minst én mottaker.", "feil")
@@ -1725,7 +1884,12 @@ def admin_kurs_kommunikasjon(kurs_id):
 @app.post("/admin/kurs/<int:kurs_id>/oppmote")
 @krever_admin
 def admin_oppmote(kurs_id):
-    pid, kdid = int(request.form["paamelding_id"]), int(request.form["kursdag_id"])
+    pid, kdid = request.form.get("paamelding_id", type=int), request.form.get("kursdag_id", type=int)
+    hoerer_til = pid and kdid and con().execute(
+        "SELECT 1 FROM paamelding p JOIN kursdag kd ON kd.kurs_id=p.kurs_id WHERE p.id=? AND kd.id=? AND p.kurs_id=?",
+        (pid, kdid, kurs_id)).fetchone()
+    if not hoerer_til:
+        abort(404)
     if not db.registrer_oppmote(con(), pid, kdid, "manuell"):
         con().execute("DELETE FROM oppmote WHERE paamelding_id=? AND kursdag_id=?", (pid, kdid))
     db.logg(con(), "oppmote_manuell", {"paamelding_id": pid, "kursdag_id": kdid}, aktor=_aktor())
@@ -1736,7 +1900,8 @@ def admin_oppmote(kurs_id):
 @app.post("/admin/paamelding/<int:pid>/meld-av")
 @krever_admin
 def admin_meld_av(pid):
-    kurs_id = con().execute("SELECT kurs_id FROM paamelding WHERE id=?", (pid,)).fetchone()["kurs_id"]
+    rad = con().execute("SELECT kurs_id FROM paamelding WHERE id=?", (pid,)).fetchone() or abort(404)
+    kurs_id = rad["kurs_id"]
     opp = db.meld_av(con(), pid, aktor=_aktor())
     if opp:
         sveiper.kjor(Kjoring(con(), idag=_idag()), opp)
@@ -1786,7 +1951,7 @@ def _deltaker_csv_respons(rader, filnavn: str) -> Response:
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow(_DELTAKER_CSV_KOLONNER)
-    w.writerows([tuple(r) for r in rader])
+    w.writerows([tuple(sikkerhet.csv_trygg(v) for v in r) for r in rader])
     # Inneholder personopplysninger (navn/e-post/telefon) - skal aldri mellomlagres av nettleser/proxy.
     return Response("﻿" + buf.getvalue(), mimetype="text/csv",  # BOM -> Excel leser æøå riktig
                     headers={"Content-Disposition": f"attachment; filename={filnavn}",
@@ -2049,8 +2214,9 @@ def admin_rapport_kurs_csv():
                 "Fyllingsgrad (%)", "Venteliste", "Avmeldt", "Fakturert (kr)"])
     for k in rader:
         fyllingsgrad = round(k["bekreftet"] / k["kapasitet"] * 100) if k["kapasitet"] else ""
-        w.writerow([k["kursnr"], k["navn"], k["start"] or "", k["slutt"] or "", k["status"], k["ansvarlig_navn"] or "",
-                   k["bekreftet"], k["kapasitet"] or "", fyllingsgrad, k["venteliste"], k["avmeldt"], k["fakturert"]])
+        w.writerow([sikkerhet.csv_trygg(v) for v in (
+            k["kursnr"], k["navn"], k["start"] or "", k["slutt"] or "", k["status"], k["ansvarlig_navn"] or "",
+            k["bekreftet"], k["kapasitet"] or "", fyllingsgrad, k["venteliste"], k["avmeldt"], k["fakturert"])])
     db.logg(con(), "rapport_eksportert", {"rapport": "kurs", **filtre, "antall_rader": len(rader)}, aktor=_aktor())
     con().commit()
     return Response("﻿" + buf.getvalue(), mimetype="text/csv",
@@ -2090,7 +2256,8 @@ def admin_rapport_deltakere_csv():
     w = csv.writer(buf, delimiter=";")
     w.writerow(["Navn", "E-post", "Telefon", "Arbeidssted", "Antall kurs (bekreftet)"])
     for d in rader:
-        w.writerow([d["navn"], d["epost"], d["telefon"] or "", d["arbeidssted"] or "", d["antall_kurs"]])
+        w.writerow([sikkerhet.csv_trygg(v) for v in (
+            d["navn"], d["epost"], d["telefon"] or "", d["arbeidssted"] or "", d["antall_kurs"])])
     db.logg(con(), "rapport_eksportert", {"rapport": "deltakere", **filtre, "antall_rader": len(rader)}, aktor=_aktor())
     con().commit()
     return Response("﻿" + buf.getvalue(), mimetype="text/csv",
@@ -2264,12 +2431,19 @@ def admin_ny_kurs():
 @app.route("/admin/daglig", methods=["GET", "POST"])
 @krever_admin
 def admin_daglig():
+    """Demo: kjoer/spol den daglige jobben fra admin. Drift: KUN toerrkjoering herfra - den ekte jobben kjoeres av
+    planlagt oppgave (python -m kurs.daglig), aldri med vilkaarlig dato fra et skjema."""
     utskrift = None
     if request.method == "POST":
-        dato = date.fromisoformat(request.form.get("dato") or date.today().isoformat())
+        try:
+            dato = date.fromisoformat(request.form.get("dato") or date.today().isoformat())
+        except ValueError:
+            flash("Ugyldig dato.", "feil")
+            return render_template("admin_daglig.html", utskrift=None), 400
+        tor = bool(request.form.get("tor")) or not config.DEMO
         if config.DEMO:
             session["demo_dato"] = dato.isoformat()
-        k = Kjoring(con(), idag=dato, tor=bool(request.form.get("tor")))
+        k = Kjoring(con(), idag=dato, tor=tor)
         daglig.kjor(k)
         utskrift = "\n".join(k.utskrift)
     return render_template("admin_daglig.html", utskrift=utskrift)
@@ -2384,11 +2558,9 @@ def admin_utboks():
     return render_template("admin_utboks.html", meldinger=epost.les_utboks())
 
 
-@app.get("/admin/logg-ut")
+@app.route("/admin/logg-ut", methods=["GET", "POST"])
 def admin_logg_ut():
-    session.pop("admin_id", None)
-    session.pop("admin_brukernavn", None)
-    session.pop("admin_navn", None)
+    _admin_logg_ut()
     return redirect(url_for("forside"))
 
 
@@ -2434,9 +2606,12 @@ def api_paamelding():
     """
     import hashlib
     import hmac
+    sikkerhet.krev_kvote("webhook")
+    if not config.DEMO and config.WEBHOOK_HEMMELIG in sikkerhet.SVAKE_NOKLER:
+        return {"status": "feil", "melding": "mottak er ikke konfigurert"}, 503
     raa = request.get_data()
     sig = request.headers.get("X-IPR-Signatur", "")
-    token = request.headers.get("X-IPR-Token") or request.args.get("token", "")
+    token = request.headers.get("X-IPR-Token", "")    # kun som hode - aldri i URL (havner i logger/proxyer)
     riktig = hmac.new(config.WEBHOOK_HEMMELIG.encode(), raa, hashlib.sha256).hexdigest()
     if not (hmac.compare_digest(sig, riktig) or (token and hmac.compare_digest(token, config.WEBHOOK_HEMMELIG))):
         return {"status": "feil", "melding": "ugyldig signatur"}, 401
@@ -2448,25 +2623,31 @@ def api_paamelding():
         db.logg(con(), "webhook_avvist", {"felter": sorted(data.keys())})
         con().commit()
         return {"status": "feil", "melding": "mangler navn, epost eller kurs"}, 400
-    kurs = con().execute("SELECT id FROM kurs WHERE kode=? OR CAST(kursnr AS TEXT)=?",
+    kurs = con().execute("SELECT * FROM kurs WHERE kode=? OR CAST(kursnr AS TEXT)=?",
                          (kurskode.upper(), kurskode)).fetchone()
-    if not kurs:
-        return {"status": "feil", "melding": f"ukjent kurs {kurskode}"}, 404
+    if not kurs or not _kurs_offentlig_tilgjengelig(kurs):
+        return {"status": "feil", "melding": "ukjent kurs"}, 404
 
-    org_nr = _hent(data, "org_nr")
+    # Samme regler som det offentlige skjemaet: HPR kun i spesialistloep, allergier kun for fysiske/hybride kurs,
+    # faktura-/betalingsfelt kun naar kurset fakturerer per deltaker med pris. Alt annet ignoreres.
+    org_nr = _hent(data, "org_nr") if skjemafelt.vis_fakturablokk(kurs) else None
+    fakturafelt = ({f: _hent(data, f) for f in ("faktura_ref", "faktura_adresse", "faktura_postnr", "faktura_sted")}
+                   if skjemafelt.vis_fakturablokk(kurs) else {})
     try:
         with db.transaksjon(con()):
             pid, status = db.meld_paa(
                 con(), kurs["id"], epost=epost_, navn=navn,
-                deltaker={"telefon": _hent(data, "telefon"), "arbeidssted": _hent(data, "arbeidssted"), "hpr_nr": _hent(data, "hpr_nr")},
+                deltaker={"telefon": _hent(data, "telefon"), "arbeidssted": _hent(data, "arbeidssted"),
+                          "hpr_nr": _hent(data, "hpr_nr") if skjemafelt.vis_hpr(kurs) else None},
                 paamelding={"kilde": "nettside", "betaler": "organisasjon" if org_nr else "person",
-                            "org_navn": _hent(data, "arbeidssted") if org_nr else None, "org_nr": org_nr,
-                            **{f: _hent(data, f) for f in ("faktura_ref", "faktura_adresse", "faktura_postnr", "faktura_sted")}},
-                sensitivt={"allergier": _hent(data, "allergier")},
+                            "org_navn": _hent(data, "arbeidssted") if org_nr else None, "org_nr": org_nr, **fakturafelt},
+                sensitivt={"allergier": _hent(data, "allergier") if skjemafelt.vis_sensitive_felt(kurs) else None},
                 idag=_idag(),
             )
     except db.Paameldingsfeil as e:
-        return {"status": "ok", "melding": str(e)}, 200
+        if "allerede påmeldt" in str(e):
+            return {"status": "ok", "melding": "allerede påmeldt"}, 200   # idempotent gjeninnsending
+        return {"status": "feil", "melding": str(e)}, 409
     sveiper.kjor(Kjoring(con(), idag=_idag()), pid)
     con().commit()
     return {"status": "ok", "paamelding_id": pid, "paameldingsstatus": status}, 201
@@ -2476,9 +2657,12 @@ def api_paamelding():
 
 @app.route("/sporsmal", methods=["GET", "POST"])
 def sporsmal_side():
+    if not config.ASSISTENT_AKTIV:
+        abort(404)
     resultat, tekst = None, ""
     if request.method == "POST":
         from .. import assistent
+        sikkerhet.krev_kvote("sporsmal")
         tekst = request.form.get("sporsmal", "")
         did = session.get("deltaker_id")
         epost_ = request.form.get("epost") or None

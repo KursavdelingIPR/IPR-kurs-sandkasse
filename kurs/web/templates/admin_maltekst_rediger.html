@@ -20,6 +20,7 @@
   </div>
 
   <form method="post" action="{{ url_for('admin_maltekst_lagre', mal=mal, felt=f.navn) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {% if f.type == 'emne' %}
     <label style="margin-top:12px">Tekst <span class="liten dempet">(maks {{ f.maks }} tegn, ingen linjeskift)</span></label>
     <input name="tekst" maxlength="{{ f.maks }}" value="{{ f.tekst }}" {% if not f.tom_tillatt %}required{% endif %}>
@@ -45,7 +46,8 @@
 
   {% if f.tilpasset %}
   <form method="post" action="{{ url_for('admin_maltekst_tilbakestill', mal=mal, felt=f.navn) }}"
-        onsubmit="return confirm('Tilbakestille «{{ f.visningsnavn }}» til standardteksten?')" style="margin-top:8px">
+        data-bekreft="Tilbakestille «{{ f.visningsnavn }}» til standardteksten?" style="margin-top:8px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="liten sekundar">Tilbakestill til standard</button>
   </form>
   {% endif %}

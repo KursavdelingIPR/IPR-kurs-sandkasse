@@ -123,8 +123,9 @@ def test_a_preview_bruker_offentlig_layout_identisk_med_ekte_siden(con):
     con.commit()
     forhandsvisning = _innlogget().get(f"/admin/kurs/{kid}/forhandsvis-paamelding").get_data(as_text=True)
     offentlig = _klient().get("/kurs/P1").get_data(as_text=True)
-    header_fv = forhandsvisning.split("<main>")[0]
-    header_off = offentlig.split("<main>")[0]
+    import re as _re
+    uten_nonce = lambda h: _re.sub(r'nonce="[^"]*"', 'nonce="<nonce>"', h.split("<main>")[0])   # noqa: E731
+    header_fv, header_off = uten_nonce(forhandsvisning), uten_nonce(offentlig)
     assert header_fv == header_off
     assert "<style>" in header_fv   # samme felles CSS/stil som resten av det offentlige systemet
 
@@ -270,7 +271,7 @@ def test_arbeidsgiver_betaler_finnes_og_er_koblet_til_samme_js_som_offentlig_sid
     forhandsvisning = _innlogget().get(f"/admin/kurs/{kid}/forhandsvis-paamelding").get_data(as_text=True)
     offentlig = _klient().get("/kurs/P1").get_data(as_text=True)
     assert 'name="betaler" value="organisasjon"' in forhandsvisning
-    assert 'onchange="org.classList.remove(\'skjul\')"' in forhandsvisning
+    assert 'data-vis="org"' in forhandsvisning
     assert 'id="org"' in forhandsvisning
     # samme radioknapp-markup (inkl. onchange-logikken) som paa den offentlige siden - ikke en forenklet kopi
     def _betaler_blokk(html):
@@ -299,9 +300,9 @@ def test_jklmno_preview_lager_ingen_sideeffekt_i_det_hele_tatt(con, monkeypatch)
     kid = _kurs(con, betaling="deltaker_velger", spesialistlop="EFT")
     kid_gruppe = _kurs(con, kode="P2")
     con.commit()
+    k = _innlogget()                              # innlogging logges - telles foer forhaandsvisningene
     hendelser_for = _antall(con, "hendelse")
 
-    k = _innlogget()
     k.get(f"/admin/kurs/{kid}/forhandsvis-paamelding")
     k.get(f"/admin/kurs/{kid_gruppe}/forhandsvis-paamelding")
 

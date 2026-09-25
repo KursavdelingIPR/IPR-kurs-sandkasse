@@ -11,6 +11,7 @@ returnerer eksempler() flere (variantnavn, data) - en for hver variant - slik at
 """
 from datetime import date, timedelta
 
+from . import lenker
 from .sveiper import PLAN_NA, FakturaPlan
 
 _OM = date.today() + timedelta(days=30)
@@ -52,8 +53,8 @@ def eksempler(mal: str) -> list[tuple[str, dict]]:
                           antall_totalt=3, antall_bekreftet=2, antall_venteliste=1, antall_feilet=0))]
     if mal == "purring":
         return [
-            ("Frist om 7 dager", dict(m=MATERIELL, igjen=7)),
-            ("Frist om 2 dager", dict(m=MATERIELL, igjen=2)),
-            ("Frist i dag", dict(m=MATERIELL, igjen=0)),
+            ("Frist om 7 dager", dict(m=MATERIELL, igjen=7, lever_lenke=lenker.lever_lenke(0))),
+            ("Frist om 2 dager", dict(m=MATERIELL, igjen=2, lever_lenke=lenker.lever_lenke(0))),
+            ("Frist i dag", dict(m=MATERIELL, igjen=0, lever_lenke=lenker.lever_lenke(0))),
         ]
     raise ValueError(f"Ingen eksempeldata for mal {mal!r}")

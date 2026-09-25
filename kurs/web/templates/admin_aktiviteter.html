@@ -28,13 +28,13 @@
     </select>
   </div>
   <div><label>Antall rader</label>
-    <select name="antall" onchange="this.form.submit()">
+    <select name="antall" data-send-ved-endring>
       {% for n in (10, 25, 50, 100) %}<option value="{{ n }}" {{ 'selected' if antall == n }}>{{ n }}</option>{% endfor %}
     </select>
   </div>
   <div style="padding-bottom:9px">
     <label style="font-weight:normal; display:flex; align-items:center; gap:6px; margin:0">
-      <input type="checkbox" name="mine" value="1" {{ 'checked' if mine }} onchange="this.form.submit()"> Vis bare mine aktiviteter
+      <input type="checkbox" name="mine" value="1" {{ 'checked' if mine }} data-send-ved-endring> Vis bare mine aktiviteter
     </label>
   </div>
   <div style="display:flex; gap:10px; align-items:center">

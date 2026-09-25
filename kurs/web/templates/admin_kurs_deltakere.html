@@ -23,12 +23,13 @@
      slik at den ikke kolliderer med per-rad-skjemaene inni tabellen (skjema kan ikke nestes).
      Flere knapper under peker paa DENNE samme formen med formaction/formmethod, slik at samme
      utvalg kan brukes til flere handlinger uten aa duplisere avkrysningsboksene. -->
-<form id="valgte-deltakere" method="get" action="{{ url_for('admin_epost_ny', kurs_id=kurs.id) }}"></form>
+<form id="valgte-deltakere" method="post" action="{{ url_for('admin_epost_ny', kurs_id=kurs.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:16px">
   <div><label>Søk (navn/e-post)</label><input type="search" name="sok" value="{{ sok }}" placeholder="Søk…"></div>
   <div><label>Status</label>
-    <select name="status" onchange="this.form.submit()">
+    <select name="status" data-send-ved-endring>
       <option value="" {{ 'selected' if not status }}>Alle</option>
       <option value="bekreftet" {{ 'selected' if status == 'bekreftet' }}>Bekreftet</option>
       <option value="venteliste" {{ 'selected' if status == 'venteliste' }}>Venteliste</option>
@@ -53,7 +54,8 @@
     <td><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(p.fakturastatus, 'gra') }}">{{ p.fakturastatus }}</span></td>
     <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}[p.status] }}">{{ p.status }}</span></td>
     <td class="liten dempet">{{ p.oppdatert[:16].replace('T', ' ') }}</td>
-    <td>{% if p.status != 'avmeldt' and kurs.status != 'avsluttet' %}<form method="post" action="{{ url_for('admin_meld_av', pid=p.id) }}" onsubmit="return confirm('Melde av {{ p.navn }}?')" style="margin:0"><button class="liten sekundar">Meld av</button></form>{% endif %}</td>
+    <td>{% if p.status != 'avmeldt' and kurs.status != 'avsluttet' %}<form method="post" action="{{ url_for('admin_meld_av', pid=p.id) }}" data-bekreft="Melde av {{ p.navn }}?" style="margin:0">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Meld av</button></form>{% endif %}</td>
   </tr>
   {% else %}<tr><td colspan="9" class="dempet">Ingen deltakere matcher søket.</td></tr>{% endfor %}
 </table></div>
@@ -63,22 +65,6 @@
   <button form="valgte-deltakere" formaction="{{ url_for('admin_eksporter_valgte_csv', kurs_id=kurs.id) }}" formmethod="post" class="liten sekundar">Eksporter valgte</button>
   <button form="valgte-deltakere" formaction="{{ url_for('admin_bulk_forhandsvis', kurs_id=kurs.id) }}" formmethod="post" class="liten">Behandle valgte</button>
 </p>
-<script>
-  (function () {
-    var boksar = document.querySelectorAll('.valgt-deltaker');
-    var velgAlle = document.getElementById('velg-alle-synlige');
-    var antallVisning = document.getElementById('antall-valgt');
-    function oppdaterAntall() {
-      var n = document.querySelectorAll('.valgt-deltaker:checked').length;
-      antallVisning.textContent = n ? '– ' + n + ' valgt' : '';
-    }
-    velgAlle.addEventListener('change', function () {
-      boksar.forEach(function (b) { b.checked = velgAlle.checked; });
-      oppdaterAntall();
-    });
-    boksar.forEach(function (b) { b.addEventListener('change', oppdaterAntall); });
-  })();
-</script>
 {% endif %}
 
 <h2 id="oppmote">Oppmøteregistrering</h2>
@@ -91,6 +77,7 @@
     {% for d in dager %}{% set k = oppmote.get((p.id, d.id)) %}
     <td style="text-align:center">
       <form method="post" action="{{ url_for('admin_oppmote', kurs_id=kurs.id) }}" style="margin:0">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="paamelding_id" value="{{ p.id }}"><input type="hidden" name="kursdag_id" value="{{ d.id }}">
         <button class="liten {{ '' if k else 'sekundar' }}" style="min-width:34px" title="{{ k or 'ikke registrert' }}">{{ {'qr':'Q','kode':'K','zoom':'Z','manuell':'M'}.get(k, '–') }}</button>
       </form>

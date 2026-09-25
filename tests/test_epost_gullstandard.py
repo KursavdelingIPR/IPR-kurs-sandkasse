@@ -322,7 +322,9 @@ def test_purring_emne_per_variant(igjen, emne_forventet):
     assert "<p>Hei Per Psykolog,</p>" in html
     assert ("Vi minner om at <strong>kurspresentasjon</strong> til <strong>Veiledning i praksis</strong> "
             "skal leveres innen <strong>2027-02-20</strong>.") in html
-    assert f'<a href="{BASE}/lever/7">Last opp her</a> – så blir materiellet automatisk tilgjengelig for deltakerne.' in html
+    from kurs import lenker
+    assert f'<a href="{lenker.lever_lenke(7)}">Last opp her</a> – så blir materiellet automatisk tilgjengelig for deltakerne.' in html
+    assert lenker.lever_lenke(7).startswith(f"{BASE}/lever/7/") and len(lenker.lever_lenke(7).rsplit("/", 1)[-1]) == 32
 
 
 # ============================ laaste maler (ikke redigerbare i v1): kort baseline ============================

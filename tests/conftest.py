@@ -128,3 +128,56 @@ def _database_i_tester(monkeypatch, request):
     finally:
         _AKTIV = None
         skjemaer.rydd()
+
+
+# ============================ CSRF i tester ============================
+# Alle state-endrende skjema krever csrf_token (kurs/web/sikkerhet.py). Testklienten legger tokenet til automatisk i
+# POST-skjemadata (dict), slik at de ~280 eksisterende POST-kallene tester selve funksjonaliteten uendret. Tester som
+# kontrollerer CSRF-vernet setter `klient.injiser_csrf = False`. Malene kontrolleres separat (tests/test_sikkerhet.py:
+# hvert POST-skjema maa inneholde feltet).
+
+def _csrf_testklient():
+    from flask.testing import FlaskClient
+
+    class CsrfKlient(FlaskClient):
+        injiser_csrf = True
+
+        def open(self, *args, **kwargs):
+            metode = (kwargs.get("method") or (args[1] if len(args) > 1 else "GET")).upper()
+            data = kwargs.get("data")
+            if self.injiser_csrf and metode in ("POST", "PUT", "PATCH", "DELETE") and isinstance(data, dict) \
+                    and "csrf_token" not in data:
+                with self.session_transaction() as s:
+                    token = s.get("csrf")
+                    if not token:
+                        import secrets
+                        token = s["csrf"] = secrets.token_urlsafe(32)
+                kwargs["data"] = {**data, "csrf_token": token}
+            elif self.injiser_csrf and metode in ("POST", "PUT", "PATCH", "DELETE") and data is None \
+                    and kwargs.get("json") is None and not kwargs.get("content_type"):
+                with self.session_transaction() as s:
+                    token = s.get("csrf")
+                    if not token:
+                        import secrets
+                        token = s["csrf"] = secrets.token_urlsafe(32)
+                kwargs["data"] = {"csrf_token": token}
+            return super().open(*args, **kwargs)
+
+    return CsrfKlient
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _csrf_i_testklienten():
+    from kurs.web import app as webapp
+    webapp.app.test_client_class = _csrf_testklient()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _nullstill_takbegrensning():
+    """Takbegrensningen (kurs/web/sikkerhet.py) teller per prosess - nullstilles per test slik at mange innlogginger paa
+    tvers av tester aldri gir 429. Tester av selve vernet gjoer mange kall innenfor EN test."""
+    from kurs.web import sikkerhet
+    sikkerhet.takbegrenser.nullstill()
+    yield
+    sikkerhet.takbegrenser.nullstill()

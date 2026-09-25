@@ -40,7 +40,8 @@
 
 {% if not har_blokkerende %}
 <form method="post" action="{{ url_for('admin_import_deltakere_bekreft', kurs_id=kurs.id) }}" style="margin-top:16px"
-      onsubmit="return confirm('Bekreft import av {{ antall }} rad{{ 'er' if antall != 1 }}?')">
+      data-bekreft="Bekreft import av {{ antall }} rad{{ 'er' if antall != 1 }}?">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="forhaandsvisning_token" value="{{ token }}">
   <button>Bekreft import</button>
 </form>
