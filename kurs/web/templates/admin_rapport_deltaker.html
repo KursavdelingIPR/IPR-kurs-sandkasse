@@ -33,4 +33,23 @@
   </tbody>
 </table></div>
 {% else %}<p class="liten dempet">Ingen fakturaer.</p>{% endif %}
+
+{% if admin_rolle == 'system' and not deltaker.epost.endswith('@anonymisert.invalid') %}
+<h2>Retten til sletting</h2>
+<div class="kort">
+  <p class="liten">Fjerner navn, e-post, telefon, arbeidssted, profesjon, HPR-nummer, fakturaadresser, kommentarer,
+    allergier/tilrettelegging, kursbevis, innloggingslenker og henvendelser for denne personen i hele påmeldingssystemet.
+    Anonyme tall (påmeldinger, oppmøte, fakturaer) beholdes, slik at statistikk og regnskap stemmer.
+    <strong>Kan ikke angres.</strong> Personer med aktive påmeldinger må meldes av først.</p>
+  <p class="liten dempet">Gjøres manuelt i tillegg: Visma (kundekort/faktura er regnskapsbilag – vurder), e-poster i kurs-postboksens
+    «Sendte elementer», personlige mapper i SharePoint og Zoom-rapporter. Se GDPR.md.</p>
+  <form method="post" action="{{ url_for('admin_anonymiser_deltaker', deltaker_id=deltaker.id) }}"
+        data-bekreft="Anonymisere {{ deltaker.navn }}? Dette kan ikke angres.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="f-bekreft">Skriv ANONYMISER for å bekrefte</label>
+    <input id="f-bekreft" name="bekreft" autocomplete="off" style="max-width:260px">
+    <p style="margin-top:8px"><button class="liten fare">Anonymiser personen</button></p>
+  </form>
+</div>
+{% endif %}
 {% endblock %}

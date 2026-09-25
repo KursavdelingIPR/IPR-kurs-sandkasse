@@ -188,3 +188,31 @@ def test_rolle_fra_claims_og_kart():
     assert entra._kart("a=system, b=lese,c=tull,=x") == {"a": "system", "b": "lese"}
     assert entra.rolle_fra_claims({"roles": ["ipr.lese", "ipr.kursadmin"]}) == "kursadmin"
     assert entra.rolle_fra_claims({}) is None
+
+
+# ============================ grenser for klokketoleransen (60 s) ============================
+# Funnet med mutasjonstesting: uten disse testene kunne grensene flyttes (< / <=, +60 / -60, 60 / 61) uten at noe feilet.
+
+NAA = 1_900_000_000
+
+
+@pytest.mark.parametrize("forskyvning,gyldig", [(600, True), (30, True), (-59, True), (-60, True), (-60.5, False),
+                                                (-3600, False)])
+def test_exp_godtas_til_og_med_60_sekunder_etter_utloep(con, forskyvning, gyldig):
+    claims = {**_claims("n"), "exp": NAA + forskyvning, "nbf": NAA - 600}
+    if gyldig:
+        entra.kontroller_claims(claims, "n", naa=NAA)
+    else:
+        with pytest.raises(ValueError, match="utloept"):
+            entra.kontroller_claims(claims, "n", naa=NAA)
+
+
+@pytest.mark.parametrize("forskyvning,gyldig", [(-600, True), (-30, True), (59, True), (60, True), (60.5, False),
+                                                (3600, False)])
+def test_nbf_godtas_inntil_60_sekunder_foer_gyldighet(con, forskyvning, gyldig):
+    claims = {**_claims("n"), "exp": NAA + 3600, "nbf": NAA + forskyvning}
+    if gyldig:
+        entra.kontroller_claims(claims, "n", naa=NAA)
+    else:
+        with pytest.raises(ValueError, match="ikke gyldig ennaa"):
+            entra.kontroller_claims(claims, "n", naa=NAA)

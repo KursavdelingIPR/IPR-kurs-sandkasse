@@ -1014,6 +1014,57 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
     return pid, status
 
 
+ANONYM_NAVN = "Anonymisert deltaker"
+ANONYM_DOMENE = "anonymisert.invalid"        # .invalid er reservert (RFC 2606) - kan aldri bli en ekte adresse
+
+
+def anonymiser_deltaker(con, deltaker_id: int, aktor: str) -> dict:
+    """Retten til sletting (GDPR art. 17). Fjerner personopplysningene om deltakeren i HELE databasen, men beholder
+    anonyme rader (påmelding, oppmøte, faktura) slik at kurs-, økonomi- og regnskapstall fortsatt stemmer. Kalleren
+    committer. Nekter hvis personen har aktive påmeldinger (bekreftet/venteliste på kurs som ikke er avsluttet/avlyst).
+
+    Røres IKKE herfra (må gjøres manuelt, se GDPR.md): kundekort/faktura i Visma (regnskapsbilag, bokføringsloven),
+    e-poster i kurs-postboksens «Sendte elementer», personlige mapper i SharePoint og Zoom-rapporter.
+    Returnerer en PII-fri oppsummering (antall rader per område)."""
+    d = con.execute("SELECT id, epost FROM deltaker WHERE id=?", (deltaker_id,)).fetchone()
+    if not d:
+        raise DeltakerFeil("Ukjent deltaker.")
+    if d["epost"].lower().endswith("@" + ANONYM_DOMENE):
+        raise DeltakerFeil("Deltakeren er allerede anonymisert.")
+    aktive = con.execute(
+        """SELECT COUNT(*) FROM paamelding p JOIN kurs k ON k.id=p.kurs_id WHERE p.deltaker_id=?
+             AND p.status IN ('bekreftet','venteliste') AND k.status NOT IN ('avsluttet','avlyst')""",
+        (deltaker_id,)).fetchone()[0]
+    if aktive:
+        raise DeltakerFeil("Personen har aktive påmeldinger. Meld av (eller vent til kurset er avsluttet) først.")
+    gammel, ny = d["epost"], f"anonymisert-{deltaker_id}@{ANONYM_DOMENE}"
+    ut = {}
+    con.execute("""UPDATE deltaker SET navn=?, epost=?, telefon=NULL, arbeidssted=NULL, yrkestittel=NULL, hpr_nr=NULL
+                   WHERE id=?""", (ANONYM_NAVN, ny, deltaker_id))
+    ut["paameldinger"] = con.execute(
+        """UPDATE paamelding SET faktura_epost=NULL, faktura_adresse=NULL, faktura_postnr=NULL, faktura_sted=NULL,
+                  faktura_ref=NULL, faktura_kommentar=NULL, intern_kommentar=NULL, oppdatert=? WHERE deltaker_id=?""",
+        (naa_utc(), deltaker_id)).rowcount
+    ut["sensitivt"] = con.execute(
+        "DELETE FROM sensitivt WHERE paamelding_id IN (SELECT id FROM paamelding WHERE deltaker_id=?)",
+        (deltaker_id,)).rowcount
+    con.execute("DELETE FROM dokument_innhold WHERE dokument_id IN (SELECT id FROM dokument WHERE deltaker_id=?)",
+                (deltaker_id,))
+    ut["dokumenter"] = con.execute("DELETE FROM dokument WHERE deltaker_id=?", (deltaker_id,)).rowcount
+    ut["innloggingslenker"] = con.execute("DELETE FROM innlogging_token WHERE deltaker_id=?", (deltaker_id,)).rowcount
+    ut["utsendingslogg"] = con.execute("UPDATE utsending_logg SET mottaker=? WHERE mottaker=?", (ny, gammel)).rowcount
+    ut["firmarader"] = con.execute("UPDATE firmapaamelding_rad SET navn=?, epost=? WHERE LOWER(epost)=LOWER(?)",
+                                   (ANONYM_NAVN, ny, gammel)).rowcount
+    ut["firmakontakt"] = con.execute(
+        """UPDATE firmapaamelding SET kontakt_navn=?, kontakt_epost=?, kontakt_telefon=NULL
+           WHERE LOWER(kontakt_epost)=LOWER(?)""", (ANONYM_NAVN, ny, gammel)).rowcount
+    ut["henvendelser"] = con.execute(
+        "UPDATE henvendelse SET epost=NULL, sporsmal='(slettet)' WHERE deltaker_id=? OR LOWER(epost)=LOWER(?)",
+        (deltaker_id, gammel)).rowcount
+    logg(con, "deltaker_anonymisert", {"deltaker_id": deltaker_id, **ut}, aktor=aktor)
+    return ut
+
+
 def avsla_paamelding(con, paamelding_id: int, aktor: str = "admin") -> int | None:
     """Fase 17: IPR avslår påmeldingen (f.eks. fordi opptakskravene ikke er oppfylt). Behandles som en avmelding - plassen
     frigjøres og første på ventelisten rykker opp (meld_av), ingen ny faktura, innkalling eller kursbevis - men merkes

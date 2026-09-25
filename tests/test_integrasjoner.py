@@ -388,6 +388,31 @@ def test_invalid_grant_uten_nytt_token_gir_ikke_sendt_etter_ett_forsoek(con, vis
     assert server.brukt == ["start-token"] and "start-token" not in str(feil.value)
 
 
+@pytest.mark.parametrize("sekunder_igjen, fornyes", [(61, False), (60, True), (59, True), (0, True)])
+def test_tilgangstoken_fornyes_naar_det_har_ett_minutt_eller_mindre_igjen(con, visma_drift, monkeypatch,
+                                                                        sekunder_igjen, fornyes):
+    naa = 1_900_000_000.0
+    monkeypatch.setattr(visma.time, "time", lambda: naa)
+    visma._cache.update(token="gammelt", utloper=naa + sekunder_igjen)
+    server = visma_drift(_ok("nytt", "r2"))
+    assert visma._token() == ("nytt" if fornyes else "gammelt")
+    assert server.brukt == (["start-token"] if fornyes else [])
+
+
+def test_invalid_grant_gir_hoeyst_to_forsoek_selv_om_tokenet_stadig_byttes(con, visma_drift):
+    teller = iter(range(100))
+
+    def annen_prosess_fornyer_hver_gang(_forsok):
+        c = db.koble()
+        db.lagre_integrasjonstoken(c, visma.REFRESH_NOKKEL, f"fornyet-{next(teller)}")
+        c.commit()
+        c.close()
+    server = visma_drift(*[(400, {"error": "invalid_grant"})] * 3, foer_svar=annen_prosess_fornyer_hver_gang)
+    with pytest.raises(visma.IkkeSendt, match="invalid_grant"):
+        visma._token()
+    assert len(server.brukt) == 2
+
+
 @pytest.mark.parametrize("svar", [requests.ConnectionError("nede"), requests.Timeout("treg"), (500, {}), (401, {})])
 def test_nettverks_og_serverfeil_mot_token_endepunktet_gir_ikke_sendt(con, visma_drift, svar):
     visma_drift(svar)

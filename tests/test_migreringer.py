@@ -278,3 +278,14 @@ def test_hendelseslogg_faar_kursnr_ved_opprettelse(con):
     kid = _kurs(con, "A")
     rad = con.execute("SELECT detaljer FROM hendelse WHERE handling='kurs_opprettet' ORDER BY id DESC LIMIT 1").fetchone()
     assert f'"kursnr": {_kursnr(con, kid)}' in rad["detaljer"]
+
+
+def test_helsesjekk_svarer_ok_og_503_ved_feil_versjon(con):
+    from kurs.web import app as webapp
+    klient = webapp.app.test_client()
+    r = klient.get("/helse")
+    assert (r.status_code, r.get_data(as_text=True)) == (200, "ok")
+    con.execute("DELETE FROM schema_versjon")
+    con.commit()
+    r = klient.get("/helse")
+    assert r.status_code == 503 and "versjon" not in r.get_data(as_text=True).lower()

@@ -181,3 +181,14 @@ def test_webflyt_paamelding_og_kodeinnsjekk(con, tmp_path, monkeypatch):
     kode = db.kursdager(con, kid)[0]["innsjekk_kode"]
     r = klient.post("/innsjekk", data={"kode": kode.lower(), "epost": "web@x.no"})
     assert "Oppmøte er registrert" in r.get_data(as_text=True)
+
+
+# ============================ delbeløp ============================
+# Funnet med mutasjonstesting: delbelop kunne gi én andel for mye uten at noe feilet (zip() i fakturer skjulte det).
+
+@pytest.mark.parametrize("pris,antall,forventet", [(9001, 3, [3001, 3000, 3000]), (1000, 3, [334, 333, 333]),
+                                                   (900, 1, [900]), (10, 4, [4, 2, 2, 2])])
+def test_delbelop_gir_noyaktig_en_andel_per_samling_og_riktig_sum(pris, antall, forventet):
+    from kurs.sveiper import delbelop
+    andeler = delbelop(pris, antall)
+    assert andeler == forventet and len(andeler) == antall and sum(andeler) == pris

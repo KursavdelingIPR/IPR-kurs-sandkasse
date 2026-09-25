@@ -49,6 +49,10 @@ Sider du kan prøve (mens sandkassen kjører):
 - **http://127.0.0.1:5000/logg-inn** – Min side. Skriv `kari.nordmann@example.no`, og klikk lenken som vises.
 - **http://127.0.0.1:5000/innsjekk** – innsjekk med kode
 
+Nytt i admin: **Aktiviteter → Årsplan** (hele året, ledige uker), **Deltakerliste** på hvert kurs (velg kolonner,
+skriv ut / lagre som PDF / CSV), **Avslå** på deltakersiden, **Rapporter → Økonomi** og **Uavklarte operasjoner**
+på oversikten. Hva som gjenstår før drift: `STATUS-PAMELDINGSSYSTEM.md`.
+
 Tips: I admin under **Daglig kjøring** kan du «spole» til en annen dato og se hvilke e-poster,
 påminnelser og fakturaer systemet sender automatisk. Se resultatet under **Utboks**.
 

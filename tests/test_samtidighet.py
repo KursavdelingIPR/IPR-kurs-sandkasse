@@ -420,3 +420,12 @@ def test_nettsiden_har_samme_vern(con):
     con.commit()
     admin.post(f"/admin/kurs/{kid}/nettside", data={"intro": "Min tekst", "knappetekst": "", "versjon": v})
     assert con.execute("SELECT paamelding_intro FROM kurs WHERE id=?", (kid,)).fetchone()[0] == "Fra en annen admin"
+
+
+@pytest.mark.parametrize("fakturert", [True, False])
+def test_avklar_faktura_svarer_true_foerste_gang_og_false_andre_gang(con, fakturert):
+    _, fid = _uavklart_faktura(con)
+    kw = {"faktura_nr": "10042", "belop_nok": 3000} if fakturert else {}
+    assert db.avklar_faktura(con, fid, fakturert=fakturert, aktor="test", **kw) is True
+    assert db.avklar_faktura(con, fid, fakturert=fakturert, aktor="test", **kw) is False
+    assert db.avklar_faktura(con, 999999, fakturert=fakturert, aktor="test", **kw) is False

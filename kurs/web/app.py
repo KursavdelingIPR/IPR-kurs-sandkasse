@@ -155,7 +155,8 @@ def _krev_migrert_database():
 #   system    - alt, inkludert brukere og (toerr)kjoering av daglig jobb
 #   kursadmin - alt daglig kursarbeid (kurs, deltakere, e-post, maler, rapporter, kunnskapsbase)
 #   lese      - kun se: ingen POST, ingen eksport av personopplysninger, ingen allergiliste
-SYSTEM_ENDEPUNKTER = frozenset({"admin_brukere", "admin_bruker_deaktiver", "admin_bruker_rolle", "admin_daglig"})
+SYSTEM_ENDEPUNKTER = frozenset({"admin_brukere", "admin_bruker_deaktiver", "admin_bruker_rolle", "admin_daglig",
+                                "admin_anonymiser_deltaker"})
 KUN_KURSADMIN_ENDEPUNKTER = frozenset({"admin_csv", "admin_eksporter_valgte_csv", "admin_allergiliste",
                                        "admin_deltakerliste_csv", "admin_rapport_kurs_csv", "admin_rapport_okonomi_csv",
                                        "admin_rapport_deltakere_csv", "admin_utboks"})
@@ -309,6 +310,19 @@ def _logg_skjemaadvarsler(kurs_id: int, advarsler) -> None:
     if advarsler:
         db.logg(con(), "skjemafelt_advarsel", {"kurs_id": kurs_id, "advarsler": [
             {"felt": a.felt, "egenskap": a.egenskap, "grunn": a.grunn} for a in advarsler]})
+
+
+@app.get("/helse")
+def helse():
+    """Helsesjekk for App Service (Health check path). 200 «ok» når databasen svarer og har kodens versjon, ellers 503.
+    Gir aldri detaljer ut (feilen står i loggen via _krev_migrert_database/feilhåndteringen)."""
+    try:
+        c = con()
+        c.execute("SELECT 1").fetchone()
+        migreringer.kontroller(c)
+    except Exception:  # noqa: BLE001 - enhver feil betyr «ikke frisk»
+        return Response("ikke klar", status=503, mimetype="text/plain")
+    return Response("ok", mimetype="text/plain", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/")
@@ -2670,6 +2684,24 @@ def admin_rapport_deltaker(deltaker_id):
     fakturaer = okonomi.rapport(okonomi.fakturaer(con(), date(2000, 1, 1), date(2100, 12, 31), deltaker_id=deltaker_id))
     return render_template("admin_rapport_deltaker.html", deltaker=deltaker, paameldinger=paameldinger,
                            fakturaer=fakturaer)
+
+
+@app.post("/admin/rapporter/deltaker/<int:deltaker_id>/anonymiser")
+@krever_admin
+def admin_anonymiser_deltaker(deltaker_id):
+    """Retten til sletting (kun systemadministrator). Krever at admin skriver ANONYMISER - handlingen kan ikke angres."""
+    if request.form.get("bekreft", "").strip().upper() != "ANONYMISER":
+        flash("Skriv ANONYMISER i feltet for å bekrefte. Ingenting er endret.", "feil")
+        return redirect(url_for("admin_rapport_deltaker", deltaker_id=deltaker_id))
+    try:
+        with db.transaksjon(con()):
+            db.anonymiser_deltaker(con(), deltaker_id, aktor=_aktor())
+    except db.DeltakerFeil as e:
+        flash(str(e), "feil")
+        return redirect(url_for("admin_rapport_deltaker", deltaker_id=deltaker_id))
+    flash("Personopplysningene er fjernet fra påmeldingssystemet. Husk de manuelle stegene: Visma (regnskapsplikt – "
+          "vurder), «Sendte elementer» i kurs-postboksen, personlige mapper i SharePoint og Zoom-rapporter.", "ok")
+    return redirect(url_for("admin_rapport_deltaker", deltaker_id=deltaker_id))
 
 
 # ---------- oekonomi (fase 14) ----------

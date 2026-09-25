@@ -24,6 +24,11 @@ er kjente begrensninger. Teknisk detaljnivå; personvern/GDPR-sjekklisten står 
 | Sensitive data | Allergi/tilrettelegging i egen tabell, vises kun til admin (visning logges), aldri i CSV/e-post, slettes 14 dager etter kurs. | `schema.sql`, `daglig._slett_sensitivt` |
 | Produksjonskontroll | I drift nekter appen å svare (503 + logg) hvis `HEMMELIG_NOKKEL`/`WEBHOOK_HEMMELIG` er standard/kort, `BASE_URL` ikke er https, eller databasen har feil versjon. Werkzeug-debugger er kun mulig i demo og bare på 127.0.0.1. | `sikkerhet.produksjonsfeil`, `_krev_migrert_database` |
 | Daglig jobb fra admin | I drift kan admin bare **tørrkjøre** den daglige jobben fra nettleseren. Ekte kjøring skjer kun via planlagt oppgave. | `admin_daglig` |
+| Roller | Systemadministrator / kursadministrator / lesetilgang, håndhevet på serveren for hver forespørsel. Lesetilgang kan ikke endre eller eksportere. Sletting etter GDPR og brukeradministrasjon: kun systemadministrator. | `krever_admin`, `_har_rolle_for` |
+| Samtidig redigering | Optimistisk kontroll: kursoppsett, nettside, personopplysninger og påmelding lagres ikke over en endring noen andre (eller morgenjobben) gjorde mens skjemaet var åpent. | `_versjon`, `_endret_av_andre` |
+| Dobbel e-post/faktura | Claim/status-modell: reservasjon committes før det eksterne kallet; ukjent utfall prøves aldri automatisk på nytt, men avklares av admin («Uavklarte operasjoner»). Unik indeks hindrer to fakturaer per påmelding/samling. | `kjoring.py`, `sveiper.py`, `db.avklar_*` |
+| Eksport | Deltakerlisten har bare nr. og navn som standard; allergier/tilrettelegging kan aldri velges. CSV-eksporter logges med kolonnenavn og antall – aldri innhold. | `kurs/deltakerliste.py`, `admin_*_csv` |
+| Helsesjekk | `/helse` svarer bare «ok»/«ikke klar» – ingen versjoner, feilmeldinger eller konfigurasjon. | `helse` |
 | KI-assistent | Skriver aldri svar selv (velger blant godkjente tekster). Kan slås av (`ASSISTENT_AKTIV=0`), har tidsavbrudd, maks ett nytt forsøk og dagsgrense (`ASSISTENT_MAKS_PER_DAG`). Nøkkel finnes kun på serveren. | `kurs/assistent.py` |
 
 ## Hva driftsmiljøet må sørge for
@@ -47,6 +52,12 @@ er kjente begrensninger. Teknisk detaljnivå; personvern/GDPR-sjekklisten står 
 - **CSP tillater `'unsafe-inline'` for stil** (base.html har inline `<style>` og maler bruker `style="..."`). Script er
   låst med nonce. Å flytte all CSS til en fil er en mulig senere opprydding.
 - **E-post går som HTML** via Microsoft Graph. Mottakerens klient bestemmer rendering; innholdet er escaped.
+- **Visma sitt refresh-token lagres i databasen** (tabellen `integrasjon_token`, i klartekst) fordi det roterer ved
+  hvert bruk og må overleve omstart. Databasen er kryptert på disk i Azure og har tilgangsstyring, men en databasedump
+  inneholder tokenet. Lekker en dump: trekk tilbake tilgangen i Visma og hent nytt token (`OPERATIONS.md`, avsnitt 6).
+  Alternativet (Key Vault med skrivetilgang for appen) krever mer oppsett og er vurdert som en senere forbedring.
+- **Samtidighetskontrollen** dekker vinduet mens et skjema står åpent (minutter), ikke de få millisekundene mellom
+  kontroll og lagring i samme forespørsel.
 
 ## Rapportere sårbarheter
 
@@ -54,7 +65,8 @@ Send til kursadministrasjonen (kurs@ipr.no) merket «sikkerhet». Ikke legg ved 
 
 ## Testdekning
 
-`tests/test_sikkerhet.py` dekker punktene over (CSRF med/uten token, alle POST-skjema har token, ingen inline-JS,
+`tests/test_sikkerhet.py`, `tests/test_roller.py`, `tests/test_entra.py`, `tests/test_samtidighet.py`,
+`tests/test_integrasjoner.py`, `tests/test_deltakerliste.py` og `tests/test_anonymisering.py` dekker punktene over (CSRF med/uten token, alle POST-skjema har token, ingen inline-JS,
 hoder og nonce, HSTS kun i drift, deaktivering, utløp, session fixation, open redirect, takbegrensning, signerte
 lenker, filnavn/sti, lenkevalidering, XSS via deltakernavn/kursnavn, CSV-injeksjon, feilsider uten traceback,
 webhook-herding, tørrkjøring i drift, Visma-escaping og produksjonskontroll). Kjøres mot både SQLite og PostgreSQL.

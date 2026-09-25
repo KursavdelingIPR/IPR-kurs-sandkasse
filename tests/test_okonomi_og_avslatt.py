@@ -91,6 +91,12 @@ def test_periode_standard_er_inneverende_aar_og_ugyldig_gir_standard():
         assert okonomi.periode(MultiDict(feil), idag) == (date(2031, 1, 1), date(2031, 12, 31))
 
 
+def test_periode_paa_en_enkelt_dag_godtas():
+    idag = date(2031, 5, 5)
+    en_dag = MultiDict({"fra": "2031-03-10", "til": "2031-03-10"})
+    assert okonomi.periode(en_dag, idag) == (date(2031, 3, 10), date(2031, 3, 10))
+
+
 def test_rapporten_summerer_uten_krediterte_per_maaned_og_per_kurs(con, fakturaer):
     r = okonomi.rapport(okonomi.fakturaer(con, date(2031, 1, 1), date(2031, 12, 31)))
     assert (r.totalt.antall, r.totalt.belop, r.totalt.kreditert) == (2, 6500, 4000)
