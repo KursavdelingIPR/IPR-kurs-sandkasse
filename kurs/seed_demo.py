@@ -11,15 +11,15 @@ from . import config, daglig, db
 from .integrasjoner import sharepoint
 from .kjoring import Kjoring
 
-PERSONER = [
-    ("Kari Nordmann", "kari.nordmann@example.no", "Familievernkontoret Bergen"),
-    ("Ola Hansen", "ola.hansen@example.no", "DPS Nordfjord"),
-    ("Aisha Rahman", "aisha.rahman@example.no", "Privat praksis"),
-    ("Jonas Berg", "jonas.berg@example.no", "BUP Oslo"),
-    ("Ingrid Solheim", "ingrid.solheim@example.no", "Bergen kommune"),
-    ("Mateusz Nowak", "mateusz.nowak@example.no", "DPS Vest"),
-    ("Silje Dahl", "silje.dahl@example.no", "Privat praksis"),
-    ("Eirik Lunde", "eirik.lunde@example.no", "Helse Fonna"),
+PERSONER = [   # (fornavn, etternavn, e-post, arbeidssted)
+    ("Kari", "Nordmann", "kari.nordmann@example.no", "Familievernkontoret Bergen"),
+    ("Ola", "Hansen", "ola.hansen@example.no", "DPS Nordfjord"),
+    ("Aisha", "Rahman", "aisha.rahman@example.no", "Privat praksis"),
+    ("Jonas", "Berg", "jonas.berg@example.no", "BUP Oslo"),
+    ("Ingrid Marie", "Solheim", "ingrid.solheim@example.no", "Bergen kommune"),
+    ("Mateusz", "Nowak", "mateusz.nowak@example.no", "DPS Vest"),
+    ("Silje", "Dahl", "silje.dahl@example.no", "Privat praksis"),
+    ("Eirik", "Lunde", "eirik.lunde@example.no", "Helse Fonna"),
 ]
 
 
@@ -65,8 +65,9 @@ def main():
                     sharepoint_mappe=sharepoint.opprett_kursmappe("BHT-2027"))
 
     def meld(kurs_id, idx, **kw):
-        navn, epost_, arb = PERSONER[idx]
-        pid, _ = db.meld_paa(con, kurs_id, epost=epost_, navn=navn, deltaker={"arbeidssted": arb}, **kw)
+        fornavn, etternavn, epost_, arb = PERSONER[idx]
+        pid, _ = db.meld_paa(con, kurs_id, epost=epost_, fornavn=fornavn, etternavn=etternavn,
+                             deltaker={"arbeidssted": arb}, **kw)
         return pid
 
     org = {"betaler": "organisasjon", "org_navn": "Bergen kommune", "org_nr": "964338531", "ehf": 1, "faktura_ref": "BK-4471"}

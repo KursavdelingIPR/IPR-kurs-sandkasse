@@ -43,7 +43,7 @@ def _kurs(con, kode="R1"):
     start = date.today() + timedelta(days=30)
     kid = db.opprett_kurs(con, kode=kode, navn="Rollekurs", datoer=[start.isoformat()], sharepoint_mappe=f"Kurs/{kode}",
                           pris_nok=1000, type="fysisk")
-    db.meld_paa(con, kid, epost="d@x.no", navn="D", sensitivt={"allergier": "Nøtter"})
+    db.meld_paa(con, kid, epost="d@x.no", fornavn="D", etternavn="Test", sensitivt={"allergier": "Nøtter"})
     con.commit()
     return kid
 

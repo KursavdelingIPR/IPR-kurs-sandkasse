@@ -101,7 +101,8 @@ def _kurs(con, kode, **kw):
 
 # Fiktive testdata (ingen ekte personer). Spesialtegn for aa bevise at gjenutfylte verdier fortsatt escapes.
 INNSENDT = {
-    "navn": 'Test "Person" <Eksempel>', "epost": "test.person@eksempel.no", "telefon": "+47 000 00 000",
+    "fornavn": 'Test "Person" <Eksempel>', "etternavn": "Eksempelsen", "epost": "test.person@eksempel.no",
+    "telefon": "+47 000 00 000",
     "arbeidssted": "Eksempel & Co AS", "hpr_nr": "0000000", "betaler": "organisasjon",
     "org_navn": "Eksempel Org", "org_nr": "000000000", "faktura_ref": "REF-1", "faktura_epost": "faktura@eksempel.no",
     "ehf": "on", "betaling": "per_samling", "faktura_adresse": "Eksempelveien 1", "faktura_postnr": "0000",
@@ -143,7 +144,7 @@ def lag_sider(con) -> dict[str, tuple[int, str]]:
     _kurs(con, "PF1", spesialistlop="EFT", betaling="deltaker_velger")
     kid_pf2 = _kurs(con, "PF2", spesialistlop="EFT")
     _kurs(con, "PF3", type="digital", sted=None, fakturering="organisasjon")
-    db.meld_paa(con, kid_pf2, epost=INNSENDT["epost"], navn="Tidligere", paamelding={}, sensitivt={})
+    db.meld_paa(con, kid_pf2, epost=INNSENDT["epost"], fornavn="Tidligere", etternavn="Test", paamelding={}, sensitivt={})
     con.commit()
 
     k = _klient()
@@ -253,19 +254,22 @@ FAKTURA_VELGER = FAKTURA[:7] + ["betaling", "betaling"] + FAKTURA[7:]
 SENSITIVT = ["allergier", "tilrettelegging"]
 
 
+NAVN = ["fornavn", "etternavn"]       # egne felt (migrering 7) - tidligere ett "navn"-felt
+
+
 @pytest.mark.parametrize("scenario,forventet", [
-    ("fysisk_uten_spesialistlop", ["navn", "epost", "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
-    ("fysisk_med_spesialistlop", ["navn", "epost", "telefon", "arbeidssted", "hpr_nr", *FAKTURA, *SENSITIVT,
+    ("fysisk_uten_spesialistlop", [*NAVN, "epost", "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
+    ("fysisk_med_spesialistlop", [*NAVN, "epost", "telefon", "arbeidssted", "hpr_nr", *FAKTURA, *SENSITIVT,
                                   "samtykke"]),
-    ("digitalt", ["navn", "epost", "telefon", "arbeidssted", *FAKTURA, "samtykke"]),
-    ("hybrid", ["navn", "epost", "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
-    ("person_pris_deltaker_velger", ["navn", "epost", "telefon", "arbeidssted", *FAKTURA_VELGER, *SENSITIVT,
+    ("digitalt", [*NAVN, "epost", "telefon", "arbeidssted", *FAKTURA, "samtykke"]),
+    ("hybrid", [*NAVN, "epost", "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
+    ("person_pris_deltaker_velger", [*NAVN, "epost", "telefon", "arbeidssted", *FAKTURA_VELGER, *SENSITIVT,
                                      "samtykke"]),
-    ("person_pris_per_samling", ["navn", "epost", "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
-    ("uten_fakturablokk_organisasjon", ["navn", "epost", "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
-    ("uten_fakturablokk_ingen", ["navn", "epost", "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
-    ("uten_fakturablokk_gratis", ["navn", "epost", "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
-    ("forhandsvisning", ["navn", "epost", "telefon", "arbeidssted", "hpr_nr", *FAKTURA_VELGER, *SENSITIVT,
+    ("person_pris_per_samling", [*NAVN, "epost", "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
+    ("uten_fakturablokk_organisasjon", [*NAVN, "epost", "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
+    ("uten_fakturablokk_ingen", [*NAVN, "epost", "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
+    ("uten_fakturablokk_gratis", [*NAVN, "epost", "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
+    ("forhandsvisning", [*NAVN, "epost", "telefon", "arbeidssted", "hpr_nr", *FAKTURA_VELGER, *SENSITIVT,
                          "samtykke"]),
 ])
 def test_feltrekkefolge_per_kursoppsett(sider, scenario, forventet):
@@ -273,13 +277,13 @@ def test_feltrekkefolge_per_kursoppsett(sider, scenario, forventet):
 
 
 def test_kun_navn_epost_og_samtykke_er_required(sider):
-    """Paa ALLE sider som viser paameldingsskjemaet (alle scenarier unntatt suksessflyten) er navn, epost og samtykke
-    de eneste required-feltene naar det ikke finnes overstyringer."""
-    skjemasider = {s for s, (_, html) in sider.items() if any(n == "navn" for n, _ in skjemafelt_i_rekkefolge(html))}
+    """Paa ALLE sider som viser paameldingsskjemaet (alle scenarier unntatt suksessflyten) er fornavn, etternavn, epost og
+    samtykke de eneste required-feltene naar det ikke finnes overstyringer."""
+    skjemasider = {s for s, (_, html) in sider.items() if any(n == "fornavn" for n, _ in skjemafelt_i_rekkefolge(html))}
     assert skjemasider == set(sider) - {SKJULT_FAKTURABLOKK}      # testen svekkes ikke: kun kvitteringen er unntatt
     for scenario in skjemasider:
         required = [n for n, a in skjemafelt_i_rekkefolge(sider[scenario][1]) if "required" in a]
-        assert required == ["navn", "epost", "samtykke"], scenario
+        assert required == [*NAVN, "epost", "samtykke"], scenario
 
 
 def test_skjult_fakturablokk_ignorerer_manipulerte_felt_og_gir_normal_kvittering(sider):
@@ -304,7 +308,7 @@ def test_post_feil_viser_innsendte_verdier_igjen_escaped(sider):
     status, html = sider["post_feil_mangler_samtykke"]
     assert status == 400
     verdier = {n: a.get("value") for n, a in skjemafelt_i_rekkefolge(html) if a.get("type") not in ("radio", "checkbox")}
-    for felt in ("navn", "epost", "telefon", "arbeidssted", "hpr_nr", "org_navn", "org_nr", "faktura_ref",
+    for felt in ("fornavn", "etternavn", "epost", "telefon", "arbeidssted", "hpr_nr", "org_navn", "org_nr", "faktura_ref",
                  "faktura_epost", "faktura_adresse", "faktura_postnr", "faktura_sted", "allergier", "tilrettelegging"):
         assert verdier[felt] == INNSENDT[felt], felt
     assert "Eksempel &amp; Co AS" in html and "&lt;Eksempel&gt;" in html and "<Eksempel>" not in html

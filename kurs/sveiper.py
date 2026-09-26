@@ -19,7 +19,7 @@ from .kjoring import Kjoring
 # Staleness-grensen for 'reservert' (db.UAVKLART_GRENSE_MIN) deles med forsidens teller - aldri automatisk
 # retry uansett alder, se schema.sql/trinn 2.5-designet.
 
-SQL_DELTAKER = """SELECT p.*, d.navn, d.epost, d.id AS did, k.navn AS kursnavn, k.kode, k.pris_nok, k.fakturering,
+SQL_DELTAKER = """SELECT p.*, d.navn, d.fornavn, d.epost, d.id AS did, k.navn AS kursnavn, k.kode, k.pris_nok, k.fakturering,
                          k.visma_artikkel, k.type AS kurstype, k.faktura_dager_for
                   FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id JOIN kurs k ON k.id=p.kurs_id"""
 

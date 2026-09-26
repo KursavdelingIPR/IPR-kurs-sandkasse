@@ -67,7 +67,8 @@ class Kode:
 
 # ALLE koder som finnes. Ingen koder gir sensitive data (allergier, tilrettelegging, e-post, telefon, adresse ...).
 KODER: dict[str, Kode] = {
-    "navn": Kode("Mottakerens navn", "vanlig"),
+    "fornavn": Kode("Mottakerens fornavn", "vanlig"),
+    "navn": Kode("Mottakerens fulle navn", "vanlig"),
     "kursnavn": Kode("Kursnavn", "fet"),
     "startdato": Kode("Første kursdag", "vanlig"),
     "dato": Kode("Kursdagens dato", "vanlig"),
@@ -84,6 +85,11 @@ KODER: dict[str, Kode] = {
     "sporsmal_url": Kode("Adressen til «Spør oss»", "system"),
 }
 SYSTEMKODER = frozenset(k for k, v in KODER.items() if v.stil == "system")  # min_side, sporsmal_url: kun i tekstfelt
+
+
+def kodeliste(koder) -> list[str]:
+    """Kodene i den rekkefoelgen de vises som knapper: {fornavn} og {navn} foerst, deretter alfabetisk."""
+    return sorted(koder, key=lambda k: ({"fornavn": 0, "navn": 1}.get(k, 2), k))
 
 
 # ============================ register ============================
@@ -123,66 +129,70 @@ def _tillegg(navn, standard, koder) -> Felt:
     return Felt(navn, TEKST, standard, frozenset(koder) | {"min_side"}, _MAKS_TEKST, True)
 
 
-_D = "Hei {navn},\n\n"
+# Standardhilsen i malene til deltakere (og kontaktpersoner): fornavnet. Den er vanlig, redigerbar tekst - admin bestemmer
+# selv om og hvor {fornavn} skal staa. Kursholdere (purring) har bare ett navnefelt og faar fullt navn.
+_D = "Hei {fornavn},\n\n"
+_D_KURSHOLDER = "Hei {navn},\n\n"
+_P = {"fornavn", "navn"}            # mottakerens navnekoder i alle maler til deltakere/kontaktpersoner
 
 MALER: dict[str, Mal] = {
     "bekreftelse": Mal(
         "Bekreftelse på plass", "Sendes til deltakeren når hen har fått plass på et kurs.",
-        {"emne": _emne("Emne", "Bekreftelse: {kursnavn}", {"navn", "kursnavn", "startdato"}),
+        {"emne": _emne("Emne", "Bekreftelse: {kursnavn}", _P | {"kursnavn", "startdato"}),
          "innledning": _hoved("Innledning", _D + "Takk for påmeldingen! Du har fått plass på {kursnavn}.",
-                              {"navn", "kursnavn", "startdato"}),
+                              _P | {"kursnavn", "startdato"}),
          "avslutning": _tillegg("Avslutning", "Du kan når som helst logge inn på {min_side} med e-postadressen din.",
-                                {"navn", "kursnavn", "startdato"})}),
+                                _P | {"kursnavn", "startdato"})}),
     "venteliste": Mal(
         "Ventelistebeskjed", "Sendes til deltakeren når kurset er fullt og hen settes på venteliste.",
-        {"emne": _emne("Emne", "Venteliste: {kursnavn}", {"navn", "kursnavn"}),
+        {"emne": _emne("Emne", "Venteliste: {kursnavn}", _P | {"kursnavn"}),
          "tekst": _hoved("Tekst", _D + "{kursnavn} er dessverre fullt, men du står nå på venteliste. Blir det en ledig "
                                        "plass, får du automatisk plassen og en bekreftelse på e-post.",
-                         {"navn", "kursnavn"})}),
+                         _P | {"kursnavn"})}),
     "ukefor": Mal(
         "Praktisk informasjon (uken før)", "Sendes til bekreftede deltakere en uke før kursstart.",
-        {"emne": _emne("Emne", "Velkommen til {kursnavn} – praktisk informasjon", {"navn", "kursnavn", "startdato"}),
+        {"emne": _emne("Emne", "Velkommen til {kursnavn} – praktisk informasjon", _P | {"kursnavn", "startdato"}),
          "innledning": _hoved("Innledning", _D + "Nå er det snart tid for {kursnavn}, som starter {startdato}.",
-                              {"navn", "kursnavn", "startdato"}),
-         "avslutning": _tillegg("Avslutning", "", {"navn", "kursnavn", "startdato"})}),
+                              _P | {"kursnavn", "startdato"}),
+         "avslutning": _tillegg("Avslutning", "", _P | {"kursnavn", "startdato"})}),
     "dagfor": Mal(
         "Påminnelse dagen før kursdag", "Sendes til bekreftede deltakere dagen før hver kursdag "
                                        "(egen tekst for første dag, dager midt i kurset og siste dag).",
         {"emne_forste": _emne("Emne – første kursdag", "I morgen starter {kursnavn}",
-                              {"navn", "kursnavn", "dato", "dagnummer", "antall_dager"}),
+                              _P | {"kursnavn", "dato", "dagnummer", "antall_dager"}),
          "emne_midt": _emne("Emne – dag midt i kurset", "I morgen, dag {dagnummer}: {kursnavn}",
-                            {"navn", "kursnavn", "dato", "dagnummer", "antall_dager"}),
+                            _P | {"kursnavn", "dato", "dagnummer", "antall_dager"}),
          "emne_siste": _emne("Emne – siste kursdag", "Siste kursdag i morgen: {kursnavn}",
-                             {"navn", "kursnavn", "dato", "dagnummer", "antall_dager"}),
+                             _P | {"kursnavn", "dato", "dagnummer", "antall_dager"}),
          "innledning_forste": _hoved("Innledning – første kursdag", _D + "I morgen starter {kursnavn}!",
-                                     {"navn", "kursnavn", "dato", "dagnummer", "antall_dager"}),
+                                     _P | {"kursnavn", "dato", "dagnummer", "antall_dager"}),
          "innledning_midt": _hoved("Innledning – dag midt i kurset",
                                    _D + "I morgen er dag {dagnummer} av {antall_dager} på {kursnavn}.",
-                                   {"navn", "kursnavn", "dato", "dagnummer", "antall_dager"}),
+                                   _P | {"kursnavn", "dato", "dagnummer", "antall_dager"}),
          "innledning_siste": _hoved("Innledning – siste kursdag", _D + "I morgen er siste kursdag på {kursnavn}.",
-                                    {"navn", "kursnavn", "dato", "dagnummer", "antall_dager"}),
-         "avslutning": _tillegg("Avslutning", "", {"navn", "kursnavn", "dato", "dagnummer", "antall_dager"})}),
+                                    _P | {"kursnavn", "dato", "dagnummer", "antall_dager"}),
+         "avslutning": _tillegg("Avslutning", "", _P | {"kursnavn", "dato", "dagnummer", "antall_dager"})}),
     "avlysning": Mal(
         "Avlysning", "Sendes til deltakere og ventelisten når et kurs avlyses.",
-        {"emne": _emne("Emne", "Avlyst: {kursnavn}", {"navn", "kursnavn"}),
+        {"emne": _emne("Emne", "Avlyst: {kursnavn}", _P | {"kursnavn"}),
          "tekst": Felt("Tekst", TEKST,
                        _D + "Vi må dessverre informere om at {kursnavn} er avlyst.\n\n"
                        "Har du allerede mottatt faktura, tar kursadministrasjonen kontakt med deg om det videre. "
                        "Har du spørsmål, kan du svare på denne e-posten eller bruke «Spør oss» på {sporsmal_url}.\n\n"
                        "Vi beklager ulempen dette medfører.",
-                       frozenset({"navn", "kursnavn", "min_side", "sporsmal_url"}), _MAKS_TEKST, False)}),
+                       frozenset(_P | {"kursnavn", "min_side", "sporsmal_url"}), _MAKS_TEKST, False)}),
     "kursbevis_klar": Mal(
         "Kursbevis klart", "Sendes til deltakeren når kursbeviset er lagt på Min side.",
-        {"emne": _emne("Emne", "Kursbevis: {kursnavn}", {"navn", "kursnavn"}),
+        {"emne": _emne("Emne", "Kursbevis: {kursnavn}", _P | {"kursnavn"}),
          "tekst": _hoved("Tekst", _D + "Takk for deltakelsen på {kursnavn}. Kursbeviset ditt ligger nå på {min_side}.",
-                         {"navn", "kursnavn"})}),
+                         _P | {"kursnavn"})}),
     "firmapaamelding_kvittering": Mal(
         "Kvittering bedriftspåmelding", "Sendes til kontaktpersonen når en bedrift har meldt på flere deltakere.",
         {"emne": _emne("Emne", "Bedriftspåmelding til {kursnavn} – kvittering",
-                       {"navn", "kursnavn", "firmanavn", "antall_deltakere"}),
+                       _P | {"kursnavn", "firmanavn", "antall_deltakere"}),
          "innledning": _hoved("Innledning", _D + "Takk for påmeldingen av {antall_deltakere} fra {firmanavn} til {kursnavn}.",
-                              {"navn", "kursnavn", "firmanavn", "antall_deltakere"}),
-         "avslutning": _tillegg("Avslutning", "", {"navn", "kursnavn", "firmanavn", "antall_deltakere"})}),
+                              _P | {"kursnavn", "firmanavn", "antall_deltakere"}),
+         "avslutning": _tillegg("Avslutning", "", _P | {"kursnavn", "firmanavn", "antall_deltakere"})}),
     "purring": Mal(
         "Purring på materiell", "Sendes til kursholder/ansvarlig som ikke har levert materiell innen fristen nærmer seg.",
         {"emne_frist_om_dager": _emne("Emne – frist om noen dager",
@@ -192,7 +202,7 @@ MALER: dict[str, Mal] = {
          "emne_frist_i_dag": _emne("Emne – frist i dag", "Frist i dag: {beskrivelse} til {kursnavn}",
                                    {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
                                     "dager_igjen_tekst"}),
-         "innledning": _hoved("Innledning", _D + "Vi minner om at {beskrivelse_liten} til {kursnavn} skal leveres innen {frist}.",
+         "innledning": _hoved("Innledning", _D_KURSHOLDER + "Vi minner om at {beskrivelse_liten} til {kursnavn} skal leveres innen {frist}.",
                               {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
                                "dager_igjen_tekst"}),
          "avslutning": _tillegg("Avslutning", "", {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist",
@@ -379,6 +389,34 @@ def felttekst_til_emne(mal: str, felt: str, tekst: str, verdier: dict) -> str:
     return emne
 
 
+# ============================ egenskrevet e-post til deltakere (admin_melding) ============================
+
+# Koder admin kan bruke i en egenskrevet e-post til én eller flere deltakere. Det legges ikke til noen automatisk hilsen -
+# admin bestemmer selv om og hvor {fornavn} skal staa. Samme strenge tolker (whitelist) og escaping som de redigerbare malene.
+MANUELLE_KODER = frozenset({"fornavn", "navn"})
+
+
+def valider_manuell_tekst(tekst: str) -> str:
+    """Kontrollerer koder og klammer i en egenskrevet e-posttekst - ved forhaandsvisning, FOER noe lagres eller sendes.
+    Kaster MalFeil med norsk `forklaring` (ukjent kode, loes klamme, ugyldige tegn). Returnerer teksten med CRLF -> LF."""
+    ren = _normaliser_kropp(tekst)
+    _parse(ren, MANUELLE_KODER)
+    return ren
+
+
+def manuell_tekst_til_html(tekst: str, mottaker) -> Markup:
+    """Egenskrevet e-posttekst -> trygg HTML for ÉN mottaker: {fornavn}/{navn} byttes med mottakerens egne verdier. All tekst
+    og alle verdier escapes; blank linje -> avsnitt, linjeskift -> <br> (som i de redigerbare malene)."""
+    verdier = _person(mottaker)
+
+    def linje(l: str) -> Markup:
+        ut = Markup("")
+        for slag, verdi in _parse(l, MANUELLE_KODER):
+            ut += escape(verdi) if slag == "tekst" else escape(_rens_verdi(verdier[verdi]))
+        return ut
+    return _avsnitt_til_html(valider_manuell_tekst(tekst), linje)
+
+
 # ============================ overstyringer: oppslag og lagring ============================
 
 def hent_overstyringer(con, mal: str) -> dict:
@@ -440,14 +478,19 @@ AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "d
                           "firmapaamelding_kvittering", "purring"})
 
 
+def _person(rad) -> dict:
+    """Mottakerens navnekoder: {fornavn} og {navn} (fullt navn)."""
+    return {"fornavn": rad["fornavn"], "navn": rad["navn"]}
+
+
 def _venteliste_verdier(data) -> dict:
-    return {"navn": data["p"]["navn"], "kursnavn": data["kurs"]["navn"]}
+    return {**_person(data["p"]), "kursnavn": data["kurs"]["navn"]}
 
 
 def _avlysning_verdier(data) -> dict:
     """KUN det registeret tillater: mottakerens navn og kursnavn. Ingen e-post, telefon, adresse, faktura eller sensitivt.
     (Systemlenkene {min_side} og {sporsmal_url} bygges av maltekster fra BASE_URL, ikke fra data.)"""
-    return {"navn": data["d"]["navn"], "kursnavn": data["kurs"]["navn"]}
+    return {**_person(data["d"]), "kursnavn": data["kurs"]["navn"]}
 
 
 def _bekreftelse_verdier(data) -> dict:
@@ -456,7 +499,7 @@ def _bekreftelse_verdier(data) -> dict:
     fakturamotoren) - aldri en kode og aldri redigerbar. Mangler planen -> MalFeil (fail closed: aldri en bekreftelse uten
     sann fakturainformasjon). Uten kursdager utelates {startdato} (bruker admin den, blir det MalFeil - aldri en oppdiktet dato)."""
     data["faktura_plan"]
-    verdier = {"navn": data["p"]["navn"], "kursnavn": data["kurs"]["navn"]}
+    verdier = {**_person(data["p"]), "kursnavn": data["kurs"]["navn"]}
     if data["dager"]:
         verdier["startdato"] = data["dager"][0]["dato"]
     return verdier
@@ -465,20 +508,20 @@ def _bekreftelse_verdier(data) -> dict:
 def _ukefor_verdier(data) -> dict:
     """KUN det registeret tillater: navn, kursnavn og foerste kursdag (ISO). Kursdager/klokkeslett, sted/QR-innsjekk, Zoom-
     informasjon og kursnotat er LAASTE systemblokker i malfilen - aldri koder, aldri redigerbare."""
-    return {"navn": data["d"]["navn"], "kursnavn": data["kurs"]["navn"], "startdato": data["dager"][0]["dato"]}
+    return {**_person(data["d"]), "kursnavn": data["kurs"]["navn"], "startdato": data["dager"][0]["dato"]}
 
 
 def _dagfor_verdier(data) -> dict:
     """KUN det registeret tillater. Tid, sted/QR og Zoom-lenke/ID/passord er LAASTE systemblokker i malfilen (Zoom-hemmeligheter
     er aldri koder). Alle varianter (forste/midt/siste) faar verdier, saa en ugyldig variant feiler lukket uansett dag."""
-    return {"navn": data["d"]["navn"], "kursnavn": data["kurs"]["navn"], "dato": data["dag"]["dato"],
+    return {**_person(data["d"]), "kursnavn": data["kurs"]["navn"], "dato": data["dag"]["dato"],
             "dagnummer": data["nr"], "antall_dager": data["antall"]}
 
 
 def _kursbevis_klar_verdier(data) -> dict:
     """KUN det registeret tillater: mottakerens navn og kursnavn. Ingen dokument-ID, filsti eller annen intern referanse -
     Min side-lenken er systemkoden {min_side} (bygget av maltekster fra BASE_URL), aldri en fri URL eller sti fra admin."""
-    return {"navn": data["navn"], "kursnavn": data["kurs"]["navn"]}
+    return {**_person(data), "kursnavn": data["kurs"]["navn"]}
 
 
 def _purring_verdier(data) -> dict:
@@ -505,7 +548,7 @@ def _firmapaamelding_kvittering_verdier(data) -> dict:
     ikke gjoeres om av admin. `antall_totalt` (antall deltakere i INNSENDINGEN) er derimot kjent FOER noen
     registrering skjer, saa {antall_deltakere} kan trygt rendres i preflight, foer varig sideeffekt."""
     antall = data["antall_totalt"]
-    return {"navn": data["kontakt"]["navn"], "kursnavn": data["kurs"]["navn"], "firmanavn": data["kontakt"]["firmanavn"],
+    return {**_person(data["kontakt"]), "kursnavn": data["kurs"]["navn"], "firmanavn": data["kontakt"]["firmanavn"],
             "antall_deltakere": f"{antall} deltaker{'e' if antall != 1 else ''}"}
 
 

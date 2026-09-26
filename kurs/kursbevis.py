@@ -33,7 +33,7 @@ def _logg_kursbevis_feil(k: Kjoring, r, feil: maltekster.MalFeil) -> None:
 
 def kjor(k: Kjoring) -> None:
     kandidater = k.con.execute(
-        """SELECT k.*, p.id AS pid, p.deltaker_id, d.navn AS deltaker_navn, d.epost
+        """SELECT k.*, p.id AS pid, p.deltaker_id, d.navn AS deltaker_navn, d.fornavn AS deltaker_fornavn, d.epost
            FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id JOIN kurs k ON k.id=p.kurs_id
            WHERE k.status='avsluttet' AND p.status='bekreftet'
              AND NOT EXISTS (SELECT 1 FROM dokument x WHERE x.kurs_id=k.id AND x.deltaker_id=p.deltaker_id AND x.type='kursbevis')
@@ -57,7 +57,8 @@ def kjor(k: Kjoring) -> None:
         # eventuell SENERE malfeil (override endret, DB-lesefeil) aldri kan oppstaa etter at fil/dokumentrad
         # er opprettet (TOCTOU-vakt, se tests/test_maltekster_kursbevis.py).
         try:
-            emne, epost_html = k.render_for_sending("kursbevis_klar", navn=r["deltaker_navn"], kurs=r)
+            emne, epost_html = k.render_for_sending("kursbevis_klar", navn=r["deltaker_navn"],
+                                                    fornavn=r["deltaker_fornavn"], kurs=r)
         except maltekster.MalFeil as e:
             _logg_kursbevis_feil(k, r, e)
             continue

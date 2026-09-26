@@ -1,8 +1,8 @@
-{% extends "admin_base.html" %}
-{% block innhold %}
-{% include "admin_deltaker_header.html" %}
-{% include "admin_deltaker_faner.html" %}
-
+{% extends "admin_deltaker_ramme.html" %}
+{% block deltakerinnhold %}
+<div class="seksjonstopp">
+  <p class="liten dempet">Alt som er registrert om denne påmeldingen, nyeste først.</p>
+</div>
 <div class="tabellboks"><table>
   <tr><th scope="col">Tid</th><th scope="col">Hvem</th><th scope="col">Hendelse</th><th scope="col">Detaljer</th></tr>
   {% for h in hendelser %}

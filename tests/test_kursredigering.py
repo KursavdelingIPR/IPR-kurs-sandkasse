@@ -96,7 +96,7 @@ def test_pris_fakturering_redigerbart_for_faktura(con):
 
 def test_pris_fakturering_ikke_omgaas_via_direkte_post_etter_faktura(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("INSERT INTO faktura (paamelding_id, belop_nok, status) VALUES (?, 1000, 'sendt')", (pid,))
     con.commit()
     klient = _klient()
@@ -111,7 +111,7 @@ def test_pris_fakturering_ikke_omgaas_via_direkte_post_etter_faktura(con):
 
 def test_laasing_haandheves_ogsaa_paa_db_niva(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("INSERT INTO faktura (paamelding_id, belop_nok, status) VALUES (?, 1000, 'sendt')", (pid,))
     con.commit()
     db.oppdater_kurs_felter(con, kid, {"pris_nok": 5000, "navn": "Rett fra db"}, aktor="test")
@@ -124,8 +124,8 @@ def test_laasing_haandheves_ogsaa_paa_db_niva(con):
 
 def test_kapasitetsokning_rykker_opp_venteliste_og_kjorer_sveiper(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    pb, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")  # venteliste
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    pb, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")  # venteliste
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -138,8 +138,8 @@ def test_kapasitetsokning_rykker_opp_venteliste_og_kjorer_sveiper(con):
 
 def test_kapasitetsreduksjon_fjerner_ingen_og_setter_full(con):
     kid = _kurs(con, kapasitet=5)
-    pa, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    pb, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    pa, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    pb, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -175,7 +175,7 @@ def test_paamelding_fungerer_normalt_for_frist(con):
     kid = _kurs(con)
     con.execute("UPDATE kurs SET paameldingsfrist=? WHERE id=?", ((date.today() + timedelta(days=5)).isoformat(), kid))
     con.commit()
-    pid, status = db.meld_paa(con, kid, epost="a@x.no", navn="A", idag=date.today())
+    pid, status = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", idag=date.today())
     assert status == "bekreftet"
 
 
@@ -184,7 +184,7 @@ def test_paamelding_stoppes_etter_frist(con):
     con.execute("UPDATE kurs SET paameldingsfrist=? WHERE id=?", ((date.today() - timedelta(days=1)).isoformat(), kid))
     con.commit()
     with pytest.raises(db.Paameldingsfeil, match="frist"):
-        db.meld_paa(con, kid, epost="a@x.no", navn="A", idag=date.today())
+        db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", idag=date.today())
 
 
 def test_paamelding_stoppes_etter_frist_via_web(con):
@@ -192,7 +192,8 @@ def test_paamelding_stoppes_etter_frist_via_web(con):
     con.execute("UPDATE kurs SET paameldingsfrist=? WHERE id=?", ((date.today() - timedelta(days=1)).isoformat(), kid))
     con.commit()
     klient = _klient()
-    r = klient.post("/kurs/WEB1", data={"navn": "A", "epost": "a@x.no", "samtykke": "on", "betaler": "person"})
+    r = klient.post("/kurs/WEB1", data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "samtykke": "on",
+                                        "betaler": "person"})
     assert r.status_code == 400
     assert "frist" in r.get_data(as_text=True).lower()
 
@@ -202,13 +203,13 @@ def test_avlyst_utkast_og_passert_frist_blokkerer_alle(con):
         kid = _kurs(con, kode=f"BLOKK-{status}-{frist}", status=status, paameldingsfrist=frist)
         con.commit()
         with pytest.raises(db.Paameldingsfeil):
-            db.meld_paa(con, kid, epost=f"x-{status}@x.no", navn="X", idag=date.today())
+            db.meld_paa(con, kid, epost=f"x-{status}@x.no", fornavn="X", etternavn="Test", idag=date.today())
 
 
 def test_venteliste_kan_rykke_opp_administrativt_etter_passert_frist(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    pb, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    pb, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.execute("UPDATE kurs SET paameldingsfrist=? WHERE id=?", ((date.today() - timedelta(days=1)).isoformat(), kid))
     con.commit()
     # kapasitetsokning (administrativt opprykk) skal fungere selv om fristen er passert
@@ -221,8 +222,8 @@ def test_venteliste_kan_rykke_opp_administrativt_etter_passert_frist(con):
 
 def test_avlysning_setter_status_og_sender_varsel_en_gang(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -236,7 +237,7 @@ def test_avlysning_setter_status_og_sender_varsel_en_gang(con):
 
 def test_avlysning_rorer_ikke_eksisterende_paameldinger(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -246,7 +247,7 @@ def test_avlysning_rorer_ikke_eksisterende_paameldinger(con):
 
 def test_avlyst_kurs_stopper_sveiper_ingen_bekreftelse_ingen_faktura(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")  # sveiper_kjort fortsatt 0
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")  # sveiper_kjort fortsatt 0
     con.execute("UPDATE kurs SET status='avlyst' WHERE id=?", (kid,))
     con.commit()
     sveiper.kjor(Kjoring(con, idag=date.today()))
@@ -257,7 +258,7 @@ def test_avlyst_kurs_stopper_sveiper_ingen_bekreftelse_ingen_faktura(con):
 
 def test_avlyst_kurs_stopper_delfaktura(con):
     kid = _kurs(con, betaling="per_samling")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE paamelding SET sveiper_kjort=1 WHERE id=?", (pid,))
     con.execute("UPDATE kurs SET status='avlyst' WHERE id=?", (kid,))
     con.commit()
@@ -268,7 +269,7 @@ def test_avlyst_kurs_stopper_delfaktura(con):
 def test_avlyst_kurs_faar_ingen_innkallinger_eller_nytt_zoom(con):
     i_morgen = date.today() + timedelta(days=1)
     kid = _kurs(con, start=i_morgen, type="digital")
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE kurs SET status='avlyst' WHERE id=?", (kid,))
     con.commit()
     daglig.kjor(Kjoring(con, idag=date.today()))
@@ -288,8 +289,8 @@ def test_avlyst_kurs_faar_ingen_materiellpurring(con):
 
 def test_avlyst_kurs_rykker_ikke_opp_venteliste_ved_kapasitetsokning(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    pb, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    pb, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.execute("UPDATE kurs SET status='avlyst' WHERE id=?", (kid,))
     con.commit()
     opprykket = db.endre_kapasitet(con, kid, 5, aktor="test")
@@ -299,7 +300,7 @@ def test_avlyst_kurs_rykker_ikke_opp_venteliste_ved_kapasitetsokning(con):
 
 def test_avlyst_kurs_kan_ikke_bekrefte_via_statusendring(con):
     kid = _kurs(con, kapasitet=5)
-    pb, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    pb, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.execute("UPDATE paamelding SET status='venteliste' WHERE id=?", (pb,))
     con.execute("UPDATE kurs SET status='avlyst' WHERE id=?", (kid,))
     con.commit()
@@ -462,7 +463,7 @@ def test_db_oppdater_kurs_felter_avviser_ugyldig_faktura_dager_for_foer_noe_skri
 @pytest.mark.parametrize("binding", ["faktura", "forsok"])
 def test_gyldig_ny_verdi_kan_ikke_endres_naar_oekonomien_er_laast(con, binding):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     if binding == "faktura":
         con.execute("INSERT INTO faktura (paamelding_id, belop_nok, status) VALUES (?, 1000, 'sendt')", (pid,))
     else:
@@ -480,7 +481,7 @@ def test_gyldig_ny_verdi_kan_ikke_endres_naar_oekonomien_er_laast(con, binding):
 
 def test_ugyldig_verdi_avvises_ogsaa_naar_oekonomien_er_laast_og_omgaar_ikke_laasen(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("INSERT INTO faktura_forsok (paamelding_id, status) VALUES (?, 'feilet')", (pid,))
     con.commit()
     klient = _klient()

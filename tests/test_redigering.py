@@ -38,13 +38,13 @@ def _fersk(con):
 
 def test_person_endring_gjelder_paa_tvers_av_kurs(con):
     k1, k2 = _kurs(con, "K1"), _kurs(con, "K2")
-    p1, _ = db.meld_paa(con, k1, epost="a@x.no", navn="A Test")
-    db.meld_paa(con, k2, epost="a@x.no", navn="A Test")  # samme person, samme e-post
+    p1, _ = db.meld_paa(con, k1, epost="a@x.no", fornavn="A", etternavn="Test")
+    db.meld_paa(con, k2, epost="a@x.no", fornavn="A", etternavn="Test")  # samme person, samme e-post
     con.commit()
     klient = _klient()
     _logg_inn(klient)
     r = klient.post(f"/admin/kurs/{k1}/deltaker/{p1}/person",
-                    data={"navn": "A Test", "epost": "a@x.no", "telefon": "99999999",
+                    data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "telefon": "99999999",
                           "yrkestittel": "", "arbeidssted": ""}, follow_redirects=True)
     assert r.status_code == 200
     tekst_k2 = klient.get(f"/admin/kurs/{k2}/deltakere").get_data(as_text=True)
@@ -53,8 +53,8 @@ def test_person_endring_gjelder_paa_tvers_av_kurs(con):
 
 def test_person_endring_oppdaterer_alle_paameldinger_til_personen(con):
     k1, k2 = _kurs(con, "K1"), _kurs(con, "K2")
-    p1, _ = db.meld_paa(con, k1, epost="a@x.no", navn="A Test")
-    p2, _ = db.meld_paa(con, k2, epost="a@x.no", navn="A Test")
+    p1, _ = db.meld_paa(con, k1, epost="a@x.no", fornavn="A", etternavn="Test")
+    p2, _ = db.meld_paa(con, k2, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     for pid in (p1, p2):
         con.execute("UPDATE paamelding SET oppdatert='2020-01-01T00:00:00' WHERE id=?", (pid,))
@@ -63,7 +63,7 @@ def test_person_endring_oppdaterer_alle_paameldinger_til_personen(con):
     klient = _klient()
     _logg_inn(klient)
     klient.post(f"/admin/kurs/{k1}/deltaker/{p1}/person",
-               data={"navn": "A Test", "epost": "a@x.no", "telefon": "12345678", "yrkestittel": "", "arbeidssted": ""})
+               data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "telefon": "12345678", "yrkestittel": "", "arbeidssted": ""})
 
     fersk = _fersk(con)
     for pid in (p1, p2):
@@ -73,25 +73,25 @@ def test_person_endring_oppdaterer_alle_paameldinger_til_personen(con):
 
 def test_ugyldig_epost_avvises(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
     klient.post(f"/admin/kurs/{kid}/deltaker/{pid}/person",
-               data={"navn": "A", "epost": "ikke-en-epost", "telefon": "", "yrkestittel": "", "arbeidssted": ""})
+               data={"fornavn": "A", "etternavn": "Test", "epost": "ikke-en-epost", "telefon": "", "yrkestittel": "", "arbeidssted": ""})
     assert _fersk(con).execute("SELECT epost FROM deltaker WHERE id=(SELECT deltaker_id FROM paamelding WHERE id=?)",
                                (pid,)).fetchone()["epost"] == "a@x.no"
 
 
 def test_epost_som_allerede_er_i_bruk_avvises(con):
     kid = _kurs(con, kapasitet=5)
-    p1, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    p1, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
     r = klient.post(f"/admin/kurs/{kid}/deltaker/{p1}/person",
-                    data={"navn": "A", "epost": "b@x.no", "telefon": "", "yrkestittel": "", "arbeidssted": ""},
+                    data={"fornavn": "A", "etternavn": "Test", "epost": "b@x.no", "telefon": "", "yrkestittel": "", "arbeidssted": ""},
                     follow_redirects=True)
     assert "allerede i bruk" in r.get_data(as_text=True)
     assert _fersk(con).execute("SELECT epost FROM deltaker WHERE id=(SELECT deltaker_id FROM paamelding WHERE id=?)",
@@ -100,12 +100,12 @@ def test_epost_som_allerede_er_i_bruk_avvises(con):
 
 def test_person_endring_logges_uten_verdier(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A", deltaker={"telefon": "111"})
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", deltaker={"telefon": "111"})
     con.commit()
     klient = _klient()
     _logg_inn(klient)
     klient.post(f"/admin/kurs/{kid}/deltaker/{pid}/person",
-               data={"navn": "A", "epost": "a@x.no", "telefon": "999", "yrkestittel": "", "arbeidssted": ""})
+               data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "telefon": "999", "yrkestittel": "", "arbeidssted": ""})
     rad = _fersk(con).execute(
         "SELECT detaljer FROM hendelse WHERE handling='deltaker_endret' ORDER BY id DESC LIMIT 1").fetchone()
     assert "telefon" in rad["detaljer"]
@@ -117,7 +117,7 @@ def test_person_endring_logges_uten_verdier(con):
 
 def test_paameldingsfelt_kan_oppdateres(con):
     kid = _kurs(con, type="fysisk")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -136,7 +136,7 @@ def test_paameldingsfelt_kan_oppdateres(con):
 
 def test_firma_betaler_uten_org_info_avvises(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -148,7 +148,7 @@ def test_firma_betaler_uten_org_info_avvises(con):
 
 def test_allergi_endring_logges_uten_innhold(con):
     kid = _kurs(con, type="fysisk")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -164,7 +164,7 @@ def test_allergi_endring_logges_uten_innhold(con):
 
 def test_prisvalg_ikke_redigerbart_naar_kurset_styrer_det(con):
     kid = _kurs(con, betaling="samlet")  # ikke deltaker_velger
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -174,7 +174,7 @@ def test_prisvalg_ikke_redigerbart_naar_kurset_styrer_det(con):
 
 def test_prisvalg_ikke_redigerbart_etter_fakturering(con):
     kid = _kurs(con, betaling="deltaker_velger", pris_nok=0)  # pris 0 -> ingen faktura opprettes av sveiper
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     con.execute("INSERT INTO faktura (paamelding_id, belop_nok, status) VALUES (?, 1000, 'sendt')", (pid,))
     con.commit()
@@ -186,7 +186,7 @@ def test_prisvalg_ikke_redigerbart_etter_fakturering(con):
 
 def test_prisvalg_redigerbart_naar_trygt(con):
     kid = _kurs(con, betaling="deltaker_velger")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -198,8 +198,8 @@ def test_prisvalg_redigerbart_naar_trygt(con):
 
 def test_venteliste_til_bekreftet_under_kapasitet(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")  # bekreftet, fyller kapasitet
-    pb, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")  # venteliste
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")  # bekreftet, fyller kapasitet
+    pb, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")  # venteliste
     con.commit()
     con.execute("UPDATE kurs SET kapasitet=2 WHERE id=?", (kid,))  # gi plass til aa bekrefte B manuelt
     con.commit()
@@ -214,8 +214,8 @@ def test_venteliste_til_bekreftet_under_kapasitet(con):
 
 def test_venteliste_til_bekreftet_avvises_naar_fullt(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    pb, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    pb, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -226,8 +226,8 @@ def test_venteliste_til_bekreftet_avvises_naar_fullt(con):
 
 def test_avmelding_via_status_gir_riktig_opprykk(con):
     kid = _kurs(con, kapasitet=1)
-    pa, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    pb, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")  # venteliste
+    pa, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    pb, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")  # venteliste
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -239,7 +239,7 @@ def test_avmelding_via_status_gir_riktig_opprykk(con):
 
 def test_avmeldt_til_bekreftet_gjenaapning(con):
     kid = _kurs(con, kapasitet=5)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     db.meld_av(con, pid)
     con.commit()
@@ -251,7 +251,7 @@ def test_avmeldt_til_bekreftet_gjenaapning(con):
 
 def test_bekreftet_til_venteliste_tilbys_ikke(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")  # bekreftet
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")  # bekreftet
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -264,7 +264,7 @@ def test_bekreftet_til_venteliste_tilbys_ikke(con):
 
 def test_statusendring_logges_med_gammel_og_ny_status(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)

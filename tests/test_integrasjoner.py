@@ -245,7 +245,7 @@ def test_zoom_overskriver_aldri_en_lenke_som_kom_i_mellomtiden(con, monkeypatch)
 def _gammelt_kursbevis(con, rot, url, innhold=None):
     """Et kursbevis slik eldre kode lagret det: fil under data/kursbevis/ og url 'lokal:...'."""
     kid = db.opprett_kurs(con, kode="KB-2030", navn="Bevis", datoer=["2030-01-01"], status="avsluttet")
-    did = db.finn_eller_opprett_deltaker(con, "kb@eksempel.no", "Kari Bevis")
+    did = db.finn_eller_opprett_deltaker(con, "kb@eksempel.no", "Kari", "Bevis")
     dok = db.sett_inn(con, "INSERT INTO dokument (kurs_id, deltaker_id, type, tittel, url) VALUES (?,?,?,?,?)",
                       (kid, did, "kursbevis", "Kursbevis – Bevis", url))
     if innhold is not None:
@@ -301,7 +301,7 @@ def test_kursbevis_fra_databasen_vises_bare_for_eieren(con, tmp_path, monkeypatc
     assert r.status_code == 200 and r.mimetype == "text/html" and "Kursbevis Kari" in r.get_data(as_text=True)
     annen = webapp.app.test_client()
     with annen.session_transaction() as s:
-        s["deltaker_id"] = db.finn_eller_opprett_deltaker(con, "annen@eksempel.no", "Annen")
+        s["deltaker_id"] = db.finn_eller_opprett_deltaker(con, "annen@eksempel.no", "Annen", "Test")
     con.commit()
     assert annen.get(f"/dokument/{dok}").status_code == 403
     assert webapp.app.test_client().get(f"/dokument/{dok}").status_code == 403

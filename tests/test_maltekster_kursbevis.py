@@ -14,6 +14,7 @@ from kurs import config, db, kursbevis, maltekster
 from kurs.integrasjoner import epost
 from kurs.kjoring import Kjoring
 from kurs.maltekster import DB_LESEFEIL, MALER, TOM, UKJENT_FELT, UKJENT_KODE, MalFeil
+from navnehjelp import navnedeler
 
 IDAG = date(2027, 6, 1)
 STD_EMNE = "Kursbevis: Veiledning i praksis"
@@ -53,7 +54,7 @@ def _kurs(con, kode="K1", datoer=("2027-03-01", "2027-03-02"), status="avsluttet
 def _deltaker(con, kid, navn="Ola Nordmann", epost_="ola@x.no"):
     status = con.execute("SELECT status FROM kurs WHERE id=?", (kid,)).fetchone()[0]
     con.execute("UPDATE kurs SET status='aapen' WHERE id=?", (kid,))
-    pid, _ = db.meld_paa(con, kid, epost=epost_, navn=navn)
+    pid, _ = db.meld_paa(con, kid, epost=epost_, **navnedeler(navn))
     con.execute("UPDATE kurs SET status=? WHERE id=?", (status, kid))
     for dag in db.kursdager(con, kid):
         db.registrer_oppmote(con, pid, dag["id"], "manuell")
@@ -84,7 +85,7 @@ def _lagre(con, felt, tekst):
 
 
 def _direkte_data(navn="Ola Nordmann", kursnavn="Veiledning i praksis"):
-    return dict(navn=navn, kurs={"navn": kursnavn})
+    return dict(navn=navn, fornavn=navnedeler(navn)["fornavn"], kurs={"navn": kursnavn})
 
 
 # ============================ aktivering ============================
@@ -95,8 +96,9 @@ def test_kursbevis_klar_er_aktivert():
 
 
 def test_verdibygger_eksponerer_kun_navn_og_kursnavn():
-    verdier = maltekster._kursbevis_klar_verdier({"navn": "Ola", "kurs": {"navn": "K", "pris_nok": 1500}})
-    assert verdier == {"navn": "Ola", "kursnavn": "K"}
+    verdier = maltekster._kursbevis_klar_verdier({"navn": "Ola Nordmann", "fornavn": "Ola",
+                                                  "kurs": {"navn": "K", "pris_nok": 1500}})
+    assert verdier == {"fornavn": "Ola", "navn": "Ola Nordmann", "kursnavn": "K"}
     tillatt = set().union(*(f.kode for f in MALER["kursbevis_klar"].felt.values())) - maltekster.SYSTEMKODER
     assert tillatt == set(verdier)
 
@@ -111,7 +113,7 @@ def test_A_uten_override_er_identisk_med_dagens_standardtekst(con, sendt):
     assert emne == STD_EMNE
     assert _n(html) == _n(epost.render("kursbevis_klar", **_direkte_data())[1])   # samme som direkte standard-render
     h = _n(html)
-    assert "<p>Hei Ola Nordmann,</p>" in h
+    assert "<p>Hei Ola,</p>" in h                                               # standardhilsenen: fornavn
     assert "Takk for deltakelsen på <strong>Veiledning i praksis</strong>. Kursbeviset ditt ligger nå på" in h
     assert f'<a href="{config.BASE_URL}/min-side">Min side</a>' in h
     assert "Vennlig hilsen<br>Kursadministrasjonen, Institutt for Psykologisk Rådgivning<br>" in h
@@ -264,7 +266,7 @@ def test_korrupt_override_direkte_via_send_en_gang_gir_malfeil_foer_claim(con, s
 
     with pytest.raises(MalFeil) as e:
         Kjoring(con, idag=IDAG).send_en_gang("kurs:1", "ola@x.no", "kursbevis", "kursbevis_klar",
-                                             navn="Ola Nordmann", kurs={"navn": "K"})
+                                             navn="Ola Nordmann", fornavn="Ola", kurs={"navn": "K"})
     assert e.value.grunn == grunn and e.value.mal == "kursbevis_klar"
     assert sendt == [] and con.execute("SELECT COUNT(*) FROM utsending_logg").fetchone()[0] == 0
 
@@ -361,7 +363,8 @@ def test_preflight_har_ingen_sideeffekt(con, sendt):
     _deltaker(con, kid)
     k = Kjoring(con, idag=IDAG)
     endringer = con.total_changes
-    emne, html = k.render_for_sending("kursbevis_klar", navn="Ola Nordmann", kurs={"navn": "Veiledning i praksis"})
+    emne, html = k.render_for_sending("kursbevis_klar", navn="Ola Nordmann", fornavn="Ola",
+                                      kurs={"navn": "Veiledning i praksis"})
     assert emne == STD_EMNE
     assert con.total_changes == endringer and not con.in_transaction and sendt == []
     assert con.execute("SELECT COUNT(*) FROM utsending_logg").fetchone()[0] == 0

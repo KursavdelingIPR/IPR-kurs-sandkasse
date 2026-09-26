@@ -35,7 +35,7 @@ def person(con):
     """En deltaker med spor i alle tabeller som kan inneholde personopplysninger. Kurset er avsluttet."""
     kid = db.opprett_kurs(con, kode="GDPR-2030", navn="Personvernkurs", datoer=["2030-03-01"], pris_nok=3000,
                           type="fysisk", sharepoint_mappe="K/G")
-    pid, _ = db.meld_paa(con, kid, epost=EPOST, navn="Mona Person",
+    pid, _ = db.meld_paa(con, kid, epost=EPOST, fornavn="Mona", etternavn="Person",
                          deltaker={"telefon": "90011222", "arbeidssted": "Klinikken", "yrkestittel": "Psykolog",
                                    "hpr_nr": "1234567"},
                          paamelding={"faktura_adresse": "Gate 1", "faktura_postnr": "5000", "faktura_sted": "Bergen",
@@ -97,14 +97,14 @@ def test_anonyme_tall_og_regnskap_stemmer_fortsatt(con, person):
 def test_personen_kan_melde_seg_paa_igjen_som_ny(con, person):
     db.anonymiser_deltaker(con, person["did"], aktor="admin:test")
     kid = db.opprett_kurs(con, kode="NY-2031", navn="Nytt kurs", datoer=["2031-01-01"])
-    db.meld_paa(con, kid, epost=EPOST, navn="Mona Person")
+    db.meld_paa(con, kid, epost=EPOST, fornavn="Mona", etternavn="Person")
     con.commit()
     assert con.execute("SELECT COUNT(*) FROM deltaker WHERE LOWER(epost)=LOWER(?)", (EPOST,)).fetchone()[0] == 1
 
 
 def test_nekter_ved_aktive_paameldinger_og_to_ganger(con, person):
     kid = db.opprett_kurs(con, kode="AKTIV-2031", navn="Aktivt kurs", datoer=["2031-01-01"])
-    db.meld_paa(con, kid, epost=EPOST, navn="Mona Person")
+    db.meld_paa(con, kid, epost=EPOST, fornavn="Mona", etternavn="Person")
     con.commit()
     with pytest.raises(db.DeltakerFeil, match="aktive påmeldinger"):
         db.anonymiser_deltaker(con, person["did"], aktor="admin:test")

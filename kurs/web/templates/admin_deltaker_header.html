@@ -1,3 +1,4 @@
-<p class="liten"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">← {{ kurs.navn }}</a></p>
-<h1>{{ p.navn }}</h1>
-<p class="sub">{{ p.epost }} · {{ kurs.kode }} {{ kurs.navn }}</p>
+<div class="deltakerkort-topp">
+  <h1 id="deltaker-tittel" tabindex="-1">{{ p.navn }} <span class="deltaker-nr"><span class="skjul-visuelt">Påmelding nr. </span>#{{ p.id }}</span></h1>
+  <p>{{ p.epost }} · {{ kurs.kode }} {{ kurs.navn }}<a class="bare-i-vindu" href="{{ request.path }}">Åpne som egen side</a></p>
+</div>

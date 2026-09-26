@@ -8,6 +8,7 @@ import pytest
 
 from kurs import config, db
 from kurs.web import app as webapp
+from navnehjelp import gruppeskjema
 
 
 @pytest.fixture
@@ -35,7 +36,7 @@ BASIS = {"kontakt_navn": "Kontakt Person", "kontakt_epost": "kontakt@eksempel.no
 
 
 def _post(kode, **data):
-    return webapp.app.test_client().post(f"/kurs/{kode}/gruppe", data={**BASIS, **data})
+    return webapp.app.test_client().post(f"/kurs/{kode}/gruppe", data=gruppeskjema({**BASIS, **data}))
 
 
 def _deltaker(con, epost="d1@eksempel.no"):
@@ -62,7 +63,7 @@ def test_skjult_hpr_lagres_ikke_for_ny_deltaker(con, lop):
 
 @pytest.mark.parametrize("sendt", ["NY-MANIPULERT", "", "   "])
 def test_skjult_hpr_overskriver_eller_sletter_ikke_eksisterende(con, sendt):
-    db.finn_eller_opprett_deltaker(con, "d1@eksempel.no", "Deltaker En", hpr_nr="GAMMEL-HPR")
+    db.finn_eller_opprett_deltaker(con, "d1@eksempel.no", "Deltaker", "En", hpr_nr="GAMMEL-HPR")
     con.commit()
     kid = _kurs(con)
     assert _post("G1", deltaker_hpr=sendt).status_code == 302
@@ -77,7 +78,7 @@ def test_synlig_hpr_lagres_som_foer(con):
 
 
 def test_synlig_hpr_oppdaterer_eksisterende_som_foer(con):
-    db.finn_eller_opprett_deltaker(con, "d1@eksempel.no", "Deltaker En", hpr_nr="GAMMEL-HPR")
+    db.finn_eller_opprett_deltaker(con, "d1@eksempel.no", "Deltaker", "En", hpr_nr="GAMMEL-HPR")
     con.commit()
     _kurs(con, spesialistlop="EFT")
     assert _post("G1", deltaker_hpr="NY-HPR").status_code == 302
@@ -102,7 +103,7 @@ def test_flere_rader_skjult_hpr_ignoreres_for_alle(con):
     _kurs(con)
     data = {**BASIS, "deltaker_navn": ["A", "B"], "deltaker_epost": ["a@eksempel.no", "b@eksempel.no"],
             "deltaker_hpr": ["M1", "M2"]}
-    assert webapp.app.test_client().post("/kurs/G1/gruppe", data=data).status_code == 302
+    assert webapp.app.test_client().post("/kurs/G1/gruppe", data=gruppeskjema(data)).status_code == 302
     assert [_deltaker(con, e)["hpr_nr"] for e in ("a@eksempel.no", "b@eksempel.no")] == [None, None]
 
 
@@ -117,7 +118,7 @@ def test_gruppeskjemaet_viser_hpr_kun_med_spesialistlop(con):
 # ============================ synlige deltakerfelt: dagens adferd ============================
 
 def test_synlig_telefon_og_arbeidssted_oppdaterer_profil_som_foer(con):
-    db.finn_eller_opprett_deltaker(con, "d1@eksempel.no", "Deltaker En", telefon="GAMMEL", arbeidssted="GAMMEL")
+    db.finn_eller_opprett_deltaker(con, "d1@eksempel.no", "Deltaker", "En", telefon="GAMMEL", arbeidssted="GAMMEL")
     con.commit()
     _kurs(con)
     assert _post("G1", deltaker_telefon="NY", deltaker_arbeidssted="NY AS").status_code == 302
@@ -188,16 +189,16 @@ def _telle(con):
 def test_normal_og_identisk_gjeninnsending_dedupliseres_som_foer(con):
     _kurs(con)
     data = {**BASIS, "deltaker_navn": ["A", "B"], "deltaker_epost": ["a@eksempel.no", "b@eksempel.no"]}
-    r1 = webapp.app.test_client().post("/kurs/G1/gruppe", data=data)
+    r1 = webapp.app.test_client().post("/kurs/G1/gruppe", data=gruppeskjema(data))
     etter_en = _telle(con)
     assert (etter_en["firmapaamelding"], etter_en["firmapaamelding_rad"], etter_en["paamelding"]) == (1, 2, 2)
-    r2 = webapp.app.test_client().post("/kurs/G1/gruppe", data=data)
+    r2 = webapp.app.test_client().post("/kurs/G1/gruppe", data=gruppeskjema(data))
     assert r1.status_code == r2.status_code == 302 and r1.headers["Location"] == r2.headers["Location"]
     assert _telle(con) == etter_en
 
 
 def test_manipulert_skjult_felt_paavirker_ikke_dedupe_og_endrer_ingenting(con):
-    db.finn_eller_opprett_deltaker(con, "d1@eksempel.no", "Deltaker En", hpr_nr="GAMMEL-HPR")
+    db.finn_eller_opprett_deltaker(con, "d1@eksempel.no", "Deltaker", "En", hpr_nr="GAMMEL-HPR")
     con.commit()
     _kurs(con)
     r1 = _post("G1")

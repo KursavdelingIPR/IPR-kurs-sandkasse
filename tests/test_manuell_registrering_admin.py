@@ -42,7 +42,7 @@ def _antall_mail(con):
 
 
 def _skjema(**over):
-    return {"navn": "Kari Nordmann", "epost": "kari@x.no", "telefon": "99999999",
+    return {"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no", "telefon": "99999999",
             "yrkestittel": "Psykolog", "arbeidssted": "Klinikk AS", "hpr_nr": "1234567",
             "betaler": "person", **over}
 
@@ -139,7 +139,7 @@ def test_redirect_gaar_til_deltakerprofilen_og_viser_status(con):
 def test_eksisterende_person_gjenbrukes(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
     antall_deltakere_foer = con.execute("SELECT COUNT(*) FROM deltaker").fetchone()[0]
     klient = _klient()
@@ -150,7 +150,7 @@ def test_eksisterende_person_gjenbrukes(con):
 
 def test_dublett_samme_kurs_avvises_tydelig(con):
     kid = _kurs(con)
-    db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -162,7 +162,7 @@ def test_dublett_samme_kurs_avvises_tydelig(con):
 
 def test_tidligere_avmeldt_reaktiveres(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
+    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     con.execute("UPDATE paamelding SET sveiper_kjort=1, sveiper_utsatt=1, kilde='skjema' WHERE id=?", (pid,))
     db.meld_av(con, pid)
     con.commit()
@@ -183,7 +183,7 @@ def test_tidligere_avmeldt_reaktiveres(con):
 
 def test_fullt_kurs_gir_venteliste(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)

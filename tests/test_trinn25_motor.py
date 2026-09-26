@@ -100,7 +100,7 @@ def test_gamle_rader_uten_statuskolonne_tolkes_som_sendt(tmp_path):
 
 def test_reserver_faktura_vinner_kun_en_gang(con):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=1000, fakturering="person")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     assert db.reserver_faktura(con, pid, None) is True
     assert db.reserver_faktura(con, pid, None) is False
@@ -108,7 +108,7 @@ def test_reserver_faktura_vinner_kun_en_gang(con):
 
 def test_reserver_faktura_pa_nytt_krever_feilet(con):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=1000, fakturering="person")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     db.reserver_faktura(con, pid, None)
     assert db.reserver_faktura_pa_nytt(con, pid, None) is False
@@ -118,7 +118,7 @@ def test_reserver_faktura_pa_nytt_krever_feilet(con):
 
 def test_faktura_forsok_ulike_kursdager_er_uavhengige(con):
     kid = _kurs(con, date(2027, 3, 1), dager=2, pris_nok=1000, fakturering="person", betaling="per_samling")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     dager = db.kursdager(con, kid)
     assert db.reserver_faktura(con, pid, dager[0]["id"]) is True
@@ -130,7 +130,7 @@ def test_faktura_forsok_ulike_kursdager_er_uavhengige(con):
 
 def test_epost_feil_gir_ukjent_status_og_loggfores(con, monkeypatch):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=0)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
 
     monkeypatch.setattr(epost, "send", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("Graph nede")))
@@ -146,7 +146,7 @@ def test_epost_feil_gir_ukjent_status_og_loggfores(con, monkeypatch):
 
 def test_ukjent_epost_forsokes_ikke_automatisk_pa_nytt(con, monkeypatch):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=0)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
 
     kall = {"antall": 0}
@@ -165,7 +165,7 @@ def test_ukjent_epost_forsokes_ikke_automatisk_pa_nytt(con, monkeypatch):
 def test_feilet_epost_kan_hentes_inn_igjen_ved_retry_claim(con):
     """Simulerer en KJENT TRYGG feil direkte (taksonomien er ikke koblet inn enna, se modulens docstring)."""
     kid = _kurs(con, date(2027, 3, 1), pris_nok=0)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     nokkel = f"kurs:{kid}"
     db.reserver_sending(con, nokkel, "a@x.no", "bekreftelse")
@@ -182,7 +182,7 @@ def test_feilet_epost_kan_hentes_inn_igjen_ved_retry_claim(con):
 
 def test_visma_feil_gir_ukjent_status_og_loggfores_ingen_faktura(con, monkeypatch):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=1000, fakturering="person", betaling="samlet")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
 
     monkeypatch.setattr(visma, "fakturer", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("Visma nede")))
@@ -198,7 +198,7 @@ def test_visma_feil_gir_ukjent_status_og_loggfores_ingen_faktura(con, monkeypatc
 
 def test_ukjent_faktura_forsokes_ikke_automatisk_pa_nytt(con, monkeypatch):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=1000, fakturering="person", betaling="samlet")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
 
     kall = {"antall": 0}
@@ -217,7 +217,7 @@ def test_ukjent_faktura_forsokes_ikke_automatisk_pa_nytt(con, monkeypatch):
 
 def test_feilet_faktura_kan_hentes_inn_igjen_ved_retry_claim(con):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=1000, fakturering="person", betaling="samlet")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     db.reserver_faktura(con, pid, None)
     db.sett_faktura_forsok_feilet(con, pid, None, "test")
@@ -232,7 +232,7 @@ def test_feilet_faktura_kan_hentes_inn_igjen_ved_retry_claim(con):
 
 def test_fersk_reservert_faktura_blokkerer_uten_a_logge_gammel(con, monkeypatch):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=1000, fakturering="person", betaling="samlet")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     db.reserver_faktura(con, pid, None)  # fersk - "en annen prosess jobber trolig med den akkurat naa"
     con.commit()
@@ -246,7 +246,7 @@ def test_fersk_reservert_faktura_blokkerer_uten_a_logge_gammel(con, monkeypatch)
 
 def test_gammel_reservert_faktura_blokkerer_og_loggfores(con, monkeypatch):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=1000, fakturering="person", betaling="samlet")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     db.reserver_faktura(con, pid, None)
     gammel_tid = (date.today() - timedelta(days=1)).isoformat() + "T00:00:00"
@@ -264,7 +264,7 @@ def test_gammel_reservert_faktura_blokkerer_og_loggfores(con, monkeypatch):
 
 def test_sveiper_kjort_ikke_1_naar_faktura_ukjent_men_epost_ok(con, monkeypatch):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=1000, fakturering="person", betaling="samlet")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     monkeypatch.setattr(visma, "fakturer", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("Visma nede")))
     sveiper.kjor(Kjoring(con, idag=date(2027, 3, 1)), pid)
@@ -277,7 +277,7 @@ def test_sveiper_kjort_1_per_samling_naar_kun_forfalt_samling_er_ferdig(con):
     """Fremtidige (ikke-forfalte) delfakturaer skal IKKE kreves ferdige - forfalte_delfakturaer() henter dem senere."""
     kid = _kurs(con, date(2027, 6, 1), dager=2, pris_nok=2000, fakturering="person", betaling="per_samling",
                faktura_dager_for=14)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     # kun forste samling (30 dager senere enn kursstart+0) er forfalt naar idag=kursstart
     sveiper.kjor(Kjoring(con, idag=date(2027, 6, 1)), pid)
@@ -291,7 +291,7 @@ def test_sveiper_kjort_1_per_samling_naar_kun_forfalt_samling_er_ferdig(con):
 def test_kommunikasjonsvisning_viser_aldri_uavklart_rad(con, monkeypatch):
     from kurs.web import app as webapp
     kid = _kurs(con, date(2027, 3, 1), pris_nok=0)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     monkeypatch.setattr(epost, "send", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("Graph nede")))
     sveiper.kjor(Kjoring(con, idag=date(2027, 3, 1)), pid)
@@ -311,7 +311,7 @@ def test_kommunikasjonsvisning_viser_aldri_uavklart_rad(con, monkeypatch):
 
 def test_tor_reserverer_men_ruller_alt_tilbake(con):
     kid = _kurs(con, date(2027, 3, 1), pris_nok=1000, fakturering="person", betaling="samlet")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     from kurs import daglig
     daglig.kjor(Kjoring(con, idag=date(2027, 3, 1), tor=True))

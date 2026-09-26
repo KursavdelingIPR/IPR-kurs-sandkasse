@@ -12,6 +12,7 @@ from werkzeug.datastructures import MultiDict
 
 from kurs import config, db, migreringer, okonomi
 from kurs.integrasjoner import epost
+from navnehjelp import navnedeler
 
 NBSP = " "
 
@@ -55,7 +56,7 @@ def _kurs(con, kode, navn=None, start=date(2031, 9, 1), **kw):
 
 
 def _paamelding(con, kid, epost_, navn=None, **kw):
-    pid, status = db.meld_paa(con, kid, epost=epost_, navn=navn or epost_.split("@")[0].title(), **kw)
+    pid, status = db.meld_paa(con, kid, epost=epost_, **navnedeler(navn or epost_.split("@")[0].title()), **kw)
     con.commit()
     return pid
 
@@ -201,10 +202,11 @@ def test_avslaatt_deltaker_kan_ikke_melde_seg_paa_igjen_selv(con, sendt):
     db.avsla_paamelding(con, pid, aktor="admin:test")
     con.commit()
     with pytest.raises(db.Paameldingsfeil, match="ikke godkjent"):
-        db.meld_paa(con, kid, epost="dag@eksempel.no", navn="Dag Test")
+        db.meld_paa(con, kid, epost="dag@eksempel.no", fornavn="Dag", etternavn="Test")
     con.rollback()
     from kurs.web import app as webapp
-    r = webapp.app.test_client().post(f"/kurs/AR", data={"navn": "Dag Test", "epost": "dag@eksempel.no", "samtykke": "1"})
+    r = webapp.app.test_client().post(f"/kurs/AR", data={"fornavn": "Dag", "etternavn": "Test", "epost": "dag@eksempel.no",
+                                                          "samtykke": "1"})
     assert r.status_code == 400 and "ikke godkjent" in r.get_data(as_text=True)
 
 
@@ -237,7 +239,7 @@ def test_avslaatt_vises_telles_og_kan_filtreres(con, sendt):
     liste = k.get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&kol=status&status=alle").get_data(as_text=True)
     assert "<td class=\"\">Avslått</td>" in liste and "<td class=\"\">Avmeldt</td>" in liste
     tekst = k.get(f"/admin/kurs/{kid}/deltakere.csv").get_data(as_text=True)
-    assert "Frida Avslått;frida@eksempel.no;;;avslått" in tekst
+    assert "Frida;Avslått;frida@eksempel.no;;;avslått" in tekst                  # fornavn og etternavn i hver sin kolonne
 
 
 def test_lesetilgang_kan_ikke_avslaa(con, sendt):

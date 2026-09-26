@@ -297,12 +297,12 @@ def test_oppsett_lagring_overskriver_ikke_nettsidetekstene(con, admin):
 def test_offentlig_post_feil_beholder_egen_intro_og_knapp(con):
     kid = _kurs(con, intro="Egen intro", knapp="Send inn")
     k = _klient()
-    r = k.post("/kurs/T1", data={"navn": "Test", "epost": "test@eksempel.no"})       # mangler samtykke
+    r = k.post("/kurs/T1", data={"fornavn": "Test", "etternavn": "Person", "epost": "test@eksempel.no"})       # mangler samtykke
     html = r.get_data(as_text=True)
     assert r.status_code == 400 and INTRO_P + "Egen intro</p>" in html and "<button>Send inn</button>" in html
-    db.meld_paa(con, kid, epost="finnes@eksempel.no", navn="Finnes")
+    db.meld_paa(con, kid, epost="finnes@eksempel.no", fornavn="Finnes", etternavn="Test")
     con.commit()
-    r = k.post("/kurs/T1", data={"navn": "Finnes", "epost": "finnes@eksempel.no", "samtykke": "on"})
+    r = k.post("/kurs/T1", data={"fornavn": "Finnes", "etternavn": "Test", "epost": "finnes@eksempel.no", "samtykke": "on"})
     html = r.get_data(as_text=True)
     assert r.status_code == 400 and "allerede påmeldt" in html
     assert INTRO_P + "Egen intro</p>" in html and "<button>Send inn</button>" in html

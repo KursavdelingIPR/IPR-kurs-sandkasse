@@ -76,7 +76,8 @@ def beskriv(r: dict) -> str:
 
 # norsk kolonneoverskrift (normalisert til smaa bokstaver) -> internt feltnavn
 KOLONNE_MAP = {
-    "navn": "navn",
+    "fornavn": "fornavn",
+    "etternavn": "etternavn",
     "e-post": "epost", "epost": "epost",
     "telefon": "telefon",
     "yrkestittel": "yrkestittel",
@@ -91,12 +92,13 @@ KOLONNE_MAP = {
     "allergier": "allergier", "allergi": "allergier",
     "tilrettelegging": "tilrettelegging",
 }
-PAKREVDE_INTERNE_FELT = ("navn", "epost")
+PAKREVDE_INTERNE_FELT = ("fornavn", "etternavn", "epost")
+_KOLONNENAVN = {"fornavn": "Fornavn", "etternavn": "Etternavn", "epost": "E-post"}
 
-MALFIL_HEADER = ["Navn", "E-post", "Telefon", "Yrkestittel", "Arbeidssted", "HPR-nummer", "Betaler",
+MALFIL_HEADER = ["Fornavn", "Etternavn", "E-post", "Telefon", "Yrkestittel", "Arbeidssted", "HPR-nummer", "Betaler",
                  "Firmanavn", "Org.nr", "Fakturaadresse", "Fakturareferanse", "Fakturakommentar",
                  "Allergier", "Tilrettelegging"]
-MALFIL_EKSEMPELRAD = ["Kari Eksempel", "kari.eksempel@eksempel.no", "99999999", "Psykolog",
+MALFIL_EKSEMPELRAD = ["Kari", "Eksempel", "kari.eksempel@eksempel.no", "99999999", "Psykolog",
                       "Eksempel Klinikk AS", "", "person", "", "", "", "", "", "", ""]
 
 
@@ -160,10 +162,13 @@ def parse_csv(raw: bytes) -> list[dict]:
 
     header = [_normaliser_header(h) for h in header_rad]
     interne_kolonner = [KOLONNE_MAP.get(h) for h in header]
+    if "navn" in header and not ("fornavn" in interne_kolonner or "etternavn" in interne_kolonner):
+        # Eldre fil med fullt navn i én kolonne: avvises tydelig - det gjettes aldri paa hva som er fornavn og etternavn.
+        raise ImportFeil("Filen har kolonnen «Navn», men fornavn og etternavn må stå i hver sin kolonne («Fornavn» og "
+                         "«Etternavn»). Last ned den nye malfilen og flytt navnene dit.")
     for kravd in PAKREVDE_INTERNE_FELT:
         if kravd not in interne_kolonner:
-            navn = "Navn" if kravd == "navn" else "E-post"
-            raise ImportFeil(f"Filen mangler den obligatoriske kolonnen «{navn}».")
+            raise ImportFeil(f"Filen mangler den obligatoriske kolonnen «{_KOLONNENAVN[kravd]}».")
 
     rader = []
     for linje in leser:
@@ -182,8 +187,10 @@ def parse_csv(raw: bytes) -> list[dict]:
 def _valider_rad(rad: dict) -> list[str]:
     """Rene, databaseuavhengige sjekker - identiske krav som manuell paamelding (fase 9)."""
     problemer = []
-    if not (rad.get("navn") or "").strip():
-        problemer.append("Navn mangler")
+    if not (rad.get("fornavn") or "").strip():
+        problemer.append("Fornavn mangler")
+    if not (rad.get("etternavn") or "").strip():
+        problemer.append("Etternavn mangler")
     if "@" not in (rad.get("epost") or ""):
         problemer.append("Ugyldig eller manglende e-post")
     betaler = (rad.get("betaler") or "").strip().lower()
@@ -200,7 +207,7 @@ def _valider_rad(rad: dict) -> list[str]:
 def _resultat(rad_nr: int, rad: dict, *, handling: str, melding: str, resultatstatus: str | None = None,
               person_finnes_fra_for: bool = False, paamelding_id: int | None = None) -> dict:
     return {
-        "rad_nr": rad_nr, "navn": rad.get("navn", ""), "epost": rad.get("epost", ""),
+        "rad_nr": rad_nr, "navn": db.fullt_navn(rad.get("fornavn"), rad.get("etternavn")), "epost": rad.get("epost", ""),
         "handling": handling, "resultatstatus": resultatstatus,
         "person_finnes_fra_for": person_finnes_fra_for,
         "melding": melding, "paamelding_id": paamelding_id,
@@ -249,7 +256,7 @@ def _kategoriser_og_meld_paa(con, kurs_id: int, rader: list[dict], aktor: str) -
             # registrert - se db.finn_eller_opprett_deltaker(). Standard (False) beholdes for
             # offentlig/gruppe/manuell paamelding - de skal fortsatt kunne oppdatere ved re-paamelding.
             pid, status = db.meld_paa(
-                con, kurs_id, epost=rad["epost"], navn=rad["navn"],
+                con, kurs_id, epost=rad["epost"], fornavn=rad["fornavn"], etternavn=rad["etternavn"],
                 deltaker={"telefon": rad.get("telefon") or None, "yrkestittel": rad.get("yrkestittel") or None,
                          "arbeidssted": rad.get("arbeidssted") or None, "hpr_nr": rad.get("hpr_nr") or None},
                 paamelding={

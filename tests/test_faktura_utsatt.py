@@ -123,7 +123,7 @@ def test_ny_database_har_begge_kolonnene_med_riktige_standardverdier(con):
     assert kol["faktura_onskes_na"]["notnull"] == 1 and kol["faktura_onskes_na"]["dflt_value"] == "0"
     assert kol["faktura_tidligst_dato"]["notnull"] == 0 and kol["faktura_tidligst_dato"]["dflt_value"] is None
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     assert _fakturafelt(con, pid) == (0, None)
 
@@ -171,7 +171,7 @@ def test_migrering_kjort_paa_nytt_overskriver_ikke_lagrede_verdier(tmp_path):
 
 def test_db_init_paa_eksisterende_database_beholder_lagrede_fakturafelt(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE paamelding SET faktura_onskes_na=1, faktura_tidligst_dato='2027-03-20' WHERE id=?", (pid,))
     con.commit()
     db.init(con)                                                           # samme som en ny oppstart av appen
@@ -183,13 +183,13 @@ def test_db_init_paa_eksisterende_database_beholder_lagrede_fakturafelt(con):
 
 def test_reaktivering_nullstiller_gammel_fakturabeslutning(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE paamelding SET faktura_onskes_na=1, faktura_tidligst_dato='2027-03-20' WHERE id=?", (pid,))
     con.commit()
     db.meld_av(con, pid)
     con.commit()
     assert _fakturafelt(con, pid) == (1, "2027-03-20")                     # avmelding alene roerer dem ikke
-    pid2, status = db.meld_paa(con, kid, epost="a@x.no", navn="A")        # reaktivering via vanlig flyt
+    pid2, status = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")        # reaktivering via vanlig flyt
     con.commit()
     assert pid2 == pid and status == "bekreftet"
     assert _fakturafelt(con, pid) == (0, None)
@@ -199,15 +199,15 @@ def test_reaktivering_nullstiller_gammel_fakturabeslutning(con):
 
 def test_eksplisitt_faktura_onskes_na_lagres(con):
     kid = _kurs(con)
-    pid, status = db.meld_paa(con, kid, epost="a@x.no", navn="A", paamelding={"faktura_onskes_na": 1})
+    pid, status = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", paamelding={"faktura_onskes_na": 1})
     con.commit()
     assert status == "bekreftet" and _fakturafelt(con, pid) == (1, None)
 
 
 def test_eksplisitt_valg_bevares_paa_venteliste(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    pid, status = db.meld_paa(con, kid, epost="b@x.no", navn="B", paamelding={"faktura_onskes_na": 1})
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    pid, status = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test", paamelding={"faktura_onskes_na": 1})
     con.commit()
     assert status == "venteliste" and _fakturafelt(con, pid) == (1, None)
     opp = db.endre_kapasitet(con, kid, 2)                                  # senere opprykk: valget ligger fortsatt der
@@ -217,10 +217,10 @@ def test_eksplisitt_valg_bevares_paa_venteliste(con):
 
 def test_eksplisitt_valg_kan_ogsaa_settes_ved_reaktivering(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     db.meld_av(con, pid)
     con.commit()
-    pid2, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A", paamelding={"faktura_onskes_na": 1})
+    pid2, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", paamelding={"faktura_onskes_na": 1})
     con.commit()
     assert pid2 == pid and _fakturafelt(con, pid) == (1, None)
 
@@ -425,7 +425,7 @@ def _betalt(con, kode="B1", start=FORSTE, ant_dager=1, **kw):
 
 
 def _paamelding(con, kid, epost_="a@x.no", **pm):
-    pid, _ = db.meld_paa(con, kid, epost=epost_, navn="Navn " + epost_.split("@")[0], paamelding=pm or None)
+    pid, _ = db.meld_paa(con, kid, epost=epost_, fornavn="Navn", etternavn=epost_.split("@")[0], paamelding=pm or None)
     con.commit()
     return pid
 
@@ -1122,7 +1122,7 @@ def test_k_meld_paa_reaktivering_nullstiller_fortsatt_hold_og_onskes_na(con, ute
     con.execute("UPDATE paamelding SET faktura_onskes_na=1 WHERE id=?", (pid,))
     db.meld_av(con, pid)
     con.commit()
-    pid2, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid2, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     assert pid2 == pid and _tilstand(con, pid) == (0, None, 0)
 
@@ -1191,12 +1191,12 @@ def test_regel_c_kontrast_ny_registreringsrunde_via_meld_paa_nullstiller_med_min
     kid, pid = _hold_med_onske(con, ute)
     db.meld_av(con, pid)
     con.commit()
-    pid2, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")                                   # NY runde uten eksplisitt valg
+    pid2, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")                                   # NY runde uten eksplisitt valg
     con.commit()
     assert pid2 == pid and _tilstand(con, pid) == (0, None, 0)                                  # nullstilt: 0 / NULL
     con.execute("UPDATE paamelding SET faktura_onskes_na=1, faktura_tidligst_dato='2027-03-20' WHERE id=?", (pid,))
     db.meld_av(con, pid)
     con.commit()
-    pid3, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A", paamelding={"faktura_onskes_na": 1})   # NY runde MED eksplisitt valg
+    pid3, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", paamelding={"faktura_onskes_na": 1})   # NY runde MED eksplisitt valg
     con.commit()
     assert pid3 == pid and _tilstand(con, pid) == (0, None, 1)                                  # onske fra den nye callen, hold-dato alltid NULL

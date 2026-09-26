@@ -9,7 +9,8 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <strong>Kontaktperson og firma</strong>
   <div class="rad">
-    <div><label for="f-kontakt_navn">Kontaktperson – navn *</label><input id="f-kontakt_navn" name="kontakt_navn" required value="{{ f.kontakt_navn or '' }}"></div>
+    <div><label for="f-kontakt_fornavn">Kontaktperson – fornavn *</label><input id="f-kontakt_fornavn" name="kontakt_fornavn" required autocomplete="given-name" value="{{ f.kontakt_fornavn or '' }}"></div>
+    <div><label for="f-kontakt_etternavn">Kontaktperson – etternavn *</label><input id="f-kontakt_etternavn" name="kontakt_etternavn" required autocomplete="family-name" value="{{ f.kontakt_etternavn or '' }}"></div>
     <div><label for="f-kontakt_epost">Kontaktperson – e-post *</label><input id="f-kontakt_epost" name="kontakt_epost" type="email" required value="{{ f.kontakt_epost or '' }}"></div>
     <div><label for="f-kontakt_telefon">Kontaktperson – telefon</label><input id="f-kontakt_telefon" name="kontakt_telefon" value="{{ f.kontakt_telefon or '' }}"></div>
   </div>
@@ -35,7 +36,8 @@
   <div id="deltaker-rader">
     {% for d in deltakere %}
     <div class="deltaker-rad rad" style="border-top:1px solid var(--linje); padding-top:12px; margin-top:12px">
-      <div><label>Navn * <input name="deltaker_navn" value="{{ d.navn or '' }}"></label></div>
+      <div><label>Fornavn * <input name="deltaker_fornavn" value="{{ d.fornavn or '' }}"></label></div>
+      <div><label>Etternavn * <input name="deltaker_etternavn" value="{{ d.etternavn or '' }}"></label></div>
       <div><label>E-post * <input name="deltaker_epost" type="email" value="{{ d.epost or '' }}"></label></div>
       <div><label>Telefon <input name="deltaker_telefon" value="{{ d.telefon or '' }}"></label></div>
       <div><label>Arbeidssted <input name="deltaker_arbeidssted" value="{{ d.arbeidssted or '' }}"></label></div>
@@ -48,7 +50,8 @@
 
   <template id="rad-mal">
     <div class="deltaker-rad rad" style="border-top:1px solid var(--linje); padding-top:12px; margin-top:12px">
-      <div><label>Navn * <input name="deltaker_navn"></label></div>
+      <div><label>Fornavn * <input name="deltaker_fornavn"></label></div>
+      <div><label>Etternavn * <input name="deltaker_etternavn"></label></div>
       <div><label>E-post * <input name="deltaker_epost" type="email"></label></div>
       <div><label>Telefon <input name="deltaker_telefon"></label></div>
       <div><label>Arbeidssted <input name="deltaker_arbeidssted"></label></div>

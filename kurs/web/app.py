@@ -290,7 +290,7 @@ def _skjema_utilgjengelig(kurs, forhandsvisning: bool = False):
 
 
 # Faste identitetsfelt som alltid finnes i skjemaet (validering: se kursside()).
-_IDENTITETSFELT = ("navn", "epost", "samtykke")
+_IDENTITETSFELT = ("fornavn", "etternavn", "epost", "samtykke")
 
 
 def _tillatte_innsendte_verdier(form, skjema) -> dict:
@@ -352,8 +352,8 @@ def kursside(kode):
     # Herfra er `f` KUN de feltene snapshotet viser - raa request.form brukes ikke lenger.
     f = _tillatte_innsendte_verdier(request.form, skjema)
     feil = []
-    if not f.get("navn") or "@" not in f.get("epost", ""):
-        feil.append("Fyll inn navn og gyldig e-post.")
+    if not (f.get("fornavn", "").strip() and f.get("etternavn", "").strip()) or "@" not in f.get("epost", ""):
+        feil.append("Fyll inn fornavn, etternavn og gyldig e-post.")
     for felt in skjema.deltakerfelt:
         if felt.obligatorisk and not (f.get(felt.nokkel) or "").strip():
             feil.append(f"Fyll inn «{felt.label}».")
@@ -370,7 +370,7 @@ def kursside(kode):
         with db.transaksjon(con()):
             _logg_skjemaadvarsler(kurs["id"], advarsler)
             pid, status = db.meld_paa(
-                con(), kurs["id"], epost=f["epost"], navn=f["navn"],
+                con(), kurs["id"], epost=f["epost"], fornavn=f["fornavn"], etternavn=f["etternavn"],
                 # None for skjulte felt: finn_eller_opprett_deltaker overskriver aldri med tom verdi, saa en eksisterende
                 # persons telefon/arbeidssted/HPR blir verken endret eller slettet av et kurs som skjuler feltet.
                 deltaker={"telefon": f.get("telefon"), "arbeidssted": f.get("arbeidssted"), "hpr_nr": f.get("hpr_nr")},
@@ -387,7 +387,7 @@ def kursside(kode):
     # "Webhook": kjor sveipene med en gang (bekreftelse + faktura). Daglig jobb tar det som evt. feiler.
     sveiper.kjor(Kjoring(con(), idag=_idag()), pid)
     con().commit()
-    return render_template("kvittering.html", kurs=kurs, status=status, navn=f["navn"])
+    return render_template("kvittering.html", kurs=kurs, status=status, fornavn=f["fornavn"].strip())
 
 
 # ---------- bedriftspaamelding (fase 7) ----------
@@ -398,16 +398,12 @@ MAKS_DELTAKERE_GRUPPE = 30
 def _grupperad_liste(f) -> list[dict]:
     """Bygger deltakerraden-listen fra skjemaet, uten aa filtrere bort noe - brukes til aa vise
     skjemaet paa nytt akkurat slik brukeren skrev det, ved valideringsfeil."""
-    navn = f.getlist("deltaker_navn")
-    epost = f.getlist("deltaker_epost")
-    telefon = f.getlist("deltaker_telefon")
-    arbeidssted = f.getlist("deltaker_arbeidssted")
-    hpr = f.getlist("deltaker_hpr")
-    n = len(navn)
-    return [{"navn": navn[i], "epost": epost[i] if i < len(epost) else "",
-            "telefon": telefon[i] if i < len(telefon) else "",
-            "arbeidssted": arbeidssted[i] if i < len(arbeidssted) else "",
-            "hpr_nr": hpr[i] if i < len(hpr) else ""} for i in range(n)]
+    kolonner = {k: f.getlist(f"deltaker_{k}") for k in ("fornavn", "etternavn", "epost", "telefon", "arbeidssted", "hpr")}
+    n = max(len(kolonner["fornavn"]), len(kolonner["etternavn"]))
+    rader = [{k: (v[i] if i < len(v) else "") for k, v in kolonner.items()} for i in range(n)]
+    for r in rader:
+        r["hpr_nr"] = r.pop("hpr")
+    return rader
 
 
 @app.route("/kurs/<kode>/gruppe", methods=["GET", "POST"])
@@ -425,8 +421,9 @@ def kurs_gruppe(kode):
         feil.append("Kurset er ikke åpent for påmelding.")
     if kurs["paameldingsfrist"] and _idag() > date.fromisoformat(kurs["paameldingsfrist"]):
         feil.append(f"Påmeldingsfristen ({kurs['paameldingsfrist']}) er passert.")
-    if not f.get("kontakt_navn") or "@" not in f.get("kontakt_epost", ""):
-        feil.append("Fyll inn kontaktpersonens navn og en gyldig e-postadresse.")
+    if not (f.get("kontakt_fornavn", "").strip() and f.get("kontakt_etternavn", "").strip()) \
+            or "@" not in f.get("kontakt_epost", ""):
+        feil.append("Fyll inn kontaktpersonens fornavn, etternavn og en gyldig e-postadresse.")
     if not f.get("firmanavn", "").strip():
         feil.append("Fyll inn firmanavn.")
     if not f.get("org_nr", "").strip():
@@ -444,13 +441,15 @@ def kurs_gruppe(kode):
     hpr_synlig = skjemafelt.vis_hpr(kurs)
     deltaker_rader = []
     for i, r in enumerate(rader_visning, start=1):
-        navn, deltaker_epost = r["navn"].strip(), r["epost"].strip().lower()
-        if not navn and not deltaker_epost:
+        fornavn, etternavn = r["fornavn"].strip(), r["etternavn"].strip()
+        deltaker_epost = r["epost"].strip().lower()
+        if not fornavn and not etternavn and not deltaker_epost:
             continue
-        if not navn or "@" not in deltaker_epost:
-            feil.append(f"Deltaker {i}: fyll inn navn og en gyldig e-postadresse.")
+        if not (fornavn and etternavn) or "@" not in deltaker_epost:
+            feil.append(f"Deltaker {i}: fyll inn fornavn, etternavn og en gyldig e-postadresse.")
             continue
-        deltaker_rader.append({"navn": navn, "epost": deltaker_epost, "telefon": r["telefon"].strip() or None,
+        deltaker_rader.append({"fornavn": fornavn, "etternavn": etternavn, "navn": db.fullt_navn(fornavn, etternavn),
+                               "epost": deltaker_epost, "telefon": r["telefon"].strip() or None,
                                "arbeidssted": r["arbeidssted"].strip() or None,
                                "hpr_nr": (r["hpr_nr"].strip() or None) if hpr_synlig else None})
     if not deltaker_rader:
@@ -465,8 +464,10 @@ def kurs_gruppe(kode):
         return render_template("kurs_gruppe.html", kurs=kurs, f=f, deltakere=rader_visning or [{}],
                                maks_deltakere=MAKS_DELTAKERE_GRUPPE), 400
 
+    kontakt_fornavn, kontakt_etternavn = f["kontakt_fornavn"].strip(), f["kontakt_etternavn"].strip()
     kontakt = {
-        "navn": f["kontakt_navn"].strip(), "epost": f["kontakt_epost"].strip().lower(),
+        "fornavn": kontakt_fornavn, "etternavn": kontakt_etternavn,
+        "navn": db.fullt_navn(kontakt_fornavn, kontakt_etternavn), "epost": f["kontakt_epost"].strip().lower(),
         "telefon": f.get("kontakt_telefon", "").strip() or None, "firmanavn": f["firmanavn"].strip(),
         "org_nr": f.get("org_nr", "").strip() or None, "faktura_ref": f.get("faktura_ref", "").strip() or None,
         "faktura_adresse": f.get("faktura_adresse", "").strip() or None,
@@ -501,7 +502,7 @@ def kurs_gruppe(kode):
         try:
             with db.transaksjon(con()):
                 pid, status = db.meld_paa(
-                    con(), kurs["id"], epost=rad["epost"], navn=rad["navn"],
+                    con(), kurs["id"], epost=rad["epost"], fornavn=rad["fornavn"], etternavn=rad["etternavn"],
                     deltaker={"telefon": rad["telefon"], "arbeidssted": rad["arbeidssted"], "hpr_nr": rad["hpr_nr"]},
                     paamelding={"betaler": "organisasjon", "org_navn": kontakt["firmanavn"], "org_nr": kontakt["org_nr"],
                                 "faktura_epost": kontakt["epost"], "faktura_ref": kontakt["faktura_ref"],
@@ -564,7 +565,7 @@ def kurs_gruppe_kvittering(kode, token):
 def _sjekk_inn(kursdag, epost_: str | None = None, deltaker_id: int | None = None, kilde="qr"):
     if kursdag["dato"] != _idag().isoformat():
         return "feil", "Innsjekk for denne kursdagen er ikke åpen i dag."
-    sql = """SELECT p.id, d.navn FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+    sql = """SELECT p.id, d.fornavn FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
              WHERE p.kurs_id=? AND p.status='bekreftet' AND """
     rad = (con().execute(sql + "d.id=?", (kursdag["kurs_id"], deltaker_id)).fetchone() if deltaker_id
            else con().execute(sql + "d.epost=?", (kursdag["kurs_id"], (epost_ or "").strip().lower())).fetchone())
@@ -572,7 +573,7 @@ def _sjekk_inn(kursdag, epost_: str | None = None, deltaker_id: int | None = Non
         return "feil", "Fant ingen påmelding med denne e-posten på kurset. Kontakt kursansvarlig."
     ny = db.registrer_oppmote(con(), rad["id"], kursdag["id"], kilde)
     con().commit()
-    return "ok", f"Velkommen, {rad['navn']}! Oppmøte er registrert." if ny else f"Hei {rad['navn']} – du var allerede sjekket inn i dag."
+    return "ok", f"Velkommen, {rad['fornavn']}! Oppmøte er registrert." if ny else f"Hei {rad['fornavn']} – du var allerede sjekket inn i dag."
 
 
 @app.route("/innsjekk/<token>", methods=["GET", "POST"])
@@ -623,7 +624,7 @@ def logg_inn():
                           (token, d["id"], (datetime.now() + timedelta(minutes=30)).isoformat()))
             con().commit()
             lenke = f"{config.BASE_URL}{url_for('logg_inn_token', token=token)}"
-            emne, html = epost.render("innlogging", navn=d["navn"], lenke=lenke)
+            emne, html = epost.render("innlogging", fornavn=d["fornavn"], lenke=lenke)
             epost.send(d["epost"], emne, html)
             if config.DEMO:
                 flash(Markup(f'Demo: innloggingslenken er «sendt». <a href="{lenke}">Klikk her for å logge inn</a>.'), "info")
@@ -1181,7 +1182,7 @@ def _hent_kurs(kurs_id: int):
 _VERSJONSFELTER = {
     "kurs": ("navn", "type", "sted", "zoom_url", "kapasitet", "pris_nok", "fakturering", "betaling", "faktura_dager_for",
              "kursholder_epost", "notat", "paameldingsfrist"),
-    "person": ("navn", "epost", "telefon", "yrkestittel", "arbeidssted"),
+    "person": ("fornavn", "etternavn", "epost", "telefon", "yrkestittel", "arbeidssted"),
     "paamelding": ("betaler", "betaling", "org_navn", "org_nr", "faktura_adresse", "faktura_postnr", "faktura_sted",
                    "faktura_ref", "faktura_kommentar", "intern_kommentar", "allergier", "tilrettelegging"),
     "nettside": (paameldingsside.INTRO, paameldingsside.KNAPPETEKST),
@@ -1334,7 +1335,7 @@ def admin_kurs_status(kurs_id):
 
 def _avlysningsmottakere(kurs_id: int):
     return con().execute(
-        """SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+        """SELECT p.id, d.navn, d.fornavn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
            WHERE p.kurs_id=? AND p.status IN ('bekreftet','venteliste') ORDER BY p.id""", (kurs_id,)).fetchall()
 
 
@@ -1714,8 +1715,8 @@ def admin_deltaker_ny(kurs_id):
 
     f = request.form
     feil = []
-    if not f.get("navn", "").strip() or "@" not in f.get("epost", ""):
-        feil.append("Fyll inn navn og en gyldig e-postadresse.")
+    if not (f.get("fornavn", "").strip() and f.get("etternavn", "").strip()) or "@" not in f.get("epost", ""):
+        feil.append("Fyll inn fornavn, etternavn og en gyldig e-postadresse.")
     org = f.get("betaler") == "organisasjon"
     if org and not (f.get("org_navn", "").strip() and f.get("org_nr", "").strip()):
         feil.append("Fyll inn firmanavn og organisasjonsnummer når arbeidsgiver betaler.")
@@ -1728,7 +1729,7 @@ def admin_deltaker_ny(kurs_id):
     try:
         with db.transaksjon(con()):
             pid, status = db.meld_paa(
-                con(), kurs_id, epost=f["epost"], navn=f["navn"],
+                con(), kurs_id, epost=f["epost"], fornavn=f["fornavn"], etternavn=f["etternavn"],
                 deltaker={"telefon": f.get("telefon"), "arbeidssted": f.get("arbeidssted"),
                          "hpr_nr": f.get("hpr_nr"), "yrkestittel": f.get("yrkestittel")},
                 paamelding={k: f.get(k) or None for k in (
@@ -1744,7 +1745,7 @@ def admin_deltaker_ny(kurs_id):
         return render_template("admin_deltaker_ny.html", kurs=kurs, dager=dager, f=f,
                                plasser_igjen=plasser_igjen, fane="deltakere"), 400
 
-    flash(f"{f['navn']} er registrert og satt til «{status}». "
+    flash(f"{db.fullt_navn(f['fornavn'], f['etternavn'])} er registrert og satt til «{status}». "
          "Ingen bekreftelse eller faktura er sendt ennå.", "ok")
     return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=pid))
 
@@ -1881,7 +1882,7 @@ def admin_deltaker_import_mal():
 
 def _hent_paamelding(kurs_id: int, paamelding_id: int):
     return con().execute(
-        """SELECT p.*, d.navn, d.epost, d.telefon, d.yrkestittel, d.arbeidssted,
+        """SELECT p.*, d.navn, d.fornavn, d.etternavn, d.epost, d.telefon, d.yrkestittel, d.arbeidssted,
                   s.allergier, s.tilrettelegging,
                   (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id) AS faktura_antall,
                   (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id AND status!='betalt') AS faktura_ubetalt
@@ -1925,12 +1926,12 @@ def admin_deltaker_person(kurs_id, paamelding_id):
         flash(_ENDRET_AV_ANDRE, "feil")
         return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
     f = request.form
-    if not f.get("navn", "").strip() or "@" not in f.get("epost", ""):
-        flash("Fyll inn navn og en gyldig e-postadresse.", "feil")
+    if not (f.get("fornavn", "").strip() and f.get("etternavn", "").strip()) or "@" not in f.get("epost", ""):
+        flash("Fyll inn fornavn, etternavn og en gyldig e-postadresse.", "feil")
         return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
     try:
         db.oppdater_deltaker(con(), p["deltaker_id"], {
-            "navn": f["navn"].strip(), "epost": f["epost"].strip(),
+            "fornavn": f["fornavn"].strip(), "etternavn": f["etternavn"].strip(), "epost": f["epost"].strip(),
             "telefon": f.get("telefon", "").strip() or None,
             "yrkestittel": f.get("yrkestittel", "").strip() or None,
             "arbeidssted": f.get("arbeidssted", "").strip() or None,
@@ -2027,7 +2028,7 @@ def admin_deltaker_avsla(kurs_id, paamelding_id):
     if request.form.get("send_epost"):
         try:
             k.send_en_gang(f"kurs:{kurs_id}", p["epost"], "avslag", "avslag", paamelding_id=paamelding_id,
-                           d={"navn": p["navn"]}, kurs=kurs, melding=melding)
+                           d={"navn": p["navn"], "fornavn": p["fornavn"]}, kurs=kurs, melding=melding)
             flash("Påmeldingen er avslått, og deltakeren har fått beskjed på e-post.", "ok")
         except Exception:  # noqa: BLE001 - motoren har alt satt 'ukjent' og logget (PII-fritt)
             flash("Påmeldingen er avslått, men e-posten til deltakeren fikk et uavklart utfall. Se «Uavklarte "
@@ -2111,6 +2112,8 @@ def admin_deltaker_logger(kurs_id, paamelding_id):
 
 EPOST_EMNE_MAKS = 200
 EPOST_TEKST_MAKS = 5000
+# Flettefeltene som vises som klikkbare knapper under meldingsfeltet (se _kodeknapper.html og maltekster.MANUELLE_KODER).
+_EPOST_KODER = {"koder": maltekster.KODER, "manuelle_koder": maltekster.kodeliste(maltekster.MANUELLE_KODER)}
 
 
 def _hent_epost_mottakere(kurs_id: int, ider: list[int]) -> list:
@@ -2120,7 +2123,7 @@ def _hent_epost_mottakere(kurs_id: int, ider: list[int]) -> list:
         return []
     plassholdere = ",".join("?" * len(ider))
     return con().execute(
-        f"""SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+        f"""SELECT p.id, d.navn, d.fornavn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
             WHERE p.kurs_id=? AND p.id IN ({plassholdere}) ORDER BY d.navn""",
         (kurs_id, *ider)).fetchall()
 
@@ -2142,7 +2145,7 @@ def admin_epost_ny(kurs_id):
         flash("Velg minst én mottaker.", "feil")
         return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
     return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne="", tekst="",
-                           emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS, forhandsvisning=None)
+                           emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS, forhandsvisning=None, **_EPOST_KODER)
 
 
 @app.post("/admin/kurs/<int:kurs_id>/epost/forhandsvis")
@@ -2160,17 +2163,25 @@ def admin_epost_forhandsvis(kurs_id):
         feil.append(f"Emnet kan være maks {EPOST_EMNE_MAKS} tegn (er nå {len(emne)}).")
     elif epost.har_kontrolltegn(emne):  # emnet er ett linjeskiftfritt e-postemne (ingen ekstra hoder)
         feil.append("Emnet kan ikke inneholde linjeskift.")
+    elif "{" in emne or "}" in emne:    # ellers ville «{fornavn}» blitt sendt ordrett i emnefeltet
+        feil.append("Flettefelt som {fornavn} kan bare brukes i selve meldingen, ikke i emnet.")
     if not tekst:
         feil.append("Fyll inn en melding.")
     elif len(tekst) > EPOST_TEKST_MAKS:
         feil.append(f"Meldingen kan være maks {EPOST_TEKST_MAKS} tegn (er nå {len(tekst)}).")
+    else:
+        try:
+            maltekster.valider_manuell_tekst(tekst)     # ukjent kode / loes klamme: stoppes FOER noe lagres eller sendes
+        except maltekster.MalFeil as e:
+            feil.append(e.forklaring)
     if not mottakere:
         feil.append("Velg minst én gyldig mottaker.")
     if feil:
         for x in feil:
             flash(x, "feil")
         return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne=emne, tekst=tekst,
-                               emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS, forhandsvisning=None)
+                               emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS, forhandsvisning=None,
+                               **_EPOST_KODER)
 
     utsending_id, _ = db.opprett_admin_utsending(
         con(), kurs_id, emne, tekst, [m["id"] for m in mottakere], sendt_av_admin_id=session.get("admin_id"))
@@ -2181,7 +2192,8 @@ def admin_epost_forhandsvis(kurs_id):
     return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne=emne, tekst=tekst,
                            emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS,
                            forhandsvisning={"utsending_id": utsending_id, "html": eksempel_html,
-                                            "eksempel_navn": eksempel["navn"], "eksempel_id": eksempel["id"]})
+                                            "eksempel_navn": eksempel["navn"], "eksempel_id": eksempel["id"]},
+                           **_EPOST_KODER)
 
 
 def _flash_sendefeil(ut) -> None:
@@ -2305,11 +2317,11 @@ def admin_allergiliste(kurs_id):
     return render_template("admin_allergi.html", kurs=kurs, rader=rader)
 
 
-_DELTAKER_CSV_KOLONNER = ["Navn", "E-post", "Telefon", "Arbeidssted", "Status", "Betaler", "Betaling",
+_DELTAKER_CSV_KOLONNER = ["Fornavn", "Etternavn", "E-post", "Telefon", "Arbeidssted", "Status", "Betaler", "Betaling",
                          "Organisasjon", "Org.nr", "Fakturanr", "Fakturert (kr)"]
 def _deltaker_csv_select() -> str:
     """Felles SELECT for deltaker-CSV. Tekstaggregatet kommer fra db.sql_tekstliste (riktig funksjon per databasebackend)."""
-    return f"""SELECT d.navn, d.epost, d.telefon, d.arbeidssted,
+    return f"""SELECT d.fornavn, d.etternavn, d.epost, d.telefon, d.arbeidssted,
                       CASE WHEN p.avslatt_ts IS NOT NULL THEN 'avslått' ELSE p.status END AS status, p.betaler, p.betaling,
                       p.org_navn, p.org_nr,
                       (SELECT {db.sql_tekstliste(con(), "faktura_nr")} FROM faktura WHERE paamelding_id=p.id) AS faktura_nr,
@@ -2634,7 +2646,7 @@ def admin_rapport_kurs_csv():
 def _deltakere_rapport_rader():
     sok = request.args.get("sok", "").strip()
     kun_flere = request.args.get("kun_flere_kurs") == "1"
-    sql = """SELECT d.id, d.navn, d.epost, d.telefon, d.arbeidssted,
+    sql = """SELECT d.id, d.navn, d.fornavn, d.etternavn, d.epost, d.telefon, d.arbeidssted,
                     COUNT(DISTINCT CASE WHEN p.status='bekreftet' THEN p.kurs_id END) AS antall_kurs
              FROM deltaker d LEFT JOIN paamelding p ON p.deltaker_id=d.id
              WHERE (? = '' OR LOWER(d.navn) LIKE ? OR LOWER(d.epost) LIKE ? OR LOWER(COALESCE(d.arbeidssted,'')) LIKE ?)
@@ -2662,10 +2674,10 @@ def admin_rapport_deltakere_csv():
     rader, filtre = _deltakere_rapport_rader()
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    w.writerow(["Navn", "E-post", "Telefon", "Arbeidssted", "Antall kurs (bekreftet)"])
+    w.writerow(["Fornavn", "Etternavn", "E-post", "Telefon", "Arbeidssted", "Antall kurs (bekreftet)"])
     for d in rader:
         w.writerow([sikkerhet.csv_trygg(v) for v in (
-            d["navn"], d["epost"], d["telefon"] or "", d["arbeidssted"] or "", d["antall_kurs"])])
+            d["fornavn"], d["etternavn"], d["epost"], d["telefon"] or "", d["arbeidssted"] or "", d["antall_kurs"])])
     db.logg(con(), "rapport_eksportert", {"rapport": "deltakere", **filtre, "antall_rader": len(rader)}, aktor=_aktor())
     con().commit()
     return Response("﻿" + buf.getvalue(), mimetype="text/csv",
@@ -2965,7 +2977,7 @@ def _rediger_kontekst(mal: str, feil_felt: str | None = None, feil_tekst: str | 
         else:
             tekst = raa.get(felt, f.standard)  # denne malens rader kan ikke valideres samlet - vis lagret raatekst
         felter.append({"navn": felt, "visningsnavn": f.navn, "type": f.type, "maks": f.maks, "tom_tillatt": f.tom_tillatt,
-                      "tekst": tekst, "tilpasset": felt in raa, "koder": sorted(f.kode),
+                      "tekst": tekst, "tilpasset": felt in raa, "koder": maltekster.kodeliste(f.kode),
                       "ugyldig": effektive is None and felt in raa})
     return dict(mal=mal, mal_navn=m.navn, mal_beskrivelse=m.beskrivelse, felter=felter, koder=maltekster.KODER,
                systemkoder=maltekster.SYSTEMKODER, feil_felt=feil_felt, mal_feilmelding=mal_feilmelding)
@@ -3053,7 +3065,9 @@ def admin_logg_ut():
 
 # ======================= mottak fra nettsidens skjema =======================
 
-# Feltnavn fra ulike skjema-plugins -> vaare navn. Utvides naar vi ser hva ipr.no sitt skjema sender.
+# Feltnavn fra ulike skjema-plugins -> vaare navn. Utvides naar vi ser hva ipr.no sitt skjema sender. Fornavn og etternavn
+# er paakrevd hver for seg; "navn" (fullt navn i ett felt) brukes KUN til en tydelig avvisning - det gjettes aldri paa hva
+# som er fornavn og etternavn.
 FELTMAP = {
     "navn": ["navn", "name", "fullt_navn", "your-name"],
     "fornavn": ["fornavn", "first_name", "firstname"],
@@ -3090,6 +3104,7 @@ def api_paamelding():
     Autentisering: header X-IPR-Signatur = HMAC-SHA256(hemmelighet, raa body) (anbefalt),
     eller header X-IPR-Token / ?token= med hemmeligheten (for skjema-plugins som ikke kan signere).
     Tar imot JSON eller vanlig skjemadata. Idempotent: samme person paa samme kurs gir 200 uten ny rad.
+    Paakrevd: fornavn, etternavn, epost og kurs (kode eller kursnummer). Fullt navn i ett felt avvises med 400.
     """
     import hashlib
     import hmac
@@ -3104,12 +3119,15 @@ def api_paamelding():
         return {"status": "feil", "melding": "ugyldig signatur"}, 401
 
     data = request.get_json(silent=True) or request.form.to_dict(flat=True)
-    navn = _hent(data, "navn") or " ".join(x for x in (_hent(data, "fornavn"), _hent(data, "etternavn")) if x)
+    fornavn, etternavn = _hent(data, "fornavn"), _hent(data, "etternavn")
     epost_, kurskode = _hent(data, "epost"), _hent(data, "kurs")
-    if not navn or not epost_ or "@" not in epost_ or not kurskode:
+    if not fornavn or not etternavn or not epost_ or "@" not in epost_ or not kurskode:
         db.logg(con(), "webhook_avvist", {"felter": sorted(data.keys())})
         con().commit()
-        return {"status": "feil", "melding": "mangler navn, epost eller kurs"}, 400
+        melding = "mangler fornavn, etternavn, epost eller kurs"
+        if _hent(data, "navn") and not (fornavn and etternavn):
+            melding += " (fullt navn i ett felt tas ikke imot - send fornavn og etternavn hver for seg)"
+        return {"status": "feil", "melding": melding}, 400
     kurs = con().execute("SELECT * FROM kurs WHERE kode=? OR CAST(kursnr AS TEXT)=?",
                          (kurskode.upper(), kurskode)).fetchone()
     if not kurs or not _kurs_offentlig_tilgjengelig(kurs):
@@ -3123,7 +3141,7 @@ def api_paamelding():
     try:
         with db.transaksjon(con()):
             pid, status = db.meld_paa(
-                con(), kurs["id"], epost=epost_, navn=navn,
+                con(), kurs["id"], epost=epost_, fornavn=fornavn, etternavn=etternavn,
                 deltaker={"telefon": _hent(data, "telefon"), "arbeidssted": _hent(data, "arbeidssted"),
                           "hpr_nr": _hent(data, "hpr_nr") if skjemafelt.vis_hpr(kurs) else None},
                 paamelding={"kilde": "nettside", "betaler": "organisasjon" if org_nr else "person",

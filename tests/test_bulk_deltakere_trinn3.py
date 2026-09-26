@@ -18,6 +18,7 @@ from kurs import behandling, config, db, sveiper
 from kurs.integrasjoner import epost, visma
 from kurs.kjoring import Kjoring
 from kurs.web import app as webapp
+from navnehjelp import navnedeler
 
 FORHANDSVIS = "/admin/kurs/{kid}/deltakere/bulk/forhandsvis"
 BEHANDLE = "/admin/kurs/{kid}/deltakere/bulk/behandle"
@@ -63,7 +64,7 @@ def _deltakere(con, kid, n, start=0, **paamelding):
     ut = []
     for i in range(start, start + n):
         epost_, navn = f"p{i:02d}@x.no", f"Person {i:02d}"
-        pid, _ = db.meld_paa(con, kid, epost=epost_, navn=navn, aktor="admin:test", tillat_utkast=True,
+        pid, _ = db.meld_paa(con, kid, epost=epost_, **navnedeler(navn), aktor="admin:test", tillat_utkast=True,
                              paamelding={"kilde": "admin", "sveiper_utsatt": 1, **paamelding})
         ut.append((pid, epost_, navn))
     con.commit()
@@ -243,7 +244,7 @@ def test_X_preview_uten_behandlingsbare_har_ingen_bekreftknapp(con):
 
 def test_K5_preview_tekster_for_venteliste_og_tidligere_uavklart(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst Plass")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Plass")
     vent = _deltakere(con, kid, 1)                     # venteliste
     assert _tell(con, "SELECT status FROM paamelding WHERE id=?", vent[0][0]) == "venteliste"
     klient = _klient()
@@ -308,7 +309,7 @@ def test_H_bekreftet_gir_en_epost_og_en_faktura(con, monkeypatch):
 
 def test_I_venteliste_gir_en_beskjed_og_ingen_faktura(con, monkeypatch):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst Plass")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Plass")
     ut = _deltakere(con, kid, 2)
     assert {_tell(con, "SELECT status FROM paamelding WHERE id=?", p) for p in _ider(ut)} == {"venteliste"}
     kall = _teller(monkeypatch)

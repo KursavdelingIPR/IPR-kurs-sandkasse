@@ -14,6 +14,7 @@ import pytest
 from kurs import config, daglig, db, kjoring, kursbevis
 from kurs.integrasjoner import epost
 from kurs.kjoring import Kjoring
+from navnehjelp import navnedeler
 
 IDAG = date(2031, 3, 3)                 # mandag; kurs som starter 10.03.2031 er i «uka før»-vinduet
 
@@ -50,7 +51,7 @@ def _kurs(con, kode, start=date(2031, 3, 10), **kw):
 
 
 def _deltaker(con, kid, epost_, **kw):
-    pid, _ = db.meld_paa(con, kid, epost=epost_, navn=epost_.split("@")[0].title(), **kw)
+    pid, _ = db.meld_paa(con, kid, epost=epost_, **navnedeler(epost_.split("@")[0].title()), **kw)
     con.execute("UPDATE paamelding SET sveiper_kjort=1 WHERE id=?", (pid,))
     con.commit()
     return pid
@@ -404,7 +405,7 @@ def test_deltaker_og_paamelding_har_samme_vern(con):
     con.execute("UPDATE deltaker SET telefon='99999999' WHERE epost='dora@eksempel.no'")
     con.execute("UPDATE paamelding SET intern_kommentar='annen admin' WHERE id=?", (pid,))
     con.commit()
-    admin.post(f"/admin/kurs/{kid}/deltaker/{pid}/person", data={"navn": "Dora", "epost": "dora@eksempel.no",
+    admin.post(f"/admin/kurs/{kid}/deltaker/{pid}/person", data={"fornavn": "Dora", "etternavn": "Test", "epost": "dora@eksempel.no",
                                                                  "telefon": "", "versjon": v_person})
     admin.post(f"/admin/kurs/{kid}/deltaker/{pid}/paamelding", data={"betaler": "person", "intern_kommentar": "min",
                                                                      "versjon": v_paamelding})

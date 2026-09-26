@@ -12,8 +12,9 @@ import pytest
 from kurs import config, db, import_deltakere as imp
 
 RUTE = "/admin/kurs/{kid}/deltakere/importer"
-CSV_HEADER = "Navn;E-post;Telefon;Yrkestittel;Arbeidssted;HPR-nummer;Betaler;Firmanavn;Org.nr;" \
+CSV_HEADER = "Fornavn;Etternavn;E-post;Telefon;Yrkestittel;Arbeidssted;HPR-nummer;Betaler;Firmanavn;Org.nr;" \
              "Fakturaadresse;Fakturareferanse;Fakturakommentar;Allergier;Tilrettelegging"
+MIN_HEADER = "Fornavn;Etternavn;E-post"  # bare de obligatoriske kolonnene
 
 
 @pytest.fixture
@@ -71,7 +72,7 @@ def test_ruten_krever_admin_get(con):
 def test_ruten_krever_admin_post(con):
     kid = _kurs(con)
     con.commit()
-    resp = _last_opp(_klient(), kid, _csv("Kari;kari@x.no"))
+    resp = _last_opp(_klient(), kid, _csv("Kari;Nordmann;kari@x.no"))
     assert resp.status_code == 302
     assert "/admin/logg-inn" in resp.headers["Location"]
     assert _antall_preview_rader(con) == 0
@@ -108,7 +109,7 @@ def test_gyldig_csv_gir_preview(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    resp = _last_opp(klient, kid, _csv("Kari Nordmann;kari@x.no", header="Navn;E-post"))
+    resp = _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER))
     tekst = resp.get_data(as_text=True)
     assert resp.status_code == 200
     assert "Kari Nordmann" in tekst
@@ -131,7 +132,7 @@ def test_preview_skriver_ingenting_til_databasen(con):
     klient = _klient()
     _logg_inn(klient)                             # innlogging logges - foer tilstandsbildet
     foer = _snapshot()
-    _last_opp(klient, kid, _csv("Kari Nordmann;kari@x.no", header="Navn;E-post"))
+    _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER))
     assert _snapshot() == foer
 
 
@@ -140,7 +141,7 @@ def test_gyldig_preview_oppretter_server_side_forhaandsvisning(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    _last_opp(klient, kid, _csv("Kari Nordmann;kari@x.no", header="Navn;E-post"))
+    _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER))
     rad = con.execute("SELECT kurs_id, admin_id FROM import_forhaandsvisning").fetchone()
     assert rad is not None
     assert rad["kurs_id"] == kid
@@ -152,7 +153,7 @@ def test_nettleseren_far_bare_token_ikke_json_med_radene(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    tekst = _last_opp(klient, kid, _csv("Kari Nordmann;kari@x.no", header="Navn;E-post")).get_data(as_text=True)
+    tekst = _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER)).get_data(as_text=True)
     start = tekst.index('name="forhaandsvisning_token"')
     felt = tekst[start:start + 200]
     verdi_start = felt.index('value="') + len('value="')
@@ -168,7 +169,7 @@ def test_bekreft_knapp_peker_til_bekreft_ruten(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    tekst = _last_opp(klient, kid, _csv("Kari Nordmann;kari@x.no", header="Navn;E-post")).get_data(as_text=True)
+    tekst = _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER)).get_data(as_text=True)
     assert f"/admin/kurs/{kid}/deltakere/importer/bekreft" in tekst
     assert not re.search(r"<button[^>]*\sdisabled", tekst)
 
@@ -180,7 +181,7 @@ def test_blokkerende_fil_oppretter_ingen_preview(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    resp = _last_opp(klient, kid, _csv("Ugyldig Rad;ikke-en-epost", header="Navn;E-post"))
+    resp = _last_opp(klient, kid, _csv("Ugyldig;Rad;ikke-en-epost", header=MIN_HEADER))
     tekst = resp.get_data(as_text=True)
     assert "Blokkert" in tekst
     assert _antall_preview_rader(con) == 0
@@ -192,7 +193,7 @@ def test_dublett_i_fil_blokkerer_og_lager_ingen_preview(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    _last_opp(klient, kid, _csv("Kari;kari@x.no", "Kari;kari@x.no", header="Navn;E-post"))
+    _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", "Kari;Nordmann;kari@x.no", header=MIN_HEADER))
     assert _antall_preview_rader(con) == 0
 
 
@@ -203,7 +204,7 @@ def test_ugyldig_filtype_avvises(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    resp = _last_opp(klient, kid, b"navn,epost\nKari,kari@x.no", filnavn="import.txt")
+    resp = _last_opp(klient, kid, b"fornavn,etternavn,epost\nKari,Nordmann,kari@x.no", filnavn="import.txt")
     assert resp.status_code == 400
     assert _antall_preview_rader(con) == 0
 
@@ -225,7 +226,7 @@ def test_fil_paa_akkurat_maksgrensen_aksepteres_forbi_transportlaget(con):
     transport-lagets storrelsessjekker og faktisk naar parse_csv()/innholdsvalidering."""
     kid = _kurs(con)
     con.commit()
-    header = b"Navn;E-post\n"
+    header = b"Fornavn;Etternavn;E-post\n"
     innhold = header + b"x" * (imp.MAKS_FILSTORRELSE - len(header))
     assert len(innhold) == imp.MAKS_FILSTORRELSE
     klient = _klient()
@@ -241,7 +242,7 @@ def test_for_stor_fil_innenfor_request_grensen_avvises(con):
     fanges av vaar egen eksplisitte stream-lesing (les maks MAKS_FIL_BYTES + 1)."""
     kid = _kurs(con)
     con.commit()
-    stor = b"Navn;E-post\n" + b"x" * (imp.MAKS_FILSTORRELSE + 100)
+    stor = b"Fornavn;Etternavn;E-post\n" + b"x" * (imp.MAKS_FILSTORRELSE + 100)
     klient = _klient()
     _logg_inn(klient)
     resp = _last_opp(klient, kid, stor)
@@ -255,7 +256,7 @@ def test_ekstremt_stor_request_avvises_for_hele_kroppen_leses(con):
     per-request max_content_length, ikke feile med en generisk 500."""
     kid = _kurs(con)
     con.commit()
-    ekstremt_stor = b"Navn;E-post\n" + b"x" * (imp.MAKS_FILSTORRELSE + 2 * 1024 * 1024)
+    ekstremt_stor = b"Fornavn;Etternavn;E-post\n" + b"x" * (imp.MAKS_FILSTORRELSE + 2 * 1024 * 1024)
     klient = _klient()
     _logg_inn(klient)
     resp = _last_opp(klient, kid, ekstremt_stor)
@@ -266,10 +267,10 @@ def test_ekstremt_stor_request_avvises_for_hele_kroppen_leses(con):
 def test_over_300_rader_avvises(con):
     kid = _kurs(con)
     con.commit()
-    mange = [f"P{i};p{i}@x.no" for i in range(imp.MAKS_RADER + 1)]
+    mange = [f"P{i};Test;p{i}@x.no" for i in range(imp.MAKS_RADER + 1)]
     klient = _klient()
     _logg_inn(klient)
-    resp = _last_opp(klient, kid, _csv(*mange, header="Navn;E-post"))
+    resp = _last_opp(klient, kid, _csv(*mange, header=MIN_HEADER))
     assert resp.status_code == 400
     assert "rader" in resp.get_data(as_text=True).lower()
     assert _antall_preview_rader(con) == 0
@@ -283,7 +284,7 @@ def test_avlyst_kurs_gir_ingen_preview(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    resp = _last_opp(klient, kid, _csv("Kari;kari@x.no", header="Navn;E-post"))
+    resp = _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER))
     assert "avlyst" in resp.get_data(as_text=True).lower()
     assert _antall_preview_rader(con) == 0
 
@@ -294,7 +295,7 @@ def test_avsluttet_kurs_gir_ingen_preview(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    resp = _last_opp(klient, kid, _csv("Kari;kari@x.no", header="Navn;E-post"))
+    resp = _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER))
     assert "avsluttet" in resp.get_data(as_text=True).lower()
     assert _antall_preview_rader(con) == 0
 
@@ -306,7 +307,7 @@ def test_tillatte_kursstatuser_fungerer(con, status):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    resp = _last_opp(klient, kid, _csv("Kari;kari@x.no", header="Navn;E-post"))
+    resp = _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER))
     assert resp.status_code == 200
     assert _antall_preview_rader(con) == 1
 
@@ -316,12 +317,12 @@ def test_tillatte_kursstatuser_fungerer(con, status):
 def test_preview_viser_kombinasjon_eksisterende_person_ny_og_venteliste(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2", kapasitet=1)
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Nordmann")  # kjent person, annet kurs
-    db.meld_paa(con, kid2, epost="forst@x.no", navn="Forst")  # fyller kid2
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")  # kjent person, annet kurs
+    db.meld_paa(con, kid2, epost="forst@x.no", fornavn="Forst", etternavn="Test")  # fyller kid2
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    tekst = _last_opp(klient, kid2, _csv("Kari Nordmann;kari@x.no", header="Navn;E-post")).get_data(as_text=True)
+    tekst = _last_opp(klient, kid2, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER)).get_data(as_text=True)
     assert "Eksisterende person" in tekst
     assert "Ny påmelding" in tekst
     assert "Venteliste" in tekst
@@ -329,22 +330,22 @@ def test_preview_viser_kombinasjon_eksisterende_person_ny_og_venteliste(con):
 
 def test_preview_viser_reaktivering(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
+    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     db.meld_av(con, pid)
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    tekst = _last_opp(klient, kid, _csv("Kari Nordmann;kari@x.no", header="Navn;E-post")).get_data(as_text=True)
+    tekst = _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER)).get_data(as_text=True)
     assert "Reaktiveres" in tekst
 
 
 def test_preview_viser_hopp_over(con):
     kid = _kurs(con)
-    db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    tekst = _last_opp(klient, kid, _csv("Kari Nordmann;kari@x.no", header="Navn;E-post")).get_data(as_text=True)
+    tekst = _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER)).get_data(as_text=True)
     assert "hoppes over" in tekst.lower()
     assert _antall_preview_rader(con) == 1  # hopp_over blokkerer ikke resten av importen
 
@@ -356,9 +357,9 @@ def test_ny_opplasting_erstatter_tidligere_preview_for_samme_admin_og_kurs(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    _last_opp(klient, kid, _csv("Kari;kari@x.no", header="Navn;E-post"))
+    _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER))
     assert _antall_preview_rader(con) == 1
-    _last_opp(klient, kid, _csv("Ola;ola@x.no", header="Navn;E-post"))
+    _last_opp(klient, kid, _csv("Ola;Nordmann;ola@x.no", header=MIN_HEADER))
     assert _antall_preview_rader(con) == 1  # ikke 2 - den gamle er erstattet
     rad = con.execute("SELECT rader_json FROM import_forhaandsvisning").fetchone()
     assert "ola@x.no" in rad["rader_json"]
@@ -368,13 +369,14 @@ def test_ny_opplasting_erstatter_tidligere_preview_for_samme_admin_og_kurs(con):
 def test_utlopte_previews_ryddes_ved_ny_opplasting(con):
     kid = _kurs(con, kapasitet=5)
     con.commit()
-    imp.lagre_forhaandsvisning(con, kid, _admin_id(con), [{"navn": "Gammel", "epost": "gammel@x.no"}], [],
+    imp.lagre_forhaandsvisning(con, kid, _admin_id(con),
+                               [{"fornavn": "Gammel", "etternavn": "Test", "epost": "gammel@x.no"}], [],
                                idag=datetime.now() - timedelta(hours=1))
     con.commit()
     assert _antall_preview_rader(con) == 1
     klient = _klient()
     _logg_inn(klient)
-    _last_opp(klient, kid, _csv("Kari;kari@x.no", header="Navn;E-post"))
+    _last_opp(klient, kid, _csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER))
     rader = con.execute("SELECT rader_json FROM import_forhaandsvisning").fetchall()
     assert len(rader) == 1
     assert "kari@x.no" in rader[0]["rader_json"]
@@ -388,7 +390,7 @@ def test_ingen_personopplysninger_i_hendelsesloggen(con):
     klient = _klient()
     _logg_inn(klient)
     _last_opp(klient, kid, _csv(
-        "Hemmelig Person;hemmelig.person@sensitiv-domene.no;99999999;;;;;;;;;;Peanøttallergi;Tegnspråktolk",
+        "Hemmelig;Person;hemmelig.person@sensitiv-domene.no;99999999;;;;;;;;;;Peanøttallergi;Tegnspråktolk",
         header=CSV_HEADER))
     for r in con.execute("SELECT detaljer FROM hendelse"):
         d = (r["detaljer"] or "").lower()

@@ -267,7 +267,7 @@ def test_webhook_godtar_kursnummer(con, monkeypatch):
     from kurs.web import app as webapp
     kid = _kurs(con, "A")
     con.commit()
-    body = json.dumps({"navn": "Test Person", "epost": "test@example.no", "kurs": str(_kursnr(con, kid))}).encode()
+    body = json.dumps({"fornavn": "Test", "etternavn": "Person", "epost": "test@example.no", "kurs": str(_kursnr(con, kid))}).encode()
     sig = hmac.new(config.WEBHOOK_HEMMELIG.encode(), body, hashlib.sha256).hexdigest()
     r = webapp.app.test_client().post("/api/paamelding", data=body, content_type="application/json",
                                       headers={"X-IPR-Signatur": sig})

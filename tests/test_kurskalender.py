@@ -139,7 +139,7 @@ def test_korrekt_kurslenke(con):
 
 def test_ingen_deltakerdata_vises(con):
     kid = _kurs(con, "PERS", "Personvern-kurs", ["2027-03-10"])
-    db.meld_paa(con, kid, epost="skal.ikke.vises@x.no", navn="Skal Ikke Vises")
+    db.meld_paa(con, kid, epost="skal.ikke.vises@x.no", fornavn="Skal Ikke", etternavn="Vises")
     con.commit()
     klient = _klient()
     _logg_inn(klient)

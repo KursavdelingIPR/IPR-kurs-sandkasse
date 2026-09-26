@@ -9,6 +9,7 @@ import pytest
 
 from kurs import config, db, import_deltakere as imp
 from kurs.integrasjoner import epost, visma
+from navnehjelp import navnedeler
 
 RUTE_BEKREFT = "/admin/kurs/{kid}/deltakere/importer/bekreft"
 RUTE_IMPORT = "/admin/kurs/{kid}/deltakere/importer"
@@ -49,7 +50,7 @@ def _antall_mail(con):
 
 
 def _rad(navn="Kari Nordmann", epost="kari@x.no", **over):
-    r = {"navn": navn, "epost": epost}
+    r = {**navnedeler(navn), "epost": epost}
     r.update(over)
     return r
 
@@ -113,7 +114,7 @@ def test_gyldig_token_uendret_db_gir_vellykket_import(con):
 
 def test_flashmelding_viser_tellinger_uten_persondata(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")  # fyller kapasitet
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")  # fyller kapasitet
     con.commit()
     token = _lag_preview(con, kid, [_rad(epost="hemmelig.person@x.no", navn="Hemmelig Person")])
     klient = _klient()
@@ -176,7 +177,7 @@ def test_ingen_epost_faktura_eller_visma_kalles(con, monkeypatch):
 
 def test_eksisterende_paamelding_hoppes_over_og_telles(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
     antall_foer = con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0]
     token = _lag_preview(con, kid, [_rad()])
@@ -202,7 +203,7 @@ def test_ventelisteberegning_korrekt(con):
 def test_beskytt_eksisterende_felt_virker_ved_import(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2", kapasitet=5)
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Nordmann", deltaker={"telefon": "11111111"})
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann", deltaker={"telefon": "11111111"})
     con.commit()
     token = _lag_preview(con, kid2, [_rad(telefon="99999999")])
     klient = _klient()
@@ -270,7 +271,7 @@ def test_endret_kapasitet_gir_ingen_import(con):
     kid = _kurs(con, kapasitet=1)
     con.commit()
     token = _lag_preview(con, kid, [_rad()])  # forhaandsvist som "bekreftet"
-    db.meld_paa(con, kid, epost="annen@x.no", navn="Annen")  # fyller kapasiteten i mellomtiden
+    db.meld_paa(con, kid, epost="annen@x.no", fornavn="Annen", etternavn="Test")  # fyller kapasiteten i mellomtiden
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -305,7 +306,7 @@ def test_allerede_paameldt_i_mellomtiden_gir_ingen_import(con):
     kid = _kurs(con, kapasitet=5)
     con.commit()
     token = _lag_preview(con, kid, [_rad()])
-    db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")  # noen andre meldte paa i mellomtiden
+    db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")  # noen andre meldte paa i mellomtiden
     con.commit()
     antall_foer = con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0]
     klient = _klient()
@@ -320,11 +321,11 @@ def test_reaktivering_som_har_endret_karakter_gir_ingen_import(con):
     """Raden ble forhaandsvist som reaktivering (bekreftet), men kapasiteten ble fylt opp i
     mellomtiden slik at reaktiveringen na ville blitt venteliste - avvik skal fanges opp."""
     kid = _kurs(con, kapasitet=1)
-    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
+    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     db.meld_av(con, pid)
     con.commit()
     token = _lag_preview(con, kid, [_rad()])  # forhaandsvist: reaktiver -> bekreftet
-    db.meld_paa(con, kid, epost="annen@x.no", navn="Annen")  # fyller na kapasiteten
+    db.meld_paa(con, kid, epost="annen@x.no", fornavn="Annen", etternavn="Test")  # fyller na kapasiteten
     con.commit()
     klient = _klient()
     _logg_inn(klient)

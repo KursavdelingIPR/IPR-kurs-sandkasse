@@ -7,7 +7,7 @@ Prinsipper:
   * Registeret i KODE er fasit. Det finnes ingen egendefinerte felt - kun feltene under er gyldige.
   * Modulen er REN: ingen SQL, ingen database, ingen request-kontekst, ingen global tilstand. Lagring/lesing av
     overstyringer (tabellen kurs_skjemafelt) ligger i db.py, som bruker valideringen her FOER skriving.
-  * navn, epost og samtykke er LAAST (alltid synlige og obligatoriske, fast tekst) og rendres fast i kurs.html.
+  * fornavn, etternavn, epost og samtykke er LAAST (alltid synlige og obligatoriske, fast tekst) og rendres fast i kurs.html.
   * Kun telefon og arbeidssted er konfigurerbare, og kun innenfor sin egen gruppe.
   * hpr_nr er et BETINGET fast felt: vises kun naar kurset er i et spesialistlop, er aldri obligatorisk. Kun
     hjelpeteksten kan overstyres.
@@ -66,7 +66,8 @@ class Systemblokk:
 
 # ============================ register ============================
 
-_NAVN = Skjemafelt("navn", "Navn", LAAST, True, True, frozenset())
+_FORNAVN = Skjemafelt("fornavn", "Fornavn", LAAST, True, True, frozenset())
+_ETTERNAVN = Skjemafelt("etternavn", "Etternavn", LAAST, True, True, frozenset())
 _EPOST = Skjemafelt("epost", "E-post", LAAST, True, True, frozenset())
 _SAMTYKKE = Skjemafelt("samtykke", "Samtykke til vilkår og personvernerklæring", LAAST, True, True, frozenset())
 _TELEFON = Skjemafelt("telefon", "Telefon", KONFIGURERBAR, True, False, EGENSKAPER, rekkefolge=1)
@@ -74,7 +75,8 @@ _ARBEIDSSTED = Skjemafelt("arbeidssted", "Arbeidssted", KONFIGURERBAR, True, Fal
 _HPR = Skjemafelt("hpr_nr", "HPR-nummer", BETINGET, True, False, frozenset({HJELPETEKST}))
 
 # Alle gyldige felt. Uforanderlig: det finnes ingen maate aa legge til felt uten aa endre koden.
-REGISTER = MappingProxyType({f.nokkel: f for f in (_NAVN, _EPOST, _TELEFON, _ARBEIDSSTED, _HPR, _SAMTYKKE)})
+REGISTER = MappingProxyType({f.nokkel: f for f in (_FORNAVN, _ETTERNAVN, _EPOST, _TELEFON, _ARBEIDSSTED, _HPR,
+                                                    _SAMTYKKE)})
 
 # Standardrekkefolgen i den konfigurerbare gruppen (rett etter e-post). HPR staar alltid fast etter gruppen.
 KONFIGURERBAR_GRUPPE = ("telefon", "arbeidssted")

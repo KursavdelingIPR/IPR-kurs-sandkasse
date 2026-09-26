@@ -8,6 +8,7 @@ import pytest
 from werkzeug.datastructures import MultiDict
 
 from kurs import config, db, deltakerliste
+from navnehjelp import navnedeler
 
 
 @pytest.fixture
@@ -42,7 +43,7 @@ def _kurs(con):
                           datoer=[start.isoformat(), (start + timedelta(days=1)).isoformat()])
     pids = {}
     for navn, epost, tlf in FIKTIVE:
-        pids[navn], _ = db.meld_paa(con, kid, epost=epost, navn=navn,
+        pids[navn], _ = db.meld_paa(con, kid, epost=epost, **navnedeler(navn),
                                     deltaker={"telefon": tlf, "arbeidssted": "Testklinikken"},
                                     sensitivt={"allergier": "Hemmelig-nøtteallergi"})
     con.commit()
@@ -207,7 +208,7 @@ def test_csv_har_valgte_kolonner_oppmote_per_dag_og_ingen_utfyllingskolonner(con
 
 def test_csv_noytraliserer_formler(con):
     kid, _ = _kurs(con)
-    db.meld_paa(con, kid, epost="formel@eksempel.no", navn="=1+2 Test")
+    db.meld_paa(con, kid, epost="formel@eksempel.no", fornavn="=1+2", etternavn="Test")
     con.commit()
     rader = _csv(_admin().get(f"/admin/kurs/{kid}/deltakerliste.csv?status=alle").get_data(as_text=True))
     assert ["1", "'=1+2 Test"] in rader

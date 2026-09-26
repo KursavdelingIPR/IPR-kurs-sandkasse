@@ -72,7 +72,7 @@ def test_samtykkelogikk_er_uendret(con):
     """Selve validering (kreves fortsatt) skal ikke ha endret seg - kun lenkemålet."""
     kid = _kurs(con)
     con.commit()
-    resp = _klient().post("/kurs/T1", data={"navn": "Kari", "epost": "kari@x.no"})  # ingen samtykke
+    resp = _klient().post("/kurs/T1", data={"fornavn": "Kari", "etternavn": "Test", "epost": "kari@x.no"})  # ingen samtykke
     assert resp.status_code == 400
     assert "godta vilkår" in resp.get_data(as_text=True).lower()
 
@@ -81,8 +81,8 @@ def test_samtykkelogikk_er_uendret(con):
 
 def test_eksport_uten_filter_gir_alle(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="a@x.no", navn="Kari Nordmann")
-    db.meld_paa(con, kid, epost="b@x.no", navn="Ola Hansen")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="Kari", etternavn="Nordmann")
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="Ola", etternavn="Hansen")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -92,21 +92,21 @@ def test_eksport_uten_filter_gir_alle(con):
 
 def test_eksport_med_sok_filtrerer(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="a@x.no", navn="Kari Nordmann")
-    db.meld_paa(con, kid, epost="b@x.no", navn="Ola Hansen")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="Kari", etternavn="Nordmann")
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="Ola", etternavn="Hansen")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
     resp = klient.get(RUTE_CSV.format(kid=kid) + "?sok=kari")
     rader = _csv_rader(resp)
     assert len(rader) == 1
-    assert "Kari Nordmann" in rader[0]
+    assert "Kari;Nordmann" in rader[0]
 
 
 def test_eksport_med_status_filtrerer(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="a@x.no", navn="Forst")  # bekreftet
-    db.meld_paa(con, kid, epost="b@x.no", navn="Andre")  # venteliste
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="Forst", etternavn="Test")  # bekreftet
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="Andre", etternavn="Test")  # venteliste
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -119,15 +119,15 @@ def test_eksport_med_status_filtrerer(con):
 def test_eksport_matcher_deltakerlistens_eget_filter(con):
     """Filteret i eksporten skal vaere IDENTISK med det deltakerlisten selv bruker."""
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="a@x.no", navn="Kari Nordmann")
-    db.meld_paa(con, kid, epost="b@x.no", navn="Ola Hansen")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="Kari", etternavn="Nordmann")
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="Ola", etternavn="Hansen")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
     liste = klient.get(RUTE_DELTAKERE.format(kid=kid) + "?sok=kari").get_data(as_text=True)
     eksport = _csv_rader(klient.get(RUTE_CSV.format(kid=kid) + "?sok=kari"))
     assert "Kari Nordmann" in liste and "Ola Hansen" not in liste
-    assert len(eksport) == 1 and "Kari Nordmann" in eksport[0]
+    assert len(eksport) == 1 and "Kari;Nordmann" in eksport[0]
 
 
 def test_eksport_har_cache_control_no_store(con):
@@ -151,15 +151,15 @@ def test_eksport_krever_admin(con):
 
 def test_eksporter_valgte_gir_kun_utvalget(con):
     kid = _kurs(con, kapasitet=5)
-    p1, _ = db.meld_paa(con, kid, epost="a@x.no", navn="Kari Nordmann")
-    db.meld_paa(con, kid, epost="b@x.no", navn="Ola Hansen")
+    p1, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="Kari", etternavn="Nordmann")
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="Ola", etternavn="Hansen")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
     resp = klient.post(RUTE_VALGTE_CSV.format(kid=kid), data={"paamelding_id": [str(p1)]})
     rader = _csv_rader(resp)
     assert len(rader) == 1
-    assert "Kari Nordmann" in rader[0]
+    assert "Kari;Nordmann" in rader[0]
     assert resp.headers.get("Cache-Control") == "no-store"
 
 
@@ -184,8 +184,8 @@ def test_eksporter_valgte_uten_utvalg_gir_feilmelding(con):
 def test_eksporter_valgte_id_fra_annet_kurs_filtreres_bort(con):
     kid1 = _kurs(con, "K1", kapasitet=5)
     kid2 = _kurs(con, "K2", kapasitet=5)
-    p1, _ = db.meld_paa(con, kid1, epost="a@x.no", navn="Kari Nordmann")  # tilhorer kid1
-    p2, _ = db.meld_paa(con, kid2, epost="b@x.no", navn="Ola Hansen")  # tilhorer kid2
+    p1, _ = db.meld_paa(con, kid1, epost="a@x.no", fornavn="Kari", etternavn="Nordmann")  # tilhorer kid1
+    p2, _ = db.meld_paa(con, kid2, epost="b@x.no", fornavn="Ola", etternavn="Hansen")  # tilhorer kid2
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -193,15 +193,15 @@ def test_eksporter_valgte_id_fra_annet_kurs_filtreres_bort(con):
     resp = klient.post(RUTE_VALGTE_CSV.format(kid=kid1), data={"paamelding_id": [str(p1), str(p2)]})
     rader = _csv_rader(resp)
     assert len(rader) == 1
-    assert "Kari Nordmann" in rader[0]
-    assert "Ola Hansen" not in rader[0]
+    assert "Kari;Nordmann" in rader[0]
+    assert "Ola;Hansen" not in rader[0]
 
 
 # ==================== avkrysnings-UI ====================
 
 def test_deltakerliste_har_avkrysningsbokser_og_velg_alle(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="a@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -213,7 +213,7 @@ def test_deltakerliste_har_avkrysningsbokser_og_velg_alle(con):
 
 def test_deltakerliste_har_eksporter_valgte_knapp(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="a@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -224,7 +224,7 @@ def test_deltakerliste_har_eksporter_valgte_knapp(con):
 
 def test_eksportknapp_i_deltakerliste_folger_aktivt_filter(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="a@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
     klient = _klient()
     _logg_inn(klient)

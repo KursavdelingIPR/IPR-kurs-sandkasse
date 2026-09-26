@@ -59,7 +59,7 @@ def _kurs(con, kode="B1", start=FORSTE, ant_dager=1, **kw):
 
 
 def _paamelding(con, kid, epost_="ola@x.no", **pm):
-    pid, _ = db.meld_paa(con, kid, epost=epost_, navn="Ola Nordmann", paamelding=pm or None)
+    pid, _ = db.meld_paa(con, kid, epost=epost_, fornavn="Ola", etternavn="Nordmann", paamelding=pm or None)
     con.commit()
     return pid
 
@@ -215,7 +215,7 @@ def test_alle_planmodus_har_en_definert_fakturablokk_og_ingen_faller_stille_gjen
     forventet = {PLAN_INGEN: None, PLAN_PER_SAMLING: "faktura for hver samling", PLAN_NA: "Faktura på 1000 kr sendes separat til deg.",
                  PLAN_UTSATT: "Faktura på 1000 kr sendes separat til deg, tidligst 20.03.2027.",
                  PLAN_MANGLER_KURSDAG: "Faktura på 1000 kr sendes separat til deg."}
-    d = dict(p={"navn": "Ola", "betaler": "person", "org_navn": None}, kurs={"navn": "K", "type": "fysisk", "sted": "Oslo", "pris_nok": 1000,
+    d = dict(p={"navn": "Ola Test", "fornavn": "Ola", "betaler": "person", "org_navn": None}, kurs={"navn": "K", "type": "fysisk", "sted": "Oslo", "pris_nok": 1000,
              "start_kl": "09:00", "slutt_kl": "16:00", "faktura_dager_for": 14}, dager=[{"dato": "2027-09-20", "start_kl": None, "slutt_kl": None}])
     for m in modus:
         plan = FakturaPlan(m, date(2027, 3, 20)) if m == PLAN_UTSATT else FakturaPlan(m)
@@ -234,7 +234,7 @@ def test_1_standardtekst_brukes_uten_override_og_er_lik_direkte_render(con, ut):
     _kjor(con, FAR, pid)
     emne, html = _mail(ut)
     assert emne == "Bekreftelse: Veiledning i praksis"
-    assert "<p>Hei Ola Nordmann,</p>" in html
+    assert "<p>Hei Ola,</p>" in html                                                                # standardhilsenen: fornavn
     assert "Takk for påmeldingen! Du har fått plass på <strong>Veiledning i praksis</strong>." in html
     assert f'Du kan når som helst logge inn på <a href="{config.BASE_URL}/min-side">Min side</a> med e-postadressen din.' in html
     assert "<li>2027-09-20 kl. 09:00–16:00</li>" in html and "Sted: Oslo." in html                   # laaste systemblokker uendret
@@ -283,7 +283,7 @@ def test_4_ugyldig_placeholder_avvises_ved_lagring_og_skriver_ingenting(con, tek
 def test_4b_registeret_gir_ingen_fakturakoder_og_ingen_ekstra_felt():
     assert set(MALER["bekreftelse"].felt) == {"emne", "innledning", "avslutning"}
     tillatt = set().union(*(f.kode for f in MALER["bekreftelse"].felt.values()))
-    assert tillatt == {"navn", "kursnavn", "startdato", "min_side"}                                  # ingen beloep/dato/betaling/status
+    assert tillatt == {"fornavn", "navn", "kursnavn", "startdato", "min_side"}                       # ingen beloep/dato/betaling/status
     assert not [k for k in KODER if "faktura" in k or "belop" in k or "betal" in k]
 
 
@@ -366,7 +366,7 @@ def test_8_html_i_redigerbar_tekst_escapes(con, ut):
 
 def test_9_manglende_faktura_plan_feiler_lukket_med_malfeil(con):
     with pytest.raises(MalFeil) as e:
-        epost.render("bekreftelse", p={"navn": "Ola"}, kurs={"navn": "K"}, dager=[])
+        epost.render("bekreftelse", p={"navn": "Ola Test", "fornavn": "Ola"}, kurs={"navn": "K"}, dager=[])
     assert e.value.grunn == MANGLER_VERDI
 
 

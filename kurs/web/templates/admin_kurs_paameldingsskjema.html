@@ -29,7 +29,8 @@
 
 <form method="post" action="{{ url_for('admin_kurs_paameldingsskjema_lagre', kurs_id=kurs.id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  {{ fast_felt('Navn', 'Alltid synlig og obligatorisk.') }}
+  {{ fast_felt('Fornavn', 'Alltid synlig og obligatorisk. Kan flettes inn i e-post som {fornavn}.') }}
+  {{ fast_felt('Etternavn', 'Alltid synlig og obligatorisk.') }}
   {{ fast_felt('E-post', 'Alltid synlig og obligatorisk. Brukes til bekreftelse og innlogging på Min side.') }}
 
   {% for n in konfig_rekkefolge %}{% set x = v[n] %}

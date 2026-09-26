@@ -39,9 +39,9 @@ def _fersk(con):
 
 def test_kurs_rapport_viser_riktige_tall(con):
     kid = _kurs(con, kapasitet=1)
-    pa, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")  # bekreftet
-    db.meld_paa(con, kid, epost="b@x.no", navn="B")  # venteliste
-    pc, _ = db.meld_paa(con, kid, epost="c@x.no", navn="C kapasitet")
+    pa, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")  # bekreftet
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")  # venteliste
+    pc, _ = db.meld_paa(con, kid, epost="c@x.no", fornavn="C", etternavn="kapasitet")
     db.meld_av(con, pc)  # avmeldt
     con.execute("INSERT INTO faktura (paamelding_id, belop_nok, status) VALUES (?, 1000, 'sendt')", (pa,))
     con.commit()
@@ -81,7 +81,7 @@ def test_kurs_rapport_filtrerer_paa_periode(con):
 
 def test_kurs_rapport_csv_har_riktige_kolonner_og_ingen_sensitivt(con):
     kid = _kurs(con, type="fysisk")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A", sensitivt={"allergier": "Hemmelig-Notter-Info"})
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", sensitivt={"allergier": "Hemmelig-Notter-Info"})
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -120,8 +120,8 @@ def test_rapportsider_krever_innlogging(con):
 
 def test_soek_paa_navn_epost_og_arbeidssted(con):
     kid = _kurs(con)
-    db.meld_paa(con, kid, epost="kari.nordmann@example.no", navn="Kari Nordmann", deltaker={"arbeidssted": "Bergen kommune"})
-    db.meld_paa(con, kid, epost="ola@example.no", navn="Ola Hansen", deltaker={"arbeidssted": "DPS Nord"})
+    db.meld_paa(con, kid, epost="kari.nordmann@example.no", fornavn="Kari", etternavn="Nordmann", deltaker={"arbeidssted": "Bergen kommune"})
+    db.meld_paa(con, kid, epost="ola@example.no", fornavn="Ola", etternavn="Hansen", deltaker={"arbeidssted": "DPS Nord"})
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -134,9 +134,9 @@ def test_soek_paa_navn_epost_og_arbeidssted(con):
 def test_flere_kurs_filter_og_telling(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    db.meld_paa(con, kid1, epost="a@x.no", navn="A Flere Kurs")
-    db.meld_paa(con, kid2, epost="a@x.no", navn="A Flere Kurs")
-    db.meld_paa(con, kid1, epost="b@x.no", navn="B Ett Kurs")
+    db.meld_paa(con, kid1, epost="a@x.no", fornavn="A Flere", etternavn="Kurs")
+    db.meld_paa(con, kid2, epost="a@x.no", fornavn="A Flere", etternavn="Kurs")
+    db.meld_paa(con, kid1, epost="b@x.no", fornavn="B Ett", etternavn="Kurs")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -146,20 +146,20 @@ def test_flere_kurs_filter_og_telling(con):
 
 def test_deltakerregister_csv_inneholder_avtalte_felt_ingen_sensitivt(con):
     kid = _kurs(con, type="fysisk")
-    db.meld_paa(con, kid, epost="a@x.no", navn="A", deltaker={"telefon": "99999999", "arbeidssted": "Firma AS"},
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", deltaker={"telefon": "99999999", "arbeidssted": "Firma AS"},
                sensitivt={"allergier": "Skal-Ikke-Vises"})
     con.commit()
     klient = _klient()
     _logg_inn(klient)
     tekst = klient.get("/admin/rapporter/deltakere.csv").get_data(as_text=True)
-    assert "Navn;E-post;Telefon;Arbeidssted" in tekst
+    assert "Fornavn;Etternavn;E-post;Telefon;Arbeidssted" in tekst
     assert "99999999" in tekst and "Firma AS" in tekst
     assert "Skal-Ikke-Vises" not in tekst
 
 
 def test_deltakerregister_eksport_logges_uten_soketekst(con):
     kid = _kurs(con)
-    db.meld_paa(con, kid, epost="hemmelig.person@x.no", navn="Hemmelig Person")
+    db.meld_paa(con, kid, epost="hemmelig.person@x.no", fornavn="Hemmelig", etternavn="Person")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -174,8 +174,8 @@ def test_deltakerregister_eksport_logges_uten_soketekst(con):
 def test_person_detaljside_viser_alle_kurs_ingen_sensitivt(con):
     kid1 = _kurs(con, "K1", type="fysisk")
     kid2 = _kurs(con, "K2")
-    db.meld_paa(con, kid1, epost="a@x.no", navn="A Person", sensitivt={"allergier": "Skjules-Her-Ogsaa"})
-    db.meld_paa(con, kid2, epost="a@x.no", navn="A Person")
+    db.meld_paa(con, kid1, epost="a@x.no", fornavn="A", etternavn="Person", sensitivt={"allergier": "Skjules-Her-Ogsaa"})
+    db.meld_paa(con, kid2, epost="a@x.no", fornavn="A", etternavn="Person")
     con.commit()
     did = con.execute("SELECT id FROM deltaker WHERE epost='a@x.no'").fetchone()[0]
     klient = _klient()
@@ -187,7 +187,7 @@ def test_person_detaljside_viser_alle_kurs_ingen_sensitivt(con):
 
 def test_person_detaljside_lenker_til_paameldingsprofil(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     did = con.execute("SELECT id FROM deltaker WHERE epost='a@x.no'").fetchone()[0]
     klient = _klient()
@@ -208,8 +208,8 @@ def test_ukjent_deltaker_gir_404(con):
 def test_dashbord_teller_bekreftede_paameldinger_i_perioden(con):
     kid_i = _kurs(con, "INNE", start=date(2027, 6, 1))
     kid_ute = _kurs(con, "UTE", start=date(2020, 1, 1))
-    db.meld_paa(con, kid_i, epost="a@x.no", navn="A")
-    db.meld_paa(con, kid_ute, epost="b@x.no", navn="B")
+    db.meld_paa(con, kid_i, epost="a@x.no", fornavn="A", etternavn="Test")
+    db.meld_paa(con, kid_ute, epost="b@x.no", fornavn="B", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -219,7 +219,7 @@ def test_dashbord_teller_bekreftede_paameldinger_i_perioden(con):
 
 def test_dashbord_viser_avmeldt_fra_hendelseslogg(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     db.meld_av(con, pid)
     con.commit()
@@ -234,8 +234,8 @@ def test_dashbord_viser_avmeldt_fra_hendelseslogg(con):
 def test_dashbord_flere_kurs_lenke_gaar_til_filtrert_register(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    db.meld_paa(con, kid1, epost="a@x.no", navn="A")
-    db.meld_paa(con, kid2, epost="a@x.no", navn="A")
+    db.meld_paa(con, kid1, epost="a@x.no", fornavn="A", etternavn="Test")
+    db.meld_paa(con, kid2, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)

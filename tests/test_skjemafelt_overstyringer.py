@@ -164,7 +164,7 @@ def _antall(con):
             con.execute("SELECT COUNT(*) FROM hendelse").fetchone()[0])
 
 
-@pytest.mark.parametrize("felt", ["navn", "epost", "samtykke"])
+@pytest.mark.parametrize("felt", ["fornavn", "etternavn", "epost", "samtykke"])
 def test_laast_felt_avvises(con, felt):
     kid = _kurs(con)
     foer = _antall(con)
@@ -305,8 +305,8 @@ def test_tilbakestill_ett_felt(con):
 
 def test_tilbakestill_laast_felt_rydder_korrupt_rad(con):
     kid = _kurs(con)
-    _sett_inn(con, kid, "navn", obligatorisk=0)
-    assert db.tilbakestill_skjemafelt(con, kid, "navn") is True
+    _sett_inn(con, kid, "fornavn", obligatorisk=0)
+    assert db.tilbakestill_skjemafelt(con, kid, "fornavn") is True
     assert _rader(con, kid) == []
 
 
@@ -494,7 +494,8 @@ def test_hpr_folger_spesialistlop_uansett_overstyring():
 
 def test_laaste_felt_og_systemblokker_paavirkes_aldri():
     over = {n: Overstyring(synlig=False, obligatorisk=False, label="X", rekkefolge=0, hjelpetekst="H")
-            for n in ("navn", "epost", "samtykke", "allergier", "tilrettelegging", "betaler", "faktura", "sensitivt")}
+            for n in ("navn", "fornavn", "etternavn", "epost", "samtykke", "allergier", "tilrettelegging", "betaler",
+                      "faktura", "sensitivt")}
     for kurs in (KURS, KURS_LOP, {**KURS, "type": "digital"}, {**KURS, "fakturering": "ingen"}):
         assert sf.effektivt_skjema(kurs, over) == sf.effektivt_skjema(kurs)
 
@@ -541,7 +542,7 @@ def test_ukjent_felt_ignoreres_med_advarsel_uten_feltnavn(con):
     assert "hemmelig" not in repr(les.advarsler).lower()
 
 
-@pytest.mark.parametrize("felt", ["navn", "epost", "samtykke"])
+@pytest.mark.parametrize("felt", ["fornavn", "etternavn", "epost", "samtykke"])
 def test_rad_for_laast_felt_ignoreres(con, felt):
     kid = _kurs(con)
     _sett_inn(con, kid, felt, synlig=0, obligatorisk=0, label="X")
@@ -614,14 +615,14 @@ def test_standardverdier_i_databasen_er_ikke_advarsel_og_ikke_overstyring(con):
 def test_flere_korrupte_rader_gir_en_advarsel_per_problem_og_er_pii_frie(con):
     kid = _kurs(con, spesialistlop="EFT")
     _sett_inn(con, kid, "ukjent1", label="PII-1")
-    _sett_inn(con, kid, "navn", label="PII-2")
+    _sett_inn(con, kid, "fornavn", label="PII-2")
     _sett_inn(con, kid, "hpr_nr", label="PII-3", synlig=0)
     _sett_inn(con, kid, "telefon", label="PII-4\n", hjelpetekst="x" * 400, synlig=0)
     _sett_inn(con, kid, "arbeidssted", label="Gyldig")
     les = _les(con, kid)
     assert dict(les.overstyringer) == {"telefon": Overstyring(synlig=False), "arbeidssted": Overstyring(label="Gyldig")}
     assert sorted(les.advarsler, key=repr) == sorted([
-        Advarsel(sf.UKJENT_FELT), Advarsel(sf.LAAST_FELT, "navn"),
+        Advarsel(sf.UKJENT_FELT), Advarsel(sf.LAAST_FELT, "fornavn"),
         Advarsel(sf.IKKE_TILLATT, "hpr_nr", "synlig"), Advarsel(sf.IKKE_TILLATT, "hpr_nr", "label"),
         Advarsel(sf.KONTROLLTEGN, "telefon", "label"), Advarsel(sf.FOR_LANG, "telefon", "hjelpetekst")], key=repr)
     assert "PII" not in repr(les.advarsler) and "x" * 10 not in repr(les.advarsler)

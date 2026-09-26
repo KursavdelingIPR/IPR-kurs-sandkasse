@@ -54,7 +54,7 @@ def test_ki_feil_gir_til_adm(con):
 
 def test_fakta_fra_databasen(con):
     kid = db.opprett_kurs(con, kode="F1", navn="Faktakurs", datoer=["2027-02-01"], type="fysisk", sted="Bergen")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     did = con.execute("SELECT deltaker_id FROM paamelding WHERE id=?", (pid,)).fetchone()[0]
     s = assistent.svar(con, "Hvor holdes kurset?", deltaker_id=did, idag=date(2027, 1, 1))
     assert s.besvart and any("Bergen" in t for t in s.tekster)
@@ -68,7 +68,7 @@ def _klient(con):
 def test_webhook_signert(con):
     db.opprett_kurs(con, kode="WH1", navn="Webhook", datoer=["2027-02-01"], pris_nok=0)
     con.commit()
-    body = json.dumps({"your-name": "Nett Skjema", "your-email": "nett@x.no", "kurskode": "wh1"}).encode()
+    body = json.dumps({"first_name": "Nett", "last_name": "Skjema", "your-email": "nett@x.no", "kurskode": "wh1"}).encode()
     sig = hmac.new(config.WEBHOOK_HEMMELIG.encode(), body, hashlib.sha256).hexdigest()
     r = _klient(con).post("/api/paamelding", data=body, content_type="application/json", headers={"X-IPR-Signatur": sig})
     assert r.status_code == 201, r.get_json()
@@ -77,5 +77,5 @@ def test_webhook_signert(con):
 
 
 def test_webhook_avviser_uten_signatur(con):
-    r = _klient(con).post("/api/paamelding", json={"navn": "X", "epost": "x@x.no", "kurs": "WH1"})
+    r = _klient(con).post("/api/paamelding", json={"fornavn": "X", "etternavn": "Test", "epost": "x@x.no", "kurs": "WH1"})
     assert r.status_code == 401

@@ -18,6 +18,8 @@ _maler = Environment(
     loader=FileSystemLoader(Path(__file__).resolve().parent.parent / "maler" / "epost"),
     autoescape=select_autoescape(["html"]),
 )
+# Egenskrevet e-post til deltakere (admin_melding.html): {{ tekst | flett(d) }} fletter inn mottakerens {fornavn}/{navn}.
+_maler.filters["flett"] = maltekster.manuell_tekst_til_html
 
 
 # Emnet er REN TEKST (e-postemne, ikke HTML): egen renderer UTEN autoescape. Ellers ble '&' til '&amp;' og '<' til

@@ -50,8 +50,8 @@ def _forhandsvis(klient, kid, emne, tekst, paamelding_ider):
 
 def test_gruppe_bekreftet_og_venteliste_gir_riktige_mottakere(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="a@x.no", navn="A Bekreftet")
-    db.meld_paa(con, kid, epost="b@x.no", navn="B Venteliste")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Bekreftet")
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Venteliste")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -73,8 +73,8 @@ def test_ingen_mottakere_redirigerer_med_feilmelding(con):
 def test_mottaker_id_fra_annet_kurs_filtreres_bort_paa_serveren(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    p1, _ = db.meld_paa(con, kid1, epost="a@x.no", navn="A Riktig Kurs")
-    p2, _ = db.meld_paa(con, kid2, epost="c@x.no", navn="C Feil Kurs")
+    p1, _ = db.meld_paa(con, kid1, epost="a@x.no", fornavn="A Riktig", etternavn="Kurs")
+    p2, _ = db.meld_paa(con, kid2, epost="c@x.no", fornavn="C Feil", etternavn="Kurs")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -86,7 +86,7 @@ def test_mottaker_id_fra_annet_kurs_filtreres_bort_paa_serveren(con):
 
 def test_for_lang_emne_og_tekst_avvises(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -98,7 +98,7 @@ def test_for_lang_emne_og_tekst_avvises(con):
 
 def test_tom_emne_eller_tekst_avvises(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -111,7 +111,7 @@ def test_tom_emne_eller_tekst_avvises(con):
 def test_rediger_etter_forhaandsvisning_beholder_verdiene(con):
     """«Tilbake og rediger» = feltene er allerede utfylt og redigerbare i samme skjema."""
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -126,7 +126,7 @@ def test_rediger_etter_forhaandsvisning_beholder_verdiene(con):
 
 def test_forhaandsvisning_oppretter_utsending_men_sender_ingenting(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -139,8 +139,8 @@ def test_forhaandsvisning_oppretter_utsending_men_sender_ingenting(con):
 
 def test_teksten_lagres_kun_en_gang_ikke_pr_mottaker(con):
     kid = _kurs(con)
-    p1, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    p2, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    p1, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    p2, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -154,8 +154,8 @@ def test_teksten_lagres_kun_en_gang_ikke_pr_mottaker(con):
 
 def test_send_gir_en_epost_pr_mottaker_ingen_ser_andres_adresse(con):
     kid = _kurs(con)
-    p1, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    p2, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    p1, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    p2, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -177,7 +177,7 @@ def test_send_gir_en_epost_pr_mottaker_ingen_ser_andres_adresse(con):
 
 def test_send_logger_hendelse_og_utsending_logg_med_admin(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     admin_id = con.execute("SELECT id FROM admin_bruker WHERE brukernavn=?", (config.ADMIN_BRUKERNAVN,)).fetchone()[0]
     klient = _klient()
@@ -198,7 +198,7 @@ def test_send_logger_hendelse_og_utsending_logg_med_admin(con):
 def test_dobbelklikk_paa_send_sender_ikke_to_ganger(con):
     """Nokkelen opprettes ved forhaandsvisning og gjenbrukes - dobbelt POST til /send skal IKKE duplisere."""
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -220,7 +220,7 @@ def test_ny_utsendelse_med_samme_tekst_til_samme_person_blokkeres_ikke(con):
     """I motsetning til automatiske e-poster skal IKKE samme melding til samme person blokkeres
     naar det er en helt NY utsendelse (ny nokkel) - bare selve dobbeltsendingen skal hindres."""
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -251,8 +251,8 @@ def test_ukjent_utsending_id_haandteres_paent(con):
 
 def test_kursnivaa_kommunikasjon_viser_manuell_utsendelse_gruppert(con):
     kid = _kurs(con)
-    p1, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    p2, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    p1, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    p2, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -267,8 +267,8 @@ def test_kursnivaa_kommunikasjon_viser_manuell_utsendelse_gruppert(con):
 
 def test_deltaker_kommunikasjon_viser_kun_egne_meldinger(con):
     kid = _kurs(con)
-    p1, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    p2, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    p1, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    p2, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -284,7 +284,7 @@ def test_deltaker_kommunikasjon_viser_kun_egne_meldinger(con):
 
 def test_send_til_en_deltaker_knapp_finnes_paa_deltaker_kommunikasjon(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -297,8 +297,8 @@ def test_send_til_en_deltaker_knapp_finnes_paa_deltaker_kommunikasjon(con):
 
 def test_forhaandsvisning_viser_tydelig_hvem_som_er_eksempel(con):
     kid = _kurs(con)
-    pa, _ = db.meld_paa(con, kid, epost="aisha@x.no", navn="Aisha Rahman")
-    pi, _ = db.meld_paa(con, kid, epost="ingrid@x.no", navn="Ingrid Solheim")
+    pa, _ = db.meld_paa(con, kid, epost="aisha@x.no", fornavn="Aisha", etternavn="Rahman")
+    pi, _ = db.meld_paa(con, kid, epost="ingrid@x.no", fornavn="Ingrid", etternavn="Solheim")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -308,44 +308,44 @@ def test_forhaandsvisning_viser_tydelig_hvem_som_er_eksempel(con):
 
 def test_kan_bytte_eksempelmottaker_i_forhaandsvisning(con):
     kid = _kurs(con)
-    pa, _ = db.meld_paa(con, kid, epost="aisha@x.no", navn="Aisha Rahman")
-    pi, _ = db.meld_paa(con, kid, epost="ingrid@x.no", navn="Ingrid Solheim")
+    pa, _ = db.meld_paa(con, kid, epost="aisha@x.no", fornavn="Aisha", etternavn="Rahman")
+    pi, _ = db.meld_paa(con, kid, epost="ingrid@x.no", fornavn="Ingrid", etternavn="Solheim")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
     r = klient.post(f"/admin/kurs/{kid}/epost/forhandsvis", data={
-        "emne": "Info", "tekst": "Velkommen", "paamelding_id": [str(pa), str(pi)],
+        "emne": "Info", "tekst": "Hei {fornavn},\n\nVelkommen", "paamelding_id": [str(pa), str(pi)],
         "eksempel_paamelding_id": str(pi)})
     tekst = r.get_data(as_text=True)
     assert "Forhåndsvisning for Ingrid Solheim" in tekst
-    assert "Hei Ingrid Solheim" in tekst  # selve eksempel-HTML-en er ogsaa personalisert
+    assert "Hei Ingrid," in tekst  # selve eksempel-HTML-en er ogsaa personalisert ({fornavn} til Ingrid)
 
 
 def test_hver_mottaker_faar_faktisk_sitt_eget_navn_ved_sending(con):
     kid = _kurs(con)
-    pa, _ = db.meld_paa(con, kid, epost="aisha@x.no", navn="Aisha Rahman")
-    pi, _ = db.meld_paa(con, kid, epost="ingrid@x.no", navn="Ingrid Solheim")
+    pa, _ = db.meld_paa(con, kid, epost="aisha@x.no", fornavn="Aisha", etternavn="Rahman")
+    pi, _ = db.meld_paa(con, kid, epost="ingrid@x.no", fornavn="Ingrid", etternavn="Solheim")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    r = _forhandsvis(klient, kid, "Info", "Velkommen", [pa, pi])
+    r = _forhandsvis(klient, kid, "Info", "Hei {fornavn},\n\nVelkommen", [pa, pi])
     uid = _utsending_id(r.get_data(as_text=True))
     klient.post(f"/admin/kurs/{kid}/epost/send", data={"utsending_id": uid})
 
     tekster = {f.name: f.read_text(encoding="utf-8") for f in config.UTBOKS.glob("*.html")}
     innhold = list(tekster.values())
-    assert any("Hei Aisha Rahman" in t for t in innhold)
-    assert any("Hei Ingrid Solheim" in t for t in innhold)
+    assert any("Hei Aisha," in t for t in innhold)
+    assert any("Hei Ingrid," in t for t in innhold)
     # og ingen av filene skal inneholde BEGGE navnene (bekrefter at de er separate, personaliserte e-poster)
-    assert not any("Hei Aisha Rahman" in t and "Hei Ingrid Solheim" in t for t in innhold)
+    assert not any("Hei Aisha," in t and "Hei Ingrid," in t for t in innhold)
 
 
 # ---------------- justering 2: aapne en sendt e-post i etterkant ----------------
 
 def test_detaljside_viser_emne_tekst_avsender_tidspunkt_og_mottakere(con):
     kid = _kurs(con)
-    p1, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A Deltaker")
-    p2, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B Deltaker")
+    p1, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Deltaker")
+    p2, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Deltaker")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -363,7 +363,7 @@ def test_detaljside_viser_emne_tekst_avsender_tidspunkt_og_mottakere(con):
 
 def test_aldri_sendt_utsendelse_gir_404_paa_detaljsiden(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -375,7 +375,7 @@ def test_aldri_sendt_utsendelse_gir_404_paa_detaljsiden(con):
 def test_utsendelse_fra_annet_kurs_gir_404(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    pid, _ = db.meld_paa(con, kid1, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid1, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -387,7 +387,7 @@ def test_utsendelse_fra_annet_kurs_gir_404(con):
 
 def test_emne_er_klikkbart_i_kursnivaa_kommunikasjon(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -400,7 +400,7 @@ def test_emne_er_klikkbart_i_kursnivaa_kommunikasjon(con):
 
 def test_emne_er_klikkbart_paa_deltaker_kommunikasjon(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -419,7 +419,7 @@ def test_kun_sendt_status_vises_som_sendt_i_alle_kommunikasjonsvisninger(con, st
     kommunikasjon, og detaljsiden for en manuell utsendelse. En reservert/ukjent/feilet rad skal
     aldri presenteres som en sendt melding - hverken automatisk eller manuell."""
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)

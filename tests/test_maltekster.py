@@ -212,7 +212,7 @@ def test_parseren_bruker_ikke_format_eval_exec_eller_jinja():
 
 # ============================ 14-19: rendring ============================
 
-VERDIER = {"navn": "Ola Nordmann", "kursnavn": "Veiledning i praksis", "startdato": "2027-03-01"}
+VERDIER = {"fornavn": "Ola", "navn": "Ola Nordmann", "kursnavn": "Veiledning i praksis", "startdato": "2027-03-01"}
 
 
 def test_raa_html_i_admintekst_escapes():
@@ -296,15 +296,17 @@ def test_feil_felttype_avvises():
 
 def test_standardtekstene_gir_dagens_setninger_fra_12a_naar_de_rendres():
     """Bro til 12B2: standardtekstene reproduserer setningene som er laast av 12A-gullstandarden."""
-    v = {"navn": "Ola Nordmann", "kursnavn": "Veiledning i praksis", "startdato": "2027-03-01", "dato": "2027-03-02",
+    v = {"fornavn": "Ola", "navn": "Ola Nordmann", "kursnavn": "Veiledning i praksis", "startdato": "2027-03-01",
+         "dato": "2027-03-02",
          "dagnummer": "2", "antall_dager": "3", "firmanavn": "Firma AS", "antall_deltakere": "3 deltakere",
          "beskrivelse": "Kurspresentasjon", "beskrivelse_liten": "kurspresentasjon", "frist": "2027-02-20", "dager_igjen": "7",
          "dager_igjen_tekst": "7 dager"}
     h = lambda m, f: " ".join(maltekster.felttekst_til_html(m, f, maltekster.standard_tekst(m, f), v).split())  # noqa: E731
     e = lambda m, f: maltekster.felttekst_til_emne(m, f, maltekster.standard_tekst(m, f), v)  # noqa: E731
     assert e("bekreftelse", "emne") == "Bekreftelse: Veiledning i praksis"
-    assert h("bekreftelse", "innledning") == ("<p>Hei Ola Nordmann,</p> <p>Takk for påmeldingen! Du har fått plass på "
-                                              "<strong>Veiledning i praksis</strong>.</p>")
+    assert h("bekreftelse", "innledning") == ("<p>Hei Ola,</p> <p>Takk for påmeldingen! Du har fått plass på "
+                                              "<strong>Veiledning i praksis</strong>.</p>")          # hilsen med fornavn
+    assert h("purring", "innledning").startswith("<p>Hei Ola Nordmann,</p>")    # kursholdere: fortsatt fullt navn
     assert e("venteliste", "emne") == "Venteliste: Veiledning i praksis"
     assert "<strong>Veiledning i praksis</strong> er dessverre fullt, men du står nå på venteliste." in h("venteliste", "tekst")
     assert e("ukefor", "emne") == "Velkommen til Veiledning i praksis – praktisk informasjon"
@@ -325,7 +327,7 @@ def test_standardtekstene_gir_dagens_setninger_fra_12a_naar_de_rendres():
 
 
 def test_ingen_sensitive_koder_finnes():
-    assert set(KODER) == {"navn", "kursnavn", "startdato", "dato", "dagnummer", "antall_dager", "firmanavn",
+    assert set(KODER) == {"fornavn", "navn", "kursnavn", "startdato", "dato", "dagnummer", "antall_dager", "firmanavn",
                           "antall_deltakere", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
                           "dager_igjen_tekst", "min_side", "sporsmal_url"}
     for forbudt in ("allergi", "tilrettelegging", "epost", "telefon", "adresse", "fodsel", "personnummer", "passord",

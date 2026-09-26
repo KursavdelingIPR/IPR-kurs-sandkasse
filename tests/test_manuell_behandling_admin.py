@@ -8,6 +8,7 @@ import pytest
 
 from kurs import config, db
 from kurs.integrasjoner import epost, visma
+from navnehjelp import navnedeler
 
 RUTE = "/admin/kurs/{kid}/deltaker/{pid}/behandle"
 
@@ -42,7 +43,7 @@ def _antall_mail(con):
 
 
 def _manuell(con, kid, epost="kari@x.no", navn="Kari Nordmann", **paamelding):
-    return db.meld_paa(con, kid, epost=epost, navn=navn, aktor="admin:test", tillat_utkast=True,
+    return db.meld_paa(con, kid, epost=epost, **navnedeler(navn), aktor="admin:test", tillat_utkast=True,
                        paamelding={"kilde": "admin", "sveiper_utsatt": 1, **paamelding})
 
 
@@ -103,7 +104,7 @@ def test_flashmelding_viser_hva_som_skjedde(con):
 
 def test_venteliste_utsatt_gir_ventelistebeskjed_ingen_faktura(con):
     kid = _kurs(con, kapasitet=1, pris_nok=1000, fakturering="person")
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
     pid, status = _manuell(con, kid)
     assert status == "venteliste"
     con.commit()
@@ -120,7 +121,7 @@ def test_venteliste_utsatt_gir_ventelistebeskjed_ingen_faktura(con):
 
 def test_venteliste_knapp_har_riktig_tekst_ikke_fakturaordlyd(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
     pid, _ = _manuell(con, kid)
     con.commit()
     klient = _klient()
@@ -258,7 +259,7 @@ def test_fakturafeil_presenteres_ikke_som_vellykket(con, monkeypatch):
 
 def test_epostfeil_for_venteliste_presenteres_ikke_som_vellykket(con, monkeypatch):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
     pid, _ = _manuell(con, kid)
     con.commit()
 

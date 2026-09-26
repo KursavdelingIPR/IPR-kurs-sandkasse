@@ -16,6 +16,7 @@ from kurs import config, db, maltekster, sveiper
 from kurs.integrasjoner import epost
 from kurs.kjoring import Kjoring
 from kurs.maltekster import DB_LESEFEIL, IKKE_AKTIVERT, MALER, TOM, UKJENT_FELT, UKJENT_KODE, MalFeil
+from navnehjelp import navnedeler
 
 IDAG = date(2027, 3, 1)
 STD_EMNE = "Venteliste: Veiledning i praksis"
@@ -47,8 +48,8 @@ def _flyt(con, kursnavn="Veiledning i praksis", navn="Ola Nordmann"):
     """Kurs med plass til én: 'forst' faar plass, `navn` havner paa venteliste. Returnerer (kurs_id, paamelding_id)."""
     kid = db.opprett_kurs(con, kode="V1", navn=kursnavn, datoer=["2027-03-01"], sharepoint_mappe="Kurs/V1",
                           pris_nok=0, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
-    pid, status = db.meld_paa(con, kid, epost="ola@x.no", navn=navn)
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
+    pid, status = db.meld_paa(con, kid, epost="ola@x.no", **navnedeler(navn))
     assert status == "venteliste"
     con.commit()
     return kid, pid
@@ -69,7 +70,7 @@ def _lagre(con, felt, tekst):
 
 
 def _direkte_data(navn="Ola Nordmann", kursnavn="Veiledning i praksis"):
-    return dict(p={"navn": navn}, kurs={"navn": kursnavn})
+    return dict(p={"navn": navn, "fornavn": navnedeler(navn)["fornavn"]}, kurs={"navn": kursnavn})
 
 
 def _kall_send_en_gang(con, kid, pid):
@@ -88,7 +89,7 @@ def test_A_uten_override_er_venteliste_identisk_med_dagens_standard(con, sendt):
     assert emne == STD_EMNE
     assert _n(html) == _n(epost.render("venteliste", **_direkte_data())[1])     # samme som direkte standard-render
     h = _n(html)
-    assert "<p>Hei Ola Nordmann,</p>" in h
+    assert "<p>Hei Ola,</p>" in h                                                  # standardhilsenen bruker fornavnet
     assert "<strong>Veiledning i praksis</strong> er dessverre fullt, men du står nå på venteliste." in h
     assert "Blir det en ledig plass, får du automatisk plassen og en bekreftelse på e-post." in h
     assert "Vennlig hilsen<br>Kursadministrasjonen, Institutt for Psykologisk Rådgivning<br>" in h    # systemramme uendret
@@ -409,8 +410,8 @@ def _avl_flyt(con, kursnavn="Veiledning i praksis", navn="Ola Nordmann", vent_na
     """Kurs med én bekreftet (ola) og én paa venteliste (vera). Returnerer (kurs_id, ola_pid, vera_pid)."""
     kid = db.opprett_kurs(con, kode="AV1", navn=kursnavn, datoer=["2027-03-01"], sharepoint_mappe="Kurs/AV1",
                           pris_nok=0, kapasitet=1)
-    pid, st1 = db.meld_paa(con, kid, epost="ola@x.no", navn=navn)
-    vpid, st2 = db.meld_paa(con, kid, epost="vera@x.no", navn=vent_navn)
+    pid, st1 = db.meld_paa(con, kid, epost="ola@x.no", **navnedeler(navn))
+    vpid, st2 = db.meld_paa(con, kid, epost="vera@x.no", **navnedeler(vent_navn))
     assert (st1, st2) == ("bekreftet", "venteliste")
     con.commit()
     return kid, pid, vpid
@@ -426,12 +427,12 @@ def _lagre_avl(con, felt, tekst):
 
 
 def _avl_direkte_data():
-    return dict(d={"navn": "Ola Nordmann"}, kurs={"navn": "Veiledning i praksis"})
+    return dict(d={"navn": "Ola Nordmann", "fornavn": "Ola"}, kurs={"navn": "Veiledning i praksis"})
 
 
 def _kall_avlysning_direkte(con, kid, pid):
-    d = con.execute("SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.id=?",
-                    (pid,)).fetchone()
+    d = con.execute("""SELECT p.id, d.navn, d.fornavn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+                       WHERE p.id=?""", (pid,)).fetchone()
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
     return Kjoring(con, idag=IDAG).send_en_gang(f"kurs:{kid}", d["epost"], "avlysning", "avlysning",
                                                 paamelding_id=pid, d=d, kurs=kurs)
@@ -440,9 +441,10 @@ def _kall_avlysning_direkte(con, kid, pid):
 # ---------- verdibygger ----------
 
 def test_avlysning_verdibygger_eksponerer_kun_navn_og_kursnavn():
-    verdier = maltekster._avlysning_verdier({"d": {"navn": "Ola", "epost": "ola@x.no", "telefon": "9"},
+    verdier = maltekster._avlysning_verdier({"d": {"navn": "Ola Nordmann", "fornavn": "Ola", "epost": "ola@x.no",
+                                                   "telefon": "9"},
                                              "kurs": {"navn": "K", "pris_nok": 1500, "zoom_pw": "hemmelig"}})
-    assert verdier == {"navn": "Ola", "kursnavn": "K"}
+    assert verdier == {"fornavn": "Ola", "navn": "Ola Nordmann", "kursnavn": "K"}
     # alle ikke-system-koder registeret tillater for avlysning er dekket av byggeren, og ingen andre finnes
     tillatt = set().union(*(f.kode for f in MALER["avlysning"].felt.values())) - maltekster.SYSTEMKODER
     assert tillatt == set(verdier)
@@ -467,13 +469,13 @@ def test_A_uten_override_er_avlysning_identisk_med_dagens_og_statusendringene_er
     assert emne == STD_AVL_EMNE
     assert _n(html) == _n(epost.render("avlysning", **_avl_direkte_data())[1])            # samme som direkte standard-render
     h = _n(html)
-    assert "<p>Hei Ola Nordmann,</p>" in h
+    assert "<p>Hei Ola,</p>" in h                                                           # standardhilsenen: fornavn
     assert "Vi må dessverre informere om at <strong>Veiledning i praksis</strong> er avlyst." in h
     assert "Har du allerede mottatt faktura, tar kursadministrasjonen kontakt med deg om det videre." in h
     assert f"bruke «Spør oss» på {config.BASE_URL}/sporsmal." in h and "Vi beklager ulempen dette medfører." in h
     assert "Vennlig hilsen<br>Kursadministrasjonen, Institutt for Psykologisk Rådgivning<br>" in h
     (vtil, vemne, vhtml), = [m for m in sendt if m[0] == "vera@x.no"]
-    assert vemne == STD_AVL_EMNE and "<p>Hei Vera Venter,</p>" in _n(vhtml)                # egen hilsen til hver mottaker
+    assert vemne == STD_AVL_EMNE and "<p>Hei Vera,</p>" in _n(vhtml)                       # egen hilsen til hver mottaker
 
     fersk = db.koble()                                                                      # ny forbindelse = kun committet
     assert fersk.execute("SELECT status FROM kurs WHERE id=?", (kid,)).fetchone()[0] == "avlyst"
@@ -767,7 +769,8 @@ def test_preflight_committer_ikke_ruller_ikke_tilbake_og_skriver_ingenting(con, 
 def test_render_for_sending_har_ingen_sideeffekt_og_er_samme_sti_som_send_en_gang(con, sendt):
     kid, pid, vpid = _avl_flyt(con)
     _lagre_avl(con, "emne", "Eget: {kursnavn}")
-    d = con.execute("SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.id=?", (pid,)).fetchone()
+    d = con.execute("SELECT p.id, d.navn, d.fornavn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.id=?",
+                    (pid,)).fetchone()
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
     k = Kjoring(con, idag=IDAG)
     endringer = con.total_changes

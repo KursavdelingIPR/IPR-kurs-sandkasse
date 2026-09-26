@@ -10,6 +10,7 @@ import pytest
 from kurs import config, db
 from kurs.integrasjoner import epost, visma
 from kurs.web import app as app_modul
+from navnehjelp import navnedeler
 
 RUTE = "/admin/kurs/{kid}/deltakere/bulk/forhandsvis"
 
@@ -40,7 +41,7 @@ def _kurs(con, kode="T1", start=None, **kw):
 
 
 def _manuell(con, kid, epost="kari@x.no", navn="Kari Nordmann", **paamelding):
-    return db.meld_paa(con, kid, epost=epost, navn=navn, aktor="admin:test", tillat_utkast=True,
+    return db.meld_paa(con, kid, epost=epost, **navnedeler(navn), aktor="admin:test", tillat_utkast=True,
                        paamelding={"kilde": "admin", "sveiper_utsatt": 1, **paamelding})
 
 
@@ -151,7 +152,7 @@ def test_behandlingsbar_bekreftet(con):
 
 def test_behandlingsbar_venteliste(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
     pid, status = _manuell(con, kid)
     assert status == "venteliste"
     con.commit()
@@ -164,7 +165,7 @@ def test_behandlingsbar_venteliste(con):
 
 def test_sveiper_utsatt_0_ikke_behandlingsbar(con):
     kid = _kurs(con, kapasitet=5)
-    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")  # vanlig, ikke utsatt
+    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")  # vanlig, ikke utsatt
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -215,7 +216,7 @@ def test_blandet_utvalg_viser_riktig_telling(con):
     pid_ok, _ = _manuell(con, kid, epost="ok@x.no", navn="Ok Person")
     pid_ferdig, _ = _manuell(con, kid, epost="ferdig@x.no", navn="Ferdig Person")
     con.execute("UPDATE paamelding SET sveiper_kjort=1 WHERE id=?", (pid_ferdig,))
-    pid_vanlig, _ = db.meld_paa(con, kid, epost="vanlig@x.no", navn="Vanlig Person")
+    pid_vanlig, _ = db.meld_paa(con, kid, epost="vanlig@x.no", fornavn="Vanlig", etternavn="Person")
     con.commit()
     klient = _klient()
     _logg_inn(klient)

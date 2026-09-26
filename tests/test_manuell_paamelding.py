@@ -33,7 +33,7 @@ def _antall_mail(con):
 
 def test_meld_paa_uten_aktor_logger_deltaker_som_i_dag(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     rad = con.execute("SELECT aktor FROM hendelse WHERE handling='paamelding' AND detaljer LIKE ?",
                       (f'%"paamelding_id": {pid}%',)).fetchone()
@@ -42,7 +42,7 @@ def test_meld_paa_uten_aktor_logger_deltaker_som_i_dag(con):
 
 def test_meld_paa_med_aktor_logger_admin(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A", aktor="admin:kari")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", aktor="admin:kari")
     con.commit()
     rad = con.execute("SELECT aktor FROM hendelse WHERE handling='paamelding' AND detaljer LIKE ?",
                       (f'%"paamelding_id": {pid}%',)).fetchone()
@@ -55,13 +55,13 @@ def test_utkast_blokkeres_som_i_dag_uten_overstyring(con):
     kid = _kurs(con, status="utkast")
     con.commit()
     with pytest.raises(db.Paameldingsfeil):
-        db.meld_paa(con, kid, epost="a@x.no", navn="A")
+        db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
 
 
 def test_utkast_tillates_med_eksplisitt_overstyring(con):
     kid = _kurs(con, status="utkast")
     con.commit()
-    pid, status = db.meld_paa(con, kid, epost="a@x.no", navn="A", tillat_utkast=True)
+    pid, status = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", tillat_utkast=True)
     assert status == "bekreftet"
 
 
@@ -69,14 +69,14 @@ def test_avlyst_blokkeres_selv_med_alle_overstyringer(con):
     kid = _kurs(con, status="avlyst")
     con.commit()
     with pytest.raises(db.Paameldingsfeil):
-        db.meld_paa(con, kid, epost="a@x.no", navn="A", tillat_utkast=True, ignorer_frist=True)
+        db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", tillat_utkast=True, ignorer_frist=True)
 
 
 def test_avsluttet_blokkeres_selv_med_alle_overstyringer(con):
     kid = _kurs(con, status="avsluttet")
     con.commit()
     with pytest.raises(db.Paameldingsfeil):
-        db.meld_paa(con, kid, epost="a@x.no", navn="A", tillat_utkast=True, ignorer_frist=True)
+        db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", tillat_utkast=True, ignorer_frist=True)
 
 
 # ---------------- meld_paa(): frist-overstyring ----------------
@@ -86,14 +86,14 @@ def test_frist_blokkeres_som_i_dag_uten_overstyring(con):
     con.execute("UPDATE kurs SET paameldingsfrist=? WHERE id=?", ((date.today() - timedelta(days=1)).isoformat(), kid))
     con.commit()
     with pytest.raises(db.Paameldingsfeil, match="frist"):
-        db.meld_paa(con, kid, epost="a@x.no", navn="A")
+        db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
 
 
 def test_frist_tillates_med_eksplisitt_overstyring(con):
     kid = _kurs(con)
     con.execute("UPDATE kurs SET paameldingsfrist=? WHERE id=?", ((date.today() - timedelta(days=1)).isoformat(), kid))
     con.commit()
-    pid, status = db.meld_paa(con, kid, epost="a@x.no", navn="A", ignorer_frist=True)
+    pid, status = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", ignorer_frist=True)
     assert status == "bekreftet"
 
 
@@ -101,7 +101,7 @@ def test_frist_tillates_med_eksplisitt_overstyring(con):
 
 def test_utkast_kurs_blir_ikke_behandlet_av_sveiper_selv_med_sveiper_kjort_0(con):
     kid = _kurs(con, status="utkast")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A", tillat_utkast=True)
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", tillat_utkast=True)
     con.commit()
     sveiper.kjor(Kjoring(con, idag=date.today()))
     assert _antall_mail(con) == 0
@@ -111,7 +111,7 @@ def test_utkast_kurs_blir_ikke_behandlet_av_sveiper_selv_med_sveiper_kjort_0(con
 
 def test_utkast_kurs_blir_ikke_behandlet_av_daglig_kjor(con):
     kid = _kurs(con, status="utkast")
-    db.meld_paa(con, kid, epost="a@x.no", navn="A", tillat_utkast=True)
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", tillat_utkast=True)
     con.commit()
     daglig.kjor(Kjoring(con, idag=date.today()))
     assert _antall_mail(con) == 0
@@ -119,7 +119,7 @@ def test_utkast_kurs_blir_ikke_behandlet_av_daglig_kjor(con):
 
 def test_sveiper_utsatt_hindrer_automatisk_behandling_paa_normalt_kurs(con):
     kid = _kurs(con, kapasitet=5)  # helt vanlig, aapent kurs
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE paamelding SET sveiper_utsatt=1 WHERE id=?", (pid,))
     con.commit()
     sveiper.kjor(Kjoring(con, idag=date.today()))
@@ -129,7 +129,7 @@ def test_sveiper_utsatt_hindrer_automatisk_behandling_paa_normalt_kurs(con):
 
 def test_sveiper_utsatt_0_behandles_normalt(con):
     kid = _kurs(con, kapasitet=5)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     sveiper.kjor(Kjoring(con, idag=date.today()))
     assert _antall_mail(con) == 1
@@ -142,7 +142,7 @@ def test_avsluttet_kurs_faar_fortsatt_recovery_av_sveiper_kjor(con):
     mens kurset var aapent, maa fortsatt kunne fanges opp av sveiper.kjor() etter at kurset er
     blitt avsluttet (siste kursdag passert) - 'avsluttet' betyr ikke at behandlingen er ferdig."""
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE kurs SET status='avsluttet' WHERE id=?", (kid,))
     con.commit()
     sveiper.kjor(Kjoring(con, idag=date.today()))
@@ -157,7 +157,7 @@ def test_utsatt_registrering_kan_fortsatt_utloses_manuelt_etter_at_kurset_er_avs
     sveiper for akkurat denne raden, skal bekreftelse/faktura fortsatt sendes - ikke stille
     forbli ubehandlet bare fordi kurset i mellomtiden har blitt avsluttet."""
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A", paamelding={"sveiper_utsatt": 1})
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", paamelding={"sveiper_utsatt": 1})
     con.execute("UPDATE kurs SET status='avsluttet' WHERE id=?", (kid,))
     con.commit()
     assert _antall_mail(con) == 0  # ingen automatikk har ruklet i mellomtiden
@@ -176,7 +176,7 @@ def test_forfalte_delfakturaer_behandler_fortsatt_avsluttet_kurs(con):
     opprettes selv etter at kurset er blitt avsluttet (f.eks. etter driftsstans i Visma)."""
     start = date.today() - timedelta(days=5)
     kid = _kurs(con, start=start, betaling="per_samling", faktura_dager_for=14)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE paamelding SET sveiper_kjort=1 WHERE id=?", (pid,))  # simulerer at forstegangs-sveipen er gjort
     con.execute("UPDATE kurs SET status='avsluttet' WHERE id=?", (kid,))  # kurset er na avsluttet
     con.commit()
@@ -187,7 +187,7 @@ def test_forfalte_delfakturaer_behandler_fortsatt_avsluttet_kurs(con):
 def test_forfalte_delfakturaer_hopper_fortsatt_over_avlyst_kurs(con):
     start = date.today() - timedelta(days=5)
     kid = _kurs(con, start=start, betaling="per_samling", faktura_dager_for=14)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE paamelding SET sveiper_kjort=1 WHERE id=?", (pid,))
     con.execute("UPDATE kurs SET status='avlyst' WHERE id=?", (kid,))
     con.commit()
@@ -199,7 +199,7 @@ def test_forfalte_delfakturaer_hopper_fortsatt_over_avlyst_kurs(con):
 
 def test_bekreftelse_av_tilbakeholdt_venteliste_rad_nullstiller_sveiper_utsatt_og_sender(con):
     kid = _kurs(con, kapasitet=5)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE paamelding SET status='venteliste', sveiper_utsatt=1 WHERE id=?", (pid,))
     con.commit()
     kjor_for = db.sett_paamelding_status(con, pid, "bekreftet")
@@ -212,8 +212,8 @@ def test_bekreftelse_av_tilbakeholdt_venteliste_rad_nullstiller_sveiper_utsatt_o
 
 def test_automatisk_opprykk_nullstiller_sveiper_utsatt(con):
     kid = _kurs(con, kapasitet=1)
-    pa, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")  # bekreftet, fyller kapasitet
-    pb, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B")  # venteliste
+    pa, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")  # bekreftet, fyller kapasitet
+    pb, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")  # venteliste
     con.execute("UPDATE paamelding SET sveiper_utsatt=1 WHERE id=?", (pb,))
     con.commit()
     opprykket = db.meld_av(con, pa)
@@ -232,12 +232,12 @@ def test_reaktivering_nullstiller_stale_sveiper_utsatt_og_sveiper_kjort(con):
     med mindre den nye paameldingen selv eksplisitt ber om det. Ellers ville en ny, vanlig
     paamelding kunne bli stille staaende ubehandlet pga. en rad som ikke lenger er relevant."""
     kid = _kurs(con, kapasitet=5)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE paamelding SET sveiper_kjort=1, sveiper_utsatt=1 WHERE id=?", (pid,))
     db.meld_av(con, pid)
     con.commit()
 
-    pid2, status = db.meld_paa(con, kid, epost="a@x.no", navn="A", aktor="admin:kurs@ipr.no")
+    pid2, status = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", aktor="admin:kurs@ipr.no")
     con.commit()
     assert pid2 == pid  # samme rad reaktivert, ikke en ny
     assert status == "bekreftet"
@@ -256,7 +256,7 @@ def test_reaktivering_med_admin_aktor_og_nye_fakturafelter_oppdaterer_alt(con):
     det gamle, og kilde/behandlingsstatus skal reflektere den NYE registreringen, ikke den forrige."""
     kid = _kurs(con, kapasitet=5)
     pid, _ = db.meld_paa(
-        con, kid, epost="a@x.no", navn="A",
+        con, kid, epost="a@x.no", fornavn="A", etternavn="Test",
         paamelding={"betaler": "organisasjon", "org_navn": "Gammel AS", "kilde": "web"},
     )
     con.execute("UPDATE paamelding SET sveiper_kjort=1, sveiper_utsatt=1 WHERE id=?", (pid,))
@@ -264,7 +264,7 @@ def test_reaktivering_med_admin_aktor_og_nye_fakturafelter_oppdaterer_alt(con):
     con.commit()
 
     pid2, _ = db.meld_paa(
-        con, kid, epost="a@x.no", navn="A", aktor="admin:kurs@ipr.no",
+        con, kid, epost="a@x.no", fornavn="A", etternavn="Test", aktor="admin:kurs@ipr.no",
         paamelding={
             "betaler": "organisasjon", "org_navn": "Ny AS", "org_nr": "999888777",
             "faktura_ref": "Ny referanse", "kilde": "admin", "sveiper_utsatt": 1,

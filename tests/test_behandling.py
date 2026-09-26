@@ -13,6 +13,7 @@ from kurs import behandling, config, db, sveiper
 from kurs.behandling import (ALLEREDE_BEHANDLET, FEILET, FULLFORT, IKKE_BEHANDLINGSBAR, UAVKLART,
                              Behandlingsresultat, behandle_holdt_paamelding, klassifiser)
 from kurs.integrasjoner import epost, visma
+from navnehjelp import navnedeler
 
 IDAG = date.today()
 _orig_visma = visma.fakturer
@@ -35,7 +36,7 @@ def _kurs(con, kode="T1", **kw):
 
 
 def _holdt(con, kid, epost_="a@x.no", navn="A Person", utsatt=1):
-    pid, _ = db.meld_paa(con, kid, epost=epost_, navn=navn, aktor="admin:test", tillat_utkast=True,
+    pid, _ = db.meld_paa(con, kid, epost=epost_, **navnedeler(navn), aktor="admin:test", tillat_utkast=True,
                          paamelding={"kilde": "admin", "sveiper_utsatt": utsatt})
     con.commit()
     return pid
@@ -146,7 +147,7 @@ def test_fullfort_bekreftet_gir_en_epost_en_faktura_og_nullstiller_flagget(con, 
 
 def test_fullfort_venteliste_gir_beskjed_ingen_faktura(con, monkeypatch):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
     pid = _holdt(con, kid)
     assert con.execute("SELECT status FROM paamelding WHERE id=?", (pid,)).fetchone()[0] == "venteliste"
     kall = _teller(monkeypatch)
@@ -413,7 +414,7 @@ def test_C_faktisk_uavklart_bekreftelse_gir_fortsatt_uavklart(con, monkeypatch):
 
 def test_D_faktisk_uavklart_venteliste_gir_fortsatt_uavklart_men_ikke_bekreftelse_for_venteliste(con, monkeypatch):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
     pid = _holdt(con, kid)
     assert con.execute("SELECT status FROM paamelding WHERE id=?", (pid,)).fetchone()[0] == "venteliste"
     # en (irrelevant) uavklart 'bekreftelse'-rad paavirker IKKE en ventelistedeltaker ...

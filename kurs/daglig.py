@@ -90,7 +90,7 @@ def kjor(k: Kjoring) -> None:
 
 def _deltakere(k, kurs_id):
     return k.con.execute(
-        """SELECT p.id, d.navn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+        """SELECT p.id, d.navn, d.fornavn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
            WHERE p.kurs_id=? AND p.status='bekreftet'""", (kurs_id,)).fetchall()
 
 

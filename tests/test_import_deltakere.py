@@ -15,8 +15,9 @@ import pytest
 
 from kurs import config, db, import_deltakere as imp
 
-CSV_HEADER = "Navn;E-post;Telefon;Yrkestittel;Arbeidssted;HPR-nummer;Betaler;Firmanavn;Org.nr;" \
+CSV_HEADER = "Fornavn;Etternavn;E-post;Telefon;Yrkestittel;Arbeidssted;HPR-nummer;Betaler;Firmanavn;Org.nr;" \
              "Fakturaadresse;Fakturareferanse;Fakturakommentar;Allergier;Tilrettelegging"
+MIN_HEADER = "Fornavn;Etternavn;E-post"  # bare de obligatoriske kolonnene
 
 
 @pytest.fixture
@@ -43,8 +44,8 @@ def _csv(*rader: str, header: str = CSV_HEADER) -> bytes:
     return "\n".join([header, *rader]).encode("utf-8-sig")
 
 
-def _rad(navn="Kari Nordmann", epost="kari@x.no", **over):
-    r = {"navn": navn, "epost": epost}
+def _rad(fornavn="Kari", etternavn="Nordmann", epost="kari@x.no", **over):
+    r = {"fornavn": fornavn, "etternavn": etternavn, "epost": epost}
     r.update(over)
     return r
 
@@ -67,11 +68,12 @@ def _snapshot(con, kid):
 # ==================== parse_csv ====================
 
 def test_parse_csv_gyldig_fil_med_alle_kolonner():
-    rader = imp.parse_csv(_csv("Kari Nordmann;kari@x.no;99999999;Psykolog;Klinikk AS;1234567;"
+    rader = imp.parse_csv(_csv("Kari;Nordmann;kari@x.no;99999999;Psykolog;Klinikk AS;1234567;"
                                "person;;;;;Ingen kommentar;Nøtteallergi;Rullestolrampe"))
     assert len(rader) == 1
     r = rader[0]
-    assert r["navn"] == "Kari Nordmann"
+    assert r["fornavn"] == "Kari"
+    assert r["etternavn"] == "Nordmann"
     assert r["epost"] == "kari@x.no"
     assert r["telefon"] == "99999999"
     assert r["hpr_nr"] == "1234567"
@@ -80,18 +82,29 @@ def test_parse_csv_gyldig_fil_med_alle_kolonner():
 
 
 def test_parse_csv_kun_minimumskolonner():
-    rader = imp.parse_csv(_csv("Kari;kari@x.no", header="Navn;E-post"))
-    assert rader == [{"navn": "Kari", "epost": "kari@x.no"}]
+    rader = imp.parse_csv(_csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER))
+    assert rader == [{"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no"}]
 
 
 def test_parse_csv_mangler_epost_kolonne():
     with pytest.raises(imp.ImportFeil, match="E-post"):
-        imp.parse_csv(_csv("Kari", header="Navn"))
+        imp.parse_csv(_csv("Kari;Nordmann", header="Fornavn;Etternavn"))
 
 
-def test_parse_csv_mangler_navn_kolonne():
-    with pytest.raises(imp.ImportFeil, match="Navn"):
-        imp.parse_csv(_csv("kari@x.no", header="E-post"))
+def test_parse_csv_mangler_fornavn_kolonne():
+    with pytest.raises(imp.ImportFeil, match="«Fornavn»"):
+        imp.parse_csv(_csv("Nordmann;kari@x.no", header="Etternavn;E-post"))
+
+
+def test_parse_csv_mangler_etternavn_kolonne():
+    with pytest.raises(imp.ImportFeil, match="«Etternavn»"):
+        imp.parse_csv(_csv("Kari;kari@x.no", header="Fornavn;E-post"))
+
+
+def test_parse_csv_gammel_fil_med_bare_navn_avvises_uten_gjetting():
+    """En eldre fil med fullt navn i én kolonne deles aldri automatisk - admin får beskjed om den nye malen."""
+    with pytest.raises(imp.ImportFeil, match="hver sin kolonne"):
+        imp.parse_csv(_csv("Kari Nordmann;kari@x.no", header="Navn;E-post"))
 
 
 def test_parse_csv_tom_fil():
@@ -100,14 +113,14 @@ def test_parse_csv_tom_fil():
 
 
 def test_parse_csv_hopper_over_tomme_linjer():
-    rader = imp.parse_csv(_csv("Kari;kari@x.no", "", "  ", "Ola;ola@x.no", header="Navn;E-post"))
+    rader = imp.parse_csv(_csv("Kari;Nordmann;kari@x.no", "", "  ", "Ola;Nordmann;ola@x.no", header=MIN_HEADER))
     assert len(rader) == 2
 
 
 def test_parse_csv_for_mange_rader():
-    mange = [f"P{i};p{i}@x.no" for i in range(imp.MAKS_RADER + 1)]
+    mange = [f"P{i};Test;p{i}@x.no" for i in range(imp.MAKS_RADER + 1)]
     with pytest.raises(imp.ImportFeil, match="rader"):
-        imp.parse_csv(_csv(*mange, header="Navn;E-post"))
+        imp.parse_csv(_csv(*mange, header=MIN_HEADER))
 
 
 def test_parse_csv_for_mange_kolonner():
@@ -117,25 +130,25 @@ def test_parse_csv_for_mange_kolonner():
 
 
 def test_parse_csv_for_stor_fil():
-    stor = b"Navn;E-post\n" + b"x" * (imp.MAKS_FILSTORRELSE + 1)
+    stor = b"Fornavn;Etternavn;E-post\n" + b"x" * (imp.MAKS_FILSTORRELSE + 1)
     with pytest.raises(imp.ImportFeil, match="stor"):
         imp.parse_csv(stor)
 
 
 def test_parse_csv_komma_skilletegn_sniffes():
-    rader = imp.parse_csv("Navn,E-post\nKari,kari@x.no".encode("utf-8-sig"))
-    assert rader == [{"navn": "Kari", "epost": "kari@x.no"}]
+    rader = imp.parse_csv("Fornavn,Etternavn,E-post\nKari,Nordmann,kari@x.no".encode("utf-8-sig"))
+    assert rader == [{"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no"}]
 
 
 def test_parse_csv_cp1252_fallback():
-    tekst = "Navn;E-post;Arbeidssted\nKari;kari@x.no;Blåbær AS"
+    tekst = "Fornavn;Etternavn;E-post;Arbeidssted\nKari;Nordmann;kari@x.no;Blåbær AS"
     rader = imp.parse_csv(tekst.encode("cp1252"))
     assert rader[0]["arbeidssted"] == "Blåbær AS"
 
 
 def test_parse_csv_ukjent_kolonne_ignoreres_stille():
-    rader = imp.parse_csv(_csv("Kari;kari@x.no;noe", header="Navn;E-post;Ukjent kolonne"))
-    assert rader == [{"navn": "Kari", "epost": "kari@x.no"}]
+    rader = imp.parse_csv(_csv("Kari;Nordmann;kari@x.no;noe", header="Fornavn;Etternavn;E-post;Ukjent kolonne"))
+    assert rader == [{"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no"}]
 
 
 # ==================== forhaandsvis(): resultatmodell (B/punkt 2) ====================
@@ -157,8 +170,8 @@ def test_resultatmodell_eksisterende_person_pa_annet_kurs_og_venteliste_samtidig
     ny paamelding OG den blir satt paa venteliste - alle tre samtidig, ikke gjensidig utelukkende."""
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2", kapasitet=1)
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Nordmann")  # kjent person fra annet kurs
-    db.meld_paa(con, kid2, epost="forst@x.no", navn="Forst")  # fyller kid2 sin kapasitet
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")  # kjent person fra annet kurs
+    db.meld_paa(con, kid2, epost="forst@x.no", fornavn="Forst", etternavn="Test")  # fyller kid2 sin kapasitet
     con.commit()
     res = imp.forhaandsvis(con, kid2, [_rad()], aktor="admin:test")
     r = res[0]
@@ -170,9 +183,9 @@ def test_resultatmodell_eksisterende_person_pa_annet_kurs_og_venteliste_samtidig
 def test_resultatmodell_reaktivering_som_venteliste_og_person_finnes(con):
     """Det andre eksempelet: eksisterende person OG tidligere avmeldt OG reaktiveres som venteliste."""
     kid = _kurs(con, kapasitet=1)
-    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
+    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     db.meld_av(con, pid)
-    db.meld_paa(con, kid, epost="annen@x.no", navn="Annen")  # fyller kapasiteten
+    db.meld_paa(con, kid, epost="annen@x.no", fornavn="Annen", etternavn="Test")  # fyller kapasiteten
     con.commit()
     res = imp.forhaandsvis(con, kid, [_rad()], aktor="admin:test")
     r = res[0]
@@ -193,7 +206,7 @@ def test_gyldig_rad_gir_ny_bekreftet(con):
 
 def test_fullt_kurs_gir_ny_venteliste(con):
     kid = _kurs(con, kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
     con.commit()
     res = imp.forhaandsvis(con, kid, [_rad()], aktor="admin:test")
     assert res[0]["handling"] == imp.NY
@@ -211,7 +224,7 @@ def test_venteliste_simuleres_rad_for_rad_i_samme_import(con):
 def test_eksisterende_person_gjenbrukes_rulles_tilbake_likevel(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
     antall_foer = con.execute("SELECT COUNT(*) FROM deltaker").fetchone()[0]
     res = imp.forhaandsvis(con, kid2, [_rad()], aktor="admin:test")
@@ -221,7 +234,7 @@ def test_eksisterende_person_gjenbrukes_rulles_tilbake_likevel(con):
 
 def test_allerede_paameldt_hoppes_over_ikke_feil(con):
     kid = _kurs(con)
-    db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
     res = imp.forhaandsvis(con, kid, [_rad()], aktor="admin:test")
     assert res[0]["handling"] == imp.HOPP_OVER
@@ -231,7 +244,7 @@ def test_allerede_paameldt_hoppes_over_ikke_feil(con):
 
 def test_tidligere_avmeldt_reaktiveres(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
+    pid, _ = db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     db.meld_av(con, pid)
     con.commit()
     res = imp.forhaandsvis(con, kid, [_rad()], aktor="admin:test")
@@ -248,11 +261,13 @@ def test_ugyldig_epost_gir_blokkert(con):
     assert imp.har_blokkerende_rader(res)
 
 
-def test_manglende_navn_gir_blokkert(con):
+@pytest.mark.parametrize("tomt_felt, melding", [("fornavn", "Fornavn mangler"), ("etternavn", "Etternavn mangler")])
+def test_manglende_fornavn_eller_etternavn_gir_blokkert(con, tomt_felt, melding):
     kid = _kurs(con)
     con.commit()
-    res = imp.forhaandsvis(con, kid, [_rad(navn="")], aktor="admin:test")
+    res = imp.forhaandsvis(con, kid, [_rad(**{tomt_felt: ""})], aktor="admin:test")
     assert res[0]["handling"] == imp.BLOKKERT
+    assert melding in res[0]["melding"]
 
 
 def test_organisasjon_uten_orgfelt_gir_blokkert(con):
@@ -336,13 +351,13 @@ def test_forhaandsvisning_lar_ingen_spor_i_databasen(con):
 
 def test_forhaandsvisning_lar_ingen_spor_med_reaktivering_og_venteliste_og_allergi(con):
     kid = _kurs(con, kapasitet=1, type="fysisk")
-    pid, _ = db.meld_paa(con, kid, epost="gammel@x.no", navn="Gammel")
+    pid, _ = db.meld_paa(con, kid, epost="gammel@x.no", fornavn="Gammel", etternavn="Test")
     db.meld_av(con, pid)
     con.commit()
     foer = _snapshot(con, kid)
     imp.forhaandsvis(con, kid, [
-        _rad(epost="gammel@x.no", navn="Gammel"),
-        _rad(epost="ny@x.no", navn="Ny", allergier="Notter", tilrettelegging="Rullestol"),
+        _rad(epost="gammel@x.no", fornavn="Gammel", etternavn="Test"),
+        _rad(epost="ny@x.no", fornavn="Ny", allergier="Notter", tilrettelegging="Rullestol"),
     ], aktor="admin:test")
     assert _snapshot(con, kid) == foer
 
@@ -401,7 +416,7 @@ def test_ingen_epost_eller_faktura_ved_import(con):
 
 def test_allerede_paameldt_rad_hoppes_over_uten_ny_paamelding(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
     antall_foer = con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0]
     rader = [_rad()]
@@ -421,7 +436,7 @@ def test_import_ruller_tilbake_ved_endret_kapasitet(con):
     con.commit()
     assert forste[0]["resultatstatus"] == imp.BEKREFTET
 
-    db.meld_paa(con, kid, epost="annen@x.no", navn="Annen")  # fyller kapasiteten i mellomtiden
+    db.meld_paa(con, kid, epost="annen@x.no", fornavn="Annen", etternavn="Test")  # fyller kapasiteten i mellomtiden
     con.commit()
     antall_foer = con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0]
 
@@ -445,7 +460,7 @@ def test_import_ruller_ikke_tilbake_naar_bare_person_finnes_flagg_endres(con):
 
     # "kari" registreres na paa et ANNET kurs i mellomtiden - person_finnes_fra_for for VAAR
     # rad ville blitt True ved en ny forhaandsvisning, men UTFALLET (ny+bekreftet) er uendret.
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Nordmann")
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     con.commit()
 
     resultat = imp.importer(con, kid2, rader, forste, aktor="admin:test")
@@ -491,31 +506,31 @@ def test_A_gammel_standardoppforsel_overskriver_fortsatt_ved_vanlig_paamelding(c
     uendret, og skal kunne oppdatere kontaktinfo naar en deltaker melder seg paa igjen."""
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Nordmann", deltaker={"telefon": "11111111"})
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann", deltaker={"telefon": "11111111"})
     con.commit()
-    db.meld_paa(con, kid2, epost="kari@x.no", navn="Kari Nordmann", deltaker={"telefon": "99999999"})
+    db.meld_paa(con, kid2, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann", deltaker={"telefon": "99999999"})
     con.commit()
     rad = con.execute("SELECT telefon FROM deltaker WHERE epost='kari@x.no'").fetchone()
     assert rad["telefon"] == "99999999"  # oppdatert, IKKE beholdt - uendret fra for fase 10
 
 
 def test_finn_eller_opprett_deltaker_default_overskriver(con):
-    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", telefon="11111111")
-    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", telefon="22222222")
+    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", "Test", telefon="11111111")
+    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", "Test", telefon="22222222")
     rad = con.execute("SELECT telefon FROM deltaker WHERE epost='kari@x.no'").fetchone()
     assert rad["telefon"] == "22222222"
 
 
 def test_finn_eller_opprett_deltaker_beskyttet_modus_overskriver_ikke(con):
-    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", telefon="11111111")
-    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", beskytt_eksisterende_felt=True, telefon="22222222")
+    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", "Test", telefon="11111111")
+    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", "Test", beskytt_eksisterende_felt=True, telefon="22222222")
     rad = con.execute("SELECT telefon FROM deltaker WHERE epost='kari@x.no'").fetchone()
     assert rad["telefon"] == "11111111"
 
 
 def test_finn_eller_opprett_deltaker_beskyttet_modus_fyller_tomt_felt(con):
-    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari")  # ingen telefon
-    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", beskytt_eksisterende_felt=True, telefon="22222222")
+    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", "Test")  # ingen telefon
+    db.finn_eller_opprett_deltaker(con, "kari@x.no", "Kari", "Test", beskytt_eksisterende_felt=True, telefon="22222222")
     rad = con.execute("SELECT telefon FROM deltaker WHERE epost='kari@x.no'").fetchone()
     assert rad["telefon"] == "22222222"
 
@@ -527,7 +542,7 @@ def test_eksisterende_ikke_tomt_felt_overskrives_ikke_av_import(con):
     skal IKKE overskrive et telefonnummer personen allerede har registrert."""
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Nordmann", deltaker={"telefon": "11111111"})
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann", deltaker={"telefon": "11111111"})
     con.commit()
     rader = [_rad(telefon="00000000")]  # gammel/feil verdi i importfilen
     forste = imp.forhaandsvis(con, kid2, rader, aktor="admin:test")
@@ -542,7 +557,7 @@ def test_eksisterende_tomt_felt_fylles_av_import(con):
     """Et felt som er TOMT fra for skal derimot fylles inn av importen."""
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Nordmann")  # ingen arbeidssted registrert
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")  # ingen arbeidssted registrert
     con.commit()
     rader = [_rad(arbeidssted="Ny Klinikk AS")]
     forste = imp.forhaandsvis(con, kid2, rader, aktor="admin:test")
@@ -556,15 +571,15 @@ def test_eksisterende_tomt_felt_fylles_av_import(con):
 def test_navn_pa_eksisterende_person_endres_ikke_av_import(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Opprinnelig Nordmann")
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari Opprinnelig", etternavn="Nordmann")
     con.commit()
-    rader = [_rad(navn="Feil Navn")]
+    rader = [_rad(fornavn="Feil", etternavn="Navn")]
     forste = imp.forhaandsvis(con, kid2, rader, aktor="admin:test")
     con.commit()
     imp.importer(con, kid2, rader, forste, aktor="admin:test")
     con.commit()
-    rad = con.execute("SELECT navn FROM deltaker WHERE epost='kari@x.no'").fetchone()
-    assert rad["navn"] == "Kari Opprinnelig Nordmann"
+    rad = con.execute("SELECT navn, fornavn, etternavn FROM deltaker WHERE epost='kari@x.no'").fetchone()
+    assert tuple(rad) == ("Kari Opprinnelig Nordmann", "Kari Opprinnelig", "Nordmann")
 
 
 # ==================== forhaandsvisningstabell (server-side, ikke signert token) ====================
@@ -586,7 +601,7 @@ def test_token_er_kort_og_inneholder_ikke_radinnhold(con):
     navn/e-post/allergi. Data ligger KUN server-side."""
     kid = _kurs(con)
     con.commit()
-    rader = [_rad(navn="Skjult Person", epost="skjult@x.no", allergier="Hemmelig allergi")]
+    rader = [_rad(fornavn="Skjult", etternavn="Person", epost="skjult@x.no", allergier="Hemmelig allergi")]
     token = imp.lagre_forhaandsvisning(con, kid, _admin_id(con), rader, [])
     con.commit()
     assert len(token) < 100
@@ -657,7 +672,7 @@ def test_forhaandsvisning_kommer_ikke_i_hendelsesloggen(con):
     kid = _kurs(con)
     con.commit()
     imp.lagre_forhaandsvisning(con, kid, _admin_id(con), [
-        _rad(navn="Hemmelig Person", epost="hemmelig@x.no", allergier="Peanotter")], [])
+        _rad(fornavn="Hemmelig", etternavn="Person", epost="hemmelig@x.no", allergier="Peanotter")], [])
     con.commit()
     for r in con.execute("SELECT detaljer FROM hendelse"):
         d = (r["detaljer"] or "").lower()
@@ -716,7 +731,7 @@ def test_malfil_har_header_og_eksempelrad():
 def test_import_logger_ikke_personopplysninger_utover_meld_paa_sin_egen(con):
     kid = _kurs(con)
     con.commit()
-    rader = [_rad(epost="hemmelig.person@sensitiv-domene.no", navn="Hemmelig Person",
+    rader = [_rad(epost="hemmelig.person@sensitiv-domene.no", fornavn="Hemmelig", etternavn="Person",
                   allergier="Peanotter", tilrettelegging="Tegnspraaktolk")]
     forste = imp.forhaandsvis(con, kid, rader, aktor="admin:test")
     con.commit()

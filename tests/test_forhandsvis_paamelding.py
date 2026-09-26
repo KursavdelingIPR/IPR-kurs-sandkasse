@@ -151,7 +151,8 @@ def test_h_preview_viser_registreringsfeltene(con):
     kid = _kurs(con)
     con.commit()
     html = _innlogget().get(f"/admin/kurs/{kid}/forhandsvis-paamelding").get_data(as_text=True)
-    for felt in ('name="navn"', 'name="epost"', 'name="telefon"', 'name="arbeidssted"', 'name="samtykke"'):
+    for felt in ('name="fornavn"', 'name="etternavn"', 'name="epost"', 'name="telefon"', 'name="arbeidssted"',
+                 'name="samtykke"'):
         assert felt in html
 
 
@@ -179,7 +180,7 @@ def test_preview_viser_hpr_felt_kun_for_spesialistlop(con):
 
 def test_preview_viser_plasser_igjen_men_ingen_deltaker_pii(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="hemmelig@x.no", navn="Hemmelig Deltaker")
+    db.meld_paa(con, kid, epost="hemmelig@x.no", fornavn="Hemmelig", etternavn="Deltaker")
     con.commit()
     html = _innlogget().get(f"/admin/kurs/{kid}/forhandsvis-paamelding").get_data(as_text=True)
     assert "4 plasser igjen" in html
@@ -285,7 +286,7 @@ def test_p_post_mot_preview_url_gir_405_ikke_paamelding(con):
     con.commit()
     k = _innlogget()
     r = k.post(f"/admin/kurs/{kid}/forhandsvis-paamelding",
-              data={"navn": "Ola Nordmann", "epost": "ola@x.no", "samtykke": "on"})
+              data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on"})
     assert r.status_code == 405
     assert _antall(con, "paamelding") == 0
 
@@ -332,7 +333,7 @@ def test_q_offentlig_ordinaer_paamelding_fungerer_fortsatt_uendret(con, monkeypa
     assert "<button>Meld meg på</button>" in h
     assert "Forhåndsvisning – dette er slik påmeldingssiden vil se ut." not in h
     assert "fieldset disabled" not in h
-    r2 = k.post("/kurs/P1", data={"navn": "Ola Nordmann", "epost": "ola@x.no", "samtykke": "on"}, follow_redirects=True)
+    r2 = k.post("/kurs/P1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on"}, follow_redirects=True)
     assert r2.status_code == 200
     assert _antall(con, "paamelding") == 1
     assert con.execute("SELECT navn FROM deltaker").fetchone()[0] == "Ola Nordmann"

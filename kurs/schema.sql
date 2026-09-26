@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS kursdag (
 CREATE TABLE IF NOT EXISTS deltaker (
     id              INTEGER PRIMARY KEY,
     epost           TEXT UNIQUE NOT NULL COLLATE NOCASE,
-    navn            TEXT NOT NULL,
+    navn            TEXT NOT NULL,                  -- fullt navn: alltid «fornavn etternavn», settes av db.fullt_navn()
+    fornavn         TEXT NOT NULL DEFAULT '',       -- fornavn/etternavn registreres hver for seg (migrering 7)
+    etternavn       TEXT NOT NULL DEFAULT '',
     telefon         TEXT,
     arbeidssted     TEXT,
     yrkestittel     TEXT,
@@ -218,7 +220,9 @@ CREATE TABLE IF NOT EXISTS firmapaamelding (
     kurs_id         INTEGER NOT NULL REFERENCES kurs(id),
     innsendingsnokkel TEXT UNIQUE NOT NULL,
     kvittering_token  TEXT UNIQUE NOT NULL,
-    kontakt_navn    TEXT NOT NULL,
+    kontakt_navn    TEXT NOT NULL,                  -- «kontakt_fornavn kontakt_etternavn», satt av db.fullt_navn()
+    kontakt_fornavn   TEXT NOT NULL DEFAULT '',
+    kontakt_etternavn TEXT NOT NULL DEFAULT '',
     kontakt_epost   TEXT NOT NULL,
     kontakt_telefon TEXT,
     firmanavn       TEXT NOT NULL,

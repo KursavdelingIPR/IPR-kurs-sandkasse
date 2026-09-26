@@ -18,8 +18,9 @@ RUTE_IMPORT = "/admin/kurs/{kid}/deltakere/importer"
 RUTE_BEKREFT = "/admin/kurs/{kid}/deltakere/importer/bekreft"
 RUTE_MAL = "/admin/deltaker-import-mal.csv"
 RUTE_DELTAKERE = "/admin/kurs/{kid}/deltakere"
-CSV_HEADER = "Navn;E-post;Telefon;Yrkestittel;Arbeidssted;HPR-nummer;Betaler;Firmanavn;Org.nr;" \
+CSV_HEADER = "Fornavn;Etternavn;E-post;Telefon;Yrkestittel;Arbeidssted;HPR-nummer;Betaler;Firmanavn;Org.nr;" \
              "Fakturaadresse;Fakturareferanse;Fakturakommentar;Allergier;Tilrettelegging"
+MIN_HEADER = "Fornavn;Etternavn;E-post"  # bare de obligatoriske kolonnene
 
 
 @pytest.fixture
@@ -85,10 +86,10 @@ def _snapshot(con):
 def test_full_flyt_alle_kombinasjoner_og_atomisk_bekreft(con):
     kid1 = _kurs(con, "K1")  # for aa gjore "kjent@x.no" til en kjent person paa et ANNET kurs
     kid = _kurs(con, "K2", kapasitet=3, pris_nok=1000, fakturering="person", type="fysisk")
-    db.meld_paa(con, kid1, epost="kjent@x.no", navn="Kjent Person", deltaker={"telefon": "11111111"})
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")  # bekreftet (1/3)
-    db.meld_paa(con, kid, epost="allerede@x.no", navn="Allerede")  # bekreftet (2/3)
-    pid_gjenganger, _ = db.meld_paa(con, kid, epost="gjenganger@x.no", navn="Gjenganger")
+    db.meld_paa(con, kid1, epost="kjent@x.no", fornavn="Kjent", etternavn="Person", deltaker={"telefon": "11111111"})
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")  # bekreftet (1/3)
+    db.meld_paa(con, kid, epost="allerede@x.no", fornavn="Allerede", etternavn="Test")  # bekreftet (2/3)
+    pid_gjenganger, _ = db.meld_paa(con, kid, epost="gjenganger@x.no", fornavn="Gjenganger", etternavn="Test")
     db.meld_av(con, pid_gjenganger)  # avmeldt paa DETTE kurset - kan reaktiveres
     con.commit()
 
@@ -104,13 +105,13 @@ def test_full_flyt_alle_kombinasjoner_og_atomisk_bekreft(con):
     assert RUTE_IMPORT.format(kid=kid) in liste
 
     rader_csv = "\n".join([
-        "Allerede;allerede@x.no",             # hopp over (allerede aktiv paameldt)
-        "Helt Ny;helt.ny@x.no",                # ny -> bekreftet (fyller siste ledige plass, 3/3)
-        "Gjenganger;gjenganger@x.no",          # reaktiver -> venteliste (kurset na fullt)
-        "Kjent Person;kjent@x.no;99999999",    # ny (paa DETTE kurset) + eksisterende person + venteliste
+        "Allerede;Test;allerede@x.no",         # hopp over (allerede aktiv paameldt)
+        "Helt;Ny;helt.ny@x.no",                # ny -> bekreftet (fyller siste ledige plass, 3/3)
+        "Gjenganger;Test;gjenganger@x.no",     # reaktiver -> venteliste (kurset na fullt)
+        "Kjent;Person;kjent@x.no;99999999",    # ny (paa DETTE kurset) + eksisterende person + venteliste
     ])
     foer = _snapshot(con)
-    resp = _last_opp(klient, kid, _csv(rader_csv, header="Navn;E-post;Telefon"))
+    resp = _last_opp(klient, kid, _csv(rader_csv, header="Fornavn;Etternavn;E-post;Telefon"))
     tekst = resp.get_data(as_text=True)
 
     # D. Forhaandsvisningen viser alle forventede kombinasjoner
@@ -172,7 +173,7 @@ def test_blokkerende_rad_vises_i_forhaandsvisning_uten_aa_lagre_noe(con):
     klient = _klient()
     _logg_inn(klient)
     foer = _snapshot(con)
-    tekst = _last_opp(klient, kid, _csv("Ugyldig;ikke-en-epost", header="Navn;E-post")).get_data(as_text=True)
+    tekst = _last_opp(klient, kid, _csv("Ugyldig;Test;ikke-en-epost", header=MIN_HEADER)).get_data(as_text=True)
     assert "Blokkert" in tekst
     assert 'name="forhaandsvisning_token"' not in tekst
     assert _snapshot(con) == foer
@@ -193,7 +194,7 @@ def test_ingen_visma_kalles_i_full_flyt(con, monkeypatch):
 
     klient = _klient()
     _logg_inn(klient)
-    tekst = _last_opp(klient, kid, _csv("Kari;kari@x.no", header="Navn;E-post")).get_data(as_text=True)
+    tekst = _last_opp(klient, kid, _csv("Kari;Test;kari@x.no", header=MIN_HEADER)).get_data(as_text=True)
     token = _hent_token(tekst)
     resp = klient.post(RUTE_BEKREFT.format(kid=kid), data={"forhaandsvisning_token": token})
     assert resp.status_code == 302
@@ -208,11 +209,11 @@ def test_offentlig_paamelding_overskriver_fortsatt_eksisterende_felt(con):
     kid1 = _kurs(con, "K1")
     _kurs(con, "K2")
     con.commit()
-    db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari", deltaker={"telefon": "11111111"})
+    db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Test", deltaker={"telefon": "11111111"})
     con.commit()
     klient = _klient()
     resp = klient.post("/kurs/K2", data={
-        "navn": "Kari", "epost": "kari@x.no", "telefon": "99999999", "samtykke": "on"})
+        "fornavn": "Kari", "etternavn": "Test", "epost": "kari@x.no", "telefon": "99999999", "samtykke": "on"})
     assert resp.status_code == 200
     rad = con.execute("SELECT telefon FROM deltaker WHERE epost='kari@x.no'").fetchone()
     assert rad["telefon"] == "99999999"  # OPPDATERT - motsatt av importens beskyttede modus
@@ -227,7 +228,7 @@ def test_tillatte_statuser_kan_importeres_og_bekreftes(con, status):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    tekst = _last_opp(klient, kid, _csv("Kari;kari@x.no", header="Navn;E-post")).get_data(as_text=True)
+    tekst = _last_opp(klient, kid, _csv("Kari;Test;kari@x.no", header=MIN_HEADER)).get_data(as_text=True)
     token = _hent_token(tekst)
     resp = klient.post(RUTE_BEKREFT.format(kid=kid), data={"forhaandsvisning_token": token})
     assert resp.status_code == 302
@@ -241,7 +242,7 @@ def test_blokkerte_statuser_gir_ingen_preview(con, status):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    tekst = _last_opp(klient, kid, _csv("Kari;kari@x.no", header="Navn;E-post")).get_data(as_text=True)
+    tekst = _last_opp(klient, kid, _csv("Kari;Test;kari@x.no", header=MIN_HEADER)).get_data(as_text=True)
     assert status in tekst.lower()
     assert con.execute("SELECT COUNT(*) FROM import_forhaandsvisning").fetchone()[0] == 0
 
@@ -251,7 +252,7 @@ def test_paameldingsfrist_blokkerer_ikke_adminimport(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    tekst = _last_opp(klient, kid, _csv("Kari;kari@x.no", header="Navn;E-post")).get_data(as_text=True)
+    tekst = _last_opp(klient, kid, _csv("Kari;Test;kari@x.no", header=MIN_HEADER)).get_data(as_text=True)
     token = _hent_token(tekst)
     resp = klient.post(RUTE_BEKREFT.format(kid=kid), data={"forhaandsvisning_token": token})
     assert resp.status_code == 302
@@ -270,11 +271,11 @@ def test_samlet_personvernkontroll_hele_fase_10_flyten(con):
 
     # blokkert forsok (skal ikke logge noe med persondata heller)
     _last_opp(klient, kid, _csv(
-        "Hemmelig Blokkert;ikke-en-epost;;;;;;;;;;;Skalldyrallergi;Rullestol", header=CSV_HEADER))
+        "Hemmelig;Blokkert;ikke-en-epost;;;;;;;;;;;Skalldyrallergi;Rullestol", header=CSV_HEADER))
 
     # gyldig, sensitiv import
     tekst = _last_opp(klient, kid, _csv(
-        "Hemmelig Person;hemmelig.person@sensitiv-domene.no;98765432;Psykolog;Skjult Klinikk AS;;"
+        "Hemmelig;Person;hemmelig.person@sensitiv-domene.no;98765432;Psykolog;Skjult Klinikk AS;;"
         "organisasjon;Skjult Bedrift AS;999888777;Skjult Vei 1;Konfidensiell ref;Ikke vis dette;"
         "Peanøttallergi;Tegnspråktolk", header=CSV_HEADER)).get_data(as_text=True)
     token = _hent_token(tekst)
@@ -307,7 +308,7 @@ def test_ingen_filnavn_i_hendelseslogg(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    _last_opp(klient, kid, _csv("Kari;kari@x.no", header="Navn;E-post"),
+    _last_opp(klient, kid, _csv("Kari;Test;kari@x.no", header=MIN_HEADER),
              filnavn="veldig_gjenkjennelig_filnavn_med_navn_kari_nordmann.csv")
     for r in con.execute("SELECT detaljer FROM hendelse"):
         assert "veldig_gjenkjennelig_filnavn" not in (r["detaljer"] or "").lower()

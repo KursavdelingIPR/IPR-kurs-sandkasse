@@ -1,0 +1,14 @@
+{# Felles ramme for deltakersidene (Deltaker / Kommunikasjon / Logger): farget topp med navn og påmeldingsnr., faner og
+   innhold. #deltaker-innhold er det som vises i vinduet over deltakerlisten (se static/app.js) – tilbakelenken og
+   flash-meldingene utenfor hører bare til den egne siden. #}
+{% extends "admin_base.html" %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">← {{ kurs.navn }}</a></p>
+<div id="deltaker-innhold" class="deltakerkort" data-ulagret-vakt>
+  {% include "admin_deltaker_header.html" %}
+  {% include "admin_deltaker_faner.html" %}
+  <div class="deltakerkort-kropp">
+    {% block deltakerinnhold %}{% endblock %}
+  </div>
+</div>
+{% endblock %}
