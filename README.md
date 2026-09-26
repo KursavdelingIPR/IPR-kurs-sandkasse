@@ -45,7 +45,7 @@ $py = ".\.venv\Scripts\python.exe"
 | Oversikt | Kommende kurs øverst, status og uavklarte operasjoner under |
 | Aktiviteter | Liste med søk (navn eller kursnummer), kalender og **årsplan** (hele året, planlagte aktiviteter/notater, overlapp, ledige perioder). «Nytt kurs +» |
 | Kurs | Oppsett, nettside (tekster), påmeldingsskjema, deltakere, kommunikasjon. Permanent **kursnummer**. Duplisering |
-| Deltakere | Registrering (fornavn og etternavn hver for seg), import (CSV), bulkbehandling, e-post til utvalg med klikkbare flettefelt (`{fornavn}`, `{navn}`), oppmøte, **avslag**, **deltakerliste med kolonnevalg** (utskrift/PDF/CSV) |
+| Deltakere | Registrering (fornavn og etternavn hver for seg), import (CSV), bulkbehandling, e-post til utvalg med klikkbare flettefelt (`{fornavn}`, `{navn}`), oppmøte, **avslag**, **deltakerliste med kolonnevalg** (utskrift/PDF/CSV), **fakturastatus fra Visma Business NXT** (bare lesing) |
 | Rapporter | Kurs, deltakerregister, person, **økonomi og fakturaliste** |
 | Uavklarte operasjoner | E-post/faktura med ukjent utfall – avklares etter kontroll i Outlook/Visma |
 | E-postmaler, Kunnskapsbase | Redigerbare tekster, godkjente svar |
@@ -84,7 +84,8 @@ kurs/
   maltekster.py, skjemafelt.py, paameldingsside.py, import_deltakere.py
   lenker.py, feil.py, assistent.py, portsjekk.py, seed_demo.py
   integrasjoner/                    ALT som snakker med omverdenen – med demo-gren
-    epost.py, sharepoint.py, m365.py (Microsoft Graph), zoom.py, visma.py
+    epost.py, sharepoint.py, m365.py (Microsoft Graph), zoom.py, visma.py,
+    business_nxt.py (Visma Business NXT, bare lesing – test oppsettet med python -m kurs.bnxt_sjekk)
   maler/epost/                      e-posttekstene
   web/                              Flask-app, sikkerhet (CSRF/CSP/takbegrensning), Entra ID, maler, static/app.js
 tests/                              ~2 500 tester, kjøres mot både SQLite og PostgreSQL

@@ -173,6 +173,50 @@
     <div><p class="feltverdi"><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(fakturastatus, 'gra') }}">{{ fakturastatus }}</span></p>
       <p class="hjelp">Styres av fakturasystemet og kan ikke endres her.</p></div>
   </div>
+  {% if bnxt_fakturaer %}
+  {# Visma Business NXT er fasiten for betalingsstatus. Bare lesing: hentes først når admin ber om det (?bnxt=1). #}
+  {% set bnxt_lenke = url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id, bnxt=1) ~ '#bnxt-status' %}
+  <div class="skjemarad" id="bnxt-status">
+    <div><span class="etikett">Status i Business NXT</span></div>
+    <div>
+      {% if bnxt_feil %}
+      <p class="feltverdi"><span class="merke feil">Kunne ikke hente</span> {{ bnxt_feil }}</p>
+      <p class="hjelp"><a href="{{ bnxt_lenke }}" data-i-vinduet>Prøv igjen</a></p>
+      {% elif bnxt %}
+      <div class="tabellboks"><table class="bnxt-status">
+        <thead><tr><th scope="col">Faktura</th><th scope="col">Fakturadato</th><th scope="col">Forfall</th>
+          <th scope="col">Beløp</th><th scope="col">Utestående</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+        {% for f in bnxt_fakturaer %}{% set o = bnxt.get(f.faktura_nr) %}
+          <tr>
+            <td>{{ f.faktura_nr }}{% if f.kursdag_dato %}{% set d = f.kursdag_dato|string %}<br><span class="liten dempet">Samling {{ d[8:10] ~ "." ~ d[5:7] ~ "." ~ d[:4] }}</span>{% endif %}</td>
+            {% if o and o.status %}{% set s = o.status %}
+            <td>{{ s.fakturadato.strftime('%d.%m.%Y') if s.fakturadato else '–' }}</td>
+            <td>{{ s.forfallsdato.strftime('%d.%m.%Y') if s.forfallsdato else '–' }}</td>
+            <td>{{ s.belop|kroner }}</td>
+            <td>{{ s.utestaende|kroner }}</td>
+            <td><span class="merke {{ {'Betalt':'ok','Kreditert':'gra','Delvis betalt':'gul','Ubetalt':'gul','Forfalt':'feil'}.get(s.status, 'gra') }}">{{ s.status }}</span>
+              {%- if s.sist_betalt and s.status == 'Betalt' %}<span class="liten dempet"> {{ s.sist_betalt.strftime('%d.%m.%Y') }}</span>{% endif %}
+              {%- if s.kreditert and s.status != 'Kreditert' %}<br><span class="liten">Kreditert {{ s.kreditert|kroner }}</span>{% endif %}
+              {%- if s.antall_purringer %}<br><span class="liten">{{ s.antall_purringer }} {{ 'purring' if s.antall_purringer == 1 else 'purringer' }}{% if s.siste_purring %}, siste {{ s.siste_purring.strftime('%d.%m.%Y') }}{% endif %}</span>{% endif %}
+              {%- if s.inkasso %}<br><span class="liten">Inkasso: {{ s.inkasso }}</span>{% endif %}</td>
+            {% else %}
+            <td colspan="5">{{ o.problem if o and o.problem else 'Ikke hentet.' }}</td>
+            {% endif %}
+          </tr>
+          {% if o and o.avvik %}<tr><td colspan="6"><span class="merke feil">Avvik</span> {{ o.avvik }}</td></tr>{% endif %}
+        {% endfor %}
+        </tbody>
+      </table></div>
+      <p class="hjelp">{% if bnxt_demo %}Demodata – ikke hentet fra Business NXT.{% else %}Hentet fra Business NXT kl. {{ bnxt_hentet.strftime('%H:%M') if bnxt_hentet else '–' }}.{% endif %}
+        Business NXT er fasiten for betalingsstatus – ingenting endres her. <a href="{{ bnxt_lenke }}" data-i-vinduet>Hent på nytt</a></p>
+      {% else %}
+      <p class="feltverdi"><a class="knapp sekundar liten" href="{{ bnxt_lenke }}" data-i-vinduet>Hent status fra Business NXT</a></p>
+      <p class="hjelp">Viser fakturadato, forfall, beløp, utestående, betaling og purringer slik de står i Business NXT. Bare lesing.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
   <div class="skjemarad">
     <div><span class="etikett">Samtykke</span></div>
     <div><p class="feltverdi">{% if p.samtykke_ts %}Godtok vilkår og personvernerklæring {{ p.samtykke_ts[:16].replace('T', ' ') }}{% else %}<span class="dempet">Ikke registrert{{ ' – påmeldingen er lagt inn av en administrator' if p.kilde in ('admin', 'admin_import') }}</span>{% endif %}</p></div>

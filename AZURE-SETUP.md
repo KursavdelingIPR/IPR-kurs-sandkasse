@@ -35,7 +35,7 @@ Region: **Norway East**. Hvilke innstillinger appen leser: `DEPLOYMENT.md`, avsn
 - Ett Key Vault per miljø. RBAC-modell.
 - Gi web-appens managed identity rollen **Key Vault Secrets User** (bare lese hemmeligheter).
 - Hemmeligheter: `DATABASE_URL`, `HEMMELIG_NOKKEL`, `WEBHOOK_HEMMELIG`, `ENTRA-CLIENT-SECRET`, `M365-CLIENT-SECRET`,
-  `ZOOM-CLIENT-SECRET`, `VISMA-CLIENT-SECRET`, `VISMA-REFRESH-TOKEN`, ev. `ANTHROPIC-API-KEY` og nødbrukerens
+  `ZOOM-CLIENT-SECRET`, `VISMA-CLIENT-SECRET`, `VISMA-REFRESH-TOKEN`, `BNXT-CLIENT-SECRET`, ev. `ANTHROPIC-API-KEY` og nødbrukerens
   `ADMIN-PASSORD`. Lag `HEMMELIG_NOKKEL`/`WEBHOOK_HEMMELIG` med f.eks.
   `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
@@ -96,10 +96,26 @@ Møtet opprettes som et gjentakende møte uten fast tid under brukeren appen til
 
 ## 7. Visma
 
-**Produktet er ikke avklart** (eAccounting/eRegnskap, Visma.net ERP eller Business NXT). Koden er skrevet mot
-eAccounting v2 som utgangspunkt; resten av systemet kaller bare `visma.fakturer(...)`, så bare den filen byttes.
+**IPR bruker Visma Business NXT.** Fase 1 er bygget: påmeldingssystemet **leser** fakturastatus (fakturadato, forfall,
+beløp, utestående, betaling, purringer) fra Business NXT og viser den i deltakervinduet. Business NXT er fasiten for
+betalingsstatus; systemet endrer aldri noe der og setter aldri selv en faktura til betalt
+(`kurs/integrasjoner/business_nxt.py`). Å **lage** fakturaer i Business NXT er en senere fase – til da er
+`visma.fakturer(...)` fortsatt skrevet mot eAccounting (under), og den må byttes før automatisk fakturering tas i bruk.
 
-For eAccounting:
+### Business NXT (fase 1: bare lesing)
+
+1. **Visma Developer Portal:** tjeneste-appen `Pameldingssystem-BNXT` (klient-id `isv_pameldingssystem`) med
+   integrasjonen «Business NXT GraphQL Service API» og scopet `business-graphql-service-api:access-group-based-readonly`
+   (bare lesing). Appen ber alltid om akkurat dette scopet – det står fast i koden.
+2. **Business NXT:** i tabellen «Connect Application Access» har `isv_pameldingssystem` tilgang til selskapet. Gi den
+   helst en tilgangsgruppe som bare kan lese kundereskontroen (ekstra vern i tillegg til scopet).
+3. **Innstillinger:** `BNXT_CLIENT_ID`, `BNXT_SELSKAP` (Visma.net-selskaps-ID) og `BNXT_KUNDENR` (Visma.net-kundenummer,
+   bare for å liste selskapene) som vanlige App Settings; `BNXT_CLIENT_SECRET` som Key Vault-referanse
+   (`BNXT-CLIENT-SECRET`). Tilgangstokenet holdes bare i minnet – ingenting lagres i databasen.
+4. **Test oppsettet** med `python -m kurs.bnxt_sjekk` og deretter `--faktura <et kjent fakturanummer>`
+   (`OPERATIONS.md`, «Visma Business NXT»).
+
+### eAccounting (opprinnelig utgangspunkt for `visma.fakturer`)
 
 1. Opprett en integrasjon i Visma Developer Portal (klient-id/-hemmelighet, redirect-URI for engangssamtykke).
 2. Test først mot Visma sitt **sandbox-selskap**.
@@ -112,8 +128,8 @@ For eAccounting:
 ## 8. Utgående nettverk
 
 Appen og morgenjobben må nå: `login.microsoftonline.com`, `graph.microsoft.com`, `zoom.us`, `api.zoom.us`,
-`identity.vismaonline.com`, `eaccountingapi.vismaonline.com` (eller API-et for valgt Visma-produkt), og – bare hvis KI
-er på – `api.anthropic.com`.
+`connect.visma.com` og `business.visma.net` (Visma Business NXT), `identity.vismaonline.com` og
+`eaccountingapi.vismaonline.com` (bare hvis eAccounting-koden brukes), og – bare hvis KI er på – `api.anthropic.com`.
 
 ## 9. Hva er testet, og hva er ikke
 
@@ -124,4 +140,5 @@ er på – `api.anthropic.com`.
 | Entra-innlogging | Hele flyten med etterlignet token-endepunkt (state, nonce, PKCE, claims, roller) | Mot ekte tenant |
 | Graph e-post/SharePoint | Driftsgrenen med etterlignet Graph (kallene, 409/404-håndtering) | Mot ekte tenant, postboksbegrensning, Sites.Selected |
 | Zoom | Demo-gren og lagring/idempotens | Mot ekte Zoom-konto |
-| Visma | Token-rotasjon og feilklassifisering med etterlignet token-endepunkt | Hele fakturaflyten mot Visma (produkt ikke avklart) |
+| Visma | Token-rotasjon og feilklassifisering med etterlignet token-endepunkt | Hele fakturaflyten mot Visma (fakturaopprettelse for Business NXT er ikke bygget) |
+| Visma Business NXT (lesing) | Tilgang, spørringer, statusutledning og feilhåndtering med etterlignet Visma Connect og GraphQL-API | Mot ekte Business NXT – kjøres med `python -m kurs.bnxt_sjekk` |

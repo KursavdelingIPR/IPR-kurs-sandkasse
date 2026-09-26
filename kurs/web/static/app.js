@@ -12,6 +12,8 @@
  *                                              vinduet lukkes) når et ANNET har endringer som ellers går tapt
  *   <a data-deltaker-vindu href="…">           åpner deltakersiden i vinduet <dialog id="deltaker-vindu"> over listen
  *                                              (uten JS, eller med Ctrl/Cmd-klikk, er det en vanlig lenke)
+ *   <a data-i-vinduet href="…#id">             inne i vinduet: lastes i vinduet (som fanene) og går til elementet #id,
+ *                                              f.eks. «Hent status fra Business NXT» (utenfor vinduet: vanlig lenke)
  *   <button type=button data-sett-inn="{fornavn}" data-felt="f-tekst">   flettefelt: setter teksten inn der markøren
  *                                              står i feltet (eller erstatter det som er markert)
  */
@@ -198,6 +200,16 @@
           var kropp = nytt.querySelector(".deltakerkort-kropp");
           if (kropp) kropp.insertBefore(meldinger, kropp.firstChild);
           vinduInnhold.replaceChildren(document.adoptNode(nytt));
+          var maal = null;                                             // lenke med #id: gå dit (f.eks. #bnxt-status)
+          try {
+            var hash = new URL(url, window.location.href).hash;
+            if (hash.length > 1) maal = vinduInnhold.querySelector("#" + CSS.escape(hash.slice(1)));
+          } catch (feil) { maal = null; }
+          if (maal) {
+            if (!maal.hasAttribute("tabindex")) maal.setAttribute("tabindex", "-1");
+            maal.focus();
+            return;
+          }
           var tittel = document.getElementById("deltaker-tittel");
           if (tittel) tittel.focus();
         })
@@ -256,11 +268,12 @@
       }
       if (!vindu.open) return;
       if (e.target.closest("[data-lukk-vindu]")) { lukk(); return; }
-      var fane = e.target.closest(".faner a");
+      var fane = e.target.closest(".faner a, a[data-i-vinduet]");
       if (fane && !nyFane && vinduInnhold.contains(fane)) {
         e.preventDefault();
-        if (ulagredeSkjema(vinduInnhold, null) &&
-            !window.confirm("Du har endringer som ikke er lagret. Vil du bytte fane likevel?")) return;
+        if (ulagredeSkjema(vinduInnhold, null) && !window.confirm(fane.hasAttribute("data-i-vinduet") ?
+            "Du har endringer som ikke er lagret. Vil du fortsette likevel?" :
+            "Du har endringer som ikke er lagret. Vil du bytte fane likevel?")) return;
         lastInn(fane.href);
       }
     });

@@ -75,6 +75,16 @@ VISMA_CLIENT_SECRET = get("VISMA_CLIENT_SECRET")
 VISMA_REFRESH_TOKEN = get("VISMA_REFRESH_TOKEN")
 VISMA_API = get("VISMA_API", "https://eaccountingapi.vismaonline.com/v2")
 
+# Visma Business NXT (GraphQL, klient-legitimasjon). Fase 1: KUN lesing av fakturastatus - se
+# integrasjoner/business_nxt.py. Egne navn (BNXT_*), saa eAccounting-koden over aldri aktiveres ved en feil.
+# Hemmeligheten settes som miljoevariabel lokalt og i Key Vault i drift - aldri i en fil, databasen eller en logg.
+BNXT_CLIENT_ID = get("BNXT_CLIENT_ID")
+BNXT_CLIENT_SECRET = get("BNXT_CLIENT_SECRET")
+BNXT_KUNDENR = get("BNXT_KUNDENR")        # Visma.net-kundenummer - trengs bare for aa liste selskapene (bnxt_sjekk)
+BNXT_SELSKAP = get("BNXT_SELSKAP")        # Visma.net-selskaps-ID: useCompany(no: ...)
+BNXT_TOKEN_URL = get("BNXT_TOKEN_URL", "https://connect.visma.com/connect/token")
+BNXT_API = get("BNXT_API", "https://business.visma.net/api/graphql-service")
+
 # Mottak fra nettsidens skjema (erstatter innsending til Pindena)
 WEBHOOK_HEMMELIG = get("WEBHOOK_HEMMELIG", "demo-webhook-hemmelighet")
 
