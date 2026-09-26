@@ -20,7 +20,8 @@
 <form method="post" class="kort" style="max-width:720px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="rad">
-    <div><label for="f-navn">Navn *</label><input id="f-navn" name="navn" required value="{{ f.navn or '' }}"></div>
+    <div><label for="f-fornavn">Fornavn *</label><input id="f-fornavn" name="fornavn" required value="{{ f.fornavn or '' }}"></div>
+    <div><label for="f-etternavn">Etternavn *</label><input id="f-etternavn" name="etternavn" required value="{{ f.etternavn or '' }}"></div>
     <div><label for="f-epost">E-post *</label><input id="f-epost" name="epost" type="email" required value="{{ f.epost or '' }}"></div>
     <div><label for="f-telefon">Telefon</label><input id="f-telefon" name="telefon" value="{{ f.telefon or '' }}"></div>
     <div><label for="f-yrkestittel">Yrkestittel</label><input id="f-yrkestittel" name="yrkestittel" value="{{ f.yrkestittel or '' }}"></div>

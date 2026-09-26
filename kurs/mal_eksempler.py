@@ -21,7 +21,7 @@ KURS = {"navn": "Eksempelkurs i emosjonsfokusert terapi", "type": "fysisk", "ste
         "faktura_dager_for": 14, "notat": None, "zoom_url": None, "zoom_id": None, "zoom_pw": None}
 KURS_DIGITALT = {**KURS, "type": "digital", "sted": None,
                  "zoom_url": "https://zoom.eksempel.no/j/1234567890", "zoom_id": "123 456 7890", "zoom_pw": "eksempel-pw"}
-DELTAKER = {"navn": "Ola Nordmann", "betaler": "person", "betaling": "samlet", "org_navn": None}
+DELTAKER = {"navn": "Ola Nordmann", "fornavn": "Ola", "betaler": "person", "betaling": "samlet", "org_navn": None}
 DAG1 = {"dato": _OM.isoformat(), "start_kl": None, "slutt_kl": None}
 DAG2 = {"dato": (_OM + timedelta(days=1)).isoformat(), "start_kl": None, "slutt_kl": None}
 DAG3 = {"dato": (_OM + timedelta(days=2)).isoformat(), "start_kl": None, "slutt_kl": None}
@@ -46,9 +46,9 @@ def eksempler(mal: str) -> list[tuple[str, dict]]:
             ("Siste kursdag", dict(d=DELTAKER, kurs=KURS_DIGITALT, dag=DAG3, nr=3, antall=3)),
         ]
     if mal == "kursbevis_klar":
-        return [("", dict(navn="Ola Nordmann", kurs=KURS))]
+        return [("", dict(navn="Ola Nordmann", fornavn="Ola", kurs=KURS))]
     if mal == "firmapaamelding_kvittering":
-        return [("", dict(kontakt={"navn": "Kari HR", "firmanavn": "Eksempel AS"}, kurs=KURS,
+        return [("", dict(kontakt={"navn": "Kari HR", "fornavn": "Kari", "firmanavn": "Eksempel AS"}, kurs=KURS,
                           kvittering_url="/kurs/EKS-1/gruppe/kvittering/eksempel-token",
                           antall_totalt=3, antall_bekreftet=2, antall_venteliste=1, antall_feilet=0))]
     if mal == "purring":

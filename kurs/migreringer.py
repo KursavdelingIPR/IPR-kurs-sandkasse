@@ -103,6 +103,42 @@ def _m6_avslatt(con) -> None:
         con.execute("ALTER TABLE paamelding ADD COLUMN avslatt_ts TEXT")
 
 
+def del_eksisterende_navn(navn: str) -> tuple[str, str]:
+    """KUN for migrering 7: deler et fullt navn som allerede ligger i databasen. Siste ord blir etternavn, resten fornavn
+    («Anne Marie Eksempelsen» -> «Anne Marie» + «Eksempelsen»), slik at doble fornavn blir riktige. Ett ord -> bare fornavn;
+    etternavnet fylles inn i deltakervinduet. Nye paameldinger registrerer ALLTID fornavn og etternavn hver for seg - denne
+    regelen brukes aldri paa dem."""
+    ord_ = (navn or "").split()
+    if len(ord_) < 2:
+        return (ord_[0] if ord_ else ""), ""
+    return " ".join(ord_[:-1]), ord_[-1]
+
+
+def _m7_fornavn_etternavn(con) -> None:
+    """Fornavn og etternavn som egne felt: deltaker.fornavn/etternavn og firmapaamelding.kontakt_fornavn/kontakt_etternavn.
+    Kolonnene navn og kontakt_navn beholdes uendret og fylles fortsatt - naa med «fornavn etternavn» (db.fullt_navn).
+    Eksisterende rader uten fornavn faar navnet delt (del_eksisterende_navn). Hendelsesloggen faar en PII-fri oppsummering
+    (bare antall), saa navn med ett eller tre+ ord kan kontrolleres i deltakervinduet."""
+    oppsummering = {}
+    for tabell, navn, fornavn, etternavn, hva in (
+            ("deltaker", "navn", "fornavn", "etternavn", "deltakere"),
+            ("firmapaamelding", "kontakt_navn", "kontakt_fornavn", "kontakt_etternavn", "kontaktpersoner")):
+        for kolonne in (fornavn, etternavn):
+            if not db.har_kolonne(con, tabell, kolonne):
+                con.execute(f"ALTER TABLE {tabell} ADD COLUMN {kolonne} TEXT NOT NULL DEFAULT ''")
+        antall = {hva: 0, f"{hva}_ett_ord": 0, f"{hva}_tre_eller_flere_ord": 0}
+        for rad in con.execute(f"SELECT id, {navn} AS navn FROM {tabell} WHERE {fornavn}='' ORDER BY id").fetchall():
+            f, e = del_eksisterende_navn(rad["navn"])
+            con.execute(f"UPDATE {tabell} SET {fornavn}=?, {etternavn}=? WHERE id=?", (f, e, rad["id"]))
+            ord_ = len((rad["navn"] or "").split())
+            antall[hva] += 1
+            antall[f"{hva}_ett_ord"] += int(ord_ < 2)
+            antall[f"{hva}_tre_eller_flere_ord"] += int(ord_ > 2)
+        oppsummering.update(antall)
+    if oppsummering["deltakere"] or oppsummering["kontaktpersoner"]:
+        db.logg(con, "navn_delt_ved_migrering", oppsummering)
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
@@ -110,6 +146,7 @@ MIGRERINGER = [
     (4, "kursbevis_i_database", _m4_kursbevis_i_database),
     (5, "integrasjonstoken", _m5_integrasjonstoken),
     (6, "avslatt", _m6_avslatt),
+    (7, "fornavn_etternavn", _m7_fornavn_etternavn),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

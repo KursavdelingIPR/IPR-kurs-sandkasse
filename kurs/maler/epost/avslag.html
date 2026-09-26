@@ -1,6 +1,6 @@
 Emne: Påmeldingen til {{ kurs.navn }} er ikke godkjent
 {% extends "_ramme.html" %}{% block innhold %}
-<p>Hei {{ d.navn }},</p>
+<p>Hei {{ d.fornavn }},</p>
 <p>Vi har dessverre ikke kunnet godkjenne påmeldingen din til <strong>{{ kurs.navn }}</strong>. Du er derfor ikke
 påmeldt kurset, og du blir ikke fakturert for det.</p>
 {% if melding %}<p>{{ melding | e | replace('\n', '<br>\n' | safe) }}</p>

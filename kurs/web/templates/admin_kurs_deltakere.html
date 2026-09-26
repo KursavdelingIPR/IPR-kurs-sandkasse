@@ -49,7 +49,7 @@
   {% for p in deltakere %}
   <tr style="{{ 'opacity:.5' if p.status == 'avmeldt' }}">
     <td><input type="checkbox" class="valgt-deltaker" name="paamelding_id" value="{{ p.id }}" form="valgte-deltakere" aria-label="Velg {{ p.navn }}"></td>
-    <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}"><strong>{{ p.navn }}</strong></a></td>
+    <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}" data-deltaker-vindu><strong>{{ p.navn }}</strong></a></td>
     <td class="liten">{{ p.epost }}</td>
     <td class="liten">{{ p.telefon or '' }}</td>
     <td class="liten">{{ p.arbeidssted or '' }}</td>
@@ -88,4 +88,10 @@
   </tr>
   {% else %}<tr><td colspan="{{ dager|length + 1 }}" class="dempet">Ingen bekreftede deltakere.</td></tr>{% endfor %}
 </table></div>
+
+<!-- Vinduet som åpnes når man klikker på et navn i listen. Innholdet hentes fra deltakersiden (se static/app.js). -->
+<dialog id="deltaker-vindu" class="vindu" aria-labelledby="deltaker-tittel" aria-label="Deltaker">
+  <button type="button" class="vindu-lukk" data-lukk-vindu aria-label="Lukk">×</button>
+  <div class="vindu-innhold"></div>
+</dialog>
 {% endblock %}

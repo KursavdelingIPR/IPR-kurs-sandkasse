@@ -1,29 +1,10 @@
-{% extends "admin_base.html" %}
-{% block innhold %}
-{% include "admin_deltaker_header.html" %}
-{% include "admin_deltaker_faner.html" %}
-
-<h2>Person <span class="liten dempet" style="font-weight:400">– gjelder alle kurs {{ p.navn }} er meldt på</span></h2>
-<div class="flash info">Disse feltene gjelder {{ p.navn }} som person, ikke bare dette kurset. Lagrer du en endring her,
-  gjelder den også på {{ andre_paameldinger }} annen{{ 'e' if andre_paameldinger != 1 }} aktiv{{ 'e' if andre_paameldinger != 1 }}
-  påmelding{{ 'er' if andre_paameldinger != 1 }} vedkommende har.</div>
-<form method="post" action="{{ url_for('admin_deltaker_person', kurs_id=kurs.id, paamelding_id=p.id) }}" class="kort" style="max-width:640px">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <input type="hidden" name="versjon" value="{{ versjon_for('person', p) }}">
-  <div class="rad">
-    <div><label for="f-navn">Navn *</label><input id="f-navn" name="navn" required value="{{ p.navn }}"></div>
-    <div><label for="f-epost">E-post *</label><input id="f-epost" name="epost" type="email" required value="{{ p.epost }}"></div>
-    <div><label for="f-telefon">Telefon</label><input id="f-telefon" name="telefon" value="{{ p.telefon or '' }}"></div>
-    <div><label for="f-yrkestittel">Yrkestittel</label><input id="f-yrkestittel" name="yrkestittel" value="{{ p.yrkestittel or '' }}"></div>
-    <div><label for="f-arbeidssted">Arbeidssted</label><input id="f-arbeidssted" name="arbeidssted" value="{{ p.arbeidssted or '' }}"></div>
-  </div>
-  <p style="margin-top:16px"><button class="liten">Lagre personopplysninger</button></p>
-</form>
-
-<h2>Denne påmeldingen <span class="liten dempet" style="font-weight:400">– {{ kurs.navn }} (kursnr. {{ kurs.kursnr }})</span></h2>
+{% extends "admin_deltaker_ramme.html" %}
+{% block deltakerinnhold %}
+{% set kilder = {'skjema': 'Påmeldingsskjemaet', 'nettside': 'Skjemaet på nettsiden', 'gruppe': 'Bedriftspåmelding',
+                 'admin': 'Manuelt av administrator', 'admin_import': 'Import fra fil'} %}
 
 {% if p.sveiper_utsatt and p.status in ('bekreftet', 'venteliste') %}
-<div class="kort" style="margin-bottom:16px; border-left:4px solid var(--bla)">
+<div class="varselboks">
   <strong>Behandling holdt tilbake</strong>
   <p class="liten dempet" style="margin:6px 0 10px">Denne påmeldingen ble registrert manuelt. {% if p.status == 'venteliste' %}Ventelistebeskjeden{% else %}Bekreftelsen og faktureringen{% endif %}
     er bevisst ikke sendt/opprettet ennå.</p>
@@ -34,94 +15,191 @@
   {% else %}
   <form method="post" action="{{ url_for('admin_deltaker_behandle', kurs_id=kurs.id, paamelding_id=p.id) }}"
         data-bekreft="{{ 'Send ventelistebeskjed nå?' if p.status == 'venteliste' else 'Send bekreftelse og behandle fakturering nå?' }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button>{{ 'Send ventelistebeskjed nå' if p.status == 'venteliste' else 'Send bekreftelse og behandle fakturering nå' }}</button>
   </form>
   {% endif %}
 </div>
 {% endif %}
 
-<div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); margin-bottom:16px">
-  <div class="kort">
-    <div class="liten dempet">Påmeldingsstatus</div>
-    <p style="margin:6px 0 10px"><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra','avslått':'feil'}[p|paameldingsstatus] }}">{{ p|paameldingsstatus }}</span></p>
-    {% if p.avslatt_ts %}<p class="liten dempet" style="margin:0 0 8px">Avslått {{ p.avslatt_ts[:10] }}. Deltakeren kan ikke melde seg på igjen selv – endre status for å gjenopprette påmeldingen.</p>{% endif %}
-    {% if statusvalg %}
-    <form method="post" action="{{ url_for('admin_deltaker_status', kurs_id=kurs.id, paamelding_id=p.id) }}"
-          data-status-bekreft>
+<form id="skjema-person" method="post" action="{{ url_for('admin_deltaker_person', kurs_id=kurs.id, paamelding_id=p.id) }}"
+      data-skjemanavn="Personopplysninger">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <select name="status" required aria-label="Ny status">
-        <option value="" selected disabled>Velg ny status</option>
-        {% for s in statusvalg %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
-      </select>
-      <p style="margin-top:8px"><button class="liten sekundar">Endre status</button></p>
-    </form>
-    {% endif %}
+  <input type="hidden" name="versjon" value="{{ versjon_for('person', p) }}">
+  <h2>Personopplysninger</h2>
+  <p class="seksjonsinfo">Gjelder {{ p.navn }} som person, ikke bare dette kurset.{% if andre_paameldinger %}
+    Endringer her gjelder også {{ andre_paameldinger }} {{ 'annen aktiv påmelding' if andre_paameldinger == 1 else 'andre aktive påmeldinger' }} vedkommende har.{% endif %}</p>
+  <div class="skjemarad">
+    <div><label for="f-fornavn">Fornavn</label><span class="merknad">(krav)</span></div>
+    <div><input id="f-fornavn" name="fornavn" required value="{{ p.fornavn }}"></div>
   </div>
-  {% if p.status in ('bekreftet', 'venteliste') and admin_rolle != 'lese' %}
-  <div class="kort">
-    <div class="liten dempet">Avslå påmeldingen</div>
-    <form method="post" action="{{ url_for('admin_deltaker_avsla', kurs_id=kurs.id, paamelding_id=p.id) }}"
-          data-bekreft="Avslå påmeldingen til {{ p.navn }}? Plassen går til den første på ventelisten.{% if p.faktura_antall %} Fakturaen krediteres ikke automatisk.{% endif %}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label for="f-melding">Begrunnelse til deltakeren (valgfri)</label>
-      <textarea id="f-melding" name="melding" rows="2" maxlength="2000"></textarea>
-      <label style="font-weight:normal"><input type="checkbox" name="send_epost" value="1" checked> Send avslaget på e-post</label>
-      <p style="margin-top:8px"><button class="liten fare">Avslå påmelding</button></p>
-    </form>
+  <div class="skjemarad">
+    <div><label for="f-etternavn">Etternavn</label><span class="merknad">(krav)</span></div>
+    <div><input id="f-etternavn" name="etternavn" required value="{{ p.etternavn }}"></div>
   </div>
-  {% endif %}
-  <div class="kort">
-    <div class="liten dempet">Fakturastatus</div>
-    <p style="margin:6px 0 10px"><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(fakturastatus, 'gra') }}">{{ fakturastatus }}</span></p>
-    <p class="liten dempet" style="margin:0">Styres av fakturasystemet og kan ikke endres her.</p>
+  <div class="skjemarad">
+    <div><label for="f-epost">E-post</label><span class="merknad">(krav)</span></div>
+    <div><input id="f-epost" name="epost" type="email" required value="{{ p.epost }}"></div>
   </div>
-</div>
+  <div class="skjemarad">
+    <div><label for="f-telefon">Telefon</label></div>
+    <div><input id="f-telefon" name="telefon" type="tel" value="{{ p.telefon or '' }}"></div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-yrkestittel">Yrkestittel</label></div>
+    <div><input id="f-yrkestittel" name="yrkestittel" value="{{ p.yrkestittel or '' }}"></div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-arbeidssted">Arbeidssted</label></div>
+    <div><input id="f-arbeidssted" name="arbeidssted" value="{{ p.arbeidssted or '' }}"></div>
+  </div>
+  <div class="seksjonsknapper"><button>Lagre personopplysninger</button></div>
+</form>
 
-<form method="post" action="{{ url_for('admin_deltaker_paamelding', kurs_id=kurs.id, paamelding_id=p.id) }}" class="kort" style="max-width:720px">
+<form id="skjema-paamelding" method="post" action="{{ url_for('admin_deltaker_paamelding', kurs_id=kurs.id, paamelding_id=p.id) }}"
+      data-skjemanavn="Påmelding og faktura">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="versjon" value="{{ versjon_for('paamelding', p) }}">
-  <div class="rad">
-    <div><label for="f-betaler">Hvem betaler</label><select id="f-betaler" name="betaler">
-        <option value="person" {{ 'selected' if p.betaler != 'organisasjon' }}>Privat</option>
-        <option value="organisasjon" {{ 'selected' if p.betaler == 'organisasjon' }}>Firma</option>
-      </select></div>
-    <div><label for="f-org_navn">Firmanavn</label><input id="f-org_navn" name="org_navn" value="{{ p.org_navn or '' }}"></div>
-    <div><label for="f-org_nr">Organisasjonsnummer</label><input id="f-org_nr" name="org_nr" value="{{ p.org_nr or '' }}"></div>
+  <h2>Påmelding og faktura</h2>
+  <p class="seksjonsinfo">Gjelder bare denne påmeldingen: {{ kurs.navn }} (kursnr. {{ kurs.kursnr }}).</p>
+  <div class="skjemarad">
+    <div><span class="etikett">Pris</span></div>
+    <div><p class="feltverdi">{{ kurs.pris_nok|kr }} <span class="liten dempet">– styres av kurset</span></p></div>
   </div>
-  <div class="rad">
-    <div><label for="f-faktura_adresse">Fakturaadresse</label><input id="f-faktura_adresse" name="faktura_adresse" value="{{ p.faktura_adresse or '' }}"></div>
-    <div><label for="f-faktura_postnr">Postnr.</label><input id="f-faktura_postnr" name="faktura_postnr" value="{{ p.faktura_postnr or '' }}"></div>
-    <div><label for="f-faktura_sted">Sted</label><input id="f-faktura_sted" name="faktura_sted" value="{{ p.faktura_sted or '' }}"></div>
-  </div>
-  <div class="rad">
-    <div><label for="f-faktura_ref">Fakturareferanse / «Faktura merkes med»</label><input id="f-faktura_ref" name="faktura_ref" value="{{ p.faktura_ref or '' }}"></div>
-    <div><div class="etikett">Pris</div><p class="liten dempet" style="margin-top:8px">{{ kurs.pris_nok }} kr – styres av kurset</p></div>
-    <div><div class="etikett">Prisvalg</div>
+  <div class="skjemarad">
+    <div><span class="etikett" id="e-betaling">Betaling</span></div>
+    <div>
       {% if prisvalg_redigerbar %}
-      <select name="betaling" aria-label="Prisvalg">
-        <option value="samlet" {{ 'selected' if p.betaling != 'per_samling' }}>Samlet</option>
-        <option value="per_samling" {{ 'selected' if p.betaling == 'per_samling' }}>Per samling</option>
-      </select>
+      <div class="valg" role="radiogroup" aria-labelledby="e-betaling">
+        <label><input type="radio" name="betaling" value="samlet" {{ 'checked' if p.betaling != 'per_samling' }}> Samlet – hele beløpet i én faktura</label>
+        <label><input type="radio" name="betaling" value="per_samling" {{ 'checked' if p.betaling == 'per_samling' }}> Per samling – én faktura før hver samling</label>
+      </div>
       {% else %}
-      <p class="liten dempet" style="margin-top:8px">{{ {'samlet':'Samlet','per_samling':'Per samling'}.get(p.betaling, p.betaling) }}
-        – {{ 'allerede fakturert' if p.faktura_antall else 'styres av kurset' }}</p>
+      <p class="feltverdi">{{ {'samlet': 'Samlet', 'per_samling': 'Per samling'}.get(p.betaling, p.betaling) }}
+        <span class="liten dempet">– {{ 'allerede fakturert' if p.faktura_antall else 'styres av kurset' }}</span></p>
       {% endif %}
     </div>
   </div>
-
-  <label for="f-faktura_kommentar">Kommentar til faktura/påmelding</label><textarea id="f-faktura_kommentar" name="faktura_kommentar" rows="2">{{ p.faktura_kommentar or '' }}</textarea>
-
+  <div class="skjemarad">
+    <div><span class="etikett" id="e-betaler">Hvem betaler</span><span class="merknad">(krav)</span></div>
+    <div class="valg" role="radiogroup" aria-labelledby="e-betaler">
+      <label><input type="radio" name="betaler" value="person" data-skjul="firmafelt" {{ 'checked' if p.betaler != 'organisasjon' }}> Betaler selv</label>
+      <label><input type="radio" name="betaler" value="organisasjon" data-vis="firmafelt" {{ 'checked' if p.betaler == 'organisasjon' }}> Arbeidsgiver betaler</label>
+    </div>
+  </div>
+  <div id="firmafelt" class="{{ '' if p.betaler == 'organisasjon' else 'skjul' }}">
+    <div class="skjemarad">
+      <div><label for="f-org_nr">Organisasjonsnummer</label><span class="merknad">(krav)</span></div>
+      <div><input id="f-org_nr" name="org_nr" inputmode="numeric" value="{{ p.org_nr or '' }}"></div>
+    </div>
+    <div class="skjemarad">
+      <div><label for="f-org_navn">Firma-/avdelingsnavn</label><span class="merknad">(krav)</span></div>
+      <div><input id="f-org_navn" name="org_navn" value="{{ p.org_navn or '' }}"></div>
+    </div>
+    {% if p.faktura_epost %}
+    <div class="skjemarad">
+      <div><span class="etikett">E-post for faktura</span></div>
+      <div><div class="felt-lest">{{ p.faktura_epost }}</div></div>
+    </div>
+    {% endif %}
+    <div class="skjemarad">
+      <div><span class="etikett">EHF</span></div>
+      <div><p class="feltverdi">{{ 'Ja – sendes som elektronisk faktura' if p.ehf else 'Nei' }}</p></div>
+    </div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-faktura_adresse">Fakturaadresse</label></div>
+    <div><input id="f-faktura_adresse" name="faktura_adresse" value="{{ p.faktura_adresse or '' }}"></div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-faktura_postnr">Postnummer</label></div>
+    <div><input id="f-faktura_postnr" name="faktura_postnr" class="kort-felt" inputmode="numeric" value="{{ p.faktura_postnr or '' }}"></div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-faktura_sted">Poststed</label></div>
+    <div><input id="f-faktura_sted" name="faktura_sted" value="{{ p.faktura_sted or '' }}"></div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-faktura_ref">Faktura merkes med</label></div>
+    <div><input id="f-faktura_ref" name="faktura_ref" aria-describedby="hjelp-faktura_ref" value="{{ p.faktura_ref or '' }}">
+      <p id="hjelp-faktura_ref" class="hjelp">Bestillernummer, ressursnummer eller lignende som skal stå på fakturaen.</p></div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-faktura_kommentar">Kommentar til faktura</label></div>
+    <div><textarea id="f-faktura_kommentar" name="faktura_kommentar" rows="2" aria-describedby="hjelp-faktura_kommentar">{{ p.faktura_kommentar or '' }}</textarea>
+      <p id="hjelp-faktura_kommentar" class="hjelp">Merknad om påmeldingen eller fakturaen.</p></div>
+  </div>
   {% if kurs.type != 'digital' %}
-  <div class="rad">
-    <div><label for="f-allergier">Allergier/spesialkost</label><input id="f-allergier" name="allergier" value="{{ p.allergier or '' }}"></div>
-    <div><label for="f-tilrettelegging">Behov for tilrettelegging</label><input id="f-tilrettelegging" name="tilrettelegging" value="{{ p.tilrettelegging or '' }}"></div>
+  <div class="skjemarad">
+    <div><label for="f-allergier">Allergier / spesialkost</label></div>
+    <div><input id="f-allergier" name="allergier" aria-describedby="hjelp-sensitivt" value="{{ p.allergier or '' }}"></div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-tilrettelegging">Behov for tilrettelegging</label></div>
+    <div><input id="f-tilrettelegging" name="tilrettelegging" aria-describedby="hjelp-sensitivt" value="{{ p.tilrettelegging or '' }}">
+      <p id="hjelp-sensitivt" class="hjelp">Sensitive opplysninger – slettes automatisk etter kurset.</p></div>
   </div>
   {% endif %}
-
-  <label for="f-intern_kommentar">Intern kommentar <span class="liten dempet" style="text-transform:none; letter-spacing:normal">(kun synlig for administratorer)</span></label>
-  <textarea id="f-intern_kommentar" name="intern_kommentar" rows="2">{{ p.intern_kommentar or '' }}</textarea>
-
-  <p style="margin-top:16px"><button class="liten">Lagre</button></p>
+  <div class="skjemarad">
+    <div><label for="f-intern_kommentar">Intern kommentar</label><span class="merknad">Kun synlig for administratorer</span></div>
+    <div><textarea id="f-intern_kommentar" name="intern_kommentar" rows="3">{{ p.intern_kommentar or '' }}</textarea></div>
+  </div>
+  <div class="seksjonsknapper"><button>Lagre påmeldingen</button></div>
 </form>
+
+<section class="statusboks" aria-labelledby="statusboks-tittel">
+  <h2 id="statusboks-tittel">Status</h2>
+  <div class="skjemarad">
+    <div><span class="etikett">Påmeldingsstatus</span></div>
+    <div>
+      <p class="feltverdi"><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra','avslått':'feil'}[p|paameldingsstatus] }}">{{ p|paameldingsstatus }}</span></p>
+      {% if p.avslatt_ts %}<p class="hjelp">Avslått {{ p.avslatt_ts[:10] }}. Deltakeren kan ikke melde seg på igjen selv – endre status for å gjenopprette påmeldingen.</p>{% endif %}
+      {% if statusvalg %}
+      <form class="statusskjema" method="post" action="{{ url_for('admin_deltaker_status', kurs_id=kurs.id, paamelding_id=p.id) }}"
+            data-status-bekreft data-skjemanavn="Påmeldingsstatus">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <select id="f-ny-status" name="status" required aria-label="Ny status">
+          <option value="" selected disabled>Velg ny status</option>
+          {% for s in statusvalg %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
+        </select>
+        <button class="sekundar">Endre status</button>
+      </form>
+      <p class="hjelp">Statusen endres med en gang du trykker «Endre status» – uavhengig av lagreknappene over.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="skjemarad">
+    <div><span class="etikett">Fakturastatus</span></div>
+    <div><p class="feltverdi"><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(fakturastatus, 'gra') }}">{{ fakturastatus }}</span></p>
+      <p class="hjelp">Styres av fakturasystemet og kan ikke endres her.</p></div>
+  </div>
+  <div class="skjemarad">
+    <div><span class="etikett">Samtykke</span></div>
+    <div><p class="feltverdi">{% if p.samtykke_ts %}Godtok vilkår og personvernerklæring {{ p.samtykke_ts[:16].replace('T', ' ') }}{% else %}<span class="dempet">Ikke registrert{{ ' – påmeldingen er lagt inn av en administrator' if p.kilde in ('admin', 'admin_import') }}</span>{% endif %}</p></div>
+  </div>
+  <div class="skjemarad">
+    <div><span class="etikett">Registrert</span></div>
+    {# Bare datoen: opprettet settes av databasen i UTC, mens de andre tidspunktene på siden er norsk tid #}
+    <div><p class="feltverdi">{{ p.opprettet[:10] }} <span class="dempet">· {{ kilder.get(p.kilde, p.kilde) }}</span></p></div>
+  </div>
+  <div class="skjemarad">
+    <div><span class="etikett">Sist oppdatert</span></div>
+    <div><p class="feltverdi">{{ p.oppdatert[:16].replace('T', ' ') }}</p></div>
+  </div>
+</section>
+
+{% if p.status in ('bekreftet', 'venteliste') and admin_rolle != 'lese' %}
+<details class="faresone">
+  <summary>Avslå påmeldingen</summary>
+  <form method="post" action="{{ url_for('admin_deltaker_avsla', kurs_id=kurs.id, paamelding_id=p.id) }}" data-skjemanavn="Avslå påmeldingen"
+        data-bekreft="Avslå påmeldingen til {{ p.navn }}? Plassen går til den første på ventelisten.{% if p.faktura_antall %} Fakturaen krediteres ikke automatisk.{% endif %}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="liten dempet">Plassen frigjøres og går til den første på ventelisten.</p>
+    <label for="f-melding">Begrunnelse til deltakeren (valgfri)</label>
+    <textarea id="f-melding" name="melding" rows="2" maxlength="2000"></textarea>
+    <label style="font-weight:normal"><input type="checkbox" name="send_epost" value="1" checked> Send avslaget på e-post</label>
+    <p style="margin:10px 0 4px"><button class="fare">Avslå påmelding</button></p>
+  </form>
+</details>
+{% endif %}
 {% endblock %}

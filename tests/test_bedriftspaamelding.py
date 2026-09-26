@@ -4,6 +4,7 @@ from datetime import date, timedelta
 import pytest
 
 from kurs import config, db
+from navnehjelp import gruppeskjema
 
 
 @pytest.fixture
@@ -39,7 +40,7 @@ def _grunnlag(**over):
         "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on",
     }
     data.update(over)
-    return data
+    return gruppeskjema(data)       # fullt navn i testdataene -> skjemaets egne fornavn-/etternavn-felt
 
 
 def _post(klient, kode, **over):
@@ -106,7 +107,7 @@ def test_billettinfo_kopieres_til_hver_paamelding(con):
 def test_eksisterende_deltaker_gjenkjennes_ikke_duplisert(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    db.meld_paa(con, kid1, epost="ola@firma.no", navn="Ola Nordmann")
+    db.meld_paa(con, kid1, epost="ola@firma.no", fornavn="Ola", etternavn="Nordmann")
     con.commit()
     klient = _klient()
     _post(klient, "K2")
@@ -141,7 +142,7 @@ def test_duplikat_epost_i_samme_innsending_avvises_med_tydelig_feil(con):
 
 def test_en_allerede_paameldt_stopper_ikke_resten_av_gruppa(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="ola@firma.no", navn="Ola Nordmann")  # alt paameldt fra for
+    db.meld_paa(con, kid, epost="ola@firma.no", fornavn="Ola", etternavn="Nordmann")  # alt paameldt fra for
     con.commit()
     klient = _klient()
     r = _post(klient, "T1", deltaker_navn=["Ola Nordmann", "Ny Person"],
@@ -155,7 +156,7 @@ def test_en_allerede_paameldt_stopper_ikke_resten_av_gruppa(con):
 
 def test_feilet_deltaker_faar_ingen_individuell_epost(con):
     kid = _kurs(con, kapasitet=5)
-    db.meld_paa(con, kid, epost="ola@firma.no", navn="Ola Nordmann")
+    db.meld_paa(con, kid, epost="ola@firma.no", fornavn="Ola", etternavn="Nordmann")
     con.commit()
     klient = _klient()
     _post(klient, "T1", deltaker_navn=["Ola Nordmann", "Ny Person"],

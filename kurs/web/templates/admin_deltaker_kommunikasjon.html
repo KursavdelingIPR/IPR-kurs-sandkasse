@@ -1,11 +1,9 @@
-{% extends "admin_base.html" %}
-{% block innhold %}
-{% include "admin_deltaker_header.html" %}
-{% include "admin_deltaker_faner.html" %}
-
-<p style="margin-bottom:14px"><a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, paamelding_id=p.id) }}">Send e-post til {{ p.navn }}</a></p>
-
-<p class="liten dempet">E-post sendt til {{ p.navn }} for dette kurset – automatisk og manuelt.</p>
+{% extends "admin_deltaker_ramme.html" %}
+{% block deltakerinnhold %}
+<div class="seksjonstopp">
+  <p class="liten dempet">E-post sendt til {{ p.navn }} for dette kurset – automatisk og manuelt.</p>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, paamelding_id=p.id) }}">Send e-post til {{ p.navn }}</a>
+</div>
 <div class="tabellboks"><table>
   <tr><th scope="col">Type/emne</th><th scope="col">Sendt</th></tr>
   {% for m in meldinger %}

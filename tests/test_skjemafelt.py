@@ -36,17 +36,18 @@ def test_kun_telefon_og_arbeidssted_er_konfigurerbare_med_alle_egenskaper():
 
 
 def test_navn_epost_samtykke_er_laast_synlige_obligatoriske_og_uten_overstyring():
-    for n in ("navn", "epost", "samtykke"):
+    for n in ("fornavn", "etternavn", "epost", "samtykke"):
         f = sf.REGISTER[n]
         assert (f.kategori, f.synlig, f.obligatorisk, f.overstyrbart) == (sf.LAAST, True, True, frozenset())
-    assert sf.REGISTER["navn"].label == "Navn" and sf.REGISTER["epost"].label == "E-post"
+    assert sf.REGISTER["fornavn"].label == "Fornavn" and sf.REGISTER["etternavn"].label == "Etternavn"
+    assert sf.REGISTER["epost"].label == "E-post" and "navn" not in sf.REGISTER     # fullt navn er ikke et skjemafelt
 
 
 def test_laaste_felt_er_ikke_i_den_dynamiske_deltakerlisten():
-    """navn/epost/samtykke rendres fast i kurs.html - de kan aldri komme via registerets deltakerliste."""
+    """fornavn/etternavn/epost/samtykke rendres fast i kurs.html - de kan aldri komme via registerets deltakerliste."""
     for kurs in (_kurs(), _kurs(spesialistlop="EFT"), _kurs(type="digital")):
         nokler = {f.nokkel for f in sf.effektivt_skjema(kurs).deltakerfelt}
-        assert not nokler & {"navn", "epost", "samtykke"}
+        assert not nokler & {"fornavn", "etternavn", "epost", "samtykke"}
 
 
 # ============================ 3: HPR ============================
@@ -115,7 +116,7 @@ def test_stabil_standardrekkefolge():
 # ============================ 7: ingen egendefinerte felt ============================
 
 def test_registeret_har_noyaktig_de_kjente_feltene():
-    assert set(sf.REGISTER) == {"navn", "epost", "telefon", "arbeidssted", "hpr_nr", "samtykke"}
+    assert set(sf.REGISTER) == {"fornavn", "etternavn", "epost", "telefon", "arbeidssted", "hpr_nr", "samtykke"}
 
 
 def test_registeret_kan_ikke_utvides_eller_endres_i_kjoretid():

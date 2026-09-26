@@ -1,4 +1,5 @@
 {% extends "admin_base.html" %}
+{% from "_kodeknapper.html" import kodeknapper %}
 {% block innhold %}
 <p class="liten"><a href="{{ url_for('admin_maltekster') }}">← E-postmaler</a></p>
 <h1>{{ mal_navn }}</h1>
@@ -29,14 +30,8 @@
     <textarea id="f-{{ f.navn }}" name="tekst" rows="4" maxlength="{{ f.maks }}">{{ f.tekst }}</textarea>
     {% endif %}
 
-    <p class="liten dempet" style="margin:10px 0 4px">Tillatte koder i dette feltet:</p>
-    <p class="liten" style="margin:0 0 12px">
-      {% for kode in f.koder %}
-        <span class="merke {{ 'gra' if kode in systemkoder else '' }}" style="margin:0 4px 4px 0" title="{{ koder[kode].navn }}">
-          {{ '{' ~ kode ~ '}' }}{% if kode in systemkoder %} (systemgenerert){% endif %} – {{ koder[kode].navn }}
-        </span>
-      {% endfor %}
-    </p>
+    <p class="liten dempet" style="margin:10px 0 4px">Flettefelt i dette feltet – klikk for å sette inn der markøren står:</p>
+    {{ kodeknapper("f-" ~ f.navn, f.koder, koder, systemkoder) }}
 
     <div style="display:flex; gap:8px; align-items:center">
       <button class="liten">Lagre</button>

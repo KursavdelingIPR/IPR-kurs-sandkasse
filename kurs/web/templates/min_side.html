@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block tittel %}Min side – IPR Påmeldingssystem{% endblock %}
 {% block innhold %}
-<h1>Hei, {{ deltaker.navn }}</h1>
+<h1>Hei, {{ deltaker.fornavn or deltaker.navn }}</h1>
 <p class="sub">{{ deltaker.epost }}{% if deltaker.arbeidssted %} · {{ deltaker.arbeidssted }}{% endif %}</p>
 
 {% for lopnavn, timer in lop.items() %}

@@ -92,9 +92,9 @@ def test_sett_inn_returnerer_ny_id_og_commit_fungerer(con):
 def test_opprett_kurs_og_deltaker_gir_riktige_id_er(con):
     kid = _kurs(con)
     assert con.execute("SELECT kode FROM kurs WHERE id=?", (kid,)).fetchone()[0] == "P1"
-    did = db.finn_eller_opprett_deltaker(con, "d@eksempel.no", "Deltaker")
+    did = db.finn_eller_opprett_deltaker(con, "d@eksempel.no", "Deltaker", "Test")
     assert con.execute("SELECT epost FROM deltaker WHERE id=?", (did,)).fetchone()[0] == "d@eksempel.no"
-    pid, _ = db.meld_paa(con, kid, epost="p@eksempel.no", navn="P")
+    pid, _ = db.meld_paa(con, kid, epost="p@eksempel.no", fornavn="P", etternavn="Test")
     assert con.execute("SELECT kurs_id FROM paamelding WHERE id=?", (pid,)).fetchone()[0] == kid
 
 
@@ -116,7 +116,7 @@ def test_marker_sendt_er_idempotent(con):
 @pytest.mark.parametrize("kursdag", [None, "dag"])
 def test_reserver_faktura_vinner_kun_en_gang_ogsaa_via_uttrykksindeks(con, kursdag):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="p@eksempel.no", navn="P")
+    pid, _ = db.meld_paa(con, kid, epost="p@eksempel.no", fornavn="P", etternavn="Test")
     dag_id = db.kursdager(con, kid)[0]["id"] if kursdag else None
     assert db.reserver_faktura(con, pid, dag_id) is True
     assert db.reserver_faktura(con, pid, dag_id) is False            # faktura_forsok_unik: COALESCE(kursdag_id, 0)
@@ -125,7 +125,7 @@ def test_reserver_faktura_vinner_kun_en_gang_ogsaa_via_uttrykksindeks(con, kursd
 
 def test_oppmote_registreres_kun_en_gang(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="p@eksempel.no", navn="P")
+    pid, _ = db.meld_paa(con, kid, epost="p@eksempel.no", fornavn="P", etternavn="Test")
     dag_id = db.kursdager(con, kid)[0]["id"]
     assert db.registrer_oppmote(con, pid, dag_id, "manuell") is True
     assert db.registrer_oppmote(con, pid, dag_id, "manuell") is False
@@ -133,7 +133,7 @@ def test_oppmote_registreres_kun_en_gang(con):
 
 def test_sensitivt_upsert_oppdaterer_eksisterende_rad(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="p@eksempel.no", navn="P", sensitivt={"allergier": "A", "tilrettelegging": None})
+    pid, _ = db.meld_paa(con, kid, epost="p@eksempel.no", fornavn="P", etternavn="Test", sensitivt={"allergier": "A", "tilrettelegging": None})
     assert db.oppdater_sensitivt(con, pid, "B", "T") is True
     rader = con.execute("SELECT * FROM sensitivt WHERE paamelding_id=?", (pid,)).fetchall()
     assert [(r["allergier"], r["tilrettelegging"]) for r in rader] == [("B", "T")]
@@ -141,9 +141,9 @@ def test_sensitivt_upsert_oppdaterer_eksisterende_rad(con):
 
 def test_sensitivt_upsert_ved_reaktivert_paamelding(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="p@eksempel.no", navn="P", sensitivt={"allergier": "A"})
+    pid, _ = db.meld_paa(con, kid, epost="p@eksempel.no", fornavn="P", etternavn="Test", sensitivt={"allergier": "A"})
     db.meld_av(con, pid)
-    pid2, _ = db.meld_paa(con, kid, epost="p@eksempel.no", navn="P", sensitivt={"allergier": "NY"})
+    pid2, _ = db.meld_paa(con, kid, epost="p@eksempel.no", fornavn="P", etternavn="Test", sensitivt={"allergier": "NY"})
     assert pid2 == pid
     assert con.execute("SELECT allergier FROM sensitivt WHERE paamelding_id=?", (pid,)).fetchall()[0][0] == "NY"
 
@@ -156,7 +156,7 @@ def test_felles_unntak_er_sqlite_sine_i_fase_1():
 
 def test_firmapaamelding_gjenkjennes_via_integritetsfeil(con):
     kid = _kurs(con)
-    kontakt = {"navn": "K", "epost": "k@eksempel.no", "firmanavn": "F"}
+    kontakt = {"fornavn": "K", "etternavn": "Test", "epost": "k@eksempel.no", "firmanavn": "F"}
     a, ny_a = db.finn_eller_opprett_firmapaamelding(con, kid, kontakt, ["x@eksempel.no"])
     b, ny_b = db.finn_eller_opprett_firmapaamelding(con, kid, kontakt, ["x@eksempel.no"])
     assert (ny_a, ny_b) == (True, False) and a["id"] == b["id"]

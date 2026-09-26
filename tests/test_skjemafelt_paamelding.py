@@ -59,7 +59,7 @@ def _lagre(con, kid, felt, **egenskaper):
 
 
 EPOST = "test.person@eksempel.no"
-BASIS = {"navn": "Test Person", "epost": EPOST, "samtykke": "on"}
+BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": EPOST, "samtykke": "on"}
 
 
 def _post(kode, **data):
@@ -206,7 +206,7 @@ def test_synlig_obligatorisk_felt_tomt_gir_400_og_ingen_registrering(con, felt, 
     assert _antall(con, "paamelding") == 0 and _deltaker(con) is None
     annet = "arbeidssted" if felt == "telefon" else "telefon"
     assert _attrs(html, annet)["value"] == data[annet]                  # tidligere innsendte synlige verdier beholdes
-    assert _attrs(html, "navn")["value"] == "Test Person"
+    assert (_attrs(html, "fornavn")["value"], _attrs(html, "etternavn")["value"]) == ("Test", "Person")
     assert "required" in _attrs(html, felt)                              # samme snapshot ved re-rendring
 
 
@@ -235,7 +235,7 @@ def test_synlig_valgfritt_felt_tomt_er_som_foer(con):
 
 def test_obligatorisk_bruker_ikke_gammel_verdi_paa_personen(con):
     kid = _kurs(con, kode="GV")
-    db.finn_eller_opprett_deltaker(con, EPOST, "Test Person", telefon="99999999")
+    db.finn_eller_opprett_deltaker(con, EPOST, "Test", "Person", telefon="99999999")
     con.commit()
     _lagre(con, kid, "telefon", obligatorisk=True)
     assert _post("GV", telefon="").status_code == 400
@@ -347,7 +347,7 @@ def test_ukjente_ekstra_postfelt_ignoreres(con):
                                         ("arbeidssted", {"arbeidssted": {"synlig": False}}),
                                         ("hpr_nr", {})])   # HPR skjules av manglende spesialistlop
 def test_skjult_felt_overskriver_eller_sletter_ikke_eksisterende_profilverdi(con, felt, skjul):
-    db.finn_eller_opprett_deltaker(con, EPOST, "Test Person", **{felt: "GAMMEL-VERDI"})
+    db.finn_eller_opprett_deltaker(con, EPOST, "Test", "Person", **{felt: "GAMMEL-VERDI"})
     con.commit()
     kid = _kurs(con, kode="EX")
     for f, egenskaper in skjul.items():
@@ -364,7 +364,7 @@ def test_skjult_felt_overskriver_eller_sletter_ikke_eksisterende_profilverdi(con
 
 
 def test_synlig_felt_oppdaterer_eksisterende_profil_som_foer(con):
-    db.finn_eller_opprett_deltaker(con, EPOST, "Test Person", telefon="GAMMEL", hpr_nr="GAMMEL")
+    db.finn_eller_opprett_deltaker(con, EPOST, "Test", "Person", telefon="GAMMEL", hpr_nr="GAMMEL")
     con.commit()
     _kurs(con, kode="EXS", spesialistlop="EFT")
     assert _post("EXS", telefon="NY", hpr_nr="NY").status_code == 200
@@ -386,7 +386,7 @@ def _sjekk_feilside(r, kursnavn="Eksempelkurs"):
     for lekkasje in ("kurs_skjemafelt", "no such table", "Traceback", "sqlite", "OperationalError", "SkjemaLesefeil",
                      "SELECT", str(config.DB_STI), "test.db"):
         assert lekkasje not in html, lekkasje
-    assert 'name="navn"' not in html and 'name="telefon"' not in html     # ALDRI standardskjema som fallback
+    assert 'name="fornavn"' not in html and 'name="telefon"' not in html  # ALDRI standardskjema som fallback
     return html
 
 

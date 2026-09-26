@@ -130,7 +130,7 @@ def test_standardsortering_setter_avsluttede_kurs_sist(con):
 
 def test_meld_av_skjules_for_avsluttet_kurs(con):
     kid = _kurs(con, "FERDIG")
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("UPDATE kurs SET status='avsluttet' WHERE id=?", (kid,))  # slik daglig.py setter det etter siste dag
     con.commit()
     klient = _klient()
@@ -166,9 +166,9 @@ def test_ansvarlig_kan_settes_og_fjernes(con):
 def test_statustellere_stemmer(con):
     import re
     kid = _kurs(con, "TEL", kapasitet=1)
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    db.meld_paa(con, kid, epost="b@x.no", navn="B")  # havner paa venteliste, kapasitet=1
-    pc, _ = db.meld_paa(con, kid, epost="c@x.no", navn="C kapasitet")  # ogsaa venteliste
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")  # havner paa venteliste, kapasitet=1
+    pc, _ = db.meld_paa(con, kid, epost="c@x.no", fornavn="C", etternavn="kapasitet")  # ogsaa venteliste
     db.meld_av(con, pc)  # avmeldt, ingen paa venteliste til aa rykke opp siden b framleis venter
     con.commit()
 
@@ -181,8 +181,8 @@ def test_statustellere_stemmer(con):
 
 def test_soek_og_statusfilter_paa_deltakere(con):
     kid = _kurs(con, "SOEK", kapasitet=1)
-    db.meld_paa(con, kid, epost="kari@x.no", navn="Kari Nordmann")
-    db.meld_paa(con, kid, epost="ola@x.no", navn="Ola Hansen")  # venteliste
+    db.meld_paa(con, kid, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
+    db.meld_paa(con, kid, epost="ola@x.no", fornavn="Ola", etternavn="Hansen")  # venteliste
     con.commit()
 
     klient = _klient()
@@ -196,7 +196,7 @@ def test_soek_og_statusfilter_paa_deltakere(con):
 
 def test_sist_oppdatert_endres_ved_avmelding(con):
     kid = _kurs(con, "OPPD")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     forste = con.execute("SELECT oppdatert FROM paamelding WHERE id=?", (pid,)).fetchone()[0]
     db.meld_av(con, pid)
@@ -218,7 +218,7 @@ def test_fakturastatus_utledes_riktig():
 
 def test_oppmotefunksjon_er_uendret_paa_ny_side(con):
     kid = _kurs(con, "OPP")
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     dag = db.kursdager(con, kid)[0]
     klient = _klient()

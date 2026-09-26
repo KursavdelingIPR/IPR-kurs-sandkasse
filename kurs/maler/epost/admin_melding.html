@@ -1,5 +1,5 @@
 Emne: {{ emne }}
 {% extends "_ramme.html" %}{% block innhold %}
-<p>Hei {{ d.navn }},</p>
-<p>{{ tekst | e | replace('\n', '<br>\n' | safe) }}</p>
+{#- Ingen automatisk hilsen: admin skriver selv f.eks. «Hei {fornavn},» der det skal stå (se maltekster.MANUELLE_KODER). -#}
+{{ tekst | flett(d) }}
 {% endblock %}

@@ -22,7 +22,7 @@ def _n(html):
 KURS = {"navn": FARLIG, "type": "fysisk", "sted": "Oslo", "start_kl": "09:00", "slutt_kl": "16:00",
         "pris_nok": 0, "fakturering": "person", "faktura_dager_for": 14, "notat": None,
         "zoom_url": None, "zoom_id": None, "zoom_pw": None}
-DELTAKER = {"navn": "Ola", "betaling": "samlet", "betaler": "person", "org_navn": None}
+DELTAKER = {"navn": "Ola Nordmann", "fornavn": "Ola", "betaling": "samlet", "betaler": "person", "org_navn": None}
 DAG = {"dato": "2027-03-01", "start_kl": None, "slutt_kl": None}
 PLAN = FakturaPlan(PLAN_INGEN)      # bekreftelse krever faktura_plan (laast fakturablokk); irrelevant for emnetestene
 
@@ -40,13 +40,13 @@ def test_bekreftelse_emne_er_ren_tekst_men_kroppen_escapes():
 @pytest.mark.parametrize("mal,data,forventet", [
     ("venteliste", dict(p=DELTAKER, kurs=KURS), "Venteliste: Kurs A & B <x>"),
     ("avlysning", dict(d=DELTAKER, kurs=KURS), "Avlyst: Kurs A & B <x>"),
-    ("kursbevis_klar", dict(navn="Ola", kurs=KURS), "Kursbevis: Kurs A & B <x>"),
+    ("kursbevis_klar", dict(navn="Ola Nordmann", fornavn="Ola", kurs=KURS), "Kursbevis: Kurs A & B <x>"),
     ("ukefor", dict(d=DELTAKER, kurs=KURS, dager=[DAG]), "Velkommen til Kurs A & B <x> – praktisk informasjon"),
     ("dagfor", dict(d=DELTAKER, kurs=KURS, dag=DAG, nr=1, antall=2), "I morgen starter Kurs A & B <x>"),
     ("dagfor", dict(d=DELTAKER, kurs=KURS, dag=DAG, nr=2, antall=3), "I morgen, dag 2: Kurs A & B <x>"),
     ("dagfor", dict(d=DELTAKER, kurs=KURS, dag=DAG, nr=3, antall=3), "Siste kursdag i morgen: Kurs A & B <x>"),
     ("firmapaamelding_kvittering",
-     dict(kontakt={"navn": "K", "firmanavn": "F"}, kurs=KURS, antall_totalt=1, antall_bekreftet=1, antall_venteliste=0,
+     dict(kontakt={"navn": "K Test", "fornavn": "K", "firmanavn": "F"}, kurs=KURS, antall_totalt=1, antall_bekreftet=1, antall_venteliste=0,
           antall_feilet=0, kvittering_url="/x"),
      "Bedriftspåmelding til Kurs A & B <x> – kvittering"),
     ("purring", dict(m={"ansvarlig_navn": "P", "beskrivelse": "A & B <c>", "kursnavn": FARLIG, "frist": "2027-01-01", "id": 1},
@@ -119,7 +119,7 @@ def con(tmp_path, monkeypatch):
 
 def _kurs_med_farlig_navn(con):
     kid = db.opprett_kurs(con, kode="EM1", navn=FARLIG, datoer=["2027-03-01"], sharepoint_mappe="Kurs/EM1", pris_nok=0)
-    pid, _ = db.meld_paa(con, kid, epost="ola@x.no", navn="Ola")
+    pid, _ = db.meld_paa(con, kid, epost="ola@x.no", fornavn="Ola", etternavn="Test")
     con.commit()
     return kid, pid
 

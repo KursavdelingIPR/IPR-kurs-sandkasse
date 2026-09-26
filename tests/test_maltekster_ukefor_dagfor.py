@@ -16,6 +16,7 @@ from kurs import config, daglig, db, maltekster
 from kurs.integrasjoner import epost, zoom
 from kurs.kjoring import Kjoring
 from kurs.maltekster import MANGLER_VERDI, MalFeil
+from navnehjelp import navnedeler
 
 IDAG = date(2027, 3, 1)
 
@@ -58,7 +59,7 @@ def _kurs(con, kode="U1", start=date(2027, 3, 4), ant_dager=1, **kw):
 
 
 def _deltaker(con, kid, epost_="ola@x.no", navn="Ola Nordmann"):
-    pid, _ = db.meld_paa(con, kid, epost=epost_, navn=navn)
+    pid, _ = db.meld_paa(con, kid, epost=epost_, **navnedeler(navn))
     con.execute("UPDATE paamelding SET sveiper_kjort=1 WHERE id=?", (pid,))     # bekreftelse er irrelevant her
     con.commit()
     return pid
@@ -101,13 +102,13 @@ def test_ukefor_standardtekst_fysisk_og_lik_direkte_render(con, ut):
     _daglig(con, IDAG)                                                       # 3 dager for start -> ukefor
     emne, html = _mail(ut, start="Velkommen")
     assert emne == "Velkommen til Veiledning i praksis – praktisk informasjon"
-    assert "<p>Hei Ola Nordmann,</p>" in html
+    assert "<p>Hei Ola,</p>" in html                                        # standardhilsenen: fornavn
     assert "Nå er det snart tid for <strong>Veiledning i praksis</strong>, som starter 2027-03-04." in html
     assert "<li>2027-03-04 kl. 09:00–16:00</li>" in html and "<li>2027-03-05 kl. 09:00–16:00</li>" in html
     assert "<strong>Sted:</strong> Oslo" in html and f"taste koden på {config.BASE_URL}/innsjekk" in html
     assert "Kurset holdes på Zoom" not in html
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
-    d = {"navn": "Ola Nordmann"}
+    d = {"navn": "Ola Nordmann", "fornavn": "Ola"}
     direkte = epost.render("ukefor", d=d, kurs=kurs, dager=db.kursdager(con, kid))[1]
     assert _n(direkte) == html
 
@@ -188,7 +189,8 @@ def test_registeret_for_ukefor_og_dagfor_har_ingen_zoom_eller_stedskoder():
     for mal in ("ukefor", "dagfor"):
         koder = set().union(*(f.kode for f in maltekster.MALER[mal].felt.values()))
         assert not [k for k in koder if "zoom" in k or "sted" in k or "pass" in k], koder
-    assert set().union(*(f.kode for f in maltekster.MALER["ukefor"].felt.values())) == {"navn", "kursnavn", "startdato", "min_side"}
+    assert set().union(*(f.kode for f in maltekster.MALER["ukefor"].felt.values())) == {"fornavn", "navn", "kursnavn",
+                                                                                          "startdato", "min_side"}
 
 
 # ================================== UKEFOR: Zoom, tidsvindu, idempotens ==================================
@@ -258,7 +260,7 @@ def test_dagfor_standardtekst_og_riktig_variant_per_kursdag(con, ut):
         mails = [m for m in ut["epost"] if m[1] == emne]
         assert len(mails) == 1, (idag, [m[1] for m in ut["epost"]])
         h = _n(mails[0][2])
-        assert "<p>Hei Ola Nordmann,</p>" in h and setning in h and f"Tid: {dato} kl. 09:00–16:00" in h
+        assert "<p>Hei Ola,</p>" in h and setning in h and f"Tid: {dato} kl. 09:00–16:00" in h
         assert "Sted: Oslo. Husk å registrere oppmøte med QR-koden når du kommer." in h
     typer = sorted(r[0] for r in con.execute("SELECT type FROM utsending_logg WHERE type LIKE 'dagfor-%'"))
     assert typer == ["dagfor-2027-03-04", "dagfor-2027-03-05", "dagfor-2027-03-06"]      # egen nokkel per kursdag (uendret)
@@ -362,7 +364,7 @@ def test_dagfor_ingen_duplikat_og_ukjent_epostutfall_gir_ingen_retry(con, ut, mo
 def _gammelt_kurs_med_sensitivt(con):
     """Deterministisk observerbar effekt av et SENERE daglig steg: personvern-sletting (steg 7)."""
     kid = db.opprett_kurs(con, kode="GAMMEL", navn="Gammelt kurs", datoer=["2026-01-10"], sharepoint_mappe="Kurs/G", type="fysisk", sted="Oslo")
-    pid, _ = db.meld_paa(con, kid, epost="gammel@x.no", navn="Gammel", sensitivt={"allergier": "nøtter", "tilrettelegging": "rullestol"})
+    pid, _ = db.meld_paa(con, kid, epost="gammel@x.no", fornavn="Gammel", etternavn="Test", sensitivt={"allergier": "nøtter", "tilrettelegging": "rullestol"})
     con.commit()
     assert con.execute("SELECT COUNT(*) FROM sensitivt").fetchone()[0] == 1
     return pid
@@ -612,9 +614,9 @@ def test_rekkefolge_zoom_og_render_foer_claim_foer_send(con, ut, monkeypatch):
 
 
 @pytest.mark.parametrize("mal,data", [
-    ("ukefor", dict(d={"navn": "Ola"}, kurs={"navn": "K", "type": "fysisk", "sted": "Oslo", "start_kl": "09:00", "slutt_kl": "16:00", "notat": None},
+    ("ukefor", dict(d={"navn": "Ola Test", "fornavn": "Ola"}, kurs={"navn": "K", "type": "fysisk", "sted": "Oslo", "start_kl": "09:00", "slutt_kl": "16:00", "notat": None},
                     dager=[{"dato": "2027-03-04", "start_kl": None, "slutt_kl": None}])),
-    ("dagfor", dict(d={"navn": "Ola"}, kurs={"navn": "K", "type": "fysisk", "sted": "Oslo", "start_kl": "09:00", "slutt_kl": "16:00", "zoom_url": None},
+    ("dagfor", dict(d={"navn": "Ola Test", "fornavn": "Ola"}, kurs={"navn": "K", "type": "fysisk", "sted": "Oslo", "start_kl": "09:00", "slutt_kl": "16:00", "zoom_url": None},
                     dag={"dato": "2027-03-04", "start_kl": None, "slutt_kl": None}, nr=1, antall=1)),
 ])
 def test_direkte_render_uten_db_bruker_standardtekst(con, monkeypatch, mal, data):

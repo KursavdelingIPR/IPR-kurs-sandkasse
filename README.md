@@ -36,7 +36,7 @@ $py = ".\.venv\Scripts\python.exe"
 | `/min-side` | Innlogging med e-postlenke: kurs, oppmøte, kursmateriell, kursbevis, fakturaer |
 | `/sporsmal` | «Spør oss» – velger bare blant godkjente svar (kan slås av) |
 | `/lever/<id>/<signatur>` | Kursholder laster opp materiell (signert lenke i purre-e-posten) |
-| `/api/paamelding` | Mottak fra eksterne skjema (HMAC-signert) |
+| `/api/paamelding` | Mottak fra eksterne skjema (HMAC-signert). Krever `fornavn`, `etternavn`, `epost` og `kurs` – fullt navn i ett felt avvises |
 
 **For administrasjonen** (`/admin`, roller: systemadministrator / kursadministrator / lesetilgang)
 
@@ -45,7 +45,7 @@ $py = ".\.venv\Scripts\python.exe"
 | Oversikt | Kommende kurs øverst, status og uavklarte operasjoner under |
 | Aktiviteter | Liste med søk (navn eller kursnummer), kalender og **årsplan** (hele året, planlagte aktiviteter/notater, overlapp, ledige perioder). «Nytt kurs +» |
 | Kurs | Oppsett, nettside (tekster), påmeldingsskjema, deltakere, kommunikasjon. Permanent **kursnummer**. Duplisering |
-| Deltakere | Registrering, import (CSV), bulkbehandling, e-post til utvalg, oppmøte, **avslag**, **deltakerliste med kolonnevalg** (utskrift/PDF/CSV) |
+| Deltakere | Registrering (fornavn og etternavn hver for seg), import (CSV), bulkbehandling, e-post til utvalg med klikkbare flettefelt (`{fornavn}`, `{navn}`), oppmøte, **avslag**, **deltakerliste med kolonnevalg** (utskrift/PDF/CSV) |
 | Rapporter | Kurs, deltakerregister, person, **økonomi og fakturaliste** |
 | Uavklarte operasjoner | E-post/faktura med ukjent utfall – avklares etter kontroll i Outlook/Visma |
 | E-postmaler, Kunnskapsbase | Redigerbare tekster, godkjente svar |

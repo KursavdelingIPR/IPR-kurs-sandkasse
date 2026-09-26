@@ -92,7 +92,7 @@ def test_offentlig_paamelding_krever_ogsaa_csrf(con):
     _kurs(con)
     k = _klient()
     k.injiser_csrf = False
-    r = k.post("/kurs/S1", data={"navn": "A", "epost": "a@x.no", "samtykke": "on"})
+    r = k.post("/kurs/S1", data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "samtykke": "on"})
     assert r.status_code == 400
     assert con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0] == 0
 
@@ -108,7 +108,7 @@ def test_webhook_er_fritatt_fra_csrf_men_krever_signatur(con):
     import hmac
     import json
     kid = _kurs(con, "WH")
-    body = json.dumps({"navn": "N", "epost": "n@x.no", "kurs": "WH"}).encode()
+    body = json.dumps({"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH"}).encode()
     sig = hmac.new(config.WEBHOOK_HEMMELIG.encode(), body, hashlib.sha256).hexdigest()
     k = _klient()
     k.injiser_csrf = False
@@ -266,7 +266,7 @@ def test_relativ_neste_godtas(con):
 
 
 def test_open_redirect_blokkeres_ved_innloggingslenke(con):
-    did = db.finn_eller_opprett_deltaker(con, "d@x.no", "D")
+    did = db.finn_eller_opprett_deltaker(con, "d@x.no", "D", "Test")
     con.execute("INSERT INTO innlogging_token (token, deltaker_id, utloper) VALUES ('tok', ?, '2099-01-01T00:00:00')", (did,))
     con.commit()
     r = _klient().get("/logg-inn/tok?neste=https://ond.example")
@@ -287,7 +287,7 @@ def test_admin_innlogging_takbegrenses(con):
 
 
 def test_innloggingslenke_takbegrenses_per_epost(con):
-    db.finn_eller_opprett_deltaker(con, "d@x.no", "D")
+    db.finn_eller_opprett_deltaker(con, "d@x.no", "D", "Test")
     con.commit()
     k = _klient()
     maks = sikkerhet.GRENSER["innloggingslenke_epost"][0]
@@ -356,7 +356,7 @@ def test_opplasting_renser_filnavn_og_avviser_ukjent_filtype(con, tmp_path, monk
 
 def test_materiell_avviser_sti_i_filnavn(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="d@x.no", navn="D")
+    pid, _ = db.meld_paa(con, kid, epost="d@x.no", fornavn="D", etternavn="Test")
     con.commit()
     k = _klient()
     with k.session_transaction() as s:
@@ -366,7 +366,7 @@ def test_materiell_avviser_sti_i_filnavn(con):
 
 
 def test_lokalt_dokument_kun_under_data(con):
-    did = db.finn_eller_opprett_deltaker(con, "d@x.no", "D")
+    did = db.finn_eller_opprett_deltaker(con, "d@x.no", "D", "Test")
     con.execute("INSERT INTO dokument (deltaker_id, type, tittel, url) VALUES (?, 'annet', 'x', 'lokal:.env')", (did,))
     dok = db.sett_inn(con, "INSERT INTO dokument (deltaker_id, type, tittel, url) VALUES (?, 'annet', 'y', 'lokal:kurs/config.py')",
                       (did,))
@@ -379,7 +379,7 @@ def test_lokalt_dokument_kun_under_data(con):
 
 
 def test_dokument_lenke_maa_vaere_http(con):
-    did = db.finn_eller_opprett_deltaker(con, "d@x.no", "D")
+    did = db.finn_eller_opprett_deltaker(con, "d@x.no", "D", "Test")
     dok = db.sett_inn(con, "INSERT INTO dokument (deltaker_id, type, tittel, url) VALUES (?, 'annet', 'x', 'javascript:alert(1)')",
                       (did,))
     con.commit()
@@ -403,7 +403,7 @@ def test_zoom_lenke_maa_vaere_https(con):
 
 def test_deltakernavn_med_anfoerselstegn_ender_aldri_i_javascript(con):
     kid = _kurs(con)
-    db.meld_paa(con, kid, epost="x@x.no", navn="Ola\"); alert('xss'); //")
+    db.meld_paa(con, kid, epost="x@x.no", fornavn='Ola"); alert(\'xss\');', etternavn="//")
     con.commit()
     html = _admin().get(f"/admin/kurs/{kid}/deltakere").get_data(as_text=True)
     assert "alert('xss')" not in html and "alert(&#39;xss&#39;)" in html
@@ -429,7 +429,7 @@ def test_csv_trygg(verdi, forventet):
 
 def test_csv_eksport_beskytter_mot_formler(con):
     kid = _kurs(con)
-    db.meld_paa(con, kid, epost="f@x.no", navn="=HYPERLINK(\"http://ond\")", deltaker={"arbeidssted": "+cmd"})
+    db.meld_paa(con, kid, epost="f@x.no", fornavn='=HYPERLINK("http://ond")', etternavn="Test", deltaker={"arbeidssted": "+cmd"})
     con.commit()
     csv = _admin().get(f"/admin/kurs/{kid}/deltakere.csv").get_data(as_text=True)
     assert "'=HYPERLINK" in csv and "'+cmd" in csv and ";=HYPERLINK" not in csv
@@ -473,13 +473,13 @@ def _webhook(k, data, **kw):
 
 def test_webhook_godtar_ikke_token_i_url(con):
     _kurs(con, "WH")
-    r = _klient().post(f"/api/paamelding?token={config.WEBHOOK_HEMMELIG}", json={"navn": "N", "epost": "n@x.no", "kurs": "WH"})
+    r = _klient().post(f"/api/paamelding?token={config.WEBHOOK_HEMMELIG}", json={"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH"})
     assert r.status_code == 401
 
 
 def test_webhook_filtrerer_felt_etter_kursoppsett(con):
     kid = _kurs(con, "WH", type="digital", fakturering="ingen", pris_nok=0)   # ingen HPR, ingen allergi, ingen faktura
-    r = _webhook(_klient(), {"navn": "N", "epost": "n@x.no", "kurs": "WH", "hpr_nr": "123", "allergier": "nøtter",
+    r = _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH", "hpr_nr": "123", "allergier": "nøtter",
                              "org_nr": "999", "faktura_ref": "REF"})
     assert r.status_code == 201
     p = con.execute("SELECT p.*, d.hpr_nr FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.kurs_id=?",
@@ -490,24 +490,24 @@ def test_webhook_filtrerer_felt_etter_kursoppsett(con):
 
 def test_webhook_gir_409_for_stengt_kurs_og_404_for_utkast(con):
     kid = _kurs(con, "WH", paameldingsfrist="2020-01-01")
-    assert _webhook(_klient(), {"navn": "N", "epost": "n@x.no", "kurs": "WH"}).status_code == 409
+    assert _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH"}).status_code == 409
     con.execute("UPDATE kurs SET status='utkast' WHERE id=?", (kid,))
     con.commit()
-    assert _webhook(_klient(), {"navn": "N", "epost": "n@x.no", "kurs": "WH"}).status_code == 404
+    assert _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH"}).status_code == 404
 
 
 def test_webhook_nekter_i_drift_med_standardhemmelighet(con, monkeypatch):
     _kurs(con, "WH")
     _prod(monkeypatch)
     monkeypatch.setattr(config, "WEBHOOK_HEMMELIG", "demo-webhook-hemmelighet")
-    assert _webhook(_klient(), {"navn": "N", "epost": "n@x.no", "kurs": "WH"}).status_code == 503
+    assert _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH"}).status_code == 503
 
 
 # ============================ admin-ruter: eierskap og gyldig input ============================
 
 def test_oppmote_kan_ikke_registreres_paa_tvers_av_kurs(con):
     a, b = _kurs(con, "A"), _kurs(con, "B")
-    pid, _ = db.meld_paa(con, a, epost="d@x.no", navn="D")
+    pid, _ = db.meld_paa(con, a, epost="d@x.no", fornavn="D", etternavn="Test")
     dag_b = db.kursdager(con, b)[0]["id"]
     con.commit()
     admin = _admin()
@@ -529,7 +529,7 @@ def test_ansvarlig_maa_vaere_ekte_bruker(con):
 
 def test_daglig_kjoering_fra_admin_er_kun_toerr_i_drift(con, monkeypatch):
     kid = _kurs(con)
-    db.meld_paa(con, kid, epost="d@x.no", navn="D")
+    db.meld_paa(con, kid, epost="d@x.no", fornavn="D", etternavn="Test")
     con.commit()
     _prod(monkeypatch)
     sendt = []

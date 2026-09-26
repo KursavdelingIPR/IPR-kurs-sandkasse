@@ -405,7 +405,7 @@ def test_db_feil_under_kopiering_ruller_tilbake_alt(con, admin, sp_kall, monkeyp
 def test_ingen_deltaker_eller_historikk_kopieres(con, admin):
     kid = _kilde(con)
     _fullt_oppsett(con, kid)
-    pid, _ = db.meld_paa(con, kid, epost="d@eksempel.no", navn="Deltaker", sensitivt={"allergier": "X"})
+    pid, _ = db.meld_paa(con, kid, epost="d@eksempel.no", fornavn="Deltaker", etternavn="Test", sensitivt={"allergier": "X"})
     db.logg(con, "test", {"x": 1})
     con.commit()
     foer = _telle(con)

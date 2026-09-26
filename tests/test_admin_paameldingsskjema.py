@@ -100,10 +100,11 @@ def test_standardverdier_vises(con, admin):
     assert 'name="arbeidssted_label" maxlength="80" value="Arbeidssted"' in html
     assert 'value="telefon_forst" checked' in html
     assert html.index('name="telefon_label"') < html.index('name="arbeidssted_label"')
-    for fast in ("Navn", "E-post", "Samtykke", "HPR-nummer"):
+    for fast in ("Fornavn", "Etternavn", "E-post", "Samtykke", "HPR-nummer"):
         assert f"<strong>{fast}</strong>" in html
     assert "Dette kurset har ikke spesialistløp" in html
-    assert 'name="hpr_nr_synlig"' not in html and 'name="hpr_nr_label"' not in html and 'name="navn_label"' not in html
+    assert 'name="hpr_nr_synlig"' not in html and 'name="hpr_nr_label"' not in html
+    assert 'name="fornavn_label"' not in html and 'name="etternavn_label"' not in html
     for internt in ("override", "NULL", "rekkefolge</", "kurs_skjemafelt"):
         assert internt not in html
 
@@ -265,8 +266,8 @@ def test_hpr_laasene_kan_ikke_omgaas_med_manipulert_post(con, admin):
 
 def test_laaste_felt_systemblokker_og_ukjent_kan_ikke_injiseres(con, admin):
     kid = _kurs(con)
-    manip = {f"{felt}_{e}": v for felt in ("navn", "epost", "samtykke", "allergier", "tilrettelegging", "betaler",
-                                           "faktura", "eget_felt")
+    manip = {f"{felt}_{e}": v for felt in ("navn", "fornavn", "etternavn", "epost", "samtykke", "allergier",
+                                           "tilrettelegging", "betaler", "faktura", "eget_felt")
              for e, v in (("synlig", ""), ("obligatorisk", "on"), ("label", "HACK"), ("hjelpetekst", "HACK"))}
     manip |= {"felt": "navn", "egenskap": "label", "telefon_placeholder": "HACK", "telefon_type": "email",
               "kurs_id": "1", "oppdatert_av": "HACK"}
@@ -442,7 +443,8 @@ def test_admin_til_offentlig_skjema_til_post(con, admin):
     html = k.get("/kurs/A1").get_data(as_text=True)
     assert '<label for="f-telefon">Mobilnummer *</label>' in html and "Nummer vi kan nå deg på" in html
     assert 'name="arbeidssted"' not in html
-    basis = {"navn": "Test Person", "epost": "test@eksempel.no", "samtykke": "on", "arbeidssted": "MANIPULERT"}
+    basis = {"fornavn": "Test", "etternavn": "Person", "epost": "test@eksempel.no", "samtykke": "on",
+             "arbeidssted": "MANIPULERT"}
     r = k.post("/kurs/A1", data=basis)
     assert r.status_code == 400 and "Fyll inn «Mobilnummer»." in r.get_data(as_text=True)
     assert con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0] == 0

@@ -18,6 +18,7 @@ from kurs import config, db, sveiper
 from kurs.feil import sikker_feiltekst
 from kurs.integrasjoner import epost, visma
 from kurs.kjoring import Kjoring
+from navnehjelp import navnedeler
 
 IDAG = date(2027, 3, 1)
 EPOST = "kari.nordmann@example.no"
@@ -48,7 +49,7 @@ def _kurs(con, start=IDAG, **kw):
 
 
 def _meld(con, kid, epost_="a@x.no", navn="A", **kw):
-    pid, _ = db.meld_paa(con, kid, epost=epost_, navn=navn, **kw)
+    pid, _ = db.meld_paa(con, kid, epost=epost_, **navnedeler(navn), **kw)
     con.commit()
     return pid
 
@@ -547,7 +548,7 @@ def test_forfalte_delfakturaer_retryer_feilet_men_aldri_ukjent(con, monkeypatch,
 # ==================== RETTELSE 5 / T10: sveiper_utsatt ====================
 
 def _holdt(con, kid, **kw):
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A", paamelding={"kilde": "admin", "sveiper_utsatt": 1},
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", paamelding={"kilde": "admin", "sveiper_utsatt": 1},
                          aktor="admin:test", tillat_utkast=True, **kw)
     con.commit()
     return pid

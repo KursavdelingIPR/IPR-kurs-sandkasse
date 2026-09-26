@@ -10,8 +10,9 @@ from datetime import date, timedelta
 import pytest
 
 from kurs import config, db
+from navnehjelp import personskjema
 
-NY = "/admin/kurs/{kid}/deltaker/ny"
+NY ="/admin/kurs/{kid}/deltaker/ny"
 BEHANDLE = "/admin/kurs/{kid}/deltaker/{pid}/behandle"
 PROFIL = "/admin/kurs/{kid}/deltaker/{pid}"
 DELTAKERE = "/admin/kurs/{kid}/deltakere"
@@ -47,9 +48,9 @@ def _antall_mail(con):
 
 
 def _skjema(**over):
-    return {"navn": "Kari Nordmann", "epost": "kari@x.no", "telefon": "99999999",
-            "yrkestittel": "Psykolog", "arbeidssted": "Klinikk AS", "hpr_nr": "1234567",
-            "betaler": "person", **over}
+    return personskjema({"navn": "Kari Nordmann", "epost": "kari@x.no", "telefon": "99999999",
+                         "yrkestittel": "Psykolog", "arbeidssted": "Klinikk AS", "hpr_nr": "1234567",
+                         "betaler": "person", **over})
 
 
 def _hent_pid(con, epost="kari@x.no"):
@@ -116,7 +117,7 @@ def test_full_flyt_bekreftet_deltaker(con):
 
 def test_full_flyt_venteliste_deltaker(con):
     kid = _kurs(con, kapasitet=1, pris_nok=1000, fakturering="person")
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
     con.commit()
     klient = _klient()
     _logg_inn(klient)
@@ -201,7 +202,7 @@ def test_paameldingsfrist_blokkerer_offentlig_men_ikke_admin(con):
     klient = _klient()
 
     offentlig = klient.post(f"/kurs/FRIST1", data={
-        "navn": "Ute Nordmann", "epost": "ute@x.no", "samtykke": "on",
+        "fornavn": "Ute", "etternavn": "Nordmann", "epost": "ute@x.no", "samtykke": "on",
     })
     assert offentlig.status_code == 400
     assert con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0] == 0
@@ -217,7 +218,7 @@ def test_paameldingsfrist_blokkerer_offentlig_men_ikke_admin(con):
 def test_eksisterende_person_gjenbrukes_og_tidligere_avmeldt_reaktiveres(con):
     kid1 = _kurs(con, "K1")
     kid2 = _kurs(con, "K2")
-    pid_gammel, _ = db.meld_paa(con, kid1, epost="kari@x.no", navn="Kari Nordmann")
+    pid_gammel, _ = db.meld_paa(con, kid1, epost="kari@x.no", fornavn="Kari", etternavn="Nordmann")
     con.execute("UPDATE paamelding SET sveiper_kjort=1, sveiper_utsatt=1, kilde='skjema' WHERE id=?", (pid_gammel,))
     db.meld_av(con, pid_gammel)  # tidligere avmeldt paa kurs 1
     antall_deltakere_foer = con.execute("SELECT COUNT(*) FROM deltaker").fetchone()[0]
@@ -273,7 +274,7 @@ def test_samlet_personvernkontroll_hendelseslogg(con):
 
     # offentlig paamelding med sensitive data og organisasjon som betaler
     klient.post("/kurs/PV1", data={
-        "navn": "Fyller Kapasitet", "epost": "fyller@sensitiv-domene.no", "telefon": "90000000",
+        "fornavn": "Fyller", "etternavn": "Kapasitet", "epost": "fyller@sensitiv-domene.no", "telefon": "90000000",
         "samtykke": "on", "allergier": "Skalldyrallergi", "tilrettelegging": "Rullestol",
     })
 

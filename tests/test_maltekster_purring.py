@@ -261,7 +261,7 @@ def test_jkl_korrupt_mal_gir_ingen_mail_ingen_claim_trygg_logg(con, ut, monkeypa
 def _gammelt_kurs_med_sensitivt(con):
     kid = db.opprett_kurs(con, kode="GAMMEL", navn="Gammelt kurs", datoer=["2026-01-10"], sharepoint_mappe="Kurs/G",
                           type="fysisk", sted="Oslo")
-    pid, _ = db.meld_paa(con, kid, epost="gammel@x.no", navn="Gammel",
+    pid, _ = db.meld_paa(con, kid, epost="gammel@x.no", fornavn="Gammel", etternavn="Test",
                         sensitivt={"allergier": "nøtter", "tilrettelegging": "rullestol"})
     con.commit()
     assert con.execute("SELECT COUNT(*) FROM sensitivt").fetchone()[0] == 1
@@ -391,7 +391,7 @@ def test_q_direkte_render_uten_db_bruker_standardtekst(con, monkeypatch):
 def test_r_override_paavirker_ikke_andre_maler(con, ut):
     _lagre(con, "innledning", "PURRING-SPESIFIKK TEKST {navn}")
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="Ola")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="Ola", etternavn="Test")
     con.commit()
     from kurs import sveiper
     sveiper.kjor(Kjoring(con, idag=IDAG), pid)

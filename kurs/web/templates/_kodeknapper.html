@@ -1,0 +1,10 @@
+{#- Klikkbare flettefelt under et tekstfelt: et klikk setter koden inn der markøren står i feltet med id `felt_id`
+    (static/app.js, data-sett-inn). Brukes i e-post til deltakere og i redigeringen av e-postmalene. -#}
+{% macro kodeknapper(felt_id, koder, kodeinfo, systemkoder=()) -%}
+<div class="kodeknapper" role="group" aria-label="Flettefelt – klikk for å sette inn i teksten">
+  {%- for kode in koder %}
+  <button type="button" class="kodeknapp" data-sett-inn="{{ '{' ~ kode ~ '}' }}" data-felt="{{ felt_id }}"
+          title="Sett inn {{ '{' ~ kode ~ '}' }} der markøren står"><code>{{ '{' ~ kode ~ '}' }}</code> {{ kodeinfo[kode].navn }}{% if kode in systemkoder %} (systemgenerert){% endif %}</button>
+  {%- endfor %}
+</div>
+{%- endmacro %}

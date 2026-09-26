@@ -18,6 +18,7 @@ from kurs import config, db, maltekster
 from kurs.integrasjoner import epost
 from kurs.kjoring import Kjoring
 from kurs.maltekster import DB_LESEFEIL, MALER, TOM, UKJENT_FELT, UKJENT_KODE, MalFeil
+from navnehjelp import gruppeskjema, navnedeler
 
 STD_EMNE = "Bedriftspåmelding til Testkurs – kvittering"
 
@@ -60,7 +61,7 @@ def _grunnlag(**over):
         "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on",
     }
     data.update(over)
-    return data
+    return gruppeskjema(data)       # fullt navn i testdataene -> skjemaets egne fornavn-/etternavn-felt
 
 
 def _post(klient, kode, follow_redirects=True, **over):
@@ -87,7 +88,8 @@ def _kvittering(config_, til="kari.hr@firma.no"):
 
 def _direkte_data(navn="Kari HR", kursnavn="Testkurs", firmanavn="Firma AS", antall_totalt=1,
                   antall_bekreftet=1, antall_venteliste=0, antall_feilet=0, kvittering_url="/x"):
-    return dict(kontakt={"navn": navn, "firmanavn": firmanavn}, kurs={"navn": kursnavn, "fakturering": "person",
+    return dict(kontakt={"navn": navn, "fornavn": navnedeler(navn)["fornavn"], "firmanavn": firmanavn},
+                kurs={"navn": kursnavn, "fakturering": "person",
                 "pris_nok": 1000}, antall_totalt=antall_totalt, antall_bekreftet=antall_bekreftet,
                 antall_venteliste=antall_venteliste, antall_feilet=antall_feilet, kvittering_url=kvittering_url)
 
@@ -101,9 +103,10 @@ def test_firmapaamelding_kvittering_er_aktivert():
 
 def test_verdibygger_eksponerer_kun_navn_kursnavn_firmanavn_og_antall_deltakere():
     verdier = maltekster._firmapaamelding_kvittering_verdier(
-        {"kontakt": {"navn": "Kari", "firmanavn": "Firma AS", "epost": "kari@x.no"},
+        {"kontakt": {"navn": "Kari HR", "fornavn": "Kari", "firmanavn": "Firma AS", "epost": "kari@x.no"},
          "kurs": {"navn": "K", "pris_nok": 1500}, "antall_totalt": 3})
-    assert verdier == {"navn": "Kari", "kursnavn": "K", "firmanavn": "Firma AS", "antall_deltakere": "3 deltakere"}
+    assert verdier == {"fornavn": "Kari", "navn": "Kari HR", "kursnavn": "K", "firmanavn": "Firma AS",
+                       "antall_deltakere": "3 deltakere"}
     tillatt = set().union(*(f.kode for f in MALER["firmapaamelding_kvittering"].felt.values())) - maltekster.SYSTEMKODER
     assert tillatt == set(verdier)
 
@@ -111,7 +114,7 @@ def test_verdibygger_eksponerer_kun_navn_kursnavn_firmanavn_og_antall_deltakere(
 @pytest.mark.parametrize("antall,tekst", [(0, "0 deltakere"), (1, "1 deltaker"), (2, "2 deltakere")])
 def test_antall_deltakere_bruker_norsk_entall_flertall(antall, tekst):
     verdier = maltekster._firmapaamelding_kvittering_verdier(
-        {"kontakt": {"navn": "K", "firmanavn": "F"}, "kurs": {"navn": "K"}, "antall_totalt": antall})
+        {"kontakt": {"navn": "K", "fornavn": "K", "firmanavn": "F"}, "kurs": {"navn": "K"}, "antall_totalt": antall})
     assert verdier["antall_deltakere"] == tekst
 
 
@@ -134,7 +137,7 @@ def test_A_uten_override_er_identisk_med_dagens_standardtekst(con):
     url = f"/kurs/T1/gruppe/kvittering/{token}"
     assert _n(html) == _n(epost.render("firmapaamelding_kvittering", **_direkte_data(kvittering_url=url))[1])
     h = _n(html)
-    assert "<p>Hei Kari HR,</p>" in h
+    assert "<p>Hei Kari,</p>" in h                                   # standardhilsenen bruker kontaktpersonens fornavn
     assert "Takk for påmeldingen av 1 deltaker fra Firma AS til <strong>Testkurs</strong>." in h
     assert "<li>1 fikk bekreftet plass</li>" in h
     assert "Full oversikt:" in h

@@ -12,6 +12,7 @@ import pytest
 from kurs import config, db, kursbevis
 from kurs.integrasjoner import epost
 from kurs.kjoring import Kjoring
+from navnehjelp import navnedeler
 
 IDAG = date(2027, 6, 1)
 
@@ -51,7 +52,7 @@ def _deltaker(con, kid, navn="Ola Nordmann", epost_="ola@x.no", moter=None):
     """Melder paa og registrerer oppmote paa de angitte kursdagene (default: alle)."""
     status = con.execute("SELECT status FROM kurs WHERE id=?", (kid,)).fetchone()[0]
     con.execute("UPDATE kurs SET status='aapen' WHERE id=?", (kid,))          # paamelding krever apent kurs
-    pid, _ = db.meld_paa(con, kid, epost=epost_, navn=navn)
+    pid, _ = db.meld_paa(con, kid, epost=epost_, **navnedeler(navn))
     con.execute("UPDATE kurs SET status=? WHERE id=?", (status, kid))          # ... saa settes den reelle statusen
     dager = db.kursdager(con, kid)
     for dag in (dager if moter is None else [dager[i] for i in moter]):

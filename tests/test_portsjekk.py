@@ -18,7 +18,9 @@ def test_ledig_port_gir_0(capsys):
 def test_opptatt_port_gir_1_og_forklaring_uten_aa_roere_prosessen(capsys):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
-        s.listen(1)
+        # Plass til flere ventende tilkoblinger: testen kaller aldri accept(), og hver portsjekk er en tilkobling. Med
+        # listen(1) er koeen full etter foerste sjekk, og paa Windows slipper da neste sjekk ikke gjennom (porten ser ledig ut).
+        s.listen(5)
         port = s.getsockname()[1]
         assert portsjekk.main([str(port)]) == 1
         ut = capsys.readouterr().out

@@ -84,8 +84,8 @@ def test_alle_fremmednokler_og_cascade_finnes(con):
 
 def test_citext_gir_case_insensitiv_epost_og_mottaker(con):
     kid = _kurs(con)
-    did = db.finn_eller_opprett_deltaker(con, "Kari@Eksempel.NO", "Kari")
-    assert db.finn_eller_opprett_deltaker(con, "kari@eksempel.no", "Kari") == did
+    did = db.finn_eller_opprett_deltaker(con, "Kari@Eksempel.NO", "Kari", "Test")
+    assert db.finn_eller_opprett_deltaker(con, "kari@eksempel.no", "Kari", "Test") == did
     assert con.execute("SELECT id FROM deltaker WHERE epost=?", ("KARI@EKSEMPEL.NO",)).fetchone()["id"] == did
     with pytest.raises(db.IntegritetsFeil):
         con.execute("INSERT INTO deltaker (epost, navn) VALUES (?,?)", ("KARI@eksempel.no", "Dublett"))
@@ -107,7 +107,7 @@ def test_admin_brukernavn_er_case_insensitivt(con):
 
 def test_unik_faktura_ogsaa_for_samlet_faktura_null_kursdag(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.execute("INSERT INTO faktura (paamelding_id, kursdag_id, belop_nok) VALUES (?, NULL, 1000)", (pid,))
     con.commit()
     with pytest.raises(db.IntegritetsFeil):   # COALESCE(kursdag_id, 0) i indeksen: NULL != NULL hjelper ikke
@@ -119,7 +119,7 @@ def test_unik_faktura_ogsaa_for_samlet_faktura_null_kursdag(con):
 
 def test_on_conflict_do_nothing_og_upsert(con):
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A", sensitivt={"allergier": "Nøtter"})
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test", sensitivt={"allergier": "Nøtter"})
     db.oppdater_sensitivt(con, pid, "Gluten", None)
     rad = con.execute("SELECT * FROM sensitivt WHERE paamelding_id=?", (pid,)).fetchone()
     assert (rad["allergier"], rad["tilrettelegging"]) == ("Gluten", None)
@@ -146,7 +146,7 @@ def test_cascade_sletter_kursdager_og_skjemafelt_men_paamelding_stopper(con):
     assert con.execute("SELECT COUNT(*) FROM kurs_skjemafelt WHERE kurs_id=?", (kid,)).fetchone()[0] == 0
     con.rollback()
     kid = _kurs(con, "C")
-    db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     with pytest.raises(db.IntegritetsFeil):      # paamelding.kurs_id har INGEN cascade - historikk beskyttes
         con.execute("DELETE FROM kurs WHERE id=?", (kid,))
     con.rollback()
@@ -157,10 +157,10 @@ def test_transaksjon_rollback_og_savepoint(con):
     con.commit()
     with pytest.raises(RuntimeError):
         with db.transaksjon(con):
-            db.meld_paa(con, kid, epost="a@x.no", navn="A")
+            db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
             raise RuntimeError("avbryt")
     assert con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0] == 0
-    db.meld_paa(con, kid, epost="b@x.no", navn="B")
+    db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")
     with pytest.raises(db.DatabaseFeil):
         with db.isolert(con):
             con.execute("SELECT * FROM finnes_ikke")
@@ -204,8 +204,8 @@ def test_typesikkerhet_bool_dato_og_datetime_lagres_som_i_sqlite(con):
 
 def test_null_semantikk_group_by_having_og_string_agg(con):
     kid = _kurs(con)
-    a, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
-    b, _ = db.meld_paa(con, kid, epost="b@x.no", navn="B", deltaker={"arbeidssted": "BUP"})
+    a, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
+    b, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test", deltaker={"arbeidssted": "BUP"})
     con.execute("INSERT INTO faktura (paamelding_id, kursdag_id, faktura_nr, belop_nok) VALUES (?, NULL, 'F1', 500)", (a,))
     dag = db.kursdager(con, kid)
     con.execute("INSERT INTO faktura (paamelding_id, kursdag_id, faktura_nr, belop_nok) VALUES (?, ?, 'F2', 500)",
@@ -250,7 +250,7 @@ def test_concurrent_claims_med_to_ekte_tilkoblinger(con):
     """To uavhengige forbindelser (som to gunicorn-workere) om samme e-postclaim: akkurat én vinner, og taperen blokkeres
     ikke for alltid - claimen committes umiddelbart av vinneren."""
     kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="a@x.no", navn="A")
+    pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")
     con.commit()
     annen = db.koble()
     try:

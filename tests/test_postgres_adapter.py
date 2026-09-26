@@ -99,9 +99,12 @@ def _pg(svar=None):
 
 
 def _alt_finnes(sql, p):
-    """Alt «finnes» allerede - men det er ingen gamle kursbevisfiler aa flytte (migrering 4 leser dokument-rader)."""
+    """Alt «finnes» allerede - men det er ingen gamle kursbevisfiler aa flytte (migrering 4 leser dokument-rader),
+    og ingen navn som venter paa aa bli delt i fornavn og etternavn (migrering 7 leser navn-rader)."""
     if "FROM dokument" in sql:
         return FalskMarkor([], description=[("id",), ("url",)])
+    if "AS navn FROM" in sql:
+        return FalskMarkor([], description=[("id",), ("navn",)])
     return FalskMarkor([_rad(x=1)], description=[("x",)])
 
 

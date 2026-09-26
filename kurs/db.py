@@ -625,9 +625,16 @@ def antall_bekreftet(con, kurs_id: int) -> int:
 
 # ---------- deltakere / paamelding ----------
 
-def finn_eller_opprett_deltaker(con, epost: str, navn: str, *, beskytt_eksisterende_felt: bool = False,
+def fullt_navn(fornavn: str | None, etternavn: str | None) -> str:
+    """Fullt navn slik det lagres i `navn`/`kontakt_navn` og vises: «fornavn etternavn» (en tom del utelates). ENESTE sted
+    navnet settes sammen - kursbevis, lister, fakturaer, sok og Zoom-oppmote leser `navn` som foer."""
+    return " ".join(d for d in ((fornavn or "").strip(), (etternavn or "").strip()) if d)
+
+
+def finn_eller_opprett_deltaker(con, epost: str, fornavn: str, etternavn: str, *, beskytt_eksisterende_felt: bool = False,
                                 **felter) -> int:
-    """Finner eller oppretter en deltaker (person) paa e-post.
+    """Finner eller oppretter en deltaker (person) paa e-post. Fornavn og etternavn er paakrevd og lagres hver for seg;
+    `navn` settes av fullt_navn(). Navnet til en person som finnes fra foer, endres ikke herfra (kun i deltakervinduet).
 
     `beskytt_eksisterende_felt` styrer hva som skjer naar personen ALLEREDE finnes og et felt i
     `felter` har en verdi som er ULIK det som staar der fra for:
@@ -638,6 +645,9 @@ def finn_eller_opprett_deltaker(con, epost: str, navn: str, *, beskytt_eksistere
         er registrert (f.eks. fase 10 sin CSV-import, som kan vaere en gammel Excel-fil) - de skal
         aldri kunne overskrive noe en admin/deltaker har registrert senere andre steder.
     """
+    fornavn, etternavn = (fornavn or "").strip(), (etternavn or "").strip()
+    if not (fornavn and etternavn):
+        raise Paameldingsfeil("Fyll inn både fornavn og etternavn.")
     epost = epost.strip().lower()
     rad = con.execute("SELECT * FROM deltaker WHERE epost=?", (epost,)).fetchone()
     if rad:
@@ -651,10 +661,10 @@ def finn_eller_opprett_deltaker(con, epost: str, navn: str, *, beskytt_eksistere
                 [*oppdater.values(), rad["id"]],
             )
         return rad["id"]
-    kolonner = ["epost", "navn", *felter.keys()]
+    kolonner = ["epost", "navn", "fornavn", "etternavn", *felter.keys()]
     return sett_inn(
         con, f"INSERT INTO deltaker ({','.join(kolonner)}) VALUES ({','.join('?' * len(kolonner))})",
-        [epost, navn.strip(), *felter.values()],
+        [epost, fullt_navn(fornavn, etternavn), fornavn, etternavn, *felter.values()],
     )
 
 
@@ -687,8 +697,14 @@ def oppdater_deltaker(con, deltaker_id: int, felter: dict, aktor: str = "admin")
         if opptatt:
             raise DeltakerFeil("E-postadressen er allerede i bruk av en annen deltaker.")
         felter = {**felter, "epost": epost}
-    if "navn" in felter and not (felter["navn"] or "").strip():
-        raise DeltakerFeil("Navn kan ikke være tomt.")
+    if "navn" in felter:
+        raise DeltakerFeil("Fullt navn settes automatisk fra fornavn og etternavn.")
+    if "fornavn" in felter or "etternavn" in felter:
+        fornavn = (felter.get("fornavn", gammel["fornavn"]) or "").strip()
+        etternavn = (felter.get("etternavn", gammel["etternavn"]) or "").strip()
+        if not (fornavn and etternavn):
+            raise DeltakerFeil("Fyll inn både fornavn og etternavn.")
+        felter = {**felter, "fornavn": fornavn, "etternavn": etternavn, "navn": fullt_navn(fornavn, etternavn)}
 
     endret = [felt for felt, verdi in felter.items() if (gammel[felt] or "") != (verdi or "")]
     if not endret:
@@ -940,7 +956,7 @@ def gjenaapne_kurs(con, kurs_id: int, aktor: str = "admin") -> None:
     logg(con, "kurs_gjenaapnet", {"kurs_id": kurs_id}, aktor=aktor)
 
 
-def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None = None,
+def meld_paa(con, kurs_id: int, *, epost: str, fornavn: str, etternavn: str, deltaker: dict | None = None,
              paamelding: dict | None = None, sensitivt: dict | None = None, idag: date | None = None,
              aktor: str | None = None, tillat_utkast: bool = False, ignorer_frist: bool = False,
              beskytt_eksisterende_felt: bool = False) -> tuple[int, str]:
@@ -966,7 +982,7 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
         raise Paameldingsfeil(f"Påmeldingsfristen ({kurs['paameldingsfrist']}) er passert.")
 
     deltaker_id = finn_eller_opprett_deltaker(
-        con, epost, navn, beskytt_eksisterende_felt=beskytt_eksisterende_felt, **(deltaker or {}))
+        con, epost, fornavn, etternavn, beskytt_eksisterende_felt=beskytt_eksisterende_felt, **(deltaker or {}))
     finnes = con.execute(
         "SELECT id, status, avslatt_ts FROM paamelding WHERE kurs_id=? AND deltaker_id=?", (kurs_id, deltaker_id)
     ).fetchone()
@@ -1014,7 +1030,8 @@ def meld_paa(con, kurs_id: int, *, epost: str, navn: str, deltaker: dict | None 
     return pid, status
 
 
-ANONYM_NAVN = "Anonymisert deltaker"
+ANONYM_FORNAVN, ANONYM_ETTERNAVN = "Anonymisert", "deltaker"
+ANONYM_NAVN = fullt_navn(ANONYM_FORNAVN, ANONYM_ETTERNAVN)
 ANONYM_DOMENE = "anonymisert.invalid"        # .invalid er reservert (RFC 2606) - kan aldri bli en ekte adresse
 
 
@@ -1039,8 +1056,9 @@ def anonymiser_deltaker(con, deltaker_id: int, aktor: str) -> dict:
         raise DeltakerFeil("Personen har aktive påmeldinger. Meld av (eller vent til kurset er avsluttet) først.")
     gammel, ny = d["epost"], f"anonymisert-{deltaker_id}@{ANONYM_DOMENE}"
     ut = {}
-    con.execute("""UPDATE deltaker SET navn=?, epost=?, telefon=NULL, arbeidssted=NULL, yrkestittel=NULL, hpr_nr=NULL
-                   WHERE id=?""", (ANONYM_NAVN, ny, deltaker_id))
+    con.execute("""UPDATE deltaker SET navn=?, fornavn=?, etternavn=?, epost=?, telefon=NULL, arbeidssted=NULL,
+                   yrkestittel=NULL, hpr_nr=NULL WHERE id=?""",
+                (ANONYM_NAVN, ANONYM_FORNAVN, ANONYM_ETTERNAVN, ny, deltaker_id))
     ut["paameldinger"] = con.execute(
         """UPDATE paamelding SET faktura_epost=NULL, faktura_adresse=NULL, faktura_postnr=NULL, faktura_sted=NULL,
                   faktura_ref=NULL, faktura_kommentar=NULL, intern_kommentar=NULL, oppdatert=? WHERE deltaker_id=?""",
@@ -1056,8 +1074,9 @@ def anonymiser_deltaker(con, deltaker_id: int, aktor: str) -> dict:
     ut["firmarader"] = con.execute("UPDATE firmapaamelding_rad SET navn=?, epost=? WHERE LOWER(epost)=LOWER(?)",
                                    (ANONYM_NAVN, ny, gammel)).rowcount
     ut["firmakontakt"] = con.execute(
-        """UPDATE firmapaamelding SET kontakt_navn=?, kontakt_epost=?, kontakt_telefon=NULL
-           WHERE LOWER(kontakt_epost)=LOWER(?)""", (ANONYM_NAVN, ny, gammel)).rowcount
+        """UPDATE firmapaamelding SET kontakt_navn=?, kontakt_fornavn=?, kontakt_etternavn=?, kontakt_epost=?,
+                  kontakt_telefon=NULL WHERE LOWER(kontakt_epost)=LOWER(?)""",
+        (ANONYM_NAVN, ANONYM_FORNAVN, ANONYM_ETTERNAVN, ny, gammel)).rowcount
     ut["henvendelser"] = con.execute(
         "UPDATE henvendelse SET epost=NULL, sporsmal='(slettet)' WHERE deltaker_id=? OR LOWER(epost)=LOWER(?)",
         (deltaker_id, gammel)).rowcount
@@ -1129,10 +1148,12 @@ def finn_eller_opprett_firmapaamelding(con, kurs_id: int, kontakt: dict, deltake
         return finnes, False
     try:
         ny_id = sett_inn(
-            con, """INSERT INTO firmapaamelding (kurs_id, innsendingsnokkel, kvittering_token, kontakt_navn, kontakt_epost,
-               kontakt_telefon, firmanavn, org_nr, faktura_ref, faktura_adresse, faktura_postnr, faktura_sted, ehf)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (kurs_id, nokkel, secrets.token_urlsafe(32), kontakt["navn"], kontakt["epost"], kontakt.get("telefon"),
+            con, """INSERT INTO firmapaamelding (kurs_id, innsendingsnokkel, kvittering_token, kontakt_navn, kontakt_fornavn,
+               kontakt_etternavn, kontakt_epost, kontakt_telefon, firmanavn, org_nr, faktura_ref, faktura_adresse,
+               faktura_postnr, faktura_sted, ehf)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (kurs_id, nokkel, secrets.token_urlsafe(32), fullt_navn(kontakt["fornavn"], kontakt["etternavn"]),
+             kontakt["fornavn"], kontakt["etternavn"], kontakt["epost"], kontakt.get("telefon"),
              kontakt["firmanavn"], kontakt.get("org_nr"), kontakt.get("faktura_ref"), kontakt.get("faktura_adresse"),
              kontakt.get("faktura_postnr"), kontakt.get("faktura_sted"), 1 if kontakt.get("ehf") else 0))
         con.commit()
@@ -1404,7 +1425,7 @@ def opprett_admin_utsending(con, kurs_id: int, emne: str, tekst: str, mottaker_p
 def admin_utsending_mottakere(con, utsending_id: int) -> list[sqlite3.Row]:
     """Den FASTSATTE mottakerlisten for en utsendelse - uavhengig av hva som evt. postes inn senere."""
     return con.execute(
-        """SELECT p.id, d.navn, d.epost FROM admin_utsending_mottaker m
+        """SELECT p.id, d.navn, d.fornavn, d.epost FROM admin_utsending_mottaker m
            JOIN paamelding p ON p.id=m.paamelding_id JOIN deltaker d ON d.id=p.deltaker_id
            WHERE m.utsending_id=?""", (utsending_id,)).fetchall()
 

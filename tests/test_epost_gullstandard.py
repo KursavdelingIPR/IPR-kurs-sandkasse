@@ -43,7 +43,7 @@ KURS = {"navn": "Veiledning i praksis", "type": "fysisk", "sted": "Oslo", "start
         "zoom_url": None, "zoom_id": None, "zoom_pw": None}
 DAG1 = {"dato": "2027-03-01", "start_kl": None, "slutt_kl": None}
 DAG2 = {"dato": "2027-03-02", "start_kl": "10:00", "slutt_kl": "12:30"}
-DELTAKER = {"navn": "Ola Nordmann", "betaling": "samlet", "betaler": "person", "org_navn": None}
+DELTAKER = {"navn": "Ola Nordmann", "fornavn": "Ola", "betaling": "samlet", "betaler": "person", "org_navn": None}
 
 
 def _kurs(**over):
@@ -56,7 +56,7 @@ def _kurs(**over):
     ("bekreftelse", dict(p=DELTAKER, kurs=KURS, dager=[DAG1], faktura_plan=FakturaPlan(PLAN_NA))),
     ("venteliste", dict(p=DELTAKER, kurs=KURS)),
     ("avlysning", dict(d=DELTAKER, kurs=KURS)),
-    ("kursbevis_klar", dict(navn="Ola Nordmann", kurs=KURS)),
+    ("kursbevis_klar", dict(navn="Ola Nordmann", fornavn="Ola", kurs=KURS)),
 ])
 def test_alle_maler_har_felles_ramme_med_signatur_og_min_side_lenke(mal, data):
     emne, html = _render(mal, **data)
@@ -70,7 +70,7 @@ def test_alle_maler_har_felles_ramme_med_signatur_og_min_side_lenke(mal, data):
 def test_bekreftelse_emne_hilsen_og_kursdager():
     emne, html = _render_bek(p=DELTAKER, kurs=KURS, dager=[DAG1, DAG2])
     assert emne == "Bekreftelse: Veiledning i praksis"
-    assert "<p>Hei Ola Nordmann,</p>" in html
+    assert "<p>Hei Ola,</p>" in html
     assert "Takk for påmeldingen! Du har fått plass på <strong>Veiledning i praksis</strong>." in html
     assert "<li>2027-03-01 kl. 09:00–15:00</li>" in html          # dagens tider arves fra kurset
     assert "<li>2027-03-02 kl. 10:00–12:30</li>" in html          # egne tider pa kursdagen
@@ -144,7 +144,7 @@ def test_bekreftelse_uten_faktureringstekst_naar_planen_er_ingen(kurs_over):
 
 
 def test_bekreftelse_escaper_deltaker_og_kursnavn():
-    _, html = _render_bek(p={**DELTAKER, "navn": "<script>alert(1)</script> & Co"},
+    _, html = _render_bek(p={**DELTAKER, "navn": "<script>alert(1)</script> & Co", "fornavn": "<script>alert(1)</script> & Co"},
                       kurs=_kurs(navn="Kurs A & B <x>"), dager=[DAG1])
     assert "<script>" not in html and "&lt;script&gt;alert(1)&lt;/script&gt; &amp; Co" in html
     assert "<strong>Kurs A &amp; B &lt;x&gt;</strong>" in html
@@ -155,7 +155,7 @@ def test_bekreftelse_escaper_deltaker_og_kursnavn():
 def test_venteliste_emne_og_tekst():
     emne, html = _render("venteliste", p=DELTAKER, kurs=KURS)
     assert emne == "Venteliste: Veiledning i praksis"
-    assert "<p>Hei Ola Nordmann,</p>" in html
+    assert "<p>Hei Ola,</p>" in html
     assert "<strong>Veiledning i praksis</strong> er dessverre fullt, men du står nå på venteliste." in html
     assert "Blir det en ledig plass, får du automatisk plassen og en bekreftelse på e-post." in html
 
@@ -197,7 +197,7 @@ def test_ukefor_kursnotat_tas_med_og_escapes_kun_naar_det_finnes():
 def test_dagfor_emne_og_setning_per_variant(nr, antall, emne_forventet, setning):
     emne, html = _render("dagfor", d=DELTAKER, kurs=KURS, dag=DAG2, nr=nr, antall=antall)
     assert emne == emne_forventet
-    assert "<p>Hei Ola Nordmann,</p>" in html and setning in html
+    assert "<p>Hei Ola,</p>" in html and setning in html
     assert "Tid: 2027-03-02 kl. 10:00–12:30" in html
 
 
@@ -241,7 +241,7 @@ def test_dagfor_escaper_kursnavn():
 def test_avlysning_emne_og_tekst():
     emne, html = _render("avlysning", d=DELTAKER, kurs=KURS)
     assert emne == "Avlyst: Veiledning i praksis"
-    assert "<p>Hei Ola Nordmann,</p>" in html
+    assert "<p>Hei Ola,</p>" in html
     assert "Vi må dessverre informere om at <strong>Veiledning i praksis</strong> er avlyst." in html
     assert "Har du allerede mottatt faktura, tar kursadministrasjonen kontakt med deg om det videre." in html
     assert f"bruke «Spør oss» på {BASE}/sporsmal." in html
@@ -251,16 +251,16 @@ def test_avlysning_emne_og_tekst():
 # ============================ kursbevis_klar ============================
 
 def test_kursbevis_klar_emne_og_lenke():
-    emne, html = _render("kursbevis_klar", navn="Ola Nordmann", kurs=KURS)
+    emne, html = _render("kursbevis_klar", navn="Ola Nordmann", fornavn="Ola", kurs=KURS)
     assert emne == "Kursbevis: Veiledning i praksis"
-    assert "<p>Hei Ola Nordmann,</p>" in html
+    assert "<p>Hei Ola,</p>" in html
     assert ("Takk for deltakelsen på <strong>Veiledning i praksis</strong>. Kursbeviset ditt ligger nå på "
             '<a href="%s/min-side">Min side</a>.' % BASE) in html
 
 
 # ============================ firmapaamelding_kvittering ============================
 
-KONTAKT = {"navn": "Kari HR", "firmanavn": "Firma AS"}
+KONTAKT = {"navn": "Kari HR", "fornavn": "Kari", "firmanavn": "Firma AS"}
 
 
 def _firma(**over):
@@ -273,7 +273,7 @@ def _firma(**over):
 def test_firma_emne_intro_og_oversiktslenke():
     emne, html = _firma()
     assert emne == "Bedriftspåmelding til Veiledning i praksis – kvittering"
-    assert "<p>Hei Kari HR,</p>" in html
+    assert "<p>Hei Kari,</p>" in html
     assert "Takk for påmeldingen av 3 deltakere fra Firma AS til <strong>Veiledning i praksis</strong>." in html
     assert "<li>3 fikk bekreftet plass</li>" in html
     assert f'<a href="{BASE}/kurs/T1/gruppe/kvittering/tok">{BASE}/kurs/T1/gruppe/kvittering/tok</a>' in html
@@ -301,8 +301,8 @@ def test_firma_faktureringstekst(kurs_over, forventet):
 
 
 def test_firma_escaper_firmanavn():
-    _, html = _firma(kontakt={"navn": "Kari <i>HR</i>", "firmanavn": "A&B <AS>"})
-    assert "<i>" not in html and "A&amp;B &lt;AS&gt;" in html
+    _, html = _firma(kontakt={"navn": "Kari <i>HR</i>", "fornavn": "Kari <i>HR</i>", "firmanavn": "A&B <AS>"})
+    assert "<i>" not in html and "A&amp;B &lt;AS&gt;" in html and "Kari &lt;i&gt;HR&lt;/i&gt;" in html
 
 
 # ============================ purring ============================
@@ -330,8 +330,9 @@ def test_purring_emne_per_variant(igjen, emne_forventet):
 # ============================ laaste maler (ikke redigerbare i v1): kort baseline ============================
 
 def test_laast_innlogging():
-    emne, html = _render("innlogging", navn="Ola Nordmann", lenke="https://x.no/logg-inn/tok")
+    emne, html = _render("innlogging", fornavn="Ola", lenke="https://x.no/logg-inn/tok")
     assert emne == "Logg inn på Min side – IPR Påmeldingssystem"
+    assert "<p>Hei Ola,</p>" in html
     assert "Lenken virker i 30 minutter og kan bare brukes én gang." in html
     assert '<a href="https://x.no/logg-inn/tok"' in html and ">Logg inn</a>" in html
     assert "Ba du ikke om dette? Da kan du se bort fra e-posten." in html
@@ -347,8 +348,13 @@ def test_laast_eskalering():
 def test_laast_admin_melding_escaper_tekst():
     emne, html = _render("admin_melding", emne="Viktig", tekst="Hei <b>alle</b>\nNy linje", d=DELTAKER)
     assert emne == "Viktig"
-    assert "<p>Hei Ola Nordmann,</p>" in html
+    assert "Hei Ola" not in html                                   # ingen automatisk hilsen - admin skriver den selv
     assert "Hei &lt;b&gt;alle&lt;/b&gt;" in html and "Ny linje" in html and "<b>" not in html
+
+
+def test_laast_admin_melding_fletter_inn_mottakerens_navn():
+    _, html = _render("admin_melding", emne="Viktig", tekst="Hei {fornavn},\n\nVelkommen, {navn}!", d=DELTAKER)
+    assert "<p>Hei Ola,</p> <p>Velkommen, Ola Nordmann!</p>" in html
 
 
 def test_linjeskift_i_manuell_epost_blir_ekte_br():
@@ -392,7 +398,7 @@ def _opprett(con, start: date, kode="E1", **kw):
 
 def test_e2e_bekreftelse_via_sveiper(con, sendt):
     kid = _opprett(con, date(2027, 3, 1))
-    pid, _ = db.meld_paa(con, kid, epost="ola@x.no", navn="Ola Nordmann")
+    pid, _ = db.meld_paa(con, kid, epost="ola@x.no", fornavn="Ola", etternavn="Nordmann")
     con.commit()
     sveiper.kjor(Kjoring(con, idag=date(2027, 3, 1)), pid)
     (til, emne, html), = [m for m in sendt if m[1].startswith("Bekreftelse")]
@@ -404,8 +410,8 @@ def test_e2e_bekreftelse_via_sveiper(con, sendt):
 
 def test_e2e_venteliste_via_sveiper(con, sendt):
     kid = _opprett(con, date(2027, 3, 1), kapasitet=1)
-    db.meld_paa(con, kid, epost="forst@x.no", navn="Forst")
-    pid, status = db.meld_paa(con, kid, epost="ola@x.no", navn="Ola Nordmann")
+    db.meld_paa(con, kid, epost="forst@x.no", fornavn="Forst", etternavn="Test")
+    pid, status = db.meld_paa(con, kid, epost="ola@x.no", fornavn="Ola", etternavn="Nordmann")
     assert status == "venteliste"
     con.commit()
     sveiper.kjor(Kjoring(con, idag=date(2027, 3, 1)), pid)
@@ -416,7 +422,7 @@ def test_e2e_venteliste_via_sveiper(con, sendt):
 def test_e2e_ukefor_og_dagfor_via_daglig(con, sendt):
     start = date(2027, 3, 4)
     kid = _opprett(con, start, kode="E2")
-    db.meld_paa(con, kid, epost="ola@x.no", navn="Ola Nordmann")
+    db.meld_paa(con, kid, epost="ola@x.no", fornavn="Ola", etternavn="Nordmann")
     con.commit()
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
     dager = db.kursdager(con, kid)
@@ -451,7 +457,7 @@ def _admin_klient():
 
 def test_e2e_avlysning_via_admin_rute(con, sendt):
     kid = _opprett(con, date.today() + timedelta(days=30), kode="E4")
-    db.meld_paa(con, kid, epost="ola@x.no", navn="Ola Nordmann")
+    db.meld_paa(con, kid, epost="ola@x.no", fornavn="Ola", etternavn="Nordmann")
     con.commit()
     _admin_klient().post(f"/admin/kurs/{kid}/avlys")
     (til, emne, html), = [m for m in sendt if m[0] == "ola@x.no"]
@@ -463,10 +469,11 @@ def test_e2e_firmakvittering_via_gruppe_rute(con, sendt):
     from kurs.web import app as webapp
     _opprett(con, date.today() + timedelta(days=30), kode="E5")
     webapp.app.test_client().post("/kurs/E5/gruppe", data={
-        "kontakt_navn": "Kari HR", "kontakt_epost": "kari.hr@firma.no", "kontakt_telefon": "90000000",
-        "firmanavn": "Firma AS", "org_nr": "999888777", "faktura_ref": "B1",
-        "deltaker_navn": ["Ola Nordmann"], "deltaker_epost": ["ola@firma.no"],
+        "kontakt_fornavn": "Kari", "kontakt_etternavn": "HR", "kontakt_epost": "kari.hr@firma.no",
+        "kontakt_telefon": "90000000", "firmanavn": "Firma AS", "org_nr": "999888777", "faktura_ref": "B1",
+        "deltaker_fornavn": ["Ola"], "deltaker_etternavn": ["Nordmann"], "deltaker_epost": ["ola@firma.no"],
         "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on"})
     (til, emne, html), = [m for m in sendt if m[0] == "kari.hr@firma.no"]
     assert emne == "Bedriftspåmelding til Veiledning i praksis – kvittering"
+    assert "<p>Hei Kari,</p>" in html
     assert "Takk for påmeldingen av 1 deltaker fra Firma AS" in html and "<li>1 fikk bekreftet plass</li>" in html

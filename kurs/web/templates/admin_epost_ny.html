@@ -1,4 +1,5 @@
 {% extends "admin_base.html" %}
+{% from "_kodeknapper.html" import kodeknapper %}
 {% block innhold %}
 <p class="liten"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">← {{ kurs.navn }}</a></p>
 <h1>Send e-post</h1>
@@ -11,13 +12,16 @@
   <label for="f-emne">Emne * <span class="liten dempet">(maks {{ emne_maks }} tegn)</span></label>
   <input id="f-emne" name="emne" required maxlength="{{ emne_maks }}" value="{{ emne }}">
   <label for="f-tekst">Melding * <span class="liten dempet">(maks {{ tekst_maks }} tegn)</span></label>
-  <textarea id="f-tekst" name="tekst" rows="8" required maxlength="{{ tekst_maks }}">{{ tekst }}</textarea>
+  <textarea id="f-tekst" name="tekst" rows="8" required maxlength="{{ tekst_maks }}" aria-describedby="hjelp-tekst">{{ tekst }}</textarea>
+  <p id="hjelp-tekst" class="liten dempet" style="margin:8px 0 4px">Det legges ikke til noen hilsen automatisk. Skriv for eksempel
+    «Hei {fornavn},» der du vil ha den – hver mottaker får sitt eget navn. Klikk på et flettefelt for å sette det inn der markøren står:</p>
+  {{ kodeknapper("f-tekst", manuelle_koder, koder) }}
   <p style="margin-top:16px"><button class="liten sekundar">{{ 'Oppdater forhåndsvisning' if forhandsvisning else 'Forhåndsvis' }}</button></p>
 </form>
 
 {% if forhandsvisning %}
 <h2>Forhåndsvisning for {{ forhandsvisning.eksempel_navn }}</h2>
-<p class="liten dempet">Hver mottaker får e-posten med sitt eget navn – dette er kun eksempelet du ser her.</p>
+<p class="liten dempet">Hver mottaker får sitt eget fornavn og navn der du har brukt flettefeltene – dette er eksempelet du ser her.</p>
 {% if mottakere|length > 1 %}
 <form method="post" action="{{ url_for('admin_epost_forhandsvis', kurs_id=kurs.id) }}" style="margin-bottom:10px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
