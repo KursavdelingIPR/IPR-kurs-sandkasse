@@ -56,6 +56,12 @@ er kjente begrensninger. Teknisk detaljnivå; personvern/GDPR-sjekklisten står 
   hvert bruk og må overleve omstart. Databasen er kryptert på disk i Azure og har tilgangsstyring, men en databasedump
   inneholder tokenet. Lekker en dump: trekk tilbake tilgangen i Visma og hent nytt token (`OPERATIONS.md`, avsnitt 6).
   Alternativet (Key Vault med skrivetilgang for appen) krever mer oppsett og er vurdert som en senere forbedring.
+- **Visma Business NXT (fase 1) leser bare.** Tilgangstokenet bes om med scopet
+  `business-graphql-service-api:access-group-based-readonly` (fast i koden), alle GraphQL-dokumentene er faste
+  spørringer (en sperre avviser alt som ikke begynner med «query» eller inneholder «mutation»), og fakturanumre sendes
+  bare som variabler. `BNXT_CLIENT_SECRET` ligger bare i miljøvariabel/Key Vault og sendes i Basic Auth-hodet;
+  tilgangstokenet holdes bare i minnet (klient-legitimasjon har ikke refresh-token) og skrives aldri til databasen,
+  loggen eller feilmeldinger. Tjenesten bør i tillegg ha en tilgangsgruppe i Business NXT som bare kan lese.
 - **Samtidighetskontrollen** dekker vinduet mens et skjema står åpent (minutter), ikke de få millisekundene mellom
   kontroll og lagring i samme forespørsel.
 

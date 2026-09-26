@@ -47,6 +47,9 @@ I Azure settes alt som App Settings på web-appen. Hemmelige verdier legges i Ke
 | `VISMA_CLIENT_ID` | – | påkrevd for fakturering | | Visma-produktet er **ikke avklart** (se `kurs/integrasjoner/visma.py`) |
 | `VISMA_CLIENT_SECRET`, `VISMA_REFRESH_TOKEN` | – | påkrevd for fakturering | ✔ | Refresh-tokenet er bare **startverdien**; det roterer og lagres deretter i databasen (`integrasjon_token`) |
 | `VISMA_API` | standard | valgfri | | Standard: eAccounting v2 |
+| `BNXT_CLIENT_ID`, `BNXT_SELSKAP` | – | påkrevd for status fra Business NXT | | Visma Business NXT, fase 1: **bare lesing** av fakturastatus. `BNXT_SELSKAP` er Visma.net-selskaps-ID-en |
+| `BNXT_CLIENT_SECRET` | – | påkrevd for status fra Business NXT | ✔ | Klient-legitimasjon; tilgangstokenet holdes bare i minnet (ingenting i databasen) |
+| `BNXT_KUNDENR` | – | valgfri | | Visma.net-kundenummer – brukes bare av `python -m kurs.bnxt_sjekk` for å liste selskapene |
 | `ANTHROPIC_API_KEY` | – | valgfri | ✔ | Uten nøkkel: ordmatching mot kunnskapsbasen |
 | `ASSISTENT_AKTIV` | `1` | `1`/`0` | | `0` = «Spør oss» er av (404) |
 | `ASSISTENT_MODELL`, `ASSISTENT_MAKS_PER_DAG`, `ASSISTENT_TIDSAVBRUDD_SEK` | standard | valgfri | | Kostnadsgrense og tidsavbrudd for KI |

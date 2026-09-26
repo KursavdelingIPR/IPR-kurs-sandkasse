@@ -66,7 +66,28 @@ igjen – de dukker ikke opp her. Se avsnitt 6.
 |---|---|---|
 | `HEMMELIG_NOKKEL` | Ved mistanke om lekkasje | Ny verdi i Key Vault → restart. Alle logges ut; gamle opplastings-/innloggingslenker slutter å virke (kursholdere får ny lenke ved neste purring) |
 | Client secrets (Entra, Graph, Zoom, Visma) | Før utløp (Entra: maks 24 mnd) | Ny hemmelighet i Key Vault → restart → slett den gamle |
+| `BNXT_CLIENT_SECRET` (Business NXT) | Før utløp, eller straks ved mistanke om lekkasje | Lag en ny hemmelighet for `Pameldingssystem-BNXT` i Visma Developer Portal → legg den i Key Vault (lokalt: miljøvariabelen) → restart → slett den gamle i portalen. Kontroller med `python -m kurs.bnxt_sjekk` |
 | Visma-tilgang | Ved «invalid_grant» / fakturaer feiler med `IkkeSendt` | Hent nytt refresh-token (`AZURE-SETUP.md` avsnitt 7), legg det i Key Vault som `VISMA_REFRESH_TOKEN`, og slett det lagrede: `DELETE FROM integrasjon_token WHERE navn='visma_refresh_token';` Fakturaene prøves automatisk igjen neste kjøring |
+
+### Visma Business NXT (fase 1: bare lesing)
+
+Deltakervinduet har knappen «Hent status fra Business NXT» under «Status». Den viser fakturadato, forfall, beløp,
+utestående, betaling, purringer og eventuell inkasso slik de står i Business NXT, med tidspunktet for hentingen.
+Business NXT er fasiten: ingenting endres i påmeldingssystemet eller i Business NXT. «Avvik» betyr at beløpet i
+Business NXT ikke er det samme som på påmeldingens faktura – kontroller at fakturanummeret er koblet til riktig
+påmelding. I demo vises oppdiktede statuser merket «Demodata».
+
+**Tilkoblingstest** (bare lesing, lagrer ingenting). Sett miljøvariablene `BNXT_CLIENT_ID`, `BNXT_CLIENT_SECRET`,
+`BNXT_KUNDENR` og `BNXT_SELSKAP` for Windows-kontoen din (Start → «Rediger miljøvariabler for kontoen din»), åpne en ny
+terminal i prosjektmappen og kjør:
+
+```text
+python -m kurs.bnxt_sjekk                    # innstillinger, tilgang (bare lesing), selskaper, lesetilgang
+python -m kurs.bnxt_sjekk --faktura 12345    # statusfeltene for én faktura - sammenlign med Business NXT
+```
+
+Hemmeligheten og tilgangstokenet skrives aldri ut. Tilkoblingstesten er det eneste som leser ekte data fra Business NXT
+mens sandkassen står i demo. Mangler `BNXT_SELSKAP`, viser testen selskapene tjenesten har tilgang til.
 
 ## 7. Sikkerhetskopi og gjenoppretting
 

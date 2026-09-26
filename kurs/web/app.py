@@ -27,7 +27,7 @@ from .. import (aarsplan, behandling, config, daglig, db, deltakerliste, import_
                 maltekster, migreringer, okonomi, paameldingsside, skjemafelt, sveiper)
 from ..deltakerliste import fakturastatus as _fakturastatus
 from ..feil import sikker_feiltekst
-from ..integrasjoner import epost, sharepoint
+from ..integrasjoner import business_nxt, epost, sharepoint
 from ..kjoring import Kjoring
 from ..kursbevis import timer_i_lop
 from . import entra, sikkerhet
@@ -1914,7 +1914,29 @@ def admin_deltaker(kurs_id, paamelding_id):
     return render_template(
         "admin_deltaker.html", kurs=kurs, p=p, fakturastatus=_fakturastatus(kurs, p), fane="deltaker",
         andre_paameldinger=andre_paameldinger, prisvalg_redigerbar=prisvalg_redigerbar,
-        statusvalg=STATUS_OVERGANGER.get(p["status"], ()))
+        statusvalg=STATUS_OVERGANGER.get(p["status"], ()), **_bnxt_status(paamelding_id))
+
+
+def _bnxt_status(paamelding_id: int) -> dict:
+    """Fakturastatus fra Visma Business NXT for påmeldingens fakturaer - KUN når admin ber om det (?bnxt=1), så
+    deltakervinduet aldri venter på Business NXT. Bare lesing: faktura-tabellen endres aldri, og ingenting lagres."""
+    fakturaer = con().execute(
+        """SELECT f.faktura_nr, f.belop_nok, kd.dato AS kursdag_dato FROM faktura f
+           LEFT JOIN kursdag kd ON kd.id=f.kursdag_id
+           WHERE f.paamelding_id=? AND COALESCE(f.faktura_nr, '') != '' ORDER BY kd.dato, f.id""",
+        (paamelding_id,)).fetchall()
+    ut = {"bnxt_fakturaer": fakturaer, "bnxt": None, "bnxt_feil": None, "bnxt_demo": False, "bnxt_hentet": None}
+    if not fakturaer or request.args.get("bnxt") != "1":
+        return ut
+    try:
+        oppslag = business_nxt.hent_fakturastatus({f["faktura_nr"]: f["belop_nok"] for f in fakturaer}, idag=_idag())
+    except business_nxt.BnxtFeil as e:          # meldingen er trygg (aldri token, hemmelighet eller persondata)
+        logging.getLogger("kurs.integrasjoner").warning("Henting fra Business NXT feilet: %s", e)
+        ut["bnxt_feil"] = str(e)
+        return ut
+    ut.update(bnxt=oppslag, bnxt_demo=any(o.demo for o in oppslag.values()),
+              bnxt_hentet=min((o.hentet for o in oppslag.values() if o.hentet), default=None))
+    return ut
 
 
 @app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/person")
@@ -2761,6 +2783,9 @@ def _paameldingsstatus(p) -> str:
 def _kr(belop) -> str:
     """12345 -> «12 345 kr» (hardt mellomrom, saa beloepet aldri deles over to linjer)."""
     return f"{int(belop or 0):,}".replace(",", "\u00a0") + "\u00a0kr"
+
+
+app.add_template_filter(business_nxt.kroner, "kroner")   # beløp fra Business NXT kan ha øre: «4 900,50 kr»
 
 
 @app.template_filter("maaned")
