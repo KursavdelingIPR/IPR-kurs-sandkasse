@@ -155,9 +155,12 @@
       <p class="feltverdi"><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra','avslått':'feil'}[p|paameldingsstatus] }}">{{ p|paameldingsstatus }}</span></p>
       {% if p.avslatt_ts %}<p class="hjelp">Avslått {{ p.avslatt_ts[:10] }}. Deltakeren kan ikke melde seg på igjen selv – endre status for å gjenopprette påmeldingen.</p>{% endif %}
       {% if statusvalg %}
+      {% set kan_overbooke = kurs_fullt and 'bekreftet' in statusvalg %}
       <form class="statusskjema" method="post" action="{{ url_for('admin_deltaker_status', kurs_id=kurs.id, paamelding_id=p.id) }}"
-            data-status-bekreft data-skjemanavn="Påmeldingsstatus">
+            data-status-bekreft data-skjemanavn="Påmeldingsstatus"
+            {%- if kan_overbooke %} data-full-bekreft="Er du sikker på at du vil melde denne deltakeren på? Kurset er fullt ({{ bekreftet_antall }} av {{ kurs.kapasitet }} {{ 'plass' if kurs.kapasitet == 1 else 'plasser' }} er tatt)."{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if kan_overbooke %}<input type="hidden" name="overbooking" value="">{% endif %}
         <select id="f-ny-status" name="status" required aria-label="Ny status">
           <option value="" selected disabled>Velg ny status</option>
           {% for s in statusvalg %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
@@ -165,6 +168,7 @@
         <button class="sekundar">Endre status</button>
       </form>
       <p class="hjelp">Statusen endres med en gang du trykker «Endre status» – uavhengig av lagreknappene over.</p>
+      {% if kan_overbooke %}<p class="hjelp">Kurset er fullt ({{ bekreftet_antall }} av {{ kurs.kapasitet }} {{ 'plass' if kurs.kapasitet == 1 else 'plasser' }} er tatt). Du kan likevel melde deltakeren på – du får et eget spørsmål først.</p>{% endif %}
       {% endif %}
     </div>
   </div>

@@ -50,6 +50,7 @@ igjen – de dukker ikke opp her. Se avsnitt 6.
 | Manuell e-post: «N mottaker(e) fikk ikke e-posten» | Send samme utsendelse på nytt senere – de som fikk den, får den ikke igjen |
 | «Endringene ble ikke lagret: noen andre har endret dette …» | Noen andre (eller morgenjobben) lagret mens du hadde siden åpen. Siden viser nå de nyeste verdiene – gjør endringen på nytt |
 | Zoom-møtet «ble ikke brukt» (`zoom_mote_ubrukt` i loggen) | Kurset fikk en lenke i mellomtiden. Det ekstra møtet kan slettes i Zoom |
+| Kurset er fullt, men en deltaker på venteliste skal likevel få plass | Åpne deltakeren, velg «bekreftet» under Status og trykk «Endre status». Du får spørsmålet «Er du sikker … Kurset er fullt» – svarer du ja, meldes deltakeren på og får bekreftelsen. Kurset har da flere bekreftede enn plasser; ingen rykker opp fra ventelisten før det igjen er en ledig plass. Hvem som gjorde det, står i loggen |
 | En deltaker kan ikke melde seg på («ikke godkjent») | Påmeldingen er avslått. Gjenopprett ved å endre status på deltakersiden hvis det var feil |
 | En side gir «Noe gikk galt» med en referanse | Søk etter referansen i App Service-loggen (linjen har rute, status og feiltype – aldri persondata) |
 

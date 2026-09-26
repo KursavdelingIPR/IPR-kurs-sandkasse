@@ -1911,10 +1911,12 @@ def admin_deltaker(kurs_id, paamelding_id):
         "SELECT COUNT(*) FROM paamelding WHERE deltaker_id=? AND id!=? AND status!='avmeldt'",
         (p["deltaker_id"], paamelding_id)).fetchone()[0]
     prisvalg_redigerbar = kurs["betaling"] == "deltaker_velger" and p["faktura_antall"] == 0
+    bekreftet_antall = db.antall_bekreftet(con(), kurs_id)
     return render_template(
         "admin_deltaker.html", kurs=kurs, p=p, fakturastatus=_fakturastatus(kurs, p), fane="deltaker",
         andre_paameldinger=andre_paameldinger, prisvalg_redigerbar=prisvalg_redigerbar,
-        statusvalg=STATUS_OVERGANGER.get(p["status"], ()))
+        statusvalg=STATUS_OVERGANGER.get(p["status"], ()), bekreftet_antall=bekreftet_antall,
+        kurs_fullt=kurs["kapasitet"] is not None and bekreftet_antall >= kurs["kapasitet"])
 
 
 @app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/person")
@@ -1986,14 +1988,17 @@ def admin_deltaker_paamelding(kurs_id, paamelding_id):
 @app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/status")
 @krever_admin
 def admin_deltaker_status(kurs_id, paamelding_id):
-    _hent_kurs(kurs_id)
+    kurs = _hent_kurs(kurs_id)
     p = _hent_paamelding(kurs_id, paamelding_id)
     ny_status = request.form.get("status", "")
     if ny_status not in STATUS_OVERGANGER.get(p["status"], ()):
         flash("Ugyldig statusendring.", "feil")
         return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    # overbooking=1 settes bare når admin har svart ja på «Kurset er fullt …» i deltakervinduet (static/app.js)
+    tillat_overbooking = request.form.get("overbooking") == "1"
     try:
-        kjor_sveiper_for = db.sett_paamelding_status(con(), paamelding_id, ny_status, aktor=_aktor())
+        kjor_sveiper_for = db.sett_paamelding_status(con(), paamelding_id, ny_status, aktor=_aktor(),
+                                                     tillat_overbooking=tillat_overbooking)
         con().commit()
     except db.Paameldingsfeil as e:
         con().rollback()
@@ -2002,6 +2007,11 @@ def admin_deltaker_status(kurs_id, paamelding_id):
     if kjor_sveiper_for:
         sveiper.kjor(Kjoring(con(), idag=_idag()), kjor_sveiper_for)
         con().commit()
+    bekreftet_antall = db.antall_bekreftet(con(), kurs_id)
+    if ny_status == "bekreftet" and kurs["kapasitet"] is not None and bekreftet_antall > kurs["kapasitet"]:
+        flash(f"Status endret til «bekreftet». Kurset har nå {bekreftet_antall} bekreftede deltakere på "
+              f"{kurs['kapasitet']} {'plass' if kurs['kapasitet'] == 1 else 'plasser'}.", "ok")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
     flash(f"Status endret til «{ny_status}».", "ok")
     return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
 

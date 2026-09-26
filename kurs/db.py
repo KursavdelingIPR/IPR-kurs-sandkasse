@@ -765,9 +765,13 @@ def _frigi_gammel_faktura_hold(con, paamelding_id: int) -> None:
              AND NOT EXISTS (SELECT 1 FROM faktura_forsok fo WHERE fo.paamelding_id=paamelding.id)""", (paamelding_id,))
 
 
-def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str = "admin") -> int | None:
+def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str = "admin", *,
+                           tillat_overbooking: bool = False) -> int | None:
     """Endrer paameldingsstatus fra admin. Bruker eksisterende meld_av() for avmelding, slik at
     ventelisteopprykk skjer riktig. Bekreftet -> venteliste tilbys bevisst ikke (bruk avmelding).
+
+    Et fullt kurs avviser bekreftelse - med mindre admin uttrykkelig har bekreftet at kurset skal overbookes
+    (tillat_overbooking=True, bare fra deltakervinduet etter et eget spoersmaal). Da loggfoeres det.
 
     Returnerer paamelding_id som boer kjores gjennom sveiper.kjor() naa (nylig bekreftet), ellers None.
     """
@@ -790,7 +794,8 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
         kurs = con.execute("SELECT * FROM kurs WHERE id=?", (p["kurs_id"],)).fetchone()
         if kurs["status"] == "avlyst":
             raise Paameldingsfeil("Kurset er avlyst – kan ikke bekrefte flere.")
-        if kurs["kapasitet"] is not None and antall_bekreftet(con, p["kurs_id"]) >= kurs["kapasitet"]:
+        fullt = kurs["kapasitet"] is not None and antall_bekreftet(con, p["kurs_id"]) >= kurs["kapasitet"]
+        if fullt and not tillat_overbooking:
             raise Paameldingsfeil("Kurset er fullt – kan ikke bekrefte flere uten å melde av noen først.")
         # sveiper_utsatt nullstilles ogsaa: en administrativ bekreftelse er en bevisst handling som
         # skal fore til faktisk sending/fakturering naa - en tidligere "vent"-markering fra en manuell
@@ -798,7 +803,8 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
         con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, sveiper_utsatt=0, avslatt_ts=NULL, "
                     "oppdatert=? WHERE id=?", (na, paamelding_id))
         _frigi_gammel_faktura_hold(con, paamelding_id)
-        logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "bekreftet"}, aktor=aktor)
+        logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "bekreftet",
+                                    **({"over_kapasitet": kurs["kapasitet"]} if fullt else {})}, aktor=aktor)
         return paamelding_id
 
     if ny_status == "venteliste":
@@ -1101,13 +1107,18 @@ def avsla_paamelding(con, paamelding_id: int, aktor: str = "admin") -> int | Non
 
 
 def meld_av(con, paamelding_id: int, aktor: str = "admin") -> int | None:
-    """Avmelder og flytter forste paa ventelisten opp. Returnerer paamelding_id som ble flyttet opp."""
+    """Avmelder og flytter forste paa ventelisten opp - men bare naar det da faktisk er en ledig plass. Etter at admin
+    har overbooket kurset (sett_paamelding_status med tillat_overbooking), er kurset fortsatt fullt etter en avmelding,
+    og da rykker ingen opp. Returnerer paamelding_id som ble flyttet opp."""
     p = con.execute("SELECT * FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()
     na = datetime.now().isoformat(timespec="seconds")
     con.execute("UPDATE paamelding SET status='avmeldt', oppdatert=? WHERE id=?", (na, paamelding_id))
     logg(con, "avmelding", {"paamelding_id": paamelding_id}, aktor=aktor)
     if p["status"] != "bekreftet":
         return None
+    kapasitet = con.execute("SELECT kapasitet FROM kurs WHERE id=?", (p["kurs_id"],)).fetchone()["kapasitet"]
+    if kapasitet is not None and antall_bekreftet(con, p["kurs_id"]) >= kapasitet:
+        return None                                  # fortsatt fullt (overbooket): kurset forblir «full»
     neste = con.execute(
         "SELECT id FROM paamelding WHERE kurs_id=? AND status='venteliste' ORDER BY opprettet, id LIMIT 1",
         (p["kurs_id"],),
