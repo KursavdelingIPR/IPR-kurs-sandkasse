@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS paamelding (
     opprettet       TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
     oppdatert       TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
     avslatt_ts      TEXT,
+    utgatt_ts       TEXT CHECK (utgatt_ts IS NULL OR (status='avmeldt' AND avslatt_ts IS NULL)),
+    forlatt_ts      TEXT CHECK (forlatt_ts IS NULL OR (status='avmeldt' AND avslatt_ts IS NULL AND utgatt_ts IS NULL)),
     UNIQUE (kurs_id, deltaker_id)
 );
 

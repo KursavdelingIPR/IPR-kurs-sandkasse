@@ -765,32 +765,51 @@ def _frigi_gammel_faktura_hold(con, paamelding_id: int) -> None:
              AND NOT EXISTS (SELECT 1 FROM faktura_forsok fo WHERE fo.paamelding_id=paamelding.id)""", (paamelding_id,))
 
 
+# Påmeldingsstatus slik admin ser den, i visningsrekkefølge. Kolonnen `status` har bare tre verdier (bekreftet, venteliste,
+# avmeldt). Avslått, Utgått og Forlatt er avmeldte påmeldinger med en egen dato (migrering 6 og 8), og høyst én av dem
+# kan være satt - CHECK-reglene i skjemaet stopper alt annet.
+PAAMELDINGSSTATUSER = {"bekreftet": "Bekreftet", "venteliste": "Venteliste", "avmeldt": "Avmeldt",
+                       "avslatt": "Avslått", "utgatt": "Utgått", "forlatt": "Forlatt"}
+_STATUSDATO = {"avslatt": "avslatt_ts", "utgatt": "utgatt_ts", "forlatt": "forlatt_ts"}
+
+
+def paameldingsstatus(p) -> str:
+    """'avslatt', 'utgatt' eller 'forlatt' når datoen for den er satt, ellers kolonnen status."""
+    for status, kolonne in _STATUSDATO.items():
+        try:
+            if p[kolonne]:
+                return status
+        except (KeyError, IndexError):          # radens SELECT tok ikke med kolonnen
+            continue
+    return p["status"]
+
+
 def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str = "admin", *,
                            tillat_overbooking: bool = False) -> int | None:
-    """Endrer paameldingsstatus fra admin. Bruker eksisterende meld_av() for avmelding, slik at
-    ventelisteopprykk skjer riktig. Bekreftet -> venteliste tilbys bevisst ikke (bruk avmelding).
+    """Endrer påmeldingsstatus fra admin til en av PAAMELDINGSSTATUSER. Avslått, Utgått og Forlatt settes og fjernes i
+    én UPDATE, så en påmelding aldri har mer enn én av dem (CHECK i skjemaet er en ekstra sperre).
 
-    Et fullt kurs avviser bekreftelse - med mindre admin uttrykkelig har bekreftet at kurset skal overbookes
-    (tillat_overbooking=True, bare fra deltakervinduet etter et eget spoersmaal). Da loggfoeres det.
+    Plassen og ventelisten følger dagens regler: forlater en BEKREFTET deltaker plassen (til avmeldt, avslått, utgått,
+    forlatt eller venteliste), rykker første på ventelisten opp når det faktisk er en ledig plass (_rykk_opp). Den admin
+    nettopp satte på venteliste, velges aldri i samme operasjon. Et fullt kurs avviser bekreftelse - med mindre admin
+    uttrykkelig har bekreftet at kurset skal overbookes (tillat_overbooking=True, bare fra deltakervinduet etter et eget
+    spørsmål). Da loggføres det.
 
-    Returnerer paamelding_id som boer kjores gjennom sveiper.kjor() naa (nylig bekreftet), ellers None.
-    """
+    Selve statusendringen sender aldri e-post og lager aldri faktura. Returnerer paamelding_id som bør kjøres gjennom
+    sveiper.kjor() nå - den som ble bekreftet, eller den som rykket opp fra ventelisten - ellers None. Den som settes på
+    venteliste, får ventelistebeskjed av morgenjobben hvis den aldri er sendt (som før)."""
     p = con.execute("SELECT * FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()
     if not p:
         raise Paameldingsfeil("Ukjent påmelding")
-    gammel_status = p["status"]
-    if ny_status == gammel_status:
+    if ny_status not in PAAMELDINGSSTATUSER:
+        raise Paameldingsfeil("Ugyldig statusendring.")
+    gammel = paameldingsstatus(p)
+    if ny_status == gammel:
         return None
     na = datetime.now().isoformat(timespec="seconds")
-
-    if ny_status == "avmeldt":
-        opprykket = meld_av(con, paamelding_id, aktor=aktor)
-        logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "avmeldt"}, aktor=aktor)
-        return opprykket
+    endring = {"paamelding_id": paamelding_id, "fra": gammel, "til": ny_status}
 
     if ny_status == "bekreftet":
-        if gammel_status == "bekreftet":
-            raise Paameldingsfeil("Ugyldig statusendring.")
         kurs = con.execute("SELECT * FROM kurs WHERE id=?", (p["kurs_id"],)).fetchone()
         if kurs["status"] == "avlyst":
             raise Paameldingsfeil("Kurset er avlyst – kan ikke bekrefte flere.")
@@ -801,22 +820,28 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
         # skal fore til faktisk sending/fakturering naa - en tidligere "vent"-markering fra en manuell
         # registrering skal ikke stille denne handlingen ut av spill.
         con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, sveiper_utsatt=0, avslatt_ts=NULL, "
-                    "oppdatert=? WHERE id=?", (na, paamelding_id))
+                    "utgatt_ts=NULL, forlatt_ts=NULL, oppdatert=? WHERE id=?", (na, paamelding_id))
         _frigi_gammel_faktura_hold(con, paamelding_id)
-        logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "bekreftet",
-                                    **({"over_kapasitet": kurs["kapasitet"]} if fullt else {})}, aktor=aktor)
+        logg(con, "status_endret", {**endring, **({"over_kapasitet": kurs["kapasitet"]} if fullt else {})}, aktor=aktor)
         return paamelding_id
 
     if ny_status == "venteliste":
-        if gammel_status == "bekreftet":
-            raise Paameldingsfeil("Kan ikke sette en bekreftet deltaker til venteliste direkte – meld av i stedet.")
         con.execute("UPDATE paamelding SET status='venteliste', sveiper_kjort=0, sveiper_utsatt=0, avslatt_ts=NULL, "
-                    "oppdatert=? WHERE id=?", (na, paamelding_id))
+                    "utgatt_ts=NULL, forlatt_ts=NULL, oppdatert=? WHERE id=?", (na, paamelding_id))
         _frigi_gammel_faktura_hold(con, paamelding_id)
-        logg(con, "status_endret", {"paamelding_id": paamelding_id, "fra": gammel_status, "til": "venteliste"}, aktor=aktor)
-        return None
+        # Fra bekreftet blir plassen ledig: neste på ventelisten kan rykke opp - men aldri den admin nettopp flyttet ned.
+        opprykket = _rykk_opp(con, p["kurs_id"], unntatt=paamelding_id) if gammel == "bekreftet" else None
+        logg(con, "status_endret", endring, aktor=aktor)
+        return opprykket
 
-    raise Paameldingsfeil("Ugyldig statusendring.")
+    # Avmeldt, avslått, utgått eller forlatt. En aktiv påmelding meldes av først (plassen og ventelisten som i dag).
+    opprykket = meld_av(con, paamelding_id, aktor=aktor) if p["status"] in ("bekreftet", "venteliste") else None
+    tid = naa_utc()
+    con.execute("UPDATE paamelding SET avslatt_ts=?, utgatt_ts=?, forlatt_ts=?, oppdatert=? WHERE id=?",
+                (tid if ny_status == "avslatt" else None, tid if ny_status == "utgatt" else None,
+                 tid if ny_status == "forlatt" else None, na, paamelding_id))
+    logg(con, "status_endret", endring, aktor=aktor)
+    return opprykket
 
 
 # ---------- admin: redigering av kurs (fase 4) ----------
@@ -1014,9 +1039,10 @@ def meld_paa(con, kurs_id: int, *, epost: str, fornavn: str, etternavn: str, del
     else:
         felter["betaling"] = kurs["betaling"]
 
-    if finnes:  # reaktiver tidligere avmelding
+    if finnes:  # reaktiver tidligere avmelding - også en utgått eller forlatt påmelding (historikken står i hendelsesloggen)
         con.execute(
-            f"UPDATE paamelding SET {','.join(f'{k}=?' for k in felter)}, sveiper_kjort=0 WHERE id=?",
+            f"UPDATE paamelding SET {','.join(f'{k}=?' for k in felter)}, sveiper_kjort=0, utgatt_ts=NULL, forlatt_ts=NULL "
+            "WHERE id=?",
             [*felter.values(), finnes["id"]],
         )
         pid = finnes["id"]
@@ -1116,22 +1142,31 @@ def meld_av(con, paamelding_id: int, aktor: str = "admin") -> int | None:
     logg(con, "avmelding", {"paamelding_id": paamelding_id}, aktor=aktor)
     if p["status"] != "bekreftet":
         return None
-    kapasitet = con.execute("SELECT kapasitet FROM kurs WHERE id=?", (p["kurs_id"],)).fetchone()["kapasitet"]
-    if kapasitet is not None and antall_bekreftet(con, p["kurs_id"]) >= kapasitet:
+    return _rykk_opp(con, p["kurs_id"])
+
+
+def _rykk_opp(con, kurs_id: int, *, unntatt: int | None = None) -> int | None:
+    """En bekreftet plass er nettopp blitt ledig: første på ventelisten får den - men bare når det faktisk er en ledig
+    plass (etter overbooking kan kurset fortsatt være fullt, og da rykker ingen opp). `unntatt` er påmeldingen admin
+    nettopp satte på venteliste; den velges aldri i samme operasjon. Er ingen på ventelisten, blir kurset åpent igjen.
+    Returnerer paamelding_id som rykket opp."""
+    kapasitet = con.execute("SELECT kapasitet FROM kurs WHERE id=?", (kurs_id,)).fetchone()["kapasitet"]
+    if kapasitet is not None and antall_bekreftet(con, kurs_id) >= kapasitet:
         return None                                  # fortsatt fullt (overbooket): kurset forblir «full»
     neste = con.execute(
-        "SELECT id FROM paamelding WHERE kurs_id=? AND status='venteliste' ORDER BY opprettet, id LIMIT 1",
-        (p["kurs_id"],),
+        "SELECT id FROM paamelding WHERE kurs_id=? AND status='venteliste'" + (" AND id!=?" if unntatt else "")
+        + " ORDER BY opprettet, id LIMIT 1", (kurs_id, unntatt) if unntatt else (kurs_id,),
     ).fetchone()
     if neste:
         # sveiper_utsatt nullstilles av samme grunn som i sett_paamelding_status(): et automatisk
         # opprykk skal faktisk fore til bekreftelse/fakturering, ikke stille forbli utsatt.
+        na = datetime.now().isoformat(timespec="seconds")
         con.execute("UPDATE paamelding SET status='bekreftet', sveiper_kjort=0, sveiper_utsatt=0, oppdatert=? WHERE id=?",
                    (na, neste["id"]))
         _frigi_gammel_faktura_hold(con, neste["id"])
         logg(con, "flyttet_fra_venteliste", {"paamelding_id": neste["id"]})
         return neste["id"]
-    con.execute("UPDATE kurs SET status='aapen' WHERE id=? AND status='full'", (p["kurs_id"],))
+    con.execute("UPDATE kurs SET status='aapen' WHERE id=? AND status='full'", (kurs_id,))
     return None
 
 

@@ -25,7 +25,12 @@ _SAMME_HANDLING_SEK = 5
 # Samme ord som i Deltaker-fanen (admin_deltaker.html)
 KILDER = {"skjema": "Påmeldingsskjemaet", "nettside": "Skjemaet på nettsiden", "gruppe": "Bedriftspåmelding",
           "admin": "Manuelt av administrator", "admin_import": "Import fra fil"}
-_STATUS = {"bekreftet": "bekreftet", "venteliste": "venteliste", "avmeldt": "avmeldt"}
+_STATUS = {"bekreftet": "bekreftet", "venteliste": "venteliste", "avmeldt": "avmeldt", "avslatt": "avslått",
+           "utgatt": "utgått", "forlatt": "forlatt"}
+# Overskriften når admin setter en status (til bekreftet: «Status endret fra … til bekreftet» eller over kapasitet)
+_SATT_TIL = {"venteliste": "Satt på venteliste", "avmeldt": "Avmeldt", "avslatt": "Avslått", "utgatt": "Satt til utgått",
+             "forlatt": "Satt til forlatt"}
+_AVSLUTTET = {"avmeldt", "avslatt", "utgatt", "forlatt"}      # db.meld_av logger «avmelding» som del av disse
 _PERSONFELT = {"fornavn": "Fornavn", "etternavn": "Etternavn", "navn": "Navn", "epost": "E-post", "telefon": "Telefon",
                "yrkestittel": "Yrkestittel", "arbeidssted": "Arbeidssted", "hpr_nr": "HPR-nummer",
                "visma_kunde_id": "Kundenummer i Visma"}
@@ -114,7 +119,7 @@ class _Oppslag:
         # Statusendringer og avslag som selv kaller db.meld_av (og dermed også logger «avmelding»)
         self._avmeldinger = [(h["aktor"], norsk_tid.fra_utc(h["ts"])) for h in hendelser
                              if h["handling"] == "paamelding_avslatt"
-                             or (h["handling"] == "status_endret" and _detaljer(h).get("til") == "avmeldt")]
+                             or (h["handling"] == "status_endret" and _detaljer(h).get("til") in _AVSLUTTET)]
 
     def er_del_av_annen_handling(self, h) -> bool:
         if h["handling"] != "avmelding":
@@ -161,8 +166,11 @@ def _status(verdi) -> str:
     return _STATUS.get(verdi, str(verdi))
 
 
-def _status_for(d) -> list[str]:
-    return [f"Status før: {_status(d['fra']).capitalize()}"] if d.get("fra") else []
+def _status_for_og_ny(d, ny: str | None = None) -> list[str]:
+    """«Status før» og «Ny status» - admin skal alltid kunne se begge i detaljene."""
+    ny = ny or d.get("til")
+    for_ = [f"Status før: {_status(d['fra']).capitalize()}"] if d.get("fra") else []
+    return for_ + ([f"Ny status: {_status(ny).capitalize()}"] if ny else [])
 
 
 def _felt(felt, navn: dict) -> str:
@@ -187,16 +195,15 @@ def _paamelding(d, o, h):
 
 def _status_endret(d, o, h):
     til = d.get("til")
+    detaljer = _status_for_og_ny(d)
     if til == "bekreftet" and "over_kapasitet" in d:
         plasser = d["over_kapasitet"]
-        return [("Bekreftet over kapasitet",
-                 [f"Kurset hadde {plasser} {'plass' if plasser == 1 else 'plasser'}.", *_status_for(d)])]
-    if til == "venteliste":
-        return [("Satt på venteliste", _status_for(d))]
-    if til == "avmeldt":
-        return [("Avmeldt", _status_for(d))]
+        return [("Bekreftet over kapasitet", [f"Kurset hadde {plasser} {'plass' if plasser == 1 else 'plasser'}.",
+                                              *detaljer])]
+    if til in _SATT_TIL:
+        return [(_SATT_TIL[til], detaljer)]
     fra = f"fra {_status(d['fra'])} " if d.get("fra") else ""
-    return [(f"Status endret {fra}til {_status(til)}", [])]
+    return [(f"Status endret {fra}til {_status(til)}", detaljer)]
 
 
 def _flyttet_opp(d, o, h):
@@ -261,7 +268,7 @@ _TEKSTER = {
     "paamelding": _paamelding,
     "status_endret": _status_endret,
     "avmelding": lambda d, o, h: [("Avmeldt", [])],
-    "paamelding_avslatt": lambda d, o, h: [("Avslått", _status_for(d))],
+    "paamelding_avslatt": lambda d, o, h: [("Avslått", _status_for_og_ny(d, "avslatt"))],
     "flyttet_fra_venteliste": _flyttet_opp,
     "manuell_behandling_utlost": _manuell_behandling,
     "fakturert": _fakturert,

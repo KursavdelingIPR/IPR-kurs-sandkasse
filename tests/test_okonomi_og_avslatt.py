@@ -257,6 +257,8 @@ def test_lesetilgang_kan_ikke_avslaa(con, sendt):
 def test_migrering_6_legger_til_kolonnen_uten_aa_roere_data(con):
     kid = _kurs(con, "M6", pris_nok=0)
     pid = _paamelding(con, kid, "jon@eksempel.no")
+    for kolonne in ("forlatt_ts", "utgatt_ts"):       # migrering 8 (reglene viser til avslatt_ts) fantes ikke før 6
+        con.execute(f"ALTER TABLE paamelding DROP COLUMN {kolonne}")
     con.execute("ALTER TABLE paamelding DROP COLUMN avslatt_ts")
     con.execute("DELETE FROM schema_versjon WHERE versjon >= 6")
     con.commit()

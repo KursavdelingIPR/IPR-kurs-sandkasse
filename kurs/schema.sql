@@ -96,6 +96,10 @@ CREATE TABLE IF NOT EXISTS paamelding (
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
     oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver endring
     avslatt_ts      TEXT,                           -- satt = IPR har avslått påmeldingen (status er da 'avmeldt'). Se db.avsla_paamelding
+    -- Utgått (påmeldingen ble aldri fullført) og Forlatt (deltakelsen avsluttet administrativt/ufrivillig), migrering 8.
+    -- Som Avslått er de 'avmeldt' med en dato. CHECK: høyst én av Avslått/Utgått/Forlatt, og bare på avmeldte påmeldinger.
+    utgatt_ts       TEXT CHECK (utgatt_ts IS NULL OR (status='avmeldt' AND avslatt_ts IS NULL)),
+    forlatt_ts      TEXT CHECK (forlatt_ts IS NULL OR (status='avmeldt' AND avslatt_ts IS NULL AND utgatt_ts IS NULL)),
     UNIQUE (kurs_id, deltaker_id)
 );
 

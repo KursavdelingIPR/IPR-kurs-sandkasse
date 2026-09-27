@@ -1641,9 +1641,9 @@ def admin_kurs_paameldingsskjema_tilbakestill(kurs_id):
     return redirect(url_for("admin_kurs_paameldingsskjema", kurs_id=kurs_id))
 
 
-# Statusvalgene i deltakerlisten, i visningsrekkefølge. «avslatt» er ingen egen status i databasen: en avslått påmelding
-# er 'avmeldt' med avslatt_ts (fase 17). Verdiene er de samme som data-status på radene (filteret i static/app.js).
-DELTAKER_STATUSVALG = {"bekreftet": "Bekreftet", "venteliste": "Venteliste", "avmeldt": "Avmeldt", "avslatt": "Avslått"}
+# Statusvalgene i deltakerlisten er hele statusmodellen (db.PAAMELDINGSSTATUSER), i visningsrekkefølge. Verdiene er de
+# samme som data-status på radene (filteret i static/app.js).
+DELTAKER_STATUSVALG = db.PAAMELDINGSSTATUSER
 
 
 def _deltaker_sok_status(request_args) -> tuple[str, list[str]]:
@@ -1656,7 +1656,7 @@ def _deltaker_sok_status(request_args) -> tuple[str, list[str]]:
 
 
 def _statusnokkel(p) -> str:
-    return "avslatt" if p["avslatt_ts"] else p["status"]
+    return db.paameldingsstatus(p)
 
 
 def _sokbar(p) -> str:
@@ -1671,8 +1671,8 @@ def _treffer(p, sok: str, statuser: list[str]) -> bool:
 
 
 def _paameldinger_som_treffer(kurs_id: int, sok: str, statuser: list[str]) -> list[int]:
-    rader = con().execute("""SELECT p.id, p.status, p.avslatt_ts, d.navn, d.epost FROM paamelding p
-                             JOIN deltaker d ON d.id=p.deltaker_id WHERE p.kurs_id=?""", (kurs_id,))
+    rader = con().execute("""SELECT p.id, p.status, p.avslatt_ts, p.utgatt_ts, p.forlatt_ts, d.navn, d.epost
+                             FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.kurs_id=?""", (kurs_id,))
     return [r["id"] for r in rader if _treffer(r, sok, statuser)]
 
 
@@ -1698,10 +1698,7 @@ def admin_kurs_deltakere(kurs_id):
     antall_per_status = {s: sum(1 for p in deltakere if p["statusnokkel"] == s and _treffer(p, sok, []))
                          for s in DELTAKER_STATUSVALG}
 
-    tellere = {r["status"]: r["antall"] for r in con().execute(
-        """SELECT CASE WHEN avslatt_ts IS NOT NULL THEN 'avslatt' ELSE status END AS status, COUNT(*) AS antall
-           FROM paamelding WHERE kurs_id=? GROUP BY CASE WHEN avslatt_ts IS NOT NULL THEN 'avslatt' ELSE status END""",
-        (kurs_id,))}
+    tellere = {s: sum(1 for p in deltakere if p["statusnokkel"] == s) for s in DELTAKER_STATUSVALG}
     oppmote = {(r["paamelding_id"], r["kursdag_id"]): r["kilde"] for r in con().execute(
         "SELECT o.* FROM oppmote o JOIN kursdag kd ON kd.id=o.kursdag_id WHERE kd.kurs_id=?", (kurs_id,))}
     return render_template("admin_kurs_deltakere.html", kurs=kurs, dager=dager, deltakere=deltakere,
@@ -1907,13 +1904,11 @@ def _hent_paamelding(kurs_id: int, paamelding_id: int):
            WHERE p.id=? AND p.kurs_id=?""", (paamelding_id, kurs_id)).fetchone() or abort(404)
 
 
-# Hvilke statusoverganger vi tilbyr fra adminpanelet. Bekreftet -> venteliste er bevisst utelatt:
-# den ville tatt en bekreftet plass uten aa automatisk tilby den videre (bruk avmelding i stedet).
-STATUS_OVERGANGER = {
-    "bekreftet": ("avmeldt",),
-    "venteliste": ("bekreftet", "avmeldt"),
-    "avmeldt": ("bekreftet", "venteliste"),
-}
+def _statusvalg(p) -> list[str]:
+    """Statusene admin kan sette manuelt i deltakervinduet: alle unntatt den påmeldingen har (db.sett_paamelding_status
+    håndterer plassen, ventelisten og overbooking)."""
+    naa = db.paameldingsstatus(p)
+    return [s for s in db.PAAMELDINGSSTATUSER if s != naa]
 
 
 @app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>")
@@ -1931,7 +1926,7 @@ def admin_deltaker(kurs_id, paamelding_id):
     return render_template(
         "admin_deltaker.html", kurs=kurs, p=p, fakturastatus=_fakturastatus(kurs, p), fane="deltaker",
         andre_paameldinger=andre_paameldinger, prisvalg_redigerbar=prisvalg_redigerbar,
-        statusvalg=STATUS_OVERGANGER.get(p["status"], ()), bekreftet_antall=bekreftet_antall,
+        statusvalg=_statusvalg(p), statusnavn=db.PAAMELDINGSSTATUSER, bekreftet_antall=bekreftet_antall,
         kurs_fullt=kurs["kapasitet"] is not None and bekreftet_antall >= kurs["kapasitet"])
 
 
@@ -2007,7 +2002,7 @@ def admin_deltaker_status(kurs_id, paamelding_id):
     kurs = _hent_kurs(kurs_id)
     p = _hent_paamelding(kurs_id, paamelding_id)
     ny_status = request.form.get("status", "")
-    if ny_status not in STATUS_OVERGANGER.get(p["status"], ()):
+    if ny_status not in _statusvalg(p):
         flash("Ugyldig statusendring.", "feil")
         return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
     # overbooking=1 settes bare når admin har svart ja på «Kurset er fullt …» i deltakervinduet (static/app.js)
@@ -2020,15 +2015,22 @@ def admin_deltaker_status(kurs_id, paamelding_id):
         con().rollback()
         flash(str(e), "feil")
         return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    # Bare den som ble bekreftet (bekreftelse og faktura) eller rykket opp fra ventelisten behandles nå. Den som settes
+    # til avmeldt, avslått, utgått eller forlatt, får ingen e-post (avslag med e-post: «Avslå påmeldingen»).
     if kjor_sveiper_for:
         sveiper.kjor(Kjoring(con(), idag=_idag()), kjor_sveiper_for)
         con().commit()
+    navn = db.PAAMELDINGSSTATUSER[ny_status].lower()
     bekreftet_antall = db.antall_bekreftet(con(), kurs_id)
     if ny_status == "bekreftet" and kurs["kapasitet"] is not None and bekreftet_antall > kurs["kapasitet"]:
-        flash(f"Status endret til «bekreftet». Kurset har nå {bekreftet_antall} bekreftede deltakere på "
+        flash(f"Status endret til «{navn}». Kurset har nå {bekreftet_antall} bekreftede deltakere på "
               f"{kurs['kapasitet']} {'plass' if kurs['kapasitet'] == 1 else 'plasser'}.", "ok")
-        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
-    flash(f"Status endret til «{ny_status}».", "ok")
+    else:
+        flash(f"Status endret til «{navn}».", "ok")
+    if kjor_sveiper_for and kjor_sveiper_for != paamelding_id:
+        flash("Første på ventelisten har rykket opp og fått plassen.", "info")
+    if ny_status != "bekreftet" and p["faktura_antall"]:
+        flash("Deltakeren er allerede fakturert. Fakturaen krediteres ikke automatisk – det må gjøres i Visma.", "info")
     return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
 
 
@@ -2349,7 +2351,8 @@ _DELTAKER_CSV_KOLONNER = ["Fornavn", "Etternavn", "E-post", "Telefon", "Arbeidss
 def _deltaker_csv_select() -> str:
     """Felles SELECT for deltaker-CSV. Tekstaggregatet kommer fra db.sql_tekstliste (riktig funksjon per databasebackend)."""
     return f"""SELECT d.fornavn, d.etternavn, d.epost, d.telefon, d.arbeidssted,
-                      CASE WHEN p.avslatt_ts IS NOT NULL THEN 'avslått' ELSE p.status END AS status, p.betaler, p.betaling,
+                      CASE WHEN p.avslatt_ts IS NOT NULL THEN 'avslått' WHEN p.utgatt_ts IS NOT NULL THEN 'utgått'
+                           WHEN p.forlatt_ts IS NOT NULL THEN 'forlatt' ELSE p.status END AS status, p.betaler, p.betaling,
                       p.org_navn, p.org_nr,
                       (SELECT {db.sql_tekstliste(con(), "faktura_nr")} FROM faktura WHERE paamelding_id=p.id) AS faktura_nr,
                       (SELECT COALESCE(SUM(belop_nok),0) FROM faktura WHERE paamelding_id=p.id) AS fakturert_belop
@@ -2625,7 +2628,11 @@ def _kurs_rapport_rader():
     sql = f"""SELECT k.*, ab.navn AS ansvarlig_navn, MIN(kd.dato) AS start, MAX(kd.dato) AS slutt,
                     (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='bekreftet') AS bekreftet,
                     (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='venteliste') AS venteliste,
-                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='avmeldt') AS avmeldt,
+                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='avmeldt'
+                        AND p.avslatt_ts IS NULL AND p.utgatt_ts IS NULL AND p.forlatt_ts IS NULL) AS avmeldt,
+                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.avslatt_ts IS NOT NULL) AS avslatt,
+                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.utgatt_ts IS NOT NULL) AS utgatt,
+                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.forlatt_ts IS NOT NULL) AS forlatt,
                     (SELECT COALESCE(SUM(f.belop_nok),0) FROM faktura f JOIN paamelding p ON p.id=f.paamelding_id
                         WHERE p.kurs_id=k.id) AS fakturert
              FROM kurs k
@@ -2661,12 +2668,13 @@ def admin_rapport_kurs_csv():
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow(["Kursnr", "Tittel", "Start", "Slutt", "Status", "Ansvarlig", "Bekreftet", "Kapasitet",
-                "Fyllingsgrad (%)", "Venteliste", "Avmeldt", "Fakturert (kr)"])
+                "Fyllingsgrad (%)", "Venteliste", "Avmeldt", "Avslått", "Utgått", "Forlatt", "Fakturert (kr)"])
     for k in rader:
         fyllingsgrad = round(k["bekreftet"] / k["kapasitet"] * 100) if k["kapasitet"] else ""
         w.writerow([sikkerhet.csv_trygg(v) for v in (
             k["kursnr"], k["navn"], k["start"] or "", k["slutt"] or "", k["status"], k["ansvarlig_navn"] or "",
-            k["bekreftet"], k["kapasitet"] or "", fyllingsgrad, k["venteliste"], k["avmeldt"], k["fakturert"])])
+            k["bekreftet"], k["kapasitet"] or "", fyllingsgrad, k["venteliste"], k["avmeldt"], k["avslatt"],
+            k["utgatt"], k["forlatt"], k["fakturert"])])
     db.logg(con(), "rapport_eksportert", {"rapport": "kurs", **filtre, "antall_rader": len(rader)}, aktor=_aktor())
     con().commit()
     return Response("﻿" + buf.getvalue(), mimetype="text/csv",
@@ -2719,8 +2727,8 @@ def admin_rapport_deltakere_csv():
 def admin_rapport_deltaker(deltaker_id):
     deltaker = con().execute("SELECT * FROM deltaker WHERE id=?", (deltaker_id,)).fetchone() or abort(404)
     paameldinger = con().execute(
-        """SELECT p.id AS paamelding_id, p.kurs_id, p.status, p.avslatt_ts, p.opprettet, k.navn AS kurs_navn, k.kursnr, k.kode,
-                  k.status AS kurs_status
+        """SELECT p.id AS paamelding_id, p.kurs_id, p.status, p.avslatt_ts, p.utgatt_ts, p.forlatt_ts, p.opprettet,
+                  k.navn AS kurs_navn, k.kursnr, k.kode, k.status AS kurs_status
            FROM paamelding p JOIN kurs k ON k.id=p.kurs_id WHERE p.deltaker_id=? ORDER BY p.opprettet DESC""",
         (deltaker_id,)).fetchall()
     fakturaer = okonomi.rapport(okonomi.fakturaer(con(), date(2000, 1, 1), date(2100, 12, 31), deltaker_id=deltaker_id))
@@ -2780,11 +2788,18 @@ def admin_rapport_okonomi_csv():
 
 @app.template_filter("paameldingsstatus")
 def _paameldingsstatus(p) -> str:
-    """Status slik den vises: en avslått påmelding har status 'avmeldt' + avslatt_ts (fase 17)."""
-    try:
-        return "avslått" if p["avslatt_ts"] else p["status"]
-    except (KeyError, IndexError):
-        return p["status"]
+    """Status slik den vises, med små bokstaver. Avslått, utgått og forlatt er avmeldte påmeldinger med en dato."""
+    return db.PAAMELDINGSSTATUSER[db.paameldingsstatus(p)].lower()
+
+
+STATUSMERKE = {"bekreftet": "ok", "venteliste": "gul", "avmeldt": "gra", "avslatt": "feil", "utgatt": "gra",
+               "forlatt": "feil"}
+
+
+@app.template_filter("statusmerke")
+def _statusmerke(p) -> str:
+    """Fargen (klassen på .merke) til påmeldingsstatusen."""
+    return STATUSMERKE[db.paameldingsstatus(p)]
 
 
 @app.template_filter("kr")

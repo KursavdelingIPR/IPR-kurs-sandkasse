@@ -10,7 +10,7 @@
   {% for p in paameldinger %}
   <tr>
     <td>{{ p.kursnr }} {{ p.kurs_navn }}</td>
-    <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra','avslått':'feil'}[p|paameldingsstatus] }}">{{ p|paameldingsstatus }}</span></td>
+    <td><span class="merke {{ p|statusmerke }}">{{ p|paameldingsstatus }}</span></td>
     <td class="liten">{{ p.kurs_status }}</td>
     <td class="liten dempet">{{ p.opprettet[:10] }}</td>
     <td><a class="liten" href="{{ url_for('admin_deltaker', kurs_id=p.kurs_id, paamelding_id=p.paamelding_id) }}">Åpne påmelding →</a></td>

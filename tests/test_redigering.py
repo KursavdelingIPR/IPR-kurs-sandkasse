@@ -249,17 +249,33 @@ def test_avmeldt_til_bekreftet_gjenaapning(con):
     assert _fersk(con).execute("SELECT status FROM paamelding WHERE id=?", (pid,)).fetchone()["status"] == "bekreftet"
 
 
-def test_bekreftet_til_venteliste_tilbys_ikke(con):
-    kid = _kurs(con)
+def test_bekreftet_til_venteliste_er_tillatt_og_personen_rykker_ikke_rett_opp_igjen(con):
+    """IPRs beslutning 27.09.2026: admin kan sette en bekreftet deltaker på venteliste. Personen blir stående der og
+    rykker ikke rett opp igjen i samme operasjon - selv om hun meldte seg på først og står først i køen. Står andre på
+    ventelisten, får neste av dem plassen etter dagens regler (se også tests/test_paameldingsstatus.py)."""
+    kid = _kurs(con, kapasitet=1)
+    a, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")    # bekreftet
+    b, _ = db.meld_paa(con, kid, epost="b@x.no", fornavn="B", etternavn="Test")    # venteliste
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    r = klient.post(f"/admin/kurs/{kid}/deltaker/{a}/status", data={"status": "venteliste"}, follow_redirects=True)
+    tekst = r.get_data(as_text=True)
+    assert "Status endret til «venteliste»." in tekst
+    assert "Første på ventelisten har rykket opp og fått plassen." in tekst
+    status = dict(_fersk(con).execute("SELECT id, status FROM paamelding WHERE kurs_id=?", (kid,)).fetchall())
+    assert (status[a], status[b]) == ("venteliste", "bekreftet")
+
+
+def test_bekreftet_til_venteliste_uten_andre_paa_ventelisten_blir_staaende(con):
+    kid = _kurs(con, kapasitet=1)
     pid, _ = db.meld_paa(con, kid, epost="a@x.no", fornavn="A", etternavn="Test")  # bekreftet
     con.commit()
     klient = _klient()
     _logg_inn(klient)
     r = klient.post(f"/admin/kurs/{kid}/deltaker/{pid}/status", data={"status": "venteliste"}, follow_redirects=True)
-    assert "Ugyldig statusendring" in r.get_data(as_text=True)
-    assert _fersk(con).execute("SELECT status FROM paamelding WHERE id=?", (pid,)).fetchone()["status"] == "bekreftet"
-    with pytest.raises(db.Paameldingsfeil):
-        db.sett_paamelding_status(_fersk(con), pid, "venteliste")  # ogsaa sperret paa db-nivaa
+    assert "Første på ventelisten har rykket opp" not in r.get_data(as_text=True)
+    assert _fersk(con).execute("SELECT status FROM paamelding WHERE id=?", (pid,)).fetchone()["status"] == "venteliste"
 
 
 def test_statusendring_logges_med_gammel_og_ny_status(con):

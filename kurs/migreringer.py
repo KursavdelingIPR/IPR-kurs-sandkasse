@@ -139,6 +139,25 @@ def _m7_fornavn_etternavn(con) -> None:
         db.logg(con, "navn_delt_ved_migrering", oppsummering)
 
 
+# Samme definisjoner som i skjemafilene, så ny og migrert database blir like
+_M8_KOLONNER = (
+    ("utgatt_ts", "utgatt_ts TEXT CHECK (utgatt_ts IS NULL OR (status='avmeldt' AND avslatt_ts IS NULL))"),
+    ("forlatt_ts", "forlatt_ts TEXT CHECK (forlatt_ts IS NULL OR (status='avmeldt' AND avslatt_ts IS NULL AND "
+                   "utgatt_ts IS NULL))"),
+)
+
+
+def _m8_utgatt_forlatt(con) -> None:
+    """Statusene Utgått (påmeldingen ble aldri fullført) og Forlatt (deltakelsen avsluttet administrativt/ufrivillig):
+    paamelding.utgatt_ts og forlatt_ts. Nye, tomme kolonner - eksisterende kolonner (også status og dens CHECK) er urørt.
+    Som Avslått (migrering 6) er en utgått eller forlatt påmelding 'avmeldt' med en dato. CHECK-reglene gjør Avslått,
+    Utgått og Forlatt gjensidig utelukkende og tillater dem bare på avmeldte påmeldinger (utgatt_ts må finnes før
+    forlatt_ts, som viser til den)."""
+    for kolonne, definisjon in _M8_KOLONNER:
+        if not db.har_kolonne(con, "paamelding", kolonne):
+            con.execute(f"ALTER TABLE paamelding ADD COLUMN {definisjon}")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
@@ -147,6 +166,7 @@ MIGRERINGER = [
     (5, "integrasjonstoken", _m5_integrasjonstoken),
     (6, "avslatt", _m6_avslatt),
     (7, "fornavn_etternavn", _m7_fornavn_etternavn),
+    (8, "utgatt_forlatt", _m8_utgatt_forlatt),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

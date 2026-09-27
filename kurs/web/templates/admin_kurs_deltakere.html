@@ -7,7 +7,7 @@
   <div class="kort"><div class="liten dempet">Bekreftet</div><div class="stat">{{ tellere.bekreftet or 0 }}</div></div>
   <div class="kort"><div class="liten dempet">Venteliste</div><div class="stat">{{ tellere.venteliste or 0 }}</div></div>
   <div class="kort"><div class="liten dempet">Avmeldt</div><div class="stat">{{ tellere.avmeldt or 0 }}</div></div>
-  {% if tellere.avslatt %}<div class="kort"><div class="liten dempet">Avslått</div><div class="stat">{{ tellere.avslatt }}</div></div>{% endif %}
+  {% for s in ('avslatt', 'utgatt', 'forlatt') if tellere[s] %}<div class="kort"><div class="liten dempet">{{ statusvalg[s] }}</div><div class="stat">{{ tellere[s] }}</div></div>{% endfor %}
   <div class="kort"><div class="liten dempet">Totalt registrert</div><div class="stat">{{ totalt }}</div></div>
 </div>
 
@@ -63,7 +63,7 @@
     <td class="liten">{{ p.telefon or '' }}</td>
     <td class="liten">{{ p.arbeidssted or '' }}</td>
     <td><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(p.fakturastatus, 'gra') }}">{{ p.fakturastatus }}</span></td>
-    <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra','avslått':'feil'}[p|paameldingsstatus] }}">{{ p|paameldingsstatus }}</span></td>
+    <td><span class="merke {{ p|statusmerke }}">{{ p|paameldingsstatus }}</span></td>
     <td class="liten dempet">{{ p.oppdatert[:16].replace('T', ' ') }}</td>
     <td>{% if p.status != 'avmeldt' and kurs.status != 'avsluttet' %}<form method="post" action="{{ url_for('admin_meld_av', pid=p.id) }}" data-bekreft="Melde av {{ p.navn }}?" style="margin:0">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Meld av</button></form>{% endif %}</td>

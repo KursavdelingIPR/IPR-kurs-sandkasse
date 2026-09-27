@@ -13,6 +13,8 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import db
+
 GRUNNLEGGENDE, KONTAKT, ARBEID, FAKTURA, UTFYLLING = (
     "Grunnleggende", "Kontaktinformasjon", "Arbeid og autorisasjon", "Faktura", "Oppmøte og utfylling")
 GRUPPER = (GRUNNLEGGENDE, KONTAKT, ARBEID, FAKTURA, UTFYLLING)
@@ -48,8 +50,7 @@ KOLONNER = (
 )
 
 STATUSVALG = {"bekreftet": "Bekreftede", "venteliste": "Venteliste", "avmeldt": "Avmeldte", "avslatt": "Avslåtte",
-              "alle": "Alle"}
-_STATUSNAVN = {"bekreftet": "Bekreftet", "venteliste": "Venteliste", "avmeldt": "Avmeldt"}
+              "utgatt": "Utgåtte", "forlatt": "Forlatte", "alle": "Alle"}
 _BETALER = {"person": "Deltaker", "organisasjon": "Organisasjon"}
 
 LOGO_MAPPE = Path(__file__).resolve().parent / "web" / "static" / "logo"
@@ -114,21 +115,16 @@ def _sortering(navn: str) -> str:
 
 def hent(con, kurs_id: int, status: str) -> list[dict]:
     """Påmeldingene til kurset med valgt status, sortert på navn. Leser aldri tabellen sensitivt."""
-    sql = """SELECT p.id, p.status, p.avslatt_ts, p.betaler, p.org_navn, p.opprettet, d.navn, d.epost, d.telefon,
-                    d.arbeidssted,
+    sql = """SELECT p.id, p.status, p.avslatt_ts, p.utgatt_ts, p.forlatt_ts, p.betaler, p.org_navn, p.opprettet, d.navn,
+                    d.epost, d.telefon, d.arbeidssted,
                     d.yrkestittel, d.hpr_nr,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id) AS faktura_antall,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id AND status!='betalt') AS faktura_ubetalt
              FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.kurs_id=?"""
-    args = [kurs_id]
-    if status == "avslatt":                    # fase 17: avslått = avmeldt + avslatt_ts
-        sql += " AND p.status='avmeldt' AND p.avslatt_ts IS NOT NULL"
-    elif status == "avmeldt":
-        sql += " AND p.status='avmeldt' AND p.avslatt_ts IS NULL"
-    elif status != "alle":
-        sql += " AND p.status=?"
-        args.append(status)
-    return sorted((dict(r) for r in con.execute(sql, args)), key=lambda r: (_sortering(r["navn"]), r["id"]))
+    # Avslått, utgått og forlatt er avmeldte påmeldinger med en dato (db.paameldingsstatus)
+    rader = [dict(r) for r in con.execute(sql, (kurs_id,))]
+    valgte = [r for r in rader if status == "alle" or db.paameldingsstatus(r) == status]
+    return sorted(valgte, key=lambda r: (_sortering(r["navn"]), r["id"]))
 
 
 def oppmote(con, kurs_id: int) -> set[tuple[int, int]]:
@@ -155,7 +151,7 @@ def _verdi(nokkel: str, nr: int, r: dict, kurs) -> str:
     if nokkel == "nr":
         return str(nr)
     if nokkel == "status":
-        return "Avslått" if r.get("avslatt_ts") else _STATUSNAVN.get(r["status"], r["status"])
+        return db.PAAMELDINGSSTATUSER[db.paameldingsstatus(r)]
     if nokkel == "paameldt":
         return _norsk_dato(r["opprettet"])
     if nokkel == "betaler":

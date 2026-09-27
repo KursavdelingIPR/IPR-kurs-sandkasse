@@ -6,7 +6,7 @@
  *   <input type=radio data-vis="org" ...>      viser elementet med id=org når valgt, data-skjul="org" skjuler det
  *   <select data-skjul-hvis="samlet" data-mal="delfelt">   skjuler #delfelt når verdien er 'samlet'
  *   <form data-en-gang>                        knappen låses etter første innsending (dobbeltklikk-vern)
- *   <form data-status-bekreft>                 «Endre status til X?» der X er valgt verdi i select[name=status]
+ *   <form data-status-bekreft>                 «Endre status til X?» der X er det valgte navnet i select[name=status]
  *   <form data-status-bekreft data-full-bekreft="…">   kurset er fullt: velges «bekreftet», spørres det med denne teksten
  *                                              i stedet, og bare ved ja settes input[name=overbooking] til 1
  *   <button type=button data-skriv-ut>         åpner nettleserens utskrift (der kan man også velge «Lagre som PDF»)
@@ -50,7 +50,8 @@
     if (form.hasAttribute("data-status-bekreft")) {
       var valg = form.querySelector("select[name=status]");
       fulltSpoersmaal = form.hasAttribute("data-full-bekreft") && !!valg && valg.value === "bekreftet";
-      tekst = fulltSpoersmaal ? form.getAttribute("data-full-bekreft") : "Endre status til " + (valg ? valg.value : "") + "?";
+      var valgtNavn = valg && valg.selectedIndex >= 0 ? valg.options[valg.selectedIndex].text.toLowerCase() : "";
+      tekst = fulltSpoersmaal ? form.getAttribute("data-full-bekreft") : "Endre status til " + valgtNavn + "?";
       if (overbooking) overbooking.value = "";
     }
     if (tekst && !window.confirm(tekst)) { e.preventDefault(); return; }
