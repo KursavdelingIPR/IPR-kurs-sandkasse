@@ -1,12 +1,45 @@
 {% extends "admin_deltaker_ramme.html" %}
 {% block deltakerinnhold %}
+{# Lesbar logg (kurs/hendelseslogg.py). Ingen rå JSON: tekniske data ligger bare i detaljene for systemadministrator. #}
 <div class="seksjonstopp">
-  <p class="liten dempet">Alt som er registrert om denne påmeldingen, nyeste først.</p>
+  <p class="liten dempet">Det som har skjedd med påmeldingen, nyeste først. E-poster ligger under Kommunikasjon.</p>
 </div>
-<div class="tabellboks"><table>
-  <tr><th scope="col">Tid</th><th scope="col">Hvem</th><th scope="col">Hendelse</th><th scope="col">Detaljer</th></tr>
-  {% for h in hendelser %}
-  <tr><td class="liten dempet">{{ h.ts }}</td><td class="liten">{{ h.aktor }}</td><td>{{ h.handling }}</td><td class="liten dempet">{{ h.detaljer or '' }}</td></tr>
-  {% else %}<tr><td colspan="4" class="dempet">Ingen hendelser registrert ennå.</td></tr>{% endfor %}
+<div class="tabellboks"><table class="loggtabell">
+  <thead><tr><th scope="col">Hva som skjedde</th><th scope="col">Hvem</th><th scope="col">Dato</th><th scope="col">Klokkeslett</th></tr></thead>
+  <tbody>
+  {% for r in rader %}
+  <tr>
+    <td>{{ r.hva }}
+      {% if r.detaljer or r.teknisk %}
+      <details class="loggdetaljer"><summary>Detaljer</summary>
+        <ul>
+          {% for linje in r.detaljer %}<li>{{ linje }}</li>{% endfor %}
+          {% if r.teknisk %}<li>Tekniske data: <code>{{ r.teknisk }}</code></li>{% endif %}
+        </ul>
+      </details>
+      {% endif %}
+    </td>
+    <td>{{ r.hvem }}</td>
+    <td>{{ r.dato }}</td>
+    <td>{{ r.klokkeslett }}</td>
+  </tr>
+  {% else %}<tr><td colspan="4" class="tom">Ingen hendelser registrert ennå.</td></tr>{% endfor %}
+  </tbody>
 </table></div>
+
+{% if innsyn is not none %}
+<details class="innsyn">
+  <summary>Innsyn i allergier og tilrettelegging ({{ innsyn | length }})</summary>
+  <p class="seksjonsinfo">Hver gang noen åpner deltakeren (Deltaker-fanen viser allergier og tilrettelegging) eller
+    allergilisten for kurset, blir det registrert her. Bare systemadministrator ser denne oversikten.</p>
+  <div class="tabellboks"><table class="loggtabell">
+    <thead><tr><th scope="col">Hva</th><th scope="col">Hvem</th><th scope="col">Dato</th><th scope="col">Klokkeslett</th></tr></thead>
+    <tbody>
+    {% for r in innsyn %}
+    <tr><td>{{ r.hva }}</td><td>{{ r.hvem }}</td><td>{{ r.dato }}</td><td>{{ r.klokkeslett }}</td></tr>
+    {% else %}<tr><td colspan="4" class="tom">Ingen har åpnet opplysningene ennå.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</details>
+{% endif %}
 {% endblock %}

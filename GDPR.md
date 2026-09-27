@@ -47,7 +47,7 @@ Visma. Når regelen er bestemt, kan den legges inn i morgenjobben på samme måt
 
 | Rettighet | Hvordan |
 |---|---|
-| Innsyn (art. 15) | Deltakeren ser egne kurs, oppmøte, dokumenter og fakturaer på Min side. Fullstendig oversikt for admin: Rapporter → Deltakerregister → personen (påmeldinger og fakturaer). Utlevering: skriv ut siden eller eksporter deltakerregisteret |
+| Innsyn (art. 15) | Deltakeren ser egne kurs, oppmøte, dokumenter og fakturaer på Min side. Fullstendig oversikt for admin: Rapporter → Deltakerregister → personen (påmeldinger og fakturaer). Hva som har skjedd med en påmelding, og hvem som gjorde det: deltakervinduet → **Logger**. Hvem som har åpnet allergier/tilrettelegging: Logger → **Innsyn** (kun systemadministrator). Utlevering: skriv ut siden eller eksporter deltakerregisteret |
 | Retting (art. 16) | Admin retter på deltakersiden («Personopplysninger»). Endringen gjelder alle kurs personen er meldt på |
 | Sletting (art. 17) | **Rapporter → Deltakerregister → personen → «Retten til sletting»** (kun systemadministrator, krever at man skriver ANONYMISER). Se under |
 | Protest / begrensning | Meld av / avslå påmeldingen. Markedsføring gjøres ikke fra systemet |

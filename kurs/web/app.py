@@ -23,8 +23,8 @@ from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
-from .. import (aarsplan, behandling, config, daglig, db, deltakerliste, import_deltakere, lenker, mal_eksempler,
-                maltekster, migreringer, okonomi, paameldingsside, skjemafelt, sveiper)
+from .. import (aarsplan, behandling, config, daglig, db, deltakerliste, hendelseslogg, import_deltakere, lenker,
+                mal_eksempler, maltekster, migreringer, okonomi, paameldingsside, skjemafelt, sveiper)
 from ..deltakerliste import fakturastatus as _fakturastatus
 from ..feil import sikker_feiltekst
 from ..integrasjoner import epost, sharepoint
@@ -2111,11 +2111,10 @@ def admin_deltaker_kommunikasjon(kurs_id, paamelding_id):
 def admin_deltaker_logger(kurs_id, paamelding_id):
     kurs = _hent_kurs(kurs_id)
     p = _hent_paamelding(kurs_id, paamelding_id)
-    prefiks = f'%"paamelding_id": {paamelding_id}'
-    hendelser = con().execute(
-        "SELECT * FROM hendelse WHERE detaljer LIKE ? OR detaljer LIKE ? ORDER BY id DESC",
-        (prefiks + ",%", prefiks + "}%")).fetchall()
-    return render_template("admin_deltaker_logger.html", kurs=kurs, p=p, hendelser=hendelser, fane="logger")
+    # Innsyn (hvem som har åpnet allergier/tilrettelegging) og tekniske data: bare for systemadministrator
+    logg = hendelseslogg.for_paamelding(con(), p, systemadmin=g.get("admin_rolle") == "system")
+    return render_template("admin_deltaker_logger.html", kurs=kurs, p=p, rader=logg.rader, innsyn=logg.innsyn,
+                           fane="logger")
 
 
 # ------- admin: manuell e-post (fase 5) -------
@@ -2281,9 +2280,11 @@ def admin_oppmote(kurs_id):
         (pid, kdid, kurs_id)).fetchone()
     if not hoerer_til:
         abort(404)
-    if not db.registrer_oppmote(con(), pid, kdid, "manuell"):
+    registrert = db.registrer_oppmote(con(), pid, kdid, "manuell")    # False: var registrert fra før -> fjernes
+    if not registrert:
         con().execute("DELETE FROM oppmote WHERE paamelding_id=? AND kursdag_id=?", (pid, kdid))
-    db.logg(con(), "oppmote_manuell", {"paamelding_id": pid, "kursdag_id": kdid}, aktor=_aktor())
+    db.logg(con(), "oppmote_manuell", {"paamelding_id": pid, "kursdag_id": kdid, "registrert": registrert},
+            aktor=_aktor())
     con().commit()
     return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id) + "#oppmote")
 

@@ -103,6 +103,14 @@
   .statusskjema select { flex:1 1 200px; width:auto; }
   .faresone { margin-top:22px; border:1px solid #efcdc9; border-radius:10px; padding:12px 18px; }
   .faresone summary { cursor:pointer; color:var(--feil); font-weight:600; }
+  /* Logger-fanen: lesbar historikk med detaljer som åpnes per rad, og innsyn (kun systemadministrator) nederst */
+  .loggtabell td + td { white-space:nowrap; }
+  .loggdetaljer { margin-top:2px; }
+  .loggdetaljer summary { cursor:pointer; width:max-content; font-size:13px; color:var(--bla); }
+  .loggdetaljer ul { margin:6px 0 2px; padding-left:18px; font-size:13px; color:var(--dempet); }
+  .loggdetaljer code { font-size:12px; overflow-wrap:anywhere; }
+  .innsyn { margin-top:26px; }
+  .innsyn summary { cursor:pointer; font-weight:600; color:var(--bla); margin-bottom:6px; }
   .bare-i-vindu { display:none; }
   /* Vindu (dialog) over en liste – brukes av deltakerlisten. Toppen og fanene står fast, innholdet under ruller. */
   html.vindu-aapent { overflow:hidden; }
