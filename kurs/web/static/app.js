@@ -7,6 +7,8 @@
  *   <select data-skjul-hvis="samlet" data-mal="delfelt">   skjuler #delfelt når verdien er 'samlet'
  *   <form data-en-gang>                        knappen låses etter første innsending (dobbeltklikk-vern)
  *   <form data-status-bekreft>                 «Endre status til X?» der X er valgt verdi i select[name=status]
+ *   <form data-status-bekreft data-full-bekreft="…">   kurset er fullt: velges «bekreftet», spørres det med denne teksten
+ *                                              i stedet, og bare ved ja settes input[name=overbooking] til 1
  *   <button type=button data-skriv-ut>         åpner nettleserens utskrift (der kan man også velge «Lagre som PDF»)
  *   <div data-ulagret-vakt>                    rundt flere skjema med data-skjemanavn="…": advarer før ett av dem sendes (eller
  *                                              vinduet lukkes) når et ANNET har endringer som ellers går tapt
@@ -41,11 +43,16 @@
     if (form.hasAttribute("data-ingen-innsending")) { e.preventDefault(); return; }
     if (form.hasAttribute("data-en-gang") && form.dataset.sendt) { e.preventDefault(); return; }
     var tekst = form.getAttribute("data-bekreft");
+    var overbooking = form.querySelector("input[name=overbooking]");
+    var fulltSpoersmaal = false;
     if (form.hasAttribute("data-status-bekreft")) {
       var valg = form.querySelector("select[name=status]");
-      tekst = "Endre status til " + (valg ? valg.value : "") + "?";
+      fulltSpoersmaal = form.hasAttribute("data-full-bekreft") && !!valg && valg.value === "bekreftet";
+      tekst = fulltSpoersmaal ? form.getAttribute("data-full-bekreft") : "Endre status til " + (valg ? valg.value : "") + "?";
+      if (overbooking) overbooking.value = "";
     }
     if (tekst && !window.confirm(tekst)) { e.preventDefault(); return; }
+    if (fulltSpoersmaal && overbooking) overbooking.value = "1";   // admin har svart ja på «Kurset er fullt …»
     var ulagret = ulagredeSkjema(form.closest("[data-ulagret-vakt]"), form);
     if (ulagret && !window.confirm("Du har endringer som ikke er lagret i: " + ulagret +
         ". De går tapt hvis du fortsetter. Vil du fortsette?")) {
