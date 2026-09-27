@@ -115,8 +115,8 @@ def test_loggerfanen_viser_hendelser_for_riktig_paamelding_ikke_andre(con):
     klient = _klient()
     _logg_inn(klient)
     tekst_a = klient.get(f"/admin/kurs/{kid}/deltaker/{pid_a}/logger").get_data(as_text=True)
-    assert "paamelding" in tekst_a
-    assert f'"paamelding_id": {pid_b}' not in tekst_a
+    assert "Påmeldt – bekreftet" in tekst_a
+    assert "Påmeldt – satt på venteliste" not in tekst_a      # B sin påmelding (på venteliste) hører ikke til A
 
 
 def test_loggerfanen_skiller_paamelding_1_fra_10_og_11(con):
@@ -128,5 +128,4 @@ def test_loggerfanen_skiller_paamelding_1_fra_10_og_11(con):
     klient = _klient()
     _logg_inn(klient)
     tekst = klient.get(f"/admin/kurs/{kid}/deltaker/{pid_1}/logger").get_data(as_text=True)
-    for annen in paameldinger[1:]:
-        assert f'"paamelding_id": {annen}' not in tekst
+    assert tekst.count("Påmeldt – bekreftet") == 1            # bare påmelding 1 sin egen, ikke 10 og 11 sine
