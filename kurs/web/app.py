@@ -1641,30 +1641,39 @@ def admin_kurs_paameldingsskjema_tilbakestill(kurs_id):
     return redirect(url_for("admin_kurs_paameldingsskjema", kurs_id=kurs_id))
 
 
-def _deltaker_sok_status(request_args) -> tuple[str, str]:
-    """Leser/validerer sok+status-filter fra query-parametre. Delt mellom deltakerlisten og
-    CSV-eksporten, slik at eksporten kan folge NOYAKTIG samme filter som det admin ser paa
-    skjermen - uten aa duplisere valideringsregelen flere steder."""
+# Statusvalgene i deltakerlisten, i visningsrekkefølge. «avslatt» er ingen egen status i databasen: en avslått påmelding
+# er 'avmeldt' med avslatt_ts (fase 17). Verdiene er de samme som data-status på radene (filteret i static/app.js).
+DELTAKER_STATUSVALG = {"bekreftet": "Bekreftet", "venteliste": "Venteliste", "avmeldt": "Avmeldt", "avslatt": "Avslått"}
+
+
+def _deltaker_sok_status(request_args) -> tuple[str, list[str]]:
+    """Leser/validerer søk og statusvalg (ingen, én eller flere status=...) fra query-parametre. Delt mellom
+    deltakerlisten og CSV-eksporten, slik at eksporten følger NØYAKTIG samme filter som admin ser på skjermen.
+    Ukjente statusverdier ignoreres."""
     sok = request_args.get("sok", "").strip()
-    status = request_args.get("status", "")
-    if status not in ("", "bekreftet", "venteliste", "avmeldt", "avslatt"):
-        status = ""
-    return sok, status
+    valgt = request_args.getlist("status")
+    return sok, [s for s in DELTAKER_STATUSVALG if s in valgt]
 
 
-def _deltaker_filter_vilkar(sok: str, status: str) -> tuple[str, list]:
-    vilkar_sql, args = "", []
-    if sok:
-        vilkar_sql += " AND (LOWER(d.navn) LIKE ? OR LOWER(d.epost) LIKE ?)"
-        args += [f"%{sok.lower()}%", f"%{sok.lower()}%"]
-    if status == "avslatt":                      # fase 17: avslått = avmeldt + avslatt_ts
-        vilkar_sql += " AND p.status='avmeldt' AND p.avslatt_ts IS NOT NULL"
-    elif status == "avmeldt":
-        vilkar_sql += " AND p.status='avmeldt' AND p.avslatt_ts IS NULL"
-    elif status:
-        vilkar_sql += " AND p.status=?"
-        args.append(status)
-    return vilkar_sql, args
+def _statusnokkel(p) -> str:
+    return "avslatt" if p["avslatt_ts"] else p["status"]
+
+
+def _sokbar(p) -> str:
+    """Teksten søket leter i: navn og e-post med små bokstaver. Python gjør også Æ, Ø og Å små (det gjør ikke SQLite)."""
+    return f"{p['navn']} {p['epost']}".lower()
+
+
+def _treffer(p, sok: str, statuser: list[str]) -> bool:
+    """Samme regel som live-søket i static/app.js: delvis treff i navn eller e-post uten hensyn til store og små
+    bokstaver, og én av de valgte statusene (ingen valgt = alle)."""
+    return (not sok or sok.lower() in _sokbar(p)) and (not statuser or _statusnokkel(p) in statuser)
+
+
+def _paameldinger_som_treffer(kurs_id: int, sok: str, statuser: list[str]) -> list[int]:
+    rader = con().execute("""SELECT p.id, p.status, p.avslatt_ts, d.navn, d.epost FROM paamelding p
+                             JOIN deltaker d ON d.id=p.deltaker_id WHERE p.kurs_id=?""", (kurs_id,))
+    return [r["id"] for r in rader if _treffer(r, sok, statuser)]
 
 
 @app.get("/admin/kurs/<int:kurs_id>/deltakere")
@@ -1672,17 +1681,22 @@ def _deltaker_filter_vilkar(sok: str, status: str) -> tuple[str, list]:
 def admin_kurs_deltakere(kurs_id):
     kurs = _hent_kurs(kurs_id)
     dager = db.kursdager(con(), kurs_id)
-    sok, status = _deltaker_sok_status(request.args)
+    sok, statuser = _deltaker_sok_status(request.args)
 
+    # Alle påmeldingene hentes: søket og statusvalgene filtrerer i nettleseren mens man skriver (static/app.js).
+    # Serveren bestemmer bare startvisningen (hidden på radene som ikke passer), så adressen, siden etter omlasting og
+    # siden uten JavaScript viser det samme.
     sql = """SELECT p.*, d.navn, d.epost, d.telefon, d.arbeidssted,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id) AS faktura_antall,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id AND status!='betalt') AS faktura_ubetalt
              FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
-             WHERE p.kurs_id=?"""
-    vilkar_sql, vilkar_args = _deltaker_filter_vilkar(sok, status)
-    args = [kurs_id, *vilkar_args]
-    sql += vilkar_sql + " ORDER BY CASE p.status WHEN 'bekreftet' THEN 0 WHEN 'venteliste' THEN 1 ELSE 2 END, d.navn"
-    deltakere = [dict(r, fakturastatus=_fakturastatus(kurs, r)) for r in con().execute(sql, args)]
+             WHERE p.kurs_id=?
+             ORDER BY CASE p.status WHEN 'bekreftet' THEN 0 WHEN 'venteliste' THEN 1 ELSE 2 END, d.navn"""
+    deltakere = [dict(r, fakturastatus=_fakturastatus(kurs, r), statusnokkel=_statusnokkel(r), sokbar=_sokbar(r),
+                      synlig=_treffer(r, sok, statuser)) for r in con().execute(sql, (kurs_id,))]
+    # Tallet bak hver status: hvor mange med den statusen som passer med søket (uten søk: alle med statusen)
+    antall_per_status = {s: sum(1 for p in deltakere if p["statusnokkel"] == s and _treffer(p, sok, []))
+                         for s in DELTAKER_STATUSVALG}
 
     tellere = {r["status"]: r["antall"] for r in con().execute(
         """SELECT CASE WHEN avslatt_ts IS NOT NULL THEN 'avslatt' ELSE status END AS status, COUNT(*) AS antall
@@ -1692,7 +1706,9 @@ def admin_kurs_deltakere(kurs_id):
         "SELECT o.* FROM oppmote o JOIN kursdag kd ON kd.id=o.kursdag_id WHERE kd.kurs_id=?", (kurs_id,))}
     return render_template("admin_kurs_deltakere.html", kurs=kurs, dager=dager, deltakere=deltakere,
                            tellere=tellere, totalt=sum(tellere.values()), oppmote=oppmote,
-                           sok=sok, status=status, fane="deltakere")
+                           sok=sok, statuser=statuser, statusvalg=DELTAKER_STATUSVALG,
+                           antall_per_status=antall_per_status, synlige=sum(p["synlig"] for p in deltakere),
+                           fane="deltakere")
 
 
 @app.route("/admin/kurs/<int:kurs_id>/deltaker/ny", methods=["GET", "POST"])
@@ -2359,12 +2375,15 @@ def _deltaker_csv_respons(rader, filnavn: str) -> Response:
 @krever_admin
 def admin_csv(kurs_id):
     """Eksporterer deltakere for kurset. Uten sok/status-parametre: hele kurset (uendret
-    oppforsel). Med sok/status satt (samme parametre som deltakerlisten sitt eget filter):
-    eksporterer kun det admin faktisk ser paa skjermen akkurat na."""
-    sok, status = _deltaker_sok_status(request.args)
-    vilkar_sql, vilkar_args = _deltaker_filter_vilkar(sok, status)
-    sql = _deltaker_csv_select() + " WHERE p.kurs_id=?" + vilkar_sql + " ORDER BY p.status, d.navn"
-    rader = con().execute(sql, [kurs_id, *vilkar_args]).fetchall()
+    oppforsel). Med sok og/eller status satt (samme parametre som deltakerlisten sitt eget filter, status
+    kan gjentas): eksporterer kun det admin faktisk ser paa skjermen akkurat na - med samme treffregel (_treffer)."""
+    sok, statuser = _deltaker_sok_status(request.args)
+    sql, args = _deltaker_csv_select() + " WHERE p.kurs_id=?", [kurs_id]
+    if sok or statuser:
+        ider = _paameldinger_som_treffer(kurs_id, sok, statuser)
+        sql += f" AND p.id IN ({','.join('?' * len(ider))})" if ider else " AND 1=0"
+        args += ider
+    rader = con().execute(sql + " ORDER BY p.status, d.navn", args).fetchall()
     return _deltaker_csv_respons(rader, f"deltakere_{kurs_id}.csv")
 
 

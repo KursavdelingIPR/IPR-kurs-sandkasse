@@ -15,7 +15,8 @@
   <a class="knapp liten" href="{{ url_for('admin_deltaker_ny', kurs_id=kurs.id) }}">+ Legg til deltaker</a>
   <a class="knapp sekundar liten" href="{{ url_for('admin_import_deltakere', kurs_id=kurs.id) }}">Importer deltakere</a>
   <a class="knapp sekundar liten" href="{{ url_for('admin_deltakerliste', kurs_id=kurs.id) }}">Deltakerliste (utskrift/PDF)</a>
-  <a class="knapp sekundar liten" href="{{ url_for('admin_csv', kurs_id=kurs.id, sok=sok or None, status=status or None) }}">Eksporter {{ 'treff (Excel)' if (sok or status) else 'deltakerliste (Excel)' }}</a>
+  <a class="knapp sekundar liten" id="eksporter-treff" data-grunnadresse="{{ url_for('admin_csv', kurs_id=kurs.id) }}"
+     href="{{ url_for('admin_csv', kurs_id=kurs.id, sok=sok or None, status=statuser or None) }}">Eksporter {{ 'treff (Excel)' if (sok or statuser) else 'deltakerliste (Excel)' }}</a>
   {% if kurs.type != 'digital' %}<a class="knapp sekundar liten" href="{{ url_for('admin_allergiliste', kurs_id=kurs.id) }}">Allergi-/tilretteleggingsliste</a>{% endif %}
   {% if tellere.bekreftet %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='bekreftet') }}">Send e-post til alle bekreftede</a>{% endif %}
   {% if tellere.venteliste %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='venteliste') }}">Send e-post til venteliste</a>{% endif %}
@@ -28,26 +29,34 @@
 <form id="valgte-deltakere" method="post" action="{{ url_for('admin_epost_ny', kurs_id=kurs.id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 
-<form method="get" class="rad" style="align-items:end; margin-bottom:16px">
-  <div><label for="f-sok">Søk (navn/e-post)</label><input id="f-sok" type="search" name="sok" value="{{ sok }}" placeholder="Søk…"></div>
-  <div><label for="f-status">Status</label><select id="f-status" name="status" data-send-ved-endring>
-      <option value="" {{ 'selected' if not status }}>Alle</option>
-      <option value="bekreftet" {{ 'selected' if status == 'bekreftet' }}>Bekreftet</option>
-      <option value="venteliste" {{ 'selected' if status == 'venteliste' }}>Venteliste</option>
-      <option value="avmeldt" {{ 'selected' if status == 'avmeldt' }}>Avmeldt</option>
-      <option value="avslatt" {{ 'selected' if status == 'avslatt' }}>Avslått</option>
-    </select>
+{# Søk og statusvalg. Med JavaScript filtreres listen mens man skriver (static/app.js, samme regel som _treffer i
+   app.py), og adressen oppdateres. Uten JavaScript sendes skjemaet med Søk-knappen, og serveren viser det samme. #}
+<form id="deltakerfilter" method="get" class="deltakerfilter" role="search" data-deltakerfilter>
+  <div class="deltakerfilter-sok">
+    <label for="f-sok">Søk (navn/e-post)</label>
+    <input id="f-sok" type="search" name="sok" value="{{ sok }}" placeholder="Skriv for å søke …" autocomplete="off">
   </div>
-  <div><button class="sekundar">Søk</button></div>
+  <fieldset class="statusfilter">
+    <legend class="etikett">Status</legend>
+    <div class="filtervalg">
+      {% for verdi, navn in statusvalg.items() %}
+      <label><input type="checkbox" name="status" value="{{ verdi }}" {{ 'checked' if verdi in statuser }}>
+        {{ navn }} <span class="antall" data-antall="{{ verdi }}">({{ antall_per_status[verdi] }})</span></label>
+      {% endfor %}
+      <a class="nullstill-filter" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}" data-nullstill-filter {{ 'hidden' if not (sok or statuser) }}>Nullstill filter</a>
+      <noscript><button class="sekundar liten">Søk</button></noscript>
+    </div>
+  </fieldset>
 </form>
 
-<p class="liten dempet">Viser {{ deltakere|length }} deltaker{{ 's' if deltakere|length != 1 }}.
+{% set alle = deltakere|length %}
+<p class="liten dempet"><span id="antall-synlige" aria-live="polite">Viser {% if synlige != alle %}{{ synlige }} av {% endif %}{{ alle }} deltaker{{ 'e' if alle != 1 }}.</span>
   {% if deltakere %}<label style="font-weight:normal; margin-left:10px"><input type="checkbox" id="velg-alle-synlige"> Velg alle synlige</label>
   <span id="antall-valgt" class="dempet"></span>{% endif %}</p>
 <div class="tabellboks"><table>
   <tr><th scope="col"></th><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Telefon</th><th scope="col">Arbeidssted</th><th scope="col">Fakturastatus</th><th scope="col">Påmeldingsstatus</th><th scope="col">Sist oppdatert</th><th scope="col"></th></tr>
   {% for p in deltakere %}
-  <tr style="{{ 'opacity:.5' if p.status == 'avmeldt' }}">
+  <tr data-filtrer="deltaker" data-status="{{ p.statusnokkel }}" data-sok="{{ p.sokbar }}" {{ 'hidden' if not p.synlig }} style="{{ 'opacity:.5' if p.status == 'avmeldt' }}">
     <td><input type="checkbox" class="valgt-deltaker" name="paamelding_id" value="{{ p.id }}" form="valgte-deltakere" aria-label="Velg {{ p.navn }}"></td>
     <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}" data-deltaker-vindu><strong>{{ p.navn }}</strong></a></td>
     <td class="liten">{{ p.epost }}</td>
@@ -59,7 +68,8 @@
     <td>{% if p.status != 'avmeldt' and kurs.status != 'avsluttet' %}<form method="post" action="{{ url_for('admin_meld_av', pid=p.id) }}" data-bekreft="Melde av {{ p.navn }}?" style="margin:0">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Meld av</button></form>{% endif %}</td>
   </tr>
-  {% else %}<tr><td colspan="9" class="dempet">Ingen deltakere matcher søket.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="9" class="dempet">Ingen deltakere er registrert ennå.</td></tr>{% endfor %}
+  {% if deltakere %}<tr data-ingen-treff="deltaker" {{ 'hidden' if synlige }}><td colspan="9" class="dempet">Ingen deltakere matcher søket.</td></tr>{% endif %}
 </table></div>
 {% if deltakere %}
 <p class="liten" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
@@ -73,8 +83,9 @@
 <p class="liten dempet">Klikk på en dag for å registrere/fjerne oppmøte manuelt. Q = QR, K = kode, Z = Zoom, M = manuell.</p>
 <div class="tabellboks"><table>
   <tr><th scope="col">Navn</th>{% for d in dager %}<th scope="col" style="text-align:center">{{ d.dato[5:] }}</th>{% endfor %}</tr>
-  {% for p in deltakere if p.status == 'bekreftet' %}
-  <tr>
+  {% set bekreftede = deltakere | selectattr('status', 'equalto', 'bekreftet') | list %}
+  {% for p in bekreftede %}
+  <tr data-filtrer="oppmote" data-status="{{ p.statusnokkel }}" data-sok="{{ p.sokbar }}" {{ 'hidden' if not p.synlig }}>
     <td>{{ p.navn }}</td>
     {% for d in dager %}{% set k = oppmote.get((p.id, d.id)) %}
     <td style="text-align:center">
@@ -87,6 +98,8 @@
     {% endfor %}
   </tr>
   {% else %}<tr><td colspan="{{ dager|length + 1 }}" class="dempet">Ingen bekreftede deltakere.</td></tr>{% endfor %}
+  {% if bekreftede %}<tr data-ingen-treff="oppmote" {{ 'hidden' if bekreftede | selectattr('synlig') | list }}>
+    <td colspan="{{ dager|length + 1 }}" class="dempet">Ingen bekreftede deltakere matcher søket.</td></tr>{% endif %}
 </table></div>
 
 <!-- Vinduet som åpnes når man klikker på et navn i listen. Innholdet hentes fra deltakersiden (se static/app.js). -->

@@ -8,6 +8,7 @@ from datetime import date, timedelta
 import pytest
 
 from kurs import config, db
+from listehjelp import synlige_rader
 
 RUTE_DELTAKERE = "/admin/kurs/{kid}/deltakere"
 RUTE_CSV = "/admin/kurs/{kid}/deltakere.csv"
@@ -124,7 +125,7 @@ def test_eksport_matcher_deltakerlistens_eget_filter(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    liste = klient.get(RUTE_DELTAKERE.format(kid=kid) + "?sok=kari").get_data(as_text=True)
+    liste = synlige_rader(klient.get(RUTE_DELTAKERE.format(kid=kid) + "?sok=kari").get_data(as_text=True))
     eksport = _csv_rader(klient.get(RUTE_CSV.format(kid=kid) + "?sok=kari"))
     assert "Kari Nordmann" in liste and "Ola Hansen" not in liste
     assert len(eksport) == 1 and "Kari;Nordmann" in eksport[0]
