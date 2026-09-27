@@ -12,6 +12,7 @@ from werkzeug.datastructures import MultiDict
 
 from kurs import config, db, migreringer, okonomi
 from kurs.integrasjoner import epost
+from listehjelp import synlige_rader
 from navnehjelp import navnedeler
 
 NBSP = " "
@@ -232,9 +233,9 @@ def test_avslaatt_vises_telles_og_kan_filtreres(con, sendt):
     html = k.get(f"/admin/kurs/{kid}/deltakere").get_data(as_text=True)
     assert '<div class="liten dempet">Avslått</div><div class="stat">1</div>' in html
     assert '<div class="liten dempet">Avmeldt</div><div class="stat">1</div>' in html
-    bare_avslatt = k.get(f"/admin/kurs/{kid}/deltakere?status=avslatt").get_data(as_text=True)
+    bare_avslatt = synlige_rader(k.get(f"/admin/kurs/{kid}/deltakere?status=avslatt").get_data(as_text=True))
     assert "Frida Avslått" in bare_avslatt and "Geir Avmeldt" not in bare_avslatt and "Hilde" not in bare_avslatt
-    bare_avmeldt = k.get(f"/admin/kurs/{kid}/deltakere?status=avmeldt").get_data(as_text=True)
+    bare_avmeldt = synlige_rader(k.get(f"/admin/kurs/{kid}/deltakere?status=avmeldt").get_data(as_text=True))
     assert "Geir Avmeldt" in bare_avmeldt and "Frida" not in bare_avmeldt
     liste = k.get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&kol=status&status=alle").get_data(as_text=True)
     assert "<td class=\"\">Avslått</td>" in liste and "<td class=\"\">Avmeldt</td>" in liste
@@ -256,6 +257,8 @@ def test_lesetilgang_kan_ikke_avslaa(con, sendt):
 def test_migrering_6_legger_til_kolonnen_uten_aa_roere_data(con):
     kid = _kurs(con, "M6", pris_nok=0)
     pid = _paamelding(con, kid, "jon@eksempel.no")
+    for kolonne in ("forlatt_ts", "utgatt_ts"):       # migrering 8 (reglene viser til avslatt_ts) fantes ikke før 6
+        con.execute(f"ALTER TABLE paamelding DROP COLUMN {kolonne}")
     con.execute("ALTER TABLE paamelding DROP COLUMN avslatt_ts")
     con.execute("DELETE FROM schema_versjon WHERE versjon >= 6")
     con.commit()

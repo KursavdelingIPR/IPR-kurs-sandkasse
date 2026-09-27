@@ -6,7 +6,7 @@
  *   <input type=radio data-vis="org" ...>      viser elementet med id=org når valgt, data-skjul="org" skjuler det
  *   <select data-skjul-hvis="samlet" data-mal="delfelt">   skjuler #delfelt når verdien er 'samlet'
  *   <form data-en-gang>                        knappen låses etter første innsending (dobbeltklikk-vern)
- *   <form data-status-bekreft>                 «Endre status til X?» der X er valgt verdi i select[name=status]
+ *   <form data-status-bekreft>                 «Endre status til X?» der X er det valgte navnet i select[name=status]
  *   <form data-status-bekreft data-full-bekreft="…">   kurset er fullt: velges «bekreftet», spørres det med denne teksten
  *                                              i stedet, og bare ved ja settes input[name=overbooking] til 1
  *   <button type=button data-skriv-ut>         åpner nettleserens utskrift (der kan man også velge «Lagre som PDF»)
@@ -16,6 +16,8 @@
  *                                              (uten JS, eller med Ctrl/Cmd-klikk, er det en vanlig lenke)
  *   <button type=button data-sett-inn="{fornavn}" data-felt="f-tekst">   flettefelt: setter teksten inn der markøren
  *                                              står i feltet (eller erstatter det som er markert)
+ *   <form data-deltakerfilter>                 deltakerlisten: søket (input[name=sok]) og statusvalgene (input[name=status])
+ *                                              viser/skjuler tr[data-filtrer] etter data-sok og data-status mens man skriver
  */
 (function () {
   "use strict";
@@ -48,7 +50,8 @@
     if (form.hasAttribute("data-status-bekreft")) {
       var valg = form.querySelector("select[name=status]");
       fulltSpoersmaal = form.hasAttribute("data-full-bekreft") && !!valg && valg.value === "bekreftet";
-      tekst = fulltSpoersmaal ? form.getAttribute("data-full-bekreft") : "Endre status til " + (valg ? valg.value : "") + "?";
+      var valgtNavn = valg && valg.selectedIndex >= 0 ? valg.options[valg.selectedIndex].text.toLowerCase() : "";
+      tekst = fulltSpoersmaal ? form.getAttribute("data-full-bekreft") : "Endre status til " + valgtNavn + "?";
       if (overbooking) overbooking.value = "";
     }
     if (tekst && !window.confirm(tekst)) { e.preventDefault(); return; }
@@ -111,21 +114,111 @@
     felt.dispatchEvent(new Event("input", { bubbles: true }));
   });
 
-  // «Velg alle synlige» i deltakerlisten
+  // Deltakerlisten: «Velg alle synlige», live-søk og statusvalg. Radene har data-filtrer (deltaker/oppmote), data-status
+  // og data-sok (navn og e-post med små bokstaver, satt av serveren). Regelen er den samme som _treffer i app.py: delvis
+  // treff, og ingen status valgt betyr alle. Handlingene (send e-post, eksporter, behandle valgte) gjelder bare synlige,
+  // avkryssede deltakere: en avkrysset rad som skjules av søket eller filteret, mister avkrysningen.
   var velgAlle = document.getElementById("velg-alle-synlige");
-  if (velgAlle) {
-    var bokser = document.querySelectorAll(".valgt-deltaker");
-    var visning = document.getElementById("antall-valgt");
-    var oppdater = function () {
-      var n = document.querySelectorAll(".valgt-deltaker:checked").length;
-      if (visning) visning.textContent = n ? "– " + n + " valgt" : "";
-    };
-    velgAlle.addEventListener("change", function () {
-      bokser.forEach(function (b) { b.checked = velgAlle.checked; });
-      oppdater();
+  var synligeValg = function () {
+    return Array.prototype.filter.call(document.querySelectorAll(".valgt-deltaker"), function (b) {
+      var rad = b.closest("tr");
+      return !(rad && rad.hidden);
     });
-    bokser.forEach(function (b) { b.addEventListener("change", oppdater); });
+  };
+  var oppdaterValgte = function () {
+    if (!velgAlle) return;
+    var synlige = synligeValg();
+    var valgt = synlige.filter(function (b) { return b.checked; }).length;
+    var visning = document.getElementById("antall-valgt");
+    if (visning) visning.textContent = valgt ? "– " + valgt + " valgt" : "";
+    velgAlle.checked = synlige.length > 0 && valgt === synlige.length;
+    velgAlle.indeterminate = valgt > 0 && valgt < synlige.length;
+    velgAlle.disabled = synlige.length === 0;
+  };
+  if (velgAlle) {
+    velgAlle.addEventListener("change", function () {
+      var velg = velgAlle.checked;
+      synligeValg().forEach(function (b) { b.checked = velg; });
+      oppdaterValgte();
+    });
+    document.querySelectorAll(".valgt-deltaker").forEach(function (b) { b.addEventListener("change", oppdaterValgte); });
   }
+
+  var filter = document.querySelector("form[data-deltakerfilter]");
+  if (filter) {
+    var sokefelt = filter.querySelector("input[name=sok]");
+    var statusvalg = filter.querySelectorAll("input[name=status]");
+    var nullstill = filter.querySelector("[data-nullstill-filter]");
+    var eksport = document.getElementById("eksporter-treff");
+    var antallSynlige = document.getElementById("antall-synlige");
+    var tidtaker = null;
+    var treffer = function (rad, sok, valgte) {
+      return (!sok || (rad.getAttribute("data-sok") || "").indexOf(sok) >= 0) &&
+             (!valgte.length || valgte.indexOf(rad.getAttribute("data-status")) >= 0);
+    };
+    var brukFilter = function () {
+      var tekst = sokefelt.value.trim();
+      var sok = tekst.toLowerCase();
+      var valgte = [];
+      statusvalg.forEach(function (b) { if (b.checked) valgte.push(b.value); });
+      var synlige = { deltaker: 0, oppmote: 0 }, totalt = { deltaker: 0, oppmote: 0 }, perStatus = {};
+      document.querySelectorAll("tr[data-filtrer]").forEach(function (rad) {
+        var type = rad.getAttribute("data-filtrer"), vis = treffer(rad, sok, valgte);
+        rad.hidden = !vis;
+        totalt[type] = (totalt[type] || 0) + 1;
+        if (vis) synlige[type] = (synlige[type] || 0) + 1;
+        var boks = rad.querySelector(".valgt-deltaker");
+        if (boks && !vis) boks.checked = false;
+        if (type === "deltaker" && treffer(rad, sok, [])) {     // tallet bak statusen: treff på søket med den statusen
+          var s = rad.getAttribute("data-status");
+          perStatus[s] = (perStatus[s] || 0) + 1;
+        }
+      });
+      document.querySelectorAll("[data-antall]").forEach(function (el) {
+        el.textContent = "(" + (perStatus[el.getAttribute("data-antall")] || 0) + ")";
+      });
+      document.querySelectorAll("tr[data-ingen-treff]").forEach(function (rad) {
+        var type = rad.getAttribute("data-ingen-treff");
+        rad.hidden = !(totalt[type] > 0 && synlige[type] === 0);
+      });
+      if (antallSynlige) {
+        var alle = totalt.deltaker, vist = synlige.deltaker;
+        antallSynlige.textContent = "Viser " + (vist !== alle ? vist + " av " : "") + alle + (alle === 1 ? " deltaker." : " deltakere.");
+      }
+      var aktivt = tekst !== "" || valgte.length > 0;
+      if (nullstill) nullstill.hidden = !aktivt;
+      var parametre = new URLSearchParams();
+      if (tekst) parametre.set("sok", tekst);
+      valgte.forEach(function (s) { parametre.append("status", s); });
+      var sporring = parametre.toString() ? "?" + parametre.toString() : "";
+      if (eksport) {
+        eksport.href = eksport.getAttribute("data-grunnadresse") + sporring;
+        eksport.textContent = aktivt ? "Eksporter treff (Excel)" : "Eksporter deltakerliste (Excel)";
+      }
+      // Filteret står i adressen: det overlever omlasting (f.eks. når deltakervinduet lukkes etter en lagring)
+      if (window.history && history.replaceState) history.replaceState(history.state, "", location.pathname + sporring + location.hash);
+      oppdaterValgte();
+    };
+    sokefelt.addEventListener("input", function () {
+      clearTimeout(tidtaker);
+      tidtaker = setTimeout(brukFilter, 250);
+    });
+    statusvalg.forEach(function (b) { b.addEventListener("change", brukFilter); });
+    filter.addEventListener("submit", function (e) { e.preventDefault(); clearTimeout(tidtaker); brukFilter(); });
+    if (nullstill) {
+      nullstill.addEventListener("click", function (e) {
+        e.preventDefault();
+        sokefelt.value = "";
+        statusvalg.forEach(function (b) { b.checked = false; });
+        brukFilter();
+        sokefelt.focus();
+      });
+    }
+    // Nettleseren kan fylle inn skjemaet på nytt (omlasting, «tilbake»): vis alltid det som faktisk står i feltene
+    window.addEventListener("pageshow", function (e) { if (e.persisted) brukFilter(); });
+    brukFilter();
+  }
+  oppdaterValgte();
 
   // Bedriftspåmelding: legg til / fjern deltakerrader
   var rader = document.getElementById("deltaker-rader");

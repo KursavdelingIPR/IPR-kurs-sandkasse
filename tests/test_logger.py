@@ -78,7 +78,7 @@ def test_avmelding_og_automatisk_opprykk_i_lesbar_tekst(con):
     db.sett_paamelding_status(con, kari, "avmeldt", aktor=ADMIN)
     con.commit()
     assert _hva(con, kari) == ["Avmeldt", "Påmeldt – bekreftet"]      # «avmelding» + statusendring = én rad
-    assert _rad(con, kari, "Avmeldt").detaljer == ["Status før: Bekreftet"]
+    assert _rad(con, kari, "Avmeldt").detaljer == ["Status før: Bekreftet", "Ny status: Avmeldt"]
     assert _rad(con, kari, "Avmeldt").hvem == "Standardbruker"
 
     opprykk = _rad(con, nina, "Flyttet opp fra venteliste")
@@ -93,7 +93,7 @@ def test_bekreftet_over_kapasitet_og_status_fra_venteliste_til_bekreftet(con):
     db.sett_paamelding_status(con, nina, "bekreftet", aktor=ADMIN, tillat_overbooking=True)
     con.commit()
     over = _rad(con, nina, "Bekreftet over kapasitet")
-    assert over.detaljer == ["Kurset hadde 1 plass.", "Status før: Venteliste"]
+    assert over.detaljer == ["Kurset hadde 1 plass.", "Status før: Venteliste", "Ny status: Bekreftet"]
 
     con.execute("UPDATE kurs SET kapasitet=10 WHERE id=?", (kid,))           # ledig plass, uten automatisk opprykk
     db.sett_paamelding_status(con, ola, "bekreftet", aktor=ADMIN)
@@ -107,7 +107,7 @@ def test_avslag_vises_som_en_rad(con):
     db.avsla_paamelding(con, pid, aktor=ADMIN)
     con.commit()
     assert _hva(con, pid) == ["Avslått", "Påmeldt – bekreftet"]
-    assert _rad(con, pid, "Avslått").detaljer == ["Status før: Bekreftet"]
+    assert _rad(con, pid, "Avslått").detaljer == ["Status før: Bekreftet", "Ny status: Avslått"]
 
 
 def test_satt_paa_venteliste_og_paameldt_paa_nytt(con):
@@ -121,7 +121,7 @@ def test_satt_paa_venteliste_og_paameldt_paa_nytt(con):
     con.commit()
     assert _hva(con, pid) == ["Satt på venteliste", "Avmeldt", "Påmeldt på nytt – bekreftet", "Avmeldt",
                               "Påmeldt – bekreftet"]
-    assert _rad(con, pid, "Satt på venteliste").detaljer == ["Status før: Avmeldt"]
+    assert _rad(con, pid, "Satt på venteliste").detaljer == ["Status før: Avmeldt", "Ny status: Venteliste"]
     assert _rad(con, pid, "Påmeldt på nytt – bekreftet").detaljer == ["Kilde: Påmeldingsskjemaet"]
     assert _rad(con, pid, "Påmeldt – bekreftet").detaljer == []               # kilden gjelder den siste påmeldingen
 

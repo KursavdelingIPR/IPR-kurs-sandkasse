@@ -52,6 +52,7 @@ igjen – de dukker ikke opp her. Se avsnitt 6.
 | Zoom-møtet «ble ikke brukt» (`zoom_mote_ubrukt` i loggen) | Kurset fikk en lenke i mellomtiden. Det ekstra møtet kan slettes i Zoom |
 | Kurset er fullt, men en deltaker på venteliste skal likevel få plass | Åpne deltakeren, velg «bekreftet» under Status og trykk «Endre status». Du får spørsmålet «Er du sikker … Kurset er fullt» – svarer du ja, meldes deltakeren på og får bekreftelsen. Kurset har da flere bekreftede enn plasser; ingen rykker opp fra ventelisten før det igjen er en ledig plass. Hvem som gjorde det, står i loggen |
 | En deltaker kan ikke melde seg på («ikke godkjent») | Påmeldingen er avslått. Gjenopprett ved å endre status på deltakersiden hvis det var feil |
+| Hvilken status skal jeg velge? | **Avmeldt**: deltakeren har selv meldt seg av. **Avslått**: IPR har avslått påmeldingen (kan ikke melde seg på igjen selv). **Utgått**: påmeldingen ble aldri fullført. **Forlatt**: deltakelsen er avsluttet administrativt/ufrivillig, f.eks. ved manglende betaling. Ingen av de fire sender e-post. Forlater en bekreftet deltaker plassen (også til Venteliste), rykker første på ventelisten opp og får bekreftelse og faktura som før – aldri den du nettopp satte på venteliste. En sendt faktura krediteres ikke automatisk (gjøres i Visma). Alt står i Logger |
 | En side gir «Noe gikk galt» med en referanse | Søk etter referansen i App Service-loggen (linjen har rute, status og feiltype – aldri persondata) |
 
 ## 5. Brukere og tilgang

@@ -6,6 +6,7 @@ import pytest
 
 from kurs import config, db
 from kurs.web.app import _fakturastatus
+from listehjelp import synlige_rader
 
 
 @pytest.fixture
@@ -187,10 +188,10 @@ def test_soek_og_statusfilter_paa_deltakere(con):
 
     klient = _klient()
     _logg_inn(klient)
-    tekst = klient.get(f"/admin/kurs/{kid}/deltakere?sok=kari").get_data(as_text=True)
+    tekst = synlige_rader(klient.get(f"/admin/kurs/{kid}/deltakere?sok=kari").get_data(as_text=True))
     assert "Kari Nordmann" in tekst and "Ola Hansen" not in tekst
 
-    tekst = klient.get(f"/admin/kurs/{kid}/deltakere?status=venteliste").get_data(as_text=True)
+    tekst = synlige_rader(klient.get(f"/admin/kurs/{kid}/deltakere?status=venteliste").get_data(as_text=True))
     assert "Ola Hansen" in tekst and "Kari Nordmann" not in tekst
 
 

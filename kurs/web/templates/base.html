@@ -103,6 +103,22 @@
   .statusskjema select { flex:1 1 200px; width:auto; }
   .faresone { margin-top:22px; border:1px solid #efcdc9; border-radius:10px; padding:12px 18px; }
   .faresone summary { cursor:pointer; color:var(--feil); font-weight:600; }
+  /* Deltakerlisten: søk og statusvalg som synlige avkrysningsbrikker. Valgte brikker er fylt, så aktive filtre synes. */
+  .deltakerfilter { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px 28px; margin-bottom:8px; }
+  .deltakerfilter-sok { flex:1 1 240px; max-width:380px; }
+  .deltakerfilter-sok label { margin-top:0; }
+  .statusfilter { flex:2 1 420px; }
+  .statusfilter legend { padding:0; margin:0 0 6px; }
+  .filtervalg { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; min-height:38px; }
+  .filtervalg label { display:inline-flex; align-items:center; gap:6px; margin:0; padding:5px 13px 5px 10px; border:1px solid #c7d0d5; border-radius:20px; background:#fff; font-size:14px; font-weight:400; cursor:pointer; user-select:none; }
+  .filtervalg label:hover { border-color:var(--bla); }
+  .filtervalg input[type=checkbox] { margin:0; accent-color:var(--bla); }
+  .filtervalg label:has(input:checked) { background:var(--bla); border-color:var(--bla); color:#fff; }
+  .filtervalg label:has(input:checked) input { accent-color:#fff; }
+  .filtervalg label:has(input:checked) .antall { color:#d6e6ec; }
+  .filtervalg label:has(input:focus-visible) { outline:3px solid #f3a53d; outline-offset:2px; }
+  .filtervalg .antall { color:var(--dempet); }
+  .nullstill-filter { font-size:13px; margin-left:4px; }
   /* Logger-fanen: lesbar historikk med detaljer som åpnes per rad, og innsyn (kun systemadministrator) nederst */
   .loggtabell td + td { white-space:nowrap; }
   .loggdetaljer { margin-top:2px; }
