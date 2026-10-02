@@ -1,0 +1,63 @@
+/* Signaturer (E-postmaler → Signaturer, kursets signatur og «Send e-post»). Bruker fargene og knappene fra base.html. */
+
+/* Slik signaturen står i e-posten: samme skrift, farge og størrelse som bunnen av e-postene (maler/epost/_ramme.html) */
+.epostsignatur { font-family:"Segoe UI", Arial, sans-serif; color:#667; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.epostsignatur img { max-width:100%; height:auto; vertical-align:middle; }
+.epostsignatur p { margin:0 0 6px; }
+
+.signatureditor { margin-top:14px; }
+.signatureditor > .etikett { display:block; font-size:13px; font-weight:600; margin:0 0 4px; }
+.verktoylinje { display:flex; flex-wrap:wrap; gap:4px; padding:6px; border:1px solid var(--linje); border-bottom:0;
+                border-radius:8px 8px 0 0; background:#f5f7f8; }
+.verktoylinje .verktoy { background:#fff; color:var(--tekst); border:1px solid #c7d0d5; border-radius:6px; padding:4px 9px;
+                         font-size:13px; line-height:1.4; }
+.verktoylinje .verktoy:hover { background:#eef3f6; }
+.verktoylinje .verktoyvalg { width:auto; margin:0; padding:4px 6px; font-size:13px; border-radius:6px; }
+.signaturflate { min-height:96px; padding:12px 14px; border:1px solid var(--linje); border-radius:0 0 8px 8px; background:#fff; }
+.signaturflate:focus { outline:2px solid var(--bla); outline-offset:1px; }
+.signaturflate:not([contenteditable]) { border-radius:8px; background:#fafbfb; }
+.signaturflate img.valgt { outline:2px dashed var(--bla); outline-offset:2px; }
+.signaturhjelp { margin:6px 0 0; }
+
+.signaturvelger { margin-top:18px; padding-top:14px; border-top:1px solid var(--linje); }
+.signaturvelger > select, .linjeskjema select, .signaturmodus .innrykket { width:auto; min-width:260px; max-width:100%; }
+.linjeskjema { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.linjeskjema button { margin:0; }
+.signaturvalg { max-width:720px; }
+.signaturskjema { max-width:760px; }
+.signaturskjema .knapper { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0 0; }
+
+.signaturliste { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:14px; margin-bottom:24px; }
+.signaturkort { display:flex; flex-direction:column; margin:0; }
+.signaturkort header { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+.signaturkort h3 { margin:0; font-size:16px; }
+.signaturvisning { flex:1; margin:10px 0 8px; padding:10px 12px; border:1px dashed var(--linje); border-radius:8px;
+                   background:#fcfcfd; max-height:220px; overflow:auto; }
+.signaturkort .bruk { margin:0 0 10px; }
+.signaturkort .knapper { display:flex; flex-wrap:wrap; gap:8px; }
+.signaturkort .knapper form { margin:0; }
+
+.signaturmodus { border:0; padding:0; margin:0 0 6px; }
+.signaturmodus .valg { display:flex; gap:8px; align-items:baseline; font-weight:400; font-size:15px; margin:10px 0 4px; }
+.signaturmodus .valg input { width:auto; margin:0; }
+.signaturmodus .innrykket { margin-left:26px; }
+.kurssignatur { align-items:center; }
+.kurssignatur p { margin:0; }
+
+.bildeopplasting { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1.4fr) auto; gap:12px 16px; align-items:end;
+                   max-width:960px; }
+.bildeopplasting label { margin-top:0; }
+.bildeopplasting .handlinger button { margin:0; }
+.bildeliste { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:14px; }
+.bildekort { margin:0; }
+.bildekort img { display:block; max-width:100%; max-height:110px; margin:0 0 10px; }
+.bildekort figcaption { display:grid; gap:4px; }
+.bildekort form { margin:6px 0 0; }
+
+@media (max-width: 760px) {
+  .bildeopplasting { grid-template-columns:1fr; }
+  .verktoylinje .verktoyvalg { flex:1 1 44%; }
+  .signaturliste { grid-template-columns:1fr; }
+  .signaturvelger > select, .linjeskjema select, .signaturmodus .innrykket { min-width:0; width:100%; }
+  .signaturmodus .innrykket { margin-left:0; }
+}

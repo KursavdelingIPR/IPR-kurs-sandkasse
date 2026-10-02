@@ -9,6 +9,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE, SPORBAR_ADRESSE
 from kurs import config, db
 from navnehjelp import personskjema
 
@@ -50,7 +51,7 @@ def _antall_mail(con):
 def _skjema(**over):
     return personskjema({"navn": "Kari Nordmann", "epost": "kari@x.no", "telefon": "99999999",
                          "yrkestittel": "Psykolog", "arbeidssted": "Klinikk AS", "hpr_nr": "1234567",
-                         "betaler": "person", **over})
+                         "betaler": "person", **ADRESSE, **over})
 
 
 def _hent_pid(con, epost="kari@x.no"):
@@ -202,7 +203,7 @@ def test_paameldingsfrist_blokkerer_offentlig_men_ikke_admin(con):
     klient = _klient()
 
     offentlig = klient.post(f"/kurs/FRIST1", data={
-        "fornavn": "Ute", "etternavn": "Nordmann", "epost": "ute@x.no", "samtykke": "on",
+        "fornavn": "Ute", "etternavn": "Nordmann", "epost": "ute@x.no", "samtykke": "on", **ADRESSE,
     })
     assert offentlig.status_code == 400
     assert con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0] == 0
@@ -275,17 +276,17 @@ def test_samlet_personvernkontroll_hendelseslogg(con):
     # offentlig paamelding med sensitive data og organisasjon som betaler
     klient.post("/kurs/PV1", data={
         "fornavn": "Fyller", "etternavn": "Kapasitet", "epost": "fyller@sensitiv-domene.no", "telefon": "90000000",
-        "samtykke": "on", "allergier": "Skalldyrallergi", "tilrettelegging": "Rullestol",
+        "samtykke": "on", **SPORBAR_ADRESSE, "allergier": "Skalldyrallergi", "tilrettelegging": "Rullestol",
     })
 
     _logg_inn(klient)
     # manuell registrering (venteliste siden kapasitet=1 er fylt), med full faktura-/orginfo
     klient.post(NY.format(kid=kid), data=_skjema(
         navn="Hemmelig Deltaker", epost="hemmelig.deltaker@sensitiv-domene.no", telefon="91234567",
-        betaler="organisasjon", org_navn="Sensitiv Bedrift AS", org_nr="987654321",
+        betaler="organisasjon", org_navn="Sensitiv Bedrift AS", org_nr="999900003",
         faktura_adresse="Skjult Vei 1", faktura_postnr="0001", faktura_sted="Skjult By",
         faktura_ref="Konfidensiell ref", faktura_kommentar="Ikke vis dette noe sted i loggen",
-        allergier="Peanøttallergi", tilrettelegging="Tegnspråktolk",
+        allergier="Peanøttallergi", tilrettelegging="Tegnspråktolk", **SPORBAR_ADRESSE,
     ))
     pid = _hent_pid(con, epost="hemmelig.deltaker@sensitiv-domene.no")
     klient.post(BEHANDLE.format(kid=kid, pid=pid))  # venteliste -> ventelistebeskjed
@@ -297,7 +298,9 @@ def test_samlet_personvernkontroll_hendelseslogg(con):
     forbudte_tekster = [
         "fyller kapasitet", "fyller@sensitiv-domene.no", "90000000", "skalldyrallergi", "rullestol",
         "hemmelig deltaker", "hemmelig.deltaker@sensitiv-domene.no", "91234567",
+        "sporbarveien 4711", "sporbarby",                       # deltakerens private adresse (også postnummeret: 4711)
         "sensitiv bedrift", "987654321", "skjult vei", "skjult by", "konfidensiell ref",
+        "eksempel kommune", "999900003", "postboks 100",     # firmaopplysningene fra registeret hører heller ikke hjemme i loggen
         "ikke vis dette", "peanøttallergi", "tegnspråktolk",
     ]
     rader = con.execute("SELECT handling, detaljer FROM hendelse").fetchall()

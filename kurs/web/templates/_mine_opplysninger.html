@@ -1,0 +1,25 @@
+{% import "_kursside_blokker.html" as bl %}
+{#- «Mine opplysninger» på Min side (kursside_deltaker.html): det deltakeren selv ga ved påmeldingen. v.person kommer ferdig utvalgt fra
+    minside.mine_opplysninger (aldri allergier, interne kommentarer eller HPR-nummer); i forhåndsvisningen i administrasjonen er det
+    oppdiktede eksempeldata. Privatadressen vises bare når deltakeren er innlogget med e-post (v.person.bekreft gir knappen under). -#}
+{% set p = v.person %}
+{% if p %}
+<section class="dp-blokk dp-person" id="mine-opplysninger" aria-labelledby="dp-person-h">
+  <div class="dp-blokk-h"><span class="dp-ikon dp-ikon-person">{{ bl.ikon('bruker') }}</span>
+    <div><h2 id="dp-person-h">Mine opplysninger</h2>
+      <p class="dp-sub">{{ 'Eksempel: slik ser kortet ut for deltakeren.' if p.eksempel else 'Det du oppga da du meldte deg på.' }}</p></div></div>
+  <dl class="dp-felt">
+    {% for etikett, linjer in p.rader %}<div><dt>{{ etikett }}</dt><dd>{% for l in linjer %}{{ l }}{% if not loop.last %}<br>{% endif %}{% endfor %}</dd></div>
+    {% endfor %}
+  </dl>
+  {% if p.bekreft and not forhandsvisning %}
+  <form class="dp-bekreft" method="post" action="{{ v.bekreft_url }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="neste" value="{{ request.path }}">
+    <p>Privatadressen din vises først når du har bekreftet e-posten din. Det samme gjelder fakturaer og kursbevis.</p>
+    <button type="submit">Send meg en lenke på e-post</button>
+  </form>
+  {% endif %}
+  <p class="dp-hjelp">Stemmer noe ikke? Skriv til <a href="mailto:{{ p.kontakt }}">{{ p.kontakt }}</a>.</p>
+</section>
+{% endif %}

@@ -112,7 +112,9 @@ def test_parseren_ser_det_samme_som_sqlite(tmp_path):
 
 
 def test_parseren_fant_alle_tabeller_og_indekser():
-    assert len(SQLITE_TAB) == 28 and set(SQLITE_IDX) == {"faktura_unik", "faktura_forsok_unik"}
+    assert len(SQLITE_TAB) == 43 and set(SQLITE_IDX) == {"faktura_unik", "faktura_forsok_unik"}
+    assert {"kurs_ekstrafelt", "paamelding_svar", "min_side_lenke"} <= set(SQLITE_TAB)
+    assert {"kursside", "kursside_versjon", "kursside_fil", "kursside_fil_innhold"} <= set(SQLITE_TAB)
 
 
 # ============================ speiling ============================

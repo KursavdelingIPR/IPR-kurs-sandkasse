@@ -2,6 +2,8 @@
 etternavn med samme regel som migrering 7 (siste ord blir etternavn); ett ord faar etternavnet «Test». KUN for testdata -
 appen tar alltid imot fornavn og etternavn hver for seg og gjetter aldri."""
 
+from adressehjelp import ADRESSE
+
 
 def navnedeler(navn: str) -> dict:
     *fornavn, etternavn = navn.split()
@@ -28,8 +30,11 @@ def personskjema(data: dict) -> dict:
 
 
 def gruppeskjema(data: dict) -> dict:
-    """Bedriftspaamelding: kontakt_navn og deltaker_navn (fullt navn, ett eller en liste) -> egne fornavn-/etternavn-felt."""
+    """Bedriftspaamelding: kontakt_navn og deltaker_navn (fullt navn, ett eller en liste) -> egne fornavn-/etternavn-felt.
+    Hver deltakerrad faar en gyldig, oppdiktet adresse (deltaker_adresse/-postnr/-poststed) - deltakerens private adresse er
+    paakrevd for alle. Gi adressefeltene selv for aa velge dem, eller `uten_adresse=True` for aa teste at de kreves."""
     ut = dict(data)
+    uten_adresse = ut.pop("uten_adresse", False)
     if "kontakt_navn" in ut:
         ut["kontakt_fornavn"], ut["kontakt_etternavn"] = _del(ut.pop("kontakt_navn"))
     if "deltaker_navn" in ut:
@@ -37,4 +42,8 @@ def gruppeskjema(data: dict) -> dict:
         deler = [_del(n) for n in (navn if isinstance(navn, list) else [navn])]
         ut["deltaker_fornavn"] = [f for f, _ in deler]
         ut["deltaker_etternavn"] = [e for _, e in deler]
+    if "deltaker_fornavn" in ut and not uten_adresse:
+        antall = len(ut["deltaker_fornavn"])
+        for felt, verdi in ADRESSE.items():
+            ut.setdefault(f"deltaker_{felt}", [verdi] * antall)
     return ut

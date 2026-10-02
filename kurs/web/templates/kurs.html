@@ -1,85 +1,222 @@
 {% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css). Kurs for IPR.no skal få en annen stil etter hvert. -#}
 {% block tittel %}{{ kurs.navn }} – IPR Påmeldingssystem{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='paamelding.css') }}">{% endblock %}
 {% block innhold %}
-{% if forhandsvisning %}
-<div class="flash info">Forhåndsvisning – dette er slik påmeldingssiden vil se ut. Påmelding er deaktivert.</div>
-{% endif %}
-<h1>{{ kurs.navn }}</h1>
-<p class="sub">{{ {'digital':'Digitalt kurs (Zoom)','fysisk':'Fysisk kurs','hybrid':'Hybrid'}[kurs.type] }}{% if kurs.sted %} · {{ kurs.sted }}{% endif %}
-  · {% if kurs.pris_nok %}{{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr eks. mva{% else %}Gratis{% endif %}</p>
-{#- 12C5: kursets introduksjonstekst - ren tekst, escapes av Jinja, linjeskift via CSS. Ingen tom container. -#}
-{% if side.intro %}<p class="intro" style="white-space:pre-line; max-width:760px; margin:0 0 22px">{{ side.intro }}</p>{% endif %}
+{#- Påmeldingssiden: samme side for deltakerne og for admin sin forhåndsvisning (skjemabyggeren). Feltene kommer fra
+    skjema-snapshotet (kurs/skjemafelt.py + kurs/ekstrafelt.py). All tekst fra admin (feltnavn, hjelpetekster, valg,
+    introduksjonstekst) er ren tekst og escapes av Jinja - aldri |safe. -#}
+{%- set pris = ('{:,}'.format(kurs.pris_nok).replace(',', ' ') ~ ' kr eks. mva') if kurs.pris_nok else 'Gratis' -%}
+{%- set samlingsliste = dager | samlinger(kurs) -%}
+{%- set antall_samlinger = samlingsliste | length -%}
+{%- set inputtype = {'telefon': ('tel', 'tel'), 'arbeidssted': ('text', 'organization'),
+                     'yrkestittel': ('text', 'organization-title'), 'faktura_epost': ('email', 'email'),
+                     'adresse': ('text', 'street-address'), 'postnr': ('text', 'postal-code'),
+                     'poststed': ('text', 'address-level2')} -%}
 
-<div class="rad" style="align-items:start; gap:20px">
-<div class="kort">
-  <strong>Kursdager</strong>
-  <ul style="padding-left:18px">{% for d in dager %}<li>{{ d.dato }} kl. {{ d.start_kl or kurs.start_kl }}–{{ d.slutt_kl or kurs.slutt_kl }}</li>{% endfor %}</ul>
-  {% if kurs.notat %}<p class="liten">{{ kurs.notat }}</p>{% endif %}
-  {% if plasser_igjen is not none %}<p class="liten">{% if plasser_igjen > 0 %}{{ plasser_igjen }} plasser igjen{% else %}<span class="merke gul">Fullt – du settes på venteliste</span>{% endif %}</p>{% endif %}
+{%- macro krav(felt) %}{% if felt.obligatorisk %} <span class="pm-krav">(krav)</span>{% endif %}{% endmacro -%}
+{%- macro hjelp(felt) %}{% if felt.hjelpetekst %}<p id="hjelp-{{ felt.nokkel }}" class="pm-hjelp">{{ felt.hjelpetekst }}</p>{% endif %}{% endmacro -%}
+{%- macro beskrevet(felt) %}{% if felt.hjelpetekst %} aria-describedby="hjelp-{{ felt.nokkel }}"{% endif %}{% endmacro -%}
+
+{#- Ett felt som én rad: feltnavnet til venstre, feltet til høyre. `stengt`: feltet står i en del av skjemaet som er
+    skjult nå (sendes ikke, og krav gjelder ikke før delen vises). -#}
+{%- macro felt_rad(felt, stengt=false) -%}
+{%- set skjult = felt.vis_naar is not none and not vis_naar_oppfylt(felt.vis_naar, f) -%}
+{%- set av = stengt or skjult -%}
+{%- set verdi = f.get(felt.nokkel) -%}
+{%- if felt.type in ('envalg', 'flervalg', 'avkrysning') %}
+<div class="pm-rad" role="{{ 'radiogroup' if felt.type == 'envalg' else 'group' }}" aria-labelledby="e-{{ felt.nokkel }}"{% if felt.vis_naar %} data-vis-naar="{{ felt.vis_naar[0] }}" data-vis-verdi="{{ felt.vis_naar[1] }}"{% if skjult %} hidden{% endif %}{% endif %}>
+  <span class="pm-etikett" id="e-{{ felt.nokkel }}">{{ felt.label }}{{ krav(felt) }}</span>
+  <div class="pm-felt pm-valg">
+    {%- if felt.type == 'avkrysning' %}
+    {%- set avkrysset = (verdi == AVKRYSSET) if felt.ekstra_id else verdi %}
+    <label><input type="checkbox" name="{{ felt.nokkel }}" value="{{ AVKRYSSET }}"{{ ' checked' if avkrysset }}{{ ' required' if felt.obligatorisk and not av }}{{ ' disabled' if av }}{{ beskrevet(felt) }}>{{ felt.valg[0] if felt.valg else ('Send fakturaen som EHF' if felt.nokkel == 'ehf' else AVKRYSSET) }}</label>
+    {%- else %}{% for v in felt.valg %}
+    <label><input type="{{ 'radio' if felt.type == 'envalg' else 'checkbox' }}" name="{{ felt.nokkel }}" value="{{ v }}"{{ ' checked' if (v in verdi if verdi is iterable and verdi is not string else v == verdi) }}{{ ' required' if felt.type == 'envalg' and felt.obligatorisk and not av }}{{ ' disabled' if av }}{{ beskrevet(felt) }}>{{ v }}</label>
+    {%- endfor %}{% endif %}
+    {{ hjelp(felt) }}
+  </div>
+</div>
+{%- else %}
+<div class="pm-rad"{% if felt.vis_naar %} data-vis-naar="{{ felt.vis_naar[0] }}" data-vis-verdi="{{ felt.vis_naar[1] }}"{% if skjult %} hidden{% endif %}{% endif %}>
+  <label class="pm-etikett" for="f-{{ felt.nokkel }}">{{ felt.label }}{{ krav(felt) }}</label>
+  <div class="pm-felt">
+    {%- if felt.type == 'langtekst' %}
+    <textarea id="f-{{ felt.nokkel }}" name="{{ felt.nokkel }}" rows="3"{% if felt.ekstra_id %} maxlength="2000"{% endif %}{{ ' required' if felt.obligatorisk and not av }}{{ ' disabled' if av }}{{ beskrevet(felt) }}>{{ verdi or '' }}</textarea>
+    {%- elif felt.type == 'nedtrekk' %}
+    <select id="f-{{ felt.nokkel }}" name="{{ felt.nokkel }}"{{ ' required' if felt.obligatorisk and not av }}{{ ' disabled' if av }}{{ beskrevet(felt) }}>
+      <option value="">Velg …</option>
+      {%- for v in felt.valg %}<option value="{{ v }}"{{ ' selected' if v == verdi }}>{{ v }}</option>{% endfor %}
+    </select>
+    {%- else %}{% set t = inputtype.get(felt.nokkel, ('text', none)) %}
+    <input id="f-{{ felt.nokkel }}" name="{{ felt.nokkel }}"{% if t[0] != 'text' %} type="{{ t[0] }}"{% endif %}{% if t[1] %} autocomplete="{{ t[1] }}"{% endif %}{% if felt.ekstra_id %} maxlength="300"{% endif %}{{ ' required' if felt.obligatorisk and not av }}{{ ' disabled' if av }}{{ beskrevet(felt) }} value="{{ verdi or '' }}">
+    {%- endif %}
+    {{ hjelp(felt) }}
+  </div>
+</div>
+{%- endif %}
+{%- endmacro -%}
+
+{#- Administratorer ser den ekte siden uten banner (Camilla 01.10.2026: «dette må bort»). Bare når kurset ikke er åpent for påmelding (utkast, avsluttet, avlyst) står det et banner:
+    da kan ikke skjemaet sendes, og administratoren skal vite hvorfor. Lenken og «Rediger skjemaet» ligger i skjemabyggeren (fanen Påmeldingsskjema). -#}
+{% if admin_visning and forhandsvisning %}
+<div class="pm-admin ikke-utskrift" role="region" aria-label="For administratorer">
+  <p><strong>Forhåndsvisning – kurset er ikke åpent for påmelding ({{ {'utkast': 'utkast', 'avsluttet': 'avsluttet', 'avlyst': 'avlyst'}.get(kurs.status, kurs.status) }}).</strong>
+    Bare innloggede administratorer ser denne siden, og skjemaet kan ikke sendes.</p>
+  <div class="pm-admin-lenke">
+    <input id="pm-lenke" value="{{ offentlig_lenke }}" readonly aria-label="Lenke til påmeldingsskjemaet">
+    <button type="button" class="sekundar liten" data-kopier="pm-lenke">Kopier lenke</button>
+    <a href="{{ url_for('admin_kurs_paameldingsskjema', kurs_id=kurs.id) }}">Rediger skjemaet</a>
+  </div>
+</div>
+{% elif forhandsvisning %}
+<div class="flash info">Forhåndsvisning – påmelding er ikke mulig.</div>
+{% endif %}
+
+<div class="pm-topp">
+  <h1>{{ kurs.navn }}</h1>
+  <p class="sub">{{ {'digital':'Digitalt kurs (Zoom)','fysisk':'Fysisk kurs','hybrid':'Hybrid (fysisk og digitalt)'}[kurs.type] }}</p>
 </div>
 
-<form method="post" class="kort" style="grid-column: span 2"{% if forhandsvisning %} data-ingen-innsending{% endif %}>
+<div class="pm-oppsett">
+{%- if side.intro %}
+<p class="pm-intro">{{ side.intro }}</p>
+{%- endif %}
+
+<aside class="pm-info kort" aria-label="Om kurset">
+  {%- if 'vis_tid' in skjema.info and dager %}
+  <div class="pm-info-del pm-info-dager">
+    <h2><svg class="pm-ikon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>{{ 'Kursdag' if dager|length == 1 else 'Kursdager' }}</h2>
+    <ul>{% for g in samlingsliste %}<li><span class="pm-dato">{% if g.navn %}{{ g.navn }}: {% endif %}{{ g.periode }}</span> <span class="dempet">kl. {{ g.tid }}</span>
+      {%- if g.avvik %}<ul class="pm-avvik">{% for a in g.avvik %}<li>{{ a.dato }}:{% if a.tid %} kl. {{ a.tid }}{% endif %}{% if a.merknad %}{{ ' –' if a.tid }} {{ a.merknad }}{% endif %}</li>{% endfor %}</ul>{% endif %}</li>{% endfor %}</ul>
+  </div>
+  {%- endif %}
+  {%- if 'vis_sted' in skjema.info and (kurs.sted or kurs.type == 'digital') %}
+  <div class="pm-info-del pm-info-sted"><h2><svg class="pm-ikon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21.5s-6.8-5.7-6.8-11.3a6.8 6.8 0 0 1 13.6 0c0 5.6-6.8 11.3-6.8 11.3z"/><circle cx="12" cy="10.2" r="2.4"/></svg>Sted</h2><p>{{ kurs.sted or 'Digitalt (Zoom)' }}</p></div>
+  {%- endif %}
+  {%- if 'vis_pris' in skjema.info %}
+  <div class="pm-info-del pm-info-pris"><h2><svg class="pm-ikon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.5 12.3V5a1.5 1.5 0 0 1 1.5-1.5h7.3l8 8a1.6 1.6 0 0 1 0 2.2l-6.6 6.6a1.6 1.6 0 0 1-2.2 0z"/><circle cx="8.3" cy="8.3" r="1.3"/></svg>Pris</h2><p>{{ pris }}</p></div>
+  {%- endif %}
+  {%- if 'vis_frist' in skjema.info and kurs.paameldingsfrist %}
+  <div class="pm-info-del"><h2><svg class="pm-ikon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.8"/><path d="M12 7.2V12l3.2 2"/></svg>Påmeldingsfrist</h2><p>{{ kurs.paameldingsfrist|langdato }}</p></div>
+  {%- endif %}
+  {#- Antall ledige plasser vises aldri for deltakerne - bare at kurset er fullt (da settes de på venteliste) -#}
+  {%- if plasser_igjen is not none and plasser_igjen <= 0 %}
+  <div class="pm-info-del pm-info-fullt"><p><svg class="pm-ikon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.8"/><path d="M12 7.5v5.2M12 16.3v.1"/></svg><span class="merke gul">Fullt – du settes på venteliste</span></p></div>
+  {%- endif %}
+  {#- kurs.notat er en intern kommentar (bare for administratorer) og vises aldri her -#}
+</aside>
+
+<form method="post" class="kort pm-skjema"{% if forhandsvisning %} data-ingen-innsending{% endif %} aria-labelledby="pm-skjema-tittel">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <strong>Påmelding</strong>
-  <fieldset>
-  <div class="rad">
-    <div><label for="f-fornavn">Fornavn *</label><input id="f-fornavn" name="fornavn" required autocomplete="given-name" value="{{ f.fornavn }}"></div>
-    <div><label for="f-etternavn">Etternavn *</label><input id="f-etternavn" name="etternavn" required autocomplete="family-name" value="{{ f.etternavn }}"></div>
-    <div><label for="f-epost">E-post *</label><input id="f-epost" name="epost" type="email" required value="{{ f.epost }}"></div>
-    {#- Deltakerfelt fra skjemafelt-registeret (kurs/skjemafelt.py): konfigurerbar gruppe, deretter ev. HPR. -#}
-    {% for felt in skjema.deltakerfelt %}
-    <div><label for="f-{{ felt.nokkel }}">{{ felt.label }}{% if felt.obligatorisk %} *{% endif %}</label><input id="f-{{ felt.nokkel }}" name="{{ felt.nokkel }}"{% if felt.obligatorisk %} required{% endif %}{% if felt.hjelpetekst %} aria-describedby="hjelp-{{ felt.nokkel }}"{% endif %} value="{{ f[felt.nokkel] }}">{% if felt.hjelpetekst %}<p id="hjelp-{{ felt.nokkel }}" class="liten dempet" style="white-space:pre-line; margin:4px 0 0">{{ felt.hjelpetekst }}</p>{% endif %}</div>
-    {% endfor %}
-  </div>
+  <h2 id="pm-skjema-tittel">Påmelding</h2>
 
-  {% if skjema.vis_fakturablokk %}
-  <label style="margin-top:18px">Hvem betaler?</label>
-  <label style="font-weight:normal"><input type="radio" name="betaler" value="person" {{ 'checked' if f.betaler != 'organisasjon' }} data-skjul="org">Jeg betaler selv</label>
-  <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} data-vis="org">Arbeidsgiver betaler</label>
-  <div id="org" class="{{ '' if f.betaler == 'organisasjon' else 'skjul' }}">
-    <div class="rad">
-      <div><label for="f-org_navn">Organisasjon</label><input id="f-org_navn" name="org_navn" value="{{ f.org_navn }}"></div>
-      <div><label for="f-org_nr">Org.nr.</label><input id="f-org_nr" name="org_nr" value="{{ f.org_nr }}"></div>
-      <div><label for="f-faktura_ref">Fakturareferanse / bestillernr.</label><input id="f-faktura_ref" name="faktura_ref" value="{{ f.faktura_ref }}"></div>
-      <div><label for="f-faktura_epost">E-post for faktura</label><input id="f-faktura_epost" name="faktura_epost" value="{{ f.faktura_epost }}"></div>
+  <div class="pm-rad">
+    <label class="pm-etikett" for="f-fornavn">Fornavn <span class="pm-krav">(krav)</span></label>
+    <div class="pm-felt"><input id="f-fornavn" name="fornavn" required autocomplete="given-name" value="{{ f.fornavn }}"></div>
+  </div>
+  <div class="pm-rad">
+    <label class="pm-etikett" for="f-etternavn">Etternavn <span class="pm-krav">(krav)</span></label>
+    <div class="pm-felt"><input id="f-etternavn" name="etternavn" required autocomplete="family-name" value="{{ f.etternavn }}"></div>
+  </div>
+  <div class="pm-rad">
+    <label class="pm-etikett" for="f-epost">E-post <span class="pm-krav">(krav)</span></label>
+    <div class="pm-felt"><input id="f-epost" name="epost" type="email" required autocomplete="email" value="{{ f.epost }}"></div>
+  </div>
+  {#- Deltakerens private adresse: alltid med og alltid krav (også når arbeidsgiver betaler). Betaler deltakeren selv,
+      faktureres denne adressen. -#}
+  {%- for felt in skjema.adressefelt %}
+  {{ felt_rad(felt) }}
+  {%- endfor %}
+  {#- «Om deg»: standardfeltene og kursets egne felt i rekkefølgen fra skjemabyggeren, deretter ev. HPR. -#}
+  {%- for felt in skjema.deltakerfelt %}
+  {{ felt_rad(felt) }}
+  {%- endfor %}
+
+  {%- if skjema.vis_fakturablokk %}
+  {%- set firma_valgt = f.betaler == 'organisasjon' %}
+  {%- set privat_valgt = f.betaler == 'person' %}
+  <h3 class="pm-deltittel">Faktura</h3>
+  <div class="pm-rad" role="radiogroup" aria-labelledby="e-betaler">
+    <span class="pm-etikett" id="e-betaler">Betale privat / firma <span class="pm-krav">(krav)</span></span>
+    <div class="pm-felt pm-valg">
+      <label><input type="radio" name="betaler" value="person" required{{ ' checked' if privat_valgt }}>{{ BETALER_VALG['person'] }}</label>
+      <label><input type="radio" name="betaler" value="organisasjon" required{{ ' checked' if firma_valgt }}>{{ BETALER_VALG['organisasjon'] }}</label>
+      <p class="pm-hjelp">Betaler du selv, sendes fakturaen til adressen du har oppgitt over.</p>
     </div>
-    <label style="font-weight:normal"><input type="checkbox" name="ehf" {{ 'checked' if f.ehf }}>Send som EHF (elektronisk faktura)</label>
   </div>
-  {% if kurs.betaling == 'deltaker_velger' %}
-  <label style="margin-top:18px">Betaling</label>
-  <label style="font-weight:normal"><input type="radio" name="betaling" value="samlet" {{ 'checked' if f.betaling != 'per_samling' }}>
-    Hele beløpet i én faktura ({{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr)</label>
-  <label style="font-weight:normal"><input type="radio" name="betaling" value="per_samling" {{ 'checked' if f.betaling == 'per_samling' }}>
-    Delt opp – én faktura før hver samling (ca. {{ '{:,}'.format((kurs.pris_nok / dager|length)|round(0,'floor')|int).replace(',', ' ') }} kr × {{ dager|length }})</label>
-  {% elif kurs.betaling == 'per_samling' %}
-  <p class="liten" style="margin-top:18px">Kurset faktureres per samling: ca. {{ '{:,}'.format((kurs.pris_nok / dager|length)|round(0,'floor')|int).replace(',', ' ') }} kr før hver av de {{ dager|length }} samlingene.</p>
-  {% endif %}
-
-  <div class="rad">
-    <div><label for="f-faktura_adresse">Fakturaadresse</label><input id="f-faktura_adresse" name="faktura_adresse" value="{{ f.faktura_adresse }}"></div>
-    <div><label for="f-faktura_postnr">Postnr.</label><input id="f-faktura_postnr" name="faktura_postnr" value="{{ f.faktura_postnr }}"></div>
-    <div><label for="f-faktura_sted">Sted</label><input id="f-faktura_sted" name="faktura_sted" value="{{ f.faktura_sted }}"></div>
+  <div class="pm-gruppe" data-vis-naar="betaler" data-vis-verdi="organisasjon"{% if not firma_valgt %} hidden{% endif %}>
+    <div class="pm-rad">
+      <label class="pm-etikett" for="f-org_nr">Organisasjonsnummer <span class="pm-krav">(krav)</span></label>
+      <div class="pm-felt pm-oppslag" data-enhetsoppslag="{{ url_for('kurs_enhetsoppslag', kode=kurs.kode) }}">
+        <input id="f-org_nr" name="org_nr" value="{{ f.org_nr }}" autocomplete="off" placeholder="Skriv org.nr. eller søk på firmanavn"
+               role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pm-forslag"
+               aria-describedby="pm-oppslag-status hjelp-org_nr"{{ ' disabled' if not firma_valgt }}>
+        <ul id="pm-forslag" class="pm-forslag" role="listbox" aria-label="Treff i Brønnøysundregistrene" hidden></ul>
+        <p id="pm-oppslag-status" class="pm-status" role="status" aria-live="polite"></p>
+        <p id="hjelp-org_nr" class="pm-hjelp">Firmanavn og adresse hentes automatisk fra Brønnøysundregistrene.</p>
+      </div>
+    </div>
+    {%- for navn, tekst in (('org_navn', 'Firmanavn'), ('org_adresse', 'Adresse'), ('org_postnr', 'Postnummer'), ('org_sted', 'Poststed')) %}
+    <div class="pm-rad">
+      <label class="pm-etikett" for="f-{{ navn }}">{{ tekst }}</label>
+      <div class="pm-felt"><input id="f-{{ navn }}" name="{{ navn }}" class="pm-auto" readonly data-enhet="{{ navn }}" placeholder="Fylles ut automatisk" value="{{ f.get(navn) or '' }}"{{ ' disabled' if not firma_valgt }}></div>
+    </div>
+    {%- endfor %}
+    {%- for felt in skjema.firmafelt %}
+    {{ felt_rad(felt, stengt=not firma_valgt) }}
+    {%- endfor %}
   </div>
-  {% endif %}
-
-  {% if skjema.vis_sensitive_felt %}
-  <div class="rad">
-    <div><label for="f-allergier">Allergier / spesialkost</label><input id="f-allergier" name="allergier" value="{{ f.allergier }}"></div>
-    <div><label for="f-tilrettelegging">Behov for tilrettelegging</label><input id="f-tilrettelegging" name="tilrettelegging" value="{{ f.tilrettelegging }}"></div>
+  {#- Med bare én samling er det ikke noe å velge: én vanlig faktura (db.meld_paa) -#}
+  {%- if kurs.betaling == 'deltaker_velger' and antall_samlinger > 1 %}
+  <div class="pm-rad" role="radiogroup" aria-labelledby="e-betaling">
+    <span class="pm-etikett" id="e-betaling">Betaling</span>
+    <div class="pm-felt pm-valg">
+      <label><input type="radio" name="betaling" value="samlet"{{ ' checked' if f.betaling != 'per_samling' }}>Hele beløpet i én faktura ({{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr)</label>
+      <label><input type="radio" name="betaling" value="per_samling"{{ ' checked' if f.betaling == 'per_samling' }}>Delt opp – én faktura før hver samling (ca. {{ '{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' ') }} kr × {{ antall_samlinger }})</label>
+    </div>
   </div>
-  <p class="liten dempet">Opplysningene brukes kun til å planlegge kurset og slettes automatisk etter at kurset er gjennomført.</p>
-  {% endif %}
+  {%- elif kurs.betaling == 'per_samling' and antall_samlinger > 1 %}
+  <div class="pm-rad">
+    <span class="pm-etikett">Betaling</span>
+    <div class="pm-felt"><p class="pm-tekst">Kurset faktureres per samling: ca. {{ '{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' ') }} kr før hver av de {{ antall_samlinger }} samlingene.</p></div>
+  </div>
+  {%- endif %}
+  {%- endif %}
 
-  <label style="font-weight:normal; margin-top:16px"><input type="checkbox" name="samtykke" required>
-    Jeg godtar <a href="https://www.ipr.no/kurs-og-utdanning/artikkel/kurs-salgsbetingelser" target="_blank" rel="noopener">vilkår for kurs</a> og
-    <a href="https://www.ipr.no/om-oss/personvernerkl%C3%A6ring" target="_blank" rel="noopener">personvernerklæringen</a> *</label>
-  </fieldset>
-  {% if forhandsvisning %}
-  <p style="margin-top:16px"><button type="button">{{ side.knappetekst }}</button></p>
-  {% else %}
-  <p style="margin-top:16px"><button>{{ side.knappetekst }}</button></p>
-  <p class="liten dempet" style="margin-top:10px">Melder du på flere personer samtidig? <a href="{{ url_for('kurs_gruppe', kode=kurs.kode) }}">Bruk bedriftspåmelding →</a></p>
-  {% endif %}
+  {%- if skjema.sluttfelt or skjema.sensitive_felt %}
+  <div class="pm-skille" role="presentation"></div>
+  {%- for felt in skjema.sluttfelt %}
+  {{ felt_rad(felt) }}
+  {%- endfor %}
+  {%- for felt in skjema.sensitive_felt %}
+  {{ felt_rad(felt) }}
+  {%- endfor %}
+  {%- if skjema.sensitive_felt %}
+  <div class="pm-rad"><span></span><div class="pm-felt"><p class="pm-hjelp pm-personvern">Opplysningene brukes kun til å planlegge kurset og slettes automatisk etter at kurset er gjennomført.</p></div></div>
+  {%- endif %}
+  {%- endif %}
+
+  <div class="pm-rad pm-samtykke" role="group" aria-labelledby="e-samtykke">
+    <span class="pm-etikett" id="e-samtykke">Vilkår <span class="pm-krav">(krav)</span></span>
+    <div class="pm-felt pm-valg">
+      <label><input type="checkbox" name="samtykke" required><span>Jeg godtar <a href="https://www.ipr.no/kurs-og-utdanning/artikkel/kurs-salgsbetingelser" target="_blank" rel="noopener">vilkår for kurs</a> og
+        <a href="https://www.ipr.no/om-oss/personvernerkl%C3%A6ring" target="_blank" rel="noopener">personvernerklæringen</a></span></label>
+    </div>
+  </div>
+
+  <div class="pm-rad pm-knapperad">
+    <span></span>
+    <div class="pm-felt">
+      {%- if forhandsvisning %}
+      <button type="button">{{ side.knappetekst }}</button>
+      <p class="liten dempet">Påmelding er ikke mulig før kurset er åpnet for påmelding.</p>
+      {%- else %}
+      <button>{{ side.knappetekst }}</button>
+      <p class="liten dempet">Melder du på flere personer samtidig? <a href="{{ url_for('kurs_gruppe', kode=kurs.kode) }}">Bruk bedriftspåmelding →</a></p>
+      {%- endif %}
+    </div>
+  </div>
 </form>
 </div>
 {% endblock %}

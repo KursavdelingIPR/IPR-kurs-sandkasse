@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css) -#}
+{% block tittel %}Lenken virker ikke – IPR Påmeldingssystem{% endblock %}
+{% block innhold %}
+{#- Samme side for alle lenker som ikke virker (feil kopiert, stengt, byttet ut med en nyere eller utløpt): den sier ikke hvorfor, og
+    avslører aldri om en påmelding finnes. -#}
+<div class="kort" style="max-width:520px; margin:0 auto">
+  <h1>Lenken virker ikke</h1>
+  <p>Lenken til Min side er gått ut, er byttet ut med en nyere, eller er ikke kopiert riktig. Logg inn med e-postadressen du meldte deg på med,
+    så sender vi deg en ny lenke.</p>
+  <p><a class="knapp" href="{{ url_for('logg_inn') }}">Logg inn med e-post</a></p>
+</div>
+{% endblock %}

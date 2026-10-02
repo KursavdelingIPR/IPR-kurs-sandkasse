@@ -1,9 +1,49 @@
 {% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css) -#}
+{% import "_kursside_blokker.html" as bl %}
+{#- Resultatet av en innsjekk (QR eller kode). status er «ok» (registrert, eller allerede registrert) eller «feil». Teksten kommer fra
+    deltakerside.tekst_for: uinnloggede får nøytrale svar uten navn (bare maskert e-post), og samme tekst uansett hvorfor e-posten ikke ble funnet.
+    Under en vellykket innsjekk: innlogget deltaker får «Gå til Min side» og «Mine kurs»; uinnlogget får tilbud om en innloggingslenke
+    (bare når kurset har en åpen Min side). -#}
+{% block tittel %}Innsjekk – IPR Påmeldingssystem{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='innsjekk.css') }}">{% endblock %}
 {% block innhold %}
-<div class="kort" style="max-width:440px; margin:0 auto; text-align:center; padding:36px 24px">
-  <div style="font-size:54px; line-height:1; color:{{ 'var(--ok)' if status == 'ok' else 'var(--feil)' }}">{{ '✓' if status == 'ok' else '!' }}</div>
-  <h1 style="margin-top:12px">{{ tekst }}</h1>
-  <p class="sub">{{ kurs.navn }} · {{ kurs.dato }}</p>
-  {% if status == 'ok' %}<a class="knapp sekundar" href="{{ url_for('min_side') }}">Min side</a>{% endif %}
+{% include "_kursside_ikoner.html" %}
+{% set overskrifter = {'allerede': 'Du er allerede registrert', 'ikke_i_dag': 'Innsjekk er ikke åpen', 'ikke_paameldt': 'Vi fant ikke påmeldingen',
+                       'kode_feil': 'Koden stemmer ikke', 'ikke_paa_samlingen': 'Ikke satt opp på samlingen', 'ingen_kursdag': 'Ingen kursdag i dag', 'ikke_tilbudt': 'Registreres automatisk'} %}
+<div class="inn-rot">
+<div class="inn-kort inn-resultat inn-{{ status }}">
+  <div class="inn-ring" aria-hidden="true">{% if status == 'ok' %}{{ bl.ikon('hake') }}{% else %}!{% endif %}</div>
+  {% if res.status == 'ny' %}<h1>{{ tekst }}</h1>
+  {% else %}<h1>{{ overskrifter.get(res.status, 'Innsjekk') }}</h1><p class="inn-tekst" role="{{ 'status' if status == 'ok' else 'alert' }}">{{ tekst }}</p>{% endif %}
+  <p class="inn-under">{{ k.navn }}{% if k.dag_tekst %} · {{ k.dag_tekst }}{% endif %} · {{ k.dato_lang }}{% if res.tid %} · kl. {{ res.tid }}{% endif %}{% if maskert %}<br>Registrert på {{ maskert }}{% endif %}</p>
+  {% if k.dag_nr and k.dag_av %}
+  <div class="inn-fremdrift" role="img" aria-label="{{ k.dag_tekst }}">{% for i in range(1, k.dag_av + 1) %}<span class="inn-seg{{ ' inn-seg-na' if i == k.dag_nr else (' inn-seg-ferdig' if i < k.dag_nr) }}"></span>{% endfor %}</div>
+  {% endif %}
+
+  {% if res.status == 'allerede' %}<div class="inn-melding inn-melding-info">{{ bl.ikon('info') }}<p>Du kan bare registreres én gang per kursdag, så her er alt i orden.</p></div>{% endif %}
+
+  {% if status == 'ok' %}
+    {% if innlogget %}
+    <p class="inn-handling">{% if har_side %}<a class="knapp inn-knapp" href="{{ neste }}">Gå til Min side</a>{% endif %}
+      <a class="knapp sekundar inn-knapp" href="{{ url_for('min_side') }}">Min side</a></p>
+    {% elif har_side %}
+    <section class="inn-boks" aria-labelledby="inn-boks-h">
+      <h2 id="inn-boks-h">Vil du se program og presentasjoner?</h2>
+      <p>Vi sender en engangslenke til {{ maskert }}. Den tar deg rett til Min side.</p>
+      <form method="post" action="{{ url_for('logg_inn') }}" data-en-gang>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="epost" value="{{ epost }}">
+        <input type="hidden" name="neste" value="{{ neste }}">
+        <button type="submit" class="sekundar inn-knapp">{{ bl.ikon('post') }}Send meg innloggingslenke</button>
+      </form>
+    </section>
+    {% endif %}
+  {% elif res.status == 'ikke_paa_samlingen' %}
+  <p class="inn-handling"><a class="knapp inn-knapp" href="{{ url_for('min_side') }}">Min side</a></p>
+  {% else %}
+  <p class="inn-handling"><a class="knapp sekundar inn-knapp" href="">Prøv igjen</a></p>
+  {% endif %}
+</div>
 </div>
 {% endblock %}

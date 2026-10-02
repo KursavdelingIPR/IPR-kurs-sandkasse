@@ -115,7 +115,7 @@ def test_A_uten_override_er_identisk_med_dagens_standardtekst(con, sendt):
     h = _n(html)
     assert "<p>Hei Ola,</p>" in h                                               # standardhilsenen: fornavn
     assert "Takk for deltakelsen på <strong>Veiledning i praksis</strong>. Kursbeviset ditt ligger nå på" in h
-    assert f'<a href="{config.BASE_URL}/min-side">Min side</a>' in h
+    assert f'<a href="{config.BASE_URL}/min-side">Mine kurs</a>' in h
     assert "Vennlig hilsen<br>Kursadministrasjonen, Institutt for Psykologisk Rådgivning<br>" in h
 
 
@@ -139,7 +139,7 @@ def test_C_override_kun_tekst_gir_standard_emne_og_ny_body(con, sendt):
     assert emne == STD_EMNE
     h = _n(html)
     assert "<p>Hei Ola Nordmann!</p>" in h
-    assert f'Kursbeviset for <strong>Veiledning i praksis</strong> ligger klart paa <a href="{config.BASE_URL}/min-side">Min side</a>.' in h
+    assert f'Kursbeviset for <strong>Veiledning i praksis</strong> ligger klart paa <a href="{config.BASE_URL}/min-side">Mine kurs</a>.' in h
     assert "Takk for deltakelsen" not in h
     assert "Vennlig hilsen" in h
 
@@ -174,8 +174,8 @@ def test_min_side_er_systemets_lenke_aldri_fri_url_fra_admin(con, sendt):
     _lagre(con, "tekst", "Se {min_side}. Ond: http://ond.no/min-side og <a href='http://ond.no'>x</a>")
     _utsted(con)
     (til, emne, html), = _mine(sendt)
-    assert f'<a href="{config.BASE_URL}/min-side">Min side</a>' in html
-    assert html.count("<a href") == 2                                     # rammens Min side + {min_side} - ingen andre
+    assert f'<a href="{config.BASE_URL}/min-side">Mine kurs</a>' in html
+    assert html.count("<a href") == 2                                     # rammens Mine kurs + {min_side} - ingen andre
     assert "http://ond.no/min-side" in html and 'href="http://ond.no' not in html
     assert "&lt;a href=&#39;http://ond.no&#39;&gt;x&lt;/a&gt;" in html
 
@@ -317,10 +317,14 @@ def test_send_ferdigrendret_en_gang_gjor_ingen_egen_rendering(con, sendt, monkey
     def forbudt(*a, **kw):
         raise AssertionError("send_ferdigrendret_en_gang skal ALDRI rendre selv")
     monkeypatch.setattr(Kjoring, "render_for_sending", forbudt)
+    kid = _kurs(con)
+    pid = _deltaker(con, kid)
     k = Kjoring(con, idag=IDAG)
-    assert k.send_ferdigrendret_en_gang("kurs:1", "ola@x.no", "kursbevis", "Emne", "<p>Html</p>", paamelding_id=1)
+    assert k.send_ferdigrendret_en_gang(f"kurs:{kid}", "ola@x.no", "kursbevis", "Emne", "<p>Html</p>", paamelding_id=pid)
     (til, emne, html), = sendt
     assert (til, emne, html) == ("ola@x.no", "Emne", "<p>Html</p>")
+    kopi = con.execute("SELECT til, emne, html FROM sendt_epost WHERE paamelding_id=?", (pid,)).fetchone()
+    assert tuple(kopi) == ("ola@x.no", "Emne", "<p>Html</p>")
 
 
 def test_toctou_malendring_mellom_render_og_send_paavirker_ikke_allerede_rendret_resultat(con, sendt, monkeypatch):

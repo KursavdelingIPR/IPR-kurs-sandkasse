@@ -27,7 +27,7 @@
 <p class="liten dempet" style="margin-bottom:10px">«Fakturert» viser fakturaer opprettet/sendt fra systemet, ikke nødvendigvis innbetalt beløp.</p>
 
 <div class="tabellboks"><table>
-  <tr><th scope="col">Kursnr</th><th scope="col">Tittel</th><th scope="col">Periode</th><th scope="col">Status</th><th scope="col">Ansvarlig</th><th scope="col">Bekreftet/kapasitet</th><th scope="col">Fyllingsgrad</th><th scope="col">Venteliste</th><th scope="col">Avmeldt</th><th scope="col">Avslått</th><th scope="col">Utgått</th><th scope="col">Forlatt</th><th scope="col">Fakturert</th></tr>
+  <tr><th scope="col">Kursnr</th><th scope="col">Tittel</th><th scope="col">Periode</th><th scope="col">Status</th><th scope="col">Ansvarlig</th><th scope="col">{{ STATUS.paameldt }}/kapasitet</th><th scope="col">Fyllingsgrad</th><th scope="col" title="{{ STATUS_FLERTALL.ekstradeltaker }} er på kurset, men tar ikke plass og er ikke regnet med i {{ STATUS.paameldt|lower }} eller fyllingsgraden">{{ STATUS.ekstradeltaker }}</th><th scope="col">{{ STATUS.venteliste }}</th><th scope="col">{{ STATUS.avmeldt }}</th><th scope="col">{{ STATUS.avslatt }}</th><th scope="col">{{ STATUS.utgatt }}</th><th scope="col">{{ STATUS.forlatt }}</th><th scope="col">Fakturert</th></tr>
   {% for k in rader %}
   <tr>
     <td>{{ k.kursnr }}</td>
@@ -37,6 +37,7 @@
     <td class="liten">{{ k.ansvarlig_navn or '–' }}</td>
     <td>{{ k.bekreftet }}{% if k.kapasitet %} / {{ k.kapasitet }}{% endif %}</td>
     <td>{% if k.kapasitet %}{{ (k.bekreftet / k.kapasitet * 100) | round(0) | int }}%{% else %}–{% endif %}</td>
+    <td>{{ k.ekstradeltaker }}</td>
     <td>{{ k.venteliste }}</td>
     <td>{{ k.avmeldt }}</td>
     <td>{{ k.avslatt }}</td>
@@ -44,6 +45,6 @@
     <td>{{ k.forlatt }}</td>
     <td>{{ '{:,}'.format(k.fakturert).replace(',', ' ') }} kr</td>
   </tr>
-  {% else %}<tr><td colspan="13" class="dempet">Ingen kurs matcher filteret.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="14" class="dempet">Ingen kurs matcher filteret.</td></tr>{% endfor %}
 </table></div>
 {% endblock %}

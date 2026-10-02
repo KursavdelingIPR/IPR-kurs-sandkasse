@@ -26,11 +26,13 @@ I Azure settes alt som App Settings på web-appen. Hemmelige verdier legges i Ke
 | Navn | Lokalt | Sandbox/prod | Hemmelig | Forklaring |
 |---|---|---|---|---|
 | `MODUS` | `demo` | `prod` | | `prod` = ekte integrasjoner og strenge kontroller |
-| `BASE_URL` | `http://127.0.0.1:5000` | **påkrevd**, `https://…` | | Brukes i lenker i e-post (Min side, opplasting, Entra-retur). Må være https i drift |
-| `HEMMELIG_NOKKEL` | valgfri | **påkrevd**, ≥ 32 tilfeldige tegn | ✔ | Signerer økter og lenker. Bytte = alle logges ut og gamle lenker blir ugyldige |
+| `BASE_URL` | `http://127.0.0.1:5000` | **påkrevd**, `https://…` | | Brukes i lenker i e-post (den personlige lenken til Min side, Mine kurs, opplasting, Entra-retur). Må være https i drift |
+| `HEMMELIG_NOKKEL` | valgfri | **påkrevd**, ≥ 32 tilfeldige tegn | ✔ | Signerer økter og lenker (også den personlige lenken til Min side i e-postene). Bytte = alle logges ut og gamle lenker blir ugyldige |
 | `DATABASE_URL` | tom | **påkrevd** | ✔ | `postgresql://…?sslmode=require`. Tom = SQLite |
 | `DB_STI` | valgfri | – | | SQLite-fil (bare lokalt) |
 | `WEBHOOK_HEMMELIG` | valgfri | **påkrevd**, ≥ 32 tegn | ✔ | Signatur for `/api/paamelding` |
+| `ADRESSE_KREVES_I_WEBHOOK` | `1` | `1` (standard) | | Deltakerens private adresse (`adresse`, `postnr`, `poststed`) **må være med** i webhooken: mangler den (eller noe av den), svarer webhooken 400, og ingenting registreres. Bare `0` slår kravet av, som en **nødbrems** som bare skal brukes midlertidig (av som standard; da tas påmeldingen inn selv om adressen mangler (en delvis adresse tas vare på), merket «Privat adresse mangler/er ufullstendig», og fakturaen holdes tilbake til alle tre feltene er lagt inn). Før produksjon **må** ipr.no-skjemaet/pluginen sende de tre feltene og være testet med curl: se `OPERATIONS.md` 2f |
+| `ADRESSE_KREVES_I_CSV` | `1` | `1` (standard) | | Samme for CSV-importen: `1` (standard) = filen må ha kolonnene Adresse, Postnr og Poststed, og hver rad hele adressen (ellers avvises filen eller blokkeres raden). Bare `0` slår kravet av (nødbrems, midlertidig). Se `OPERATIONS.md` 2f |
 | `ADMIN_BRUKERNAVN`, `ADMIN_PASSORD` | `admin`/`demo` | Første nødbruker, passord ≥ 12 tegn | ✔ (passord) | Brukes **bare** når databasen ikke har noen admin-brukere (første migrering) |
 | `ADMIN_LOKAL_INNLOGGING` | `1` | `0` (anbefalt) eller `1` for nødbruker | | `0` = kun Microsoft-innlogging |
 | `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID` | – | **påkrevd** hvis Entra | | App-registreringen for admin-innlogging |
@@ -48,9 +50,13 @@ I Azure settes alt som App Settings på web-appen. Hemmelige verdier legges i Ke
 | `VISMA_CLIENT_SECRET`, `VISMA_REFRESH_TOKEN` | – | påkrevd for fakturering | ✔ | Refresh-tokenet er bare **startverdien**; det roterer og lagres deretter i databasen (`integrasjon_token`) |
 | `VISMA_API` | standard | valgfri | | Standard: eAccounting v2 |
 | `ANTHROPIC_API_KEY` | – | valgfri | ✔ | Uten nøkkel: ordmatching mot kunnskapsbasen |
-| `ASSISTENT_AKTIV` | `1` | `1`/`0` | | `0` = «Spør oss» er av (404) |
+| `ASSISTENT_AKTIV` | `0` | `0` | | `0` (standard) = «Spør oss» og Kunnskapsbase er av: menyvalgene er borte og `/sporsmal` gir 404. `1` slår begge på igjen. En `ASSISTENT_AKTIV=1` som står i `.env` eller i Azure-innstillingene holder dem i live, så fjern den hvis de skal være av |
 | `ASSISTENT_MODELL`, `ASSISTENT_MAKS_PER_DAG`, `ASSISTENT_TIDSAVBRUDD_SEK` | standard | valgfri | | Kostnadsgrense og tidsavbrudd for KI |
+| `INNSJEKK_KREVER_INNLOGGING` | `0` | `0` | | `0` (standard) = en deltaker kan sjekke inn med QR-koden og e-postadressen alene. `1` = uinnloggede må logge inn først (engangslenke på e-post, eller den personlige lenken til Min side fra e-postene) og trykker så én knapp: hindrer at noen registrerer en fraværende kollega, men er tregere i lokalet. Se `OPERATIONS.md` 2d |
 | `SLETT_SENSITIVT_ETTER_DAGER` | `14` | `14` | | Allergier/tilrettelegging slettes så mange dager etter siste kursdag |
+| `KURSSIDE_ETTERTILGANG_DAGER` | `180` | `180` | | Standard åpningstid: Min side er åpen for deltakerne til siste kursdag + så mange dager. Hvert kurs kan ha egen verdi (1-3650 dager), en bestemt dato eller ingen tidsbegrensning under Min side → Innstillinger for siden. (Den personlige lenken i e-postene virker uansett bare til 30 dager etter siste kursdag.) |
+| `KURSSIDE_TOM_TABELLER_ETTER_DAGER` | `30` | `30` | | Gruppelister (tabeller med navn) på Min side tømmes så mange dager etter siste kursdag (morgenjobben, steg 9) |
+| `KURSSIDE_FIL_MAKS_MB`, `KURSSIDE_BILDE_MAKS_MB`, `KURSSIDE_KURS_MAKS_MB`, `KURSSIDE_MAKS_FILER` | `15`, `5`, `100`, `200` | standard | | Grenser for filer på Min side: per dokument, per bilde, per kurs (MB) og antall filer per kurs. Filene lagres i databasen |
 
 I drift nekter appen å svare (503 og en linje i loggen) hvis `HEMMELIG_NOKKEL`/`WEBHOOK_HEMMELIG` er svake, `BASE_URL`
 ikke er https, det ikke finnes noen innloggingsvei for admin, eller databasen har feil versjon.
@@ -63,6 +69,8 @@ ikke er https, det ikke finnes noen innloggingsvei for admin, eller databasen ha
   gunicorn --bind=0.0.0.0 --timeout 600 startup:app
   ```
   `startup.py` importerer bare appen. **Gunicorn migrerer aldri** – det er et eget steg (4).
+  Uten `--workers` kjører gunicorn **én** arbeidsprosess: en enkelt langvarig forespørsel (tidsgrensen er 600 s) blokkerer da hele tjenesten, også offentlig påmelding. Kjente treige kall på Min side
+  (HTML-rensing, filnedlasting) er begrenset (se `SECURITY.md`), men vurder `--workers 2`. Takbegrensningen teller da per prosess (samme avsnitt).
 - `requirements.txt` installeres av App Service ved utrulling (Oryx). `gunicorn` og `psycopg[binary]` er med.
 - HTTPS og TLS-terminering gjøres av App Service. Appen bruker `ProxyFix`, så `BASE_URL` må være den offentlige
   https-adressen.
@@ -111,3 +119,13 @@ men det gir unødvendig støy). Admin kan bare **tørrkjøre** jobben fra nettle
 - [ ] Morgenjobben planlagt, med varsling ved avslutningskode ≠ 0
 - [ ] Sikkerhetskopi: automatisk backup av PostgreSQL (minst 7 dager) og testet gjenoppretting
 - [ ] Personvern: punktene i `GDPR.md` avsnitt 6
+- [ ] Adressen: **ipr.no-skjemaet/pluginen MÅ sende `adresse`, `postnr` og `poststed`** (påkrevd: webhooken avviser påmeldinger uten dem med 400, og fakturaen sendes
+      automatisk ved påmelding, tidligst seks måneder før første kursdag). Testet med curl mot testmiljøet, med oppdiktede data (full beskrivelse i `OPERATIONS.md` 2f):
+      `curl.exe -i -X POST https://<testmiljø>/api/paamelding -H "Content-Type: application/json" -H "X-IPR-Token: <WEBHOOK_HEMMELIG>" -d "@test.json"` med
+      `{"fornavn": "Test", "etternavn": "Person", "epost": "test.person@example.no", "kurs": "KURSKODE", "adresse": "Eksempelveien 1", "postnr": "0150", "poststed": "Oslo"}`
+      i `test.json` (forventet `201`; uten adressefeltene `400`). `ADRESSE_KREVES_I_WEBHOOK` og `ADRESSE_KREVES_I_CSV` står på `1` (standard), ikke `0`
+- [ ] **Deltakerinngang på terapiakademiet.no** (Camilla legger den inn selv, og først når påmeldingssystemet er helt klart; hun har bedt om å bli minnet på det). Egen adresse `minside.terapiakademiet.no` (hun har sagt ja til navnet 02.10):
+      DNS-poster hos den som administrerer domenet (CNAME `minside` til appens azurewebsites-adresse, og TXT `asuid.minside` med bekreftelseskoden fra Azure), egendefinert domene og sertifikat (HTTPS) for adressen i App Service,
+      `BASE_URL=https://minside.terapiakademiet.no`, og Entra-redirecten `https://minside.terapiakademiet.no/admin/logg-inn/entra/svar` lagt til i app-registreringen (`AZURE-SETUP.md` pkt. 4). Gjør dette FØR første ekte utsending:
+      `BASE_URL` bygges inn i lenkene i e-postene (den gamle azurewebsites-adressen virker videre, så eldre e-poster fungerer). Deretter lenken «Logg inn på Min side» på terapiakademiet.no; ferdig tekst står i
+      `dokumentasjon/lenke-til-terapiakademiet.md`. Hvor på nettsiden den skal stå, avgjør hun senere

@@ -30,6 +30,10 @@ def get(navn: str, standard: str = "") -> str:
 
 MODUS = get("MODUS", "demo")
 DEMO = MODUS != "prod"
+# Demo har bare oppdiktede virksomheter og gjør ingen nettverkskall (CLAUDE.md regel 3). BRREG_LIVE=1 er et bevisst unntak KUN
+# for Enhetsregisteret (åpne data, ingen nøkler): nummer og navn som ikke er en oppdiktet demovirksomhet, slås opp i det ekte
+# registeret, så skjemaet kan prøves med ekte organisasjonsnumre. Alt annet i demo er uendret. Standard: av (og aldri i tester).
+BRREG_LIVE = get("BRREG_LIVE", "0") == "1"
 DB_STI = Path(get("DB_STI", str(ROT / "data" / "kurs.db")))
 # Tom (standard) = SQLite i DB_STI, som i den lokale sandkassen. Satt = PostgreSQL, f.eks.
 # postgresql://bruker:passord@server.postgres.database.azure.com:5432/ipr?sslmode=require (hemmelig: Key Vault i drift).
@@ -77,13 +81,42 @@ VISMA_API = get("VISMA_API", "https://eaccountingapi.vismaonline.com/v2")
 
 # Mottak fra nettsidens skjema (erstatter innsending til Pindena)
 WEBHOOK_HEMMELIG = get("WEBHOOK_HEMMELIG", "demo-webhook-hemmelighet")
+# Deltakerens PRIVATE adresse (adresse, postnr, poststed) MÅ være med når noen melder seg på, uansett vei inn: det offentlige skjemaet,
+# bedriftspåmeldingen, «Legg til deltaker», webhooken fra ipr.no og CSV-importen. Fakturaen sendes automatisk ved påmelding (tidligst
+# seks måneder før første kursdag), og da må fakturaadressen være klar. Uten adresse svarer webhooken 400 med hvilke felt som mangler, og en
+# CSV-fil uten adressekolonnene (eller en rad uten adresse) blokkeres i forhåndsvisningen. Ingenting registreres.
+# Webhooken og CSV-importen har hver sin innstilling, og begge er PÅ som standard: bare verdien «0» slår kravet av. Tom eller ukjent
+# verdi teller som PÅ, så en feilskrevet innstilling aldri kan fjerne kravet uten at noen har valgt det. AV (0) er en NØDBREMS som
+# bare skal brukes midlertidig i overgangsperioden hvis noe stopper (for eksempel at skjemaet på ipr.no ikke sender adressen ennå).
+# Webhook med nødbremsen på: påmeldingen går ikke tapt. Den tas inn selv om adressen mangler (en delvis adresse tas vare på som
+# ufullstendige data), merkes «Privat adresse mangler/er ufullstendig», og en privat faktura holdes tilbake til alle tre feltene er
+# komplette (kurs/privatadresse.py). CSV med nødbremsen på: adressen er
+# valgfri, men er noen av de tre feltene fylt ut, kreves alle tre. Når ipr.no sender adressen riktig, settes begge tilbake til PÅ
+# (fjern «0»). Før produksjon: skjemaet/pluginen på ipr.no MÅ sende adresse, postnr og poststed (OPERATIONS.md, «Adressekravet i
+# webhook og CSV-import»).
+ADRESSE_KREVES_I_WEBHOOK = get("ADRESSE_KREVES_I_WEBHOOK", "1").strip() != "0"
+ADRESSE_KREVES_I_CSV = get("ADRESSE_KREVES_I_CSV", "1").strip() != "0"
 
 # KI-assistent (Claude). Uten nokkel / i demo brukes enkel ordmatching mot kunnskapsbasen.
 ANTHROPIC_API_KEY = get("ANTHROPIC_API_KEY")
 ASSISTENT_MODELL = get("ASSISTENT_MODELL", "claude-opus-5")
-ASSISTENT_AKTIV = get("ASSISTENT_AKTIV", "1") == "1"          # 0 = «Spør oss»-siden er skrudd av (404)
+# «Spør oss» og Kunnskapsbase er AV som standard (menyvalgene er borte, /sporsmal gir 404). Kode og data er beholdt: 1 slår begge på igjen.
+ASSISTENT_AKTIV = get("ASSISTENT_AKTIV", "0") == "1"
 ASSISTENT_MAKS_PER_DAG = int(get("ASSISTENT_MAKS_PER_DAG", "300"))  # kostnadsgrense: KI-kall per dag, deretter kun til adm
 ASSISTENT_TIDSAVBRUDD_SEK = int(get("ASSISTENT_TIDSAVBRUDD_SEK", "20"))
 
+# Innsjekk (QR): 0 (standard) = hvem som helst med QR-koden kan skrive en påmeldt persons e-postadresse og registrere oppmøtet hennes (raskt,
+# men adressen er ikke bevist). 1 = uinnloggede må logge inn først (engangslenke på e-post, eller den personlige lenken til Min side fra e-postene)
+# og trykker så én knapp: sikrere, men tregere i kurslokalet.
+INNSJEKK_KREVER_INNLOGGING = get("INNSJEKK_KREVER_INNLOGGING", "0") == "1"
+
 # Personvern
 SLETT_SENSITIVT_ETTER_DAGER = int(get("SLETT_SENSITIVT_ETTER_DAGER", "14"))
+
+# Kursside (siden deltakerne ser etter innlogging, én per kurs; kurs/sideinnhold.py og kurs/sidelager.py)
+KURSSIDE_ETTERTILGANG_DAGER = int(get("KURSSIDE_ETTERTILGANG_DAGER", "180"))        # STANDARD: åpen til siste kursdag + så mange dager (per kurs: kursside.apen_dager)
+KURSSIDE_TOM_TABELLER_ETTER_DAGER = int(get("KURSSIDE_TOM_TABELLER_ETTER_DAGER", "30"))  # gruppetabeller tømmes så mange dager etter siste kursdag
+KURSSIDE_FIL_MAKS_MB = int(get("KURSSIDE_FIL_MAKS_MB", "15"))                       # største dokument
+KURSSIDE_BILDE_MAKS_MB = int(get("KURSSIDE_BILDE_MAKS_MB", "5"))                    # største bilde
+KURSSIDE_KURS_MAKS_MB = int(get("KURSSIDE_KURS_MAKS_MB", "100"))                    # alle filer på ett kurs til sammen
+KURSSIDE_MAKS_FILER = int(get("KURSSIDE_MAKS_FILER", "200"))                        # antall filer på ett kurs

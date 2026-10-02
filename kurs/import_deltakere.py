@@ -21,6 +21,16 @@ aldri kan gaa ut av synk med hverandre:
     utforte meld_paa()-kallene i transaksjonen, og den committes.
   - Forhaandsvisningsraden slettes etter forsoket (vellykket ELLER ikke) - den skal aldri kunne
     gjenbrukes/repeteres, og skal aldri bli staaende som permanent historikk.
+
+ADRESSEN (deltakerens private adresse: kolonnene Adresse, Postnr og Poststed) MAA vaere med i filimporten: fakturaen sendes
+automatisk ved paamelding (tidligst seks maaneder foer foerste kursdag), og da maa adressen vaere klar. Kravet styres av
+config.ADRESSE_KREVES_I_CSV, som er PAA som standard (bare verdien «0» slaar det av). PAA (standard): filen maa ha de tre
+kolonnene, og hver rad maa ha hele adressen (ogsaa naar arbeidsgiver betaler) - en fil uten kolonnene avvises, og en rad uten
+adresse blokkeres i forhaandsvisningen. AV («0», en NOEDBREMS som bare skal brukes midlertidig hvis noe stopper): kolonnene kan
+mangle, og en rad kan ha dem tomme (raden importeres, og personen merkes «Privat adresse mangler» til administrator har lagt den inn i
+deltakervinduet). Er noen av de tre feltene fylt ut paa en rad, kreves alle tre (delvis adresse = raden blokkeres), ogsaa naar
+kravet er av. Innstillingen leses fra miljoevariabelen naar appen starter (config.py), og slaas opp paa nytt for hvert kall, saa
+forhaandsvisning og import alltid bruker den samme regelen. En endring av miljoevariabelen (App Setting) virker foerst etter omstart.
 """
 from __future__ import annotations
 
@@ -30,7 +40,7 @@ import json
 import secrets
 from datetime import datetime, timedelta
 
-from . import db
+from . import config, db, firmaopplysninger, skjemafelt
 
 MAKS_FILSTORRELSE = 2 * 1024 * 1024  # 2 MB
 MAKS_RADER = 300
@@ -79,6 +89,11 @@ KOLONNE_MAP = {
     "fornavn": "fornavn",
     "etternavn": "etternavn",
     "e-post": "epost", "epost": "epost",
+    # Deltakerens PRIVATE adresse (påkrevd for hver rad, også når arbeidsgiver betaler, med mindre nødbremsen
+    # config.ADRESSE_KREVES_I_CSV=0 er satt)
+    "adresse": "adresse",
+    "postnr": "postnr", "postnr.": "postnr", "postnummer": "postnr",
+    "poststed": "poststed",
     "telefon": "telefon",
     "yrkestittel": "yrkestittel",
     "arbeidssted": "arbeidssted",
@@ -86,20 +101,28 @@ KOLONNE_MAP = {
     "betaler": "betaler",
     "firmanavn": "org_navn",
     "org.nr": "org_nr", "org nr": "org_nr", "org.nr.": "org_nr",
-    "fakturaadresse": "faktura_adresse",
     "fakturareferanse": "faktura_ref",
     "fakturakommentar": "faktura_kommentar",
     "allergier": "allergier", "allergi": "allergier",
     "tilrettelegging": "tilrettelegging",
 }
-PAKREVDE_INTERNE_FELT = ("fornavn", "etternavn", "epost")
-_KOLONNENAVN = {"fornavn": "Fornavn", "etternavn": "Etternavn", "epost": "E-post"}
+GRUNNKOLONNER = ("fornavn", "etternavn", "epost")
 
-MALFIL_HEADER = ["Fornavn", "Etternavn", "E-post", "Telefon", "Yrkestittel", "Arbeidssted", "HPR-nummer", "Betaler",
-                 "Firmanavn", "Org.nr", "Fakturaadresse", "Fakturareferanse", "Fakturakommentar",
+
+def pakrevde_felt() -> tuple[str, ...]:
+    """Kolonnene filen MAA ha: fornavn, etternavn og e-post alltid, og adressen (adresse, postnr, poststed) som standard
+    (config.ADRESSE_KREVES_I_CSV er PAA som standard). Bare naar noedbremsen er satt til 0, kan adressekolonnene mangle."""
+    return (*GRUNNKOLONNER, *skjemafelt.ADRESSEFELT) if config.ADRESSE_KREVES_I_CSV else GRUNNKOLONNER
+
+
+_KOLONNENAVN = {"fornavn": "Fornavn", "etternavn": "Etternavn", "epost": "E-post",
+                "adresse": "Adresse", "postnr": "Postnr", "poststed": "Poststed"}
+
+MALFIL_HEADER = ["Fornavn", "Etternavn", "E-post", "Adresse", "Postnr", "Poststed", "Telefon", "Yrkestittel",
+                 "Arbeidssted", "HPR-nummer", "Betaler", "Firmanavn", "Org.nr", "Fakturareferanse", "Fakturakommentar",
                  "Allergier", "Tilrettelegging"]
-MALFIL_EKSEMPELRAD = ["Kari", "Eksempel", "kari.eksempel@eksempel.no", "99999999", "Psykolog",
-                      "Eksempel Klinikk AS", "", "person", "", "", "", "", "", "", ""]
+MALFIL_EKSEMPELRAD = ["Kari", "Eksempel", "kari.eksempel@eksempel.no", "Eksempelveien 1", "0150", "Oslo", "99999999",
+                      "Psykolog", "Eksempel Klinikk AS", "", "person", "", "", "", "", "", ""]
 
 
 class ImportFeil(Exception):
@@ -166,9 +189,16 @@ def parse_csv(raw: bytes) -> list[dict]:
         # Eldre fil med fullt navn i én kolonne: avvises tydelig - det gjettes aldri paa hva som er fornavn og etternavn.
         raise ImportFeil("Filen har kolonnen «Navn», men fornavn og etternavn må stå i hver sin kolonne («Fornavn» og "
                          "«Etternavn»). Last ned den nye malfilen og flytt navnene dit.")
-    for kravd in PAKREVDE_INTERNE_FELT:
-        if kravd not in interne_kolonner:
-            raise ImportFeil(f"Filen mangler den obligatoriske kolonnen «{_KOLONNENAVN[kravd]}».")
+    mangler_felt = [k for k in pakrevde_felt() if k not in interne_kolonner]
+    mangler = [_KOLONNENAVN[k] for k in mangler_felt]
+    if len(mangler) == 1:
+        raise ImportFeil(f"Filen mangler den obligatoriske kolonnen «{mangler[0]}».")
+    if mangler:
+        navn = ", ".join(f"«{m}»" for m in mangler[:-1]) + f" og «{mangler[-1]}»"
+        if any(k in skjemafelt.ADRESSEFELT for k in mangler_felt):
+            raise ImportFeil(f"Filen mangler de obligatoriske kolonnene {navn}. Deltakerens private adresse (Adresse, Postnr "
+                             "og Poststed) kreves for hver deltaker. Last ned den nye malfilen og legg adressen inn der.")
+        raise ImportFeil(f"Filen mangler de obligatoriske kolonnene {navn}. Last ned malfilen og bruk kolonnenavnene der.")
 
     rader = []
     for linje in leser:
@@ -193,11 +223,24 @@ def _valider_rad(rad: dict) -> list[str]:
         problemer.append("Etternavn mangler")
     if "@" not in (rad.get("epost") or ""):
         problemer.append("Ugyldig eller manglende e-post")
+    # Deltakerens private adresse: krav for HVER rad (også når arbeidsgiver betaler) - innstillingen er PÅ som standard. Bare
+    # med nødbremsen (ADRESSE_KREVES_I_CSV=0) kan alle tre feltene stå tomme, men er noen fylt ut, kreves alle tre (delvis
+    # adresse blokkeres).
+    if config.ADRESSE_KREVES_I_CSV:
+        adressefeil = skjemafelt.valider_adresse(rad)
+    else:
+        adressefeil = skjemafelt.valider_adresse_valgfri(rad)
+    for felt, melding in adressefeil.items():
+        problemer.append(f"{_KOLONNENAVN[felt]} mangler" if melding.startswith("Fyll inn") else melding)
+    if adressefeil and not config.ADRESSE_KREVES_I_CSV and any(m.startswith("Fyll inn") for m in adressefeil.values()):
+        problemer.append("Adressen er bare delvis utfylt - fyll inn alle tre feltene (Adresse, Postnr og Poststed) eller la alle stå tomme")
     betaler = (rad.get("betaler") or "").strip().lower()
     if betaler and betaler not in ("person", "organisasjon"):
         problemer.append("Betaler må være «person» eller «organisasjon»")
-    if betaler == "organisasjon" and not ((rad.get("org_navn") or "").strip() and (rad.get("org_nr") or "").strip()):
-        problemer.append("Firmanavn og org.nr. må fylles ut når organisasjon betaler")
+    if betaler == "organisasjon" and not (rad.get("org_nr") or "").strip():
+        problemer.append("Org.nr. må fylles ut når organisasjon betaler")
+    elif betaler == "organisasjon" and not firmaopplysninger.nummer_gyldig(rad["org_nr"]):
+        problemer.append("Org.nr. er ikke et gyldig organisasjonsnummer (9 siffer)")
     for felt, verdi in rad.items():
         if verdi and len(verdi) > MAKS_CELLELENGDE:
             problemer.append(f"Feltet «{felt}» er for langt (maks {MAKS_CELLELENGDE} tegn)")
@@ -205,13 +248,37 @@ def _valider_rad(rad: dict) -> list[str]:
 
 
 def _resultat(rad_nr: int, rad: dict, *, handling: str, melding: str, resultatstatus: str | None = None,
-              person_finnes_fra_for: bool = False, paamelding_id: int | None = None) -> dict:
+              person_finnes_fra_for: bool = False, paamelding_id: int | None = None,
+              adresse_avviker: bool = False, adresse_mangler: bool = False) -> dict:
     return {
         "rad_nr": rad_nr, "navn": db.fullt_navn(rad.get("fornavn"), rad.get("etternavn")), "epost": rad.get("epost", ""),
         "handling": handling, "resultatstatus": resultatstatus,
         "person_finnes_fra_for": person_finnes_fra_for,
         "melding": melding, "paamelding_id": paamelding_id,
+        "adresse_avviker": adresse_avviker,
+        "adresse_mangler": adresse_mangler,
     }
+
+
+def _adresse_avviker(person, rad: dict) -> bool:
+    """Har personen (som finnes fra før) en registrert adresse som er en ANNEN enn den i filen? Filen overskriver aldri en
+    adresse som står der (den kan være eldre enn det som er registrert), så den registrerte beholdes. Forhåndsvisningen sier
+    fra, så administrator kan kontrollere adressen i deltakervinduet før fakturaen slippes (importerte påmeldinger holdes).
+    Ren informasjon, aldri selve adressen, og ikke en del av det importen avgjør (sammenlign_resultater)."""
+    if person is None:
+        return False
+    ny = skjemafelt.rens_adresse(rad)
+    return any(person[k] and person[k].strip() != ny[k] for k in skjemafelt.ADRESSEFELT)
+
+
+def _mangler_adresse_etter_import(person, rad: dict) -> bool:
+    """Har personen fortsatt IKKE en komplett privat adresse etter importen av raden? Filen fyller bare inn det som er tomt fra
+    foer (db.finn_eller_opprett_deltaker med beskytt_eksisterende_felt), saa adressen etter importen er det som staar der, og for
+    hvert tomt felt verdien i filen. Da er personen merket «Privat adresse mangler» (skjemafelt.adresse_mangler). Ren informasjon til
+    forhaandsvisningen, aldri selve adressen, og ikke en del av det importen avgjoer (sammenlign_resultater)."""
+    ny = skjemafelt.rens_adresse(rad)
+    etter = {k: ((person[k] if person else None) or "").strip() or ny[k] for k in skjemafelt.ADRESSEFELT}
+    return skjemafelt.adresse_mangler(etter)
 
 
 def _kategoriser_og_meld_paa(con, kurs_id: int, rader: list[dict], aktor: str) -> list[dict]:
@@ -240,7 +307,8 @@ def _kategoriser_og_meld_paa(con, kurs_id: int, rader: list[dict], aktor: str) -
             continue
         sette_eposter.add(epost_norm)
 
-        person_finnes = con.execute("SELECT 1 FROM deltaker WHERE epost=?", (epost_norm,)).fetchone() is not None
+        person = con.execute("SELECT adresse, postnr, poststed FROM deltaker WHERE epost=?", (epost_norm,)).fetchone()
+        person_finnes = person is not None
         eksisterende = con.execute(
             """SELECT p.status FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
                WHERE d.epost=? AND p.kurs_id=?""", (epost_norm, kurs_id)).fetchone()
@@ -250,6 +318,7 @@ def _kategoriser_og_meld_paa(con, kurs_id: int, rader: list[dict], aktor: str) -
                 melding="Har allerede en aktiv påmelding på dette kurset - hoppes over."))
             continue
 
+        firma = (rad.get("betaler") or "").strip().lower() == "organisasjon"
         try:
             # beskytt_eksisterende_felt=True: en CSV kan vaere en gammel/ufullstendig eksport og
             # skal ALDRI kunne overskrive nyere personopplysninger noen andre allerede har
@@ -258,11 +327,17 @@ def _kategoriser_og_meld_paa(con, kurs_id: int, rader: list[dict], aktor: str) -
             pid, status = db.meld_paa(
                 con, kurs_id, epost=rad["epost"], fornavn=rad["fornavn"], etternavn=rad["etternavn"],
                 deltaker={"telefon": rad.get("telefon") or None, "yrkestittel": rad.get("yrkestittel") or None,
-                         "arbeidssted": rad.get("arbeidssted") or None, "hpr_nr": rad.get("hpr_nr") or None},
+                         "arbeidssted": rad.get("arbeidssted") or None, "hpr_nr": rad.get("hpr_nr") or None,
+                         **skjemafelt.rens_adresse(rad)},
                 paamelding={
-                    "betaler": "organisasjon" if (rad.get("betaler") or "").strip().lower() == "organisasjon" else "person",
-                    "org_navn": rad.get("org_navn") or None, "org_nr": rad.get("org_nr") or None,
-                    "faktura_adresse": rad.get("faktura_adresse") or None, "faktura_ref": rad.get("faktura_ref") or None,
+                    "betaler": "organisasjon" if firma else "person",
+                    # Den felles regelen (firmaopplysninger.py): firmanavn og adresse leses aldri fra filen. For firma lagres
+                    # bare organisasjonsnummeret (ingen oppslag her - forhåndsvisningen rører ikke nettverket); ruten som
+                    # importerer, henter opplysningene fra registeret rett etterpå.
+                    # Betaler deltakeren selv, kopierer db.meld_paa personens adresse til fakturaadressen.
+                    **(firmaopplysninger.paamelding_felter(firmaopplysninger.ikke_slaatt_opp(rad.get("org_nr"))) if firma
+                       else {}),
+                    "faktura_ref": rad.get("faktura_ref") or None,
                     "faktura_kommentar": rad.get("faktura_kommentar") or None,
                     "kilde": "admin_import", "sveiper_utsatt": 1,
                 },
@@ -276,7 +351,8 @@ def _kategoriser_og_meld_paa(con, kurs_id: int, rader: list[dict], aktor: str) -
         handling = REAKTIVER if eksisterende else NY  # eksisterende (avmeldt) paamelding -> reaktivert
         resultater.append(_resultat(
             i, rad, handling=handling, resultatstatus=status, person_finnes_fra_for=person_finnes,
-            melding="", paamelding_id=pid))
+            melding="", paamelding_id=pid, adresse_avviker=_adresse_avviker(person, rad),
+            adresse_mangler=_mangler_adresse_etter_import(person, rad)))
         resultater[-1]["melding"] = beskriv(resultater[-1])
     return resultater
 
@@ -409,7 +485,8 @@ def rydd_utlopte_forhaandsvisninger(con, idag: datetime | None = None) -> int:
 
 def malfil_csv() -> str:
     """Enkel importmal: header + én tydelig fiktiv eksempelrad. Ren streng - selve HTTP-svaret
-    (Content-Disposition/BOM) settes av ruten i web-laget, som for de andre CSV-eksportene."""
+    (Content-Disposition/BOM) settes av ruten i web-laget, som for de andre CSV-eksportene. Malen har adressekolonnene
+    (Adresse, Postnr og Poststed) med en fylt eksempelrad: de er påkrevd for hver rad, så malen kan lastes opp som den er."""
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow(MALFIL_HEADER)

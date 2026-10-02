@@ -1,0 +1,161 @@
+{#- Blokkene på kurssiden: én makro per blokktype. Brukes av deltakersiden og forhåndsvisningen (kursside_deltaker.html).
+    Malen får bare ferdige data fra deltakerside.bygg_visning: ren tekst (escapes av Jinja) og rik tekst som Markup fra
+    sideinnhold.til_visning. Skjulte blokker og filer som ikke er synlige ennå finnes ikke i dataene.
+    Ikonene ligger i _kursside_ikoner.html (må være inkludert i siden). Utseendet står i static/kursside-delt.css (prefiks dp-). -#}
+{% set ikonnavn = {'tekst': 'tekst', 'viktig': 'info', 'program': 'kal', 'filer': 'fil', 'lenker': 'lenke', 'tabell': 'gruppe', 'kontakt': 'bruker', 'bilde': 'bilde'} %}
+
+{% macro ikon(navn, klasse='') -%}
+<svg class="ik{{ (' ' ~ klasse) if klasse }}" aria-hidden="true" focusable="false"><use href="#i-{{ navn }}"/></svg>
+{%- endmacro %}
+
+{% macro hode(b, undertittel='') %}
+<div class="dp-blokk-h">
+  <span class="dp-ikon dp-ikon-{{ b.type }}" aria-hidden="true">{{ ikon(ikonnavn[b.type]) }}</span>
+  <div><h2 id="bt-{{ b.id }}">{{ b.tittel }}</h2>{% if undertittel %}<p class="dp-sub">{{ undertittel }}</p>{% endif %}</div>
+</div>
+{% endmacro %}
+
+{% macro program(d) %}
+{% set ns = namespace(sist=None) %}
+{% for dag in d.dager %}
+{% if dag.samling and dag.samling_id != ns.sist %}{% set ns.sist = dag.samling_id %}<h3 class="dp-gruppe dp-samling-h">{{ dag.samling }}</h3>{% endif %}
+<details class="dp-pr-dag{{ ' dp-i-dag' if dag.i_dag }}"{{ ' open' if dag.apen }}>
+  <summary>
+    <span class="dp-pr-hode"><span class="dp-pr-dagtittel">{{ dag.tittel }}{% if dag.dato_lang %} · {{ dag.dato_lang }}{% endif %}</span>
+      {% if dag.i_dag %}<span class="dp-idag-merke">I dag</span>{% endif %}</span>
+    <span class="dp-pr-sum">{% if dag.tid %}{{ dag.tid }} · {% endif %}{{ dag.antall }} punkt{{ 'er' if dag.antall != 1 }}</span>
+    {{ ikon('ned', 'dp-pil') }}
+  </summary>
+  <div class="dp-pr-rader">
+    {% for p in dag.punkter %}
+    <div class="dp-pr-rad{{ ' dp-pause' if p.pause }}">
+      <div class="dp-pr-tid">{{ p.tid }}</div>
+      <div><div class="dp-pr-tittel">{{ p.tema }}</div>
+        {% if p.sted or p.hvem %}<div class="dp-pr-info">
+          {% if p.sted %}<span>{{ ikon('sted') }}{{ p.sted }}</span>{% endif %}{% if p.hvem %}<span>{{ ikon('bruker') }}{{ p.hvem }}</span>{% endif %}
+        </div>{% endif %}</div>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endfor %}
+{% endmacro %}
+
+{% macro filer(d) %}
+{% for g in d.grupper %}
+{% if g.tittel %}<h3 class="dp-gruppe">{{ g.tittel }}</h3>{% endif %}
+<ul class="dp-filer">
+  {% for f in g.filer %}
+  <li class="dp-fil{{ ' dp-kommer' if f.kommer }}">
+    <span class="dp-filtype dp-filtype-{{ f.type_klasse }}" aria-hidden="true">{{ f.type_kode }}</span>
+    <span class="dp-fil-tekst"><span class="dp-fil-tittel">{{ f.tittel }}</span>{% if f.ny %} <span class="dp-ny">Ny</span>{% endif %}
+      <span class="dp-fil-meta">{{ f.meta }}</span></span>
+    {% if f.url %}<a class="knapp sekundar dp-last-ned" href="{{ f.url }}" aria-label="Last ned {{ f.tittel }}">{{ ikon('last-ned') }}<span class="dp-tk">Last ned</span></a>
+    {% elif f.kommer %}<span class="dp-fil-kommer">Kommer {{ f.kommer }}</span>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endfor %}
+{% if d.sharepoint %}
+<h3 class="dp-gruppe">Fra kursholder</h3>
+{% if d.sharepoint.ok %}
+<ul class="dp-filer">
+  {% for f in d.sharepoint.filer %}
+  <li class="dp-fil"><span class="dp-filtype dp-filtype-fil" aria-hidden="true">FIL</span>
+    <span class="dp-fil-tekst"><span class="dp-fil-tittel">{{ f.navn }}</span></span>
+    {% if f.url %}<a class="knapp sekundar dp-last-ned" href="{{ f.url }}" aria-label="Last ned {{ f.navn }}">{{ ikon('last-ned') }}<span class="dp-tk">Last ned</span></a>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% else %}<p class="dp-feil-tekst">Kunne ikke hente filene fra kursholder akkurat nå. Prøv igjen senere.</p>{% endif %}
+{% endif %}
+{% endmacro %}
+
+{% macro lenker(d) %}
+{% for g in d.grupper %}
+{% if g.tittel %}<h3 class="dp-gruppe">{{ g.tittel }}</h3>{% endif %}
+<ul class="dp-lenker">
+  {% for l in g.lenker %}
+  <li><a class="dp-lenke" href="{{ l.url }}"{% if l.ekstern %} target="_blank" rel="noopener noreferrer"{% endif %}>
+    {{ ikon('lenke') }}
+    <span class="dp-lenke-tekst"><b>{{ l.tittel }}</b>{% if l.tekst %}<span>{{ l.tekst }}</span>{% endif %}</span>
+    <span class="dp-domene">{{ l.domene }}{% if l.ekstern %}{{ ikon('ekstern') }}{% endif %}</span>
+  </a></li>
+  {% endfor %}
+</ul>
+{% endfor %}
+{% endmacro %}
+
+{% macro tabell(d) %}
+<div class="dp-tabellboks"><table class="dp-tabell">
+  <thead><tr>{% for k in d.kolonner %}<th scope="col">{{ k }}</th>{% endfor %}</tr></thead>
+  <tbody>
+    {% for r in d.rader %}<tr>{% for c in r %}<td data-etikett="{{ d.kolonner[loop.index0] }}">{{ c }}</td>{% endfor %}</tr>{% endfor %}
+  </tbody>
+</table></div>
+{% endmacro %}
+
+{% macro kontakt(d) %}
+<ul class="dp-kontakter">
+  {% for p in d.personer %}
+  <li class="dp-kk">
+    <span class="dp-avatar" aria-hidden="true">{{ p.initialer }}</span>
+    <span class="dp-kk-navn"><strong>{{ p.navn }}</strong>{% if p.rolle %}<span>{{ p.rolle }}</span>{% endif %}</span>
+    {% if p.telefon or p.epost %}<span class="dp-kk-lenker">
+      {% if p.telefon %}<a href="{{ p.tel_url }}">{{ ikon('tlf') }}{{ p.telefon }}</a>{% endif %}
+      {% if p.epost %}<a href="mailto:{{ p.epost }}">{{ ikon('post') }}{{ p.epost }}</a>{% endif %}
+    </span>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro bilde(d) %}
+<figure class="dp-bilde dp-bilde-{{ d.plassering }}">
+  <img src="{{ d.url }}" alt="{{ d.alt }}" loading="lazy"{% if d.bredde and d.hoyde %} width="{{ d.bredde }}" height="{{ d.hoyde }}"{% endif %}>
+  {% if d.tekst %}<figcaption>{{ d.tekst }}</figcaption>{% endif %}
+</figure>
+{% endmacro %}
+
+{% macro dagrad(d, forhandsvisning) %}
+{#- En kursdag i «Samlinger og kursdager», på én linje: dag, dato (måneden forkortet) og tid, kursdagens merknad (hvis noen, på egen linje), og (ikke i forhåndsvisningen) om deltakeren har møtt. -#}
+{% set del = d.dato_kort.split(' ') %}
+<li class="{{ 'dp-i-dag' if d.i_dag }}"><span><b>Dag {{ d.nr }}</b>{% if d.i_dag %}<span class="dp-idag-tekst">i dag</span>{% endif %}<small>{{ del[0] }} {{ del[1] }} {{ (del[2][:3] ~ '.') if del[2]|length > 4 else del[2] }}{% if d.tid %} · {{ d.tid }}{% endif %}</small>{% if d.merknad %}<small class="dp-merknad">{{ d.merknad }}</small>{% endif %}</span>
+  {% if not forhandsvisning %}<span class="merke {{ {'mott': 'ok', 'ikke': 'gul', 'kommer': 'gra'}[d.status] }}">{{ {'mott': 'Møtt', 'ikke': 'Ikke registrert', 'kommer': 'Kommer'}[d.status] }}</span>{% endif %}</li>
+{% endmacro %}
+
+{% macro dagsrekke(v, forhandsvisning) %}
+{#- Kompakt rekke med kursdagene i «I dag»-kortet (vises bare på mobil): hake når du har møtt, ellers dagens nummer. -#}
+{% if v.kursdager|length > 1 %}
+<ol class="dp-kompakt" aria-label="Kursdager">
+  {% for d in v.kursdager %}{% set mott = d.status == 'mott' and not forhandsvisning %}{% set del = d.dato_kort.split(' ') %}
+  <li class="{{ 'dp-mott' if mott }}{{ ' dp-na' if d.i_dag }}">
+    <span class="dp-b" aria-hidden="true">{% if mott %}{{ ikon('hake') }}{% else %}{{ d.nr }}{% endif %}</span>
+    <span class="dp-t" aria-hidden="true">{{ 'i dag' if d.i_dag else (del[1] ~ ' ' ~ del[2][:3]) }}</span>
+    <span class="skjul-visuelt">Dag {{ d.nr }}, {{ d.dato_kort }}{% if mott %}, møtt{% endif %}{% if d.i_dag %}, i dag{% endif %}</span>
+  </li>
+  {% endfor %}
+</ol>
+{% endif %}
+{% endmacro %}
+
+{% macro blokk(b) %}
+{% if b.type == 'viktig' %}
+<section class="dp-viktig dp-viktig-{{ b.data.niva }}" id="blokk-{{ b.id }}" role="note" aria-labelledby="bt-{{ b.id }}">
+  {{ ikon('info' if b.data.niva == 'info' else 'varsel', 'dp-viktig-ikon') }}
+  <div><h2 id="bt-{{ b.id }}">{{ b.tittel }}</h2>{% for a in b.data.avsnitt %}<p>{{ a }}</p>{% endfor %}</div>
+</section>
+{% else %}
+<section class="dp-blokk dp-blokk-{{ b.type }}" id="blokk-{{ b.id }}" aria-labelledby="bt-{{ b.id }}">
+  {% if b.type == 'program' %}{{ hode(b, b.data.undertittel) }}{{ program(b.data) }}
+  {% elif b.type == 'filer' %}{{ hode(b, 'Last ned til din egen enhet') }}{{ filer(b.data) }}
+  {% else %}{{ hode(b) }}
+    {% if b.type == 'tekst' %}<div class="dp-tekst">{{ b.data.html }}</div>
+    {% elif b.type == 'lenker' %}{{ lenker(b.data) }}
+    {% elif b.type == 'tabell' %}{{ tabell(b.data) }}
+    {% elif b.type == 'kontakt' %}{{ kontakt(b.data) }}
+    {% elif b.type == 'bilde' %}{{ bilde(b.data) }}
+    {% endif %}
+  {% endif %}
+</section>
+{% endif %}
+{% endmacro %}

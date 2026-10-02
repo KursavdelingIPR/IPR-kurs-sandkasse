@@ -14,6 +14,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from adressehjelp import gruppeadresse
 from kurs import config, daglig, db, sveiper
 from kurs.integrasjoner import epost
 from kurs.kjoring import Kjoring
@@ -61,7 +62,7 @@ def _kurs(**over):
 def test_alle_maler_har_felles_ramme_med_signatur_og_min_side_lenke(mal, data):
     emne, html = _render(mal, **data)
     assert "Vennlig hilsen<br>Kursadministrasjonen, Institutt for Psykologisk Rådgivning<br>" in html
-    assert f'<a href="{BASE}/min-side">Min side</a> – her finner du kursmateriell, oppmøte og faktura.' in html
+    assert f'<a href="{BASE}/min-side">Mine kurs</a> – her finner du kursene dine, faktura og kursbevis.' in html
     assert "Emne:" not in html and html.startswith("<div")   # emne-linja er ikke med i selve kroppen
 
 
@@ -72,9 +73,9 @@ def test_bekreftelse_emne_hilsen_og_kursdager():
     assert emne == "Bekreftelse: Veiledning i praksis"
     assert "<p>Hei Ola,</p>" in html
     assert "Takk for påmeldingen! Du har fått plass på <strong>Veiledning i praksis</strong>." in html
-    assert "<li>2027-03-01 kl. 09:00–15:00</li>" in html          # dagens tider arves fra kurset
-    assert "<li>2027-03-02 kl. 10:00–12:30</li>" in html          # egne tider pa kursdagen
-    assert ('Du kan når som helst logge inn på <a href="%s/min-side">Min side</a> med e-postadressen din.' % BASE) in html
+    assert "<li>01.03.2027 kl. 09:00–15:00</li>" in html          # dagens tider arves fra kurset
+    assert "<li>02.03.2027 kl. 10:00–12:30</li>" in html          # egne tider pa kursdagen
+    assert ('Du kan når som helst logge inn på <a href="%s/min-side">Mine kurs</a> med e-postadressen din.' % BASE) in html
 
 
 @pytest.mark.parametrize("type_,forventet,ikke", [
@@ -112,7 +113,8 @@ def test_bekreftelse_faktureringstekst_varianter(p_over, plan, forventet):
     assert forventet in html
     assert "Faktura er sendt" not in html and "Faktura er opprettet" not in html      # mailen sendes FOER fakturaforsoket
     if plan.modus in (PLAN_NA, PLAN_MANGLER_KURSDAG):
-        assert "tidligst" not in html and not re.search(r"\d\d\.\d\d\.\d{4}", html)      # ingen dato (mangler_kursdag: ingen oppdiktet dato)
+        uten_kursdager = html.replace("01.03.2027", "").replace("02.03.2027", "")   # kursdagene vises med dato
+        assert "tidligst" not in html and not re.search(r"\d\d\.\d\d\.\d{4}", uten_kursdager)  # ingen annen dato (mangler_kursdag: ingen oppdiktet dato)
 
 
 @pytest.mark.parametrize("dager_for,forventet,ikke", [
@@ -168,7 +170,7 @@ def test_ukefor_emne_kursdager_og_fysisk_info():
     assert "Nå er det snart tid for <strong>Veiledning i praksis</strong>, som starter 2027-03-01." in html
     assert "<li>2027-03-01 kl. 09:00–15:00</li>" in html and "<li>2027-03-02 kl. 10:00–12:30</li>" in html
     assert "<strong>Sted:</strong> Oslo" in html
-    assert f"taste koden på {BASE}/innsjekk" in html and "skanne QR-koden" in html
+    assert "skanne QR-koden" in html and "skrive koden som vises på skjermen" in html and "/innsjekk" not in html
     assert "Kurset holdes på Zoom" not in html
 
 
@@ -178,11 +180,10 @@ def test_ukefor_digitalt_kurs_har_zoominfo_og_ikke_sted():
     assert "Sted:" not in html and "QR-koden" not in html
 
 
-def test_ukefor_kursnotat_tas_med_og_escapes_kun_naar_det_finnes():
+def test_ukefor_tar_aldri_med_intern_kommentar():
+    """kurs.notat er en intern kommentar (bare for administratorer) - aldri i e-post til deltakere."""
     _, med = _render("ukefor", d=DELTAKER, kurs=_kurs(notat="Ta med <lue> & votter"), dager=[DAG1])
-    assert "<p>Ta med &lt;lue&gt; &amp; votter</p>" in med
-    _, uten = _render("ukefor", d=DELTAKER, kurs=_kurs(notat=None), dager=[DAG1])
-    assert "Ta med" not in uten
+    assert "Ta med" not in med and "votter" not in med
 
 
 # ============================ dagfor (tre varianter) ============================
@@ -244,7 +245,8 @@ def test_avlysning_emne_og_tekst():
     assert "<p>Hei Ola,</p>" in html
     assert "Vi må dessverre informere om at <strong>Veiledning i praksis</strong> er avlyst." in html
     assert "Har du allerede mottatt faktura, tar kursadministrasjonen kontakt med deg om det videre." in html
-    assert f"bruke «Spør oss» på {BASE}/sporsmal." in html
+    assert "Har du spørsmål, kan du svare på denne e-posten." in html
+    assert "Spør oss" not in html and "/sporsmal" not in html        # «Spør oss» er av som standard: e-posten peker ikke dit
     assert "Vi beklager ulempen dette medfører." in html
 
 
@@ -255,7 +257,7 @@ def test_kursbevis_klar_emne_og_lenke():
     assert emne == "Kursbevis: Veiledning i praksis"
     assert "<p>Hei Ola,</p>" in html
     assert ("Takk for deltakelsen på <strong>Veiledning i praksis</strong>. Kursbeviset ditt ligger nå på "
-            '<a href="%s/min-side">Min side</a>.' % BASE) in html
+            '<a href="%s/min-side">Mine kurs</a>.' % BASE) in html
 
 
 # ============================ firmapaamelding_kvittering ============================
@@ -331,7 +333,7 @@ def test_purring_emne_per_variant(igjen, emne_forventet):
 
 def test_laast_innlogging():
     emne, html = _render("innlogging", fornavn="Ola", lenke="https://x.no/logg-inn/tok")
-    assert emne == "Logg inn på Min side – IPR Påmeldingssystem"
+    assert emne == "Logg inn – IPR Påmeldingssystem"
     assert "<p>Hei Ola,</p>" in html
     assert "Lenken virker i 30 minutter og kan bare brukes én gang." in html
     assert '<a href="https://x.no/logg-inn/tok"' in html and ">Logg inn</a>" in html
@@ -404,7 +406,7 @@ def test_e2e_bekreftelse_via_sveiper(con, sendt):
     (til, emne, html), = [m for m in sendt if m[1].startswith("Bekreftelse")]
     assert (til, emne) == ("ola@x.no", "Bekreftelse: Veiledning i praksis")
     assert "Du har fått plass på <strong>Veiledning i praksis</strong>." in html
-    assert "<li>2027-03-01 kl. 09:00–16:00</li>" in html and "Sted: Oslo." in html   # standard sluttid er 16:00
+    assert "<li>01.03.2027 kl. 09:00–16:00</li>" in html and "Sted: Oslo." in html   # standard sluttid er 16:00
     assert "Faktura på 1500 kr sendes separat til deg." in html and "tidligst" not in html
 
 
@@ -470,10 +472,51 @@ def test_e2e_firmakvittering_via_gruppe_rute(con, sendt):
     _opprett(con, date.today() + timedelta(days=30), kode="E5")
     webapp.app.test_client().post("/kurs/E5/gruppe", data={
         "kontakt_fornavn": "Kari", "kontakt_etternavn": "HR", "kontakt_epost": "kari.hr@firma.no",
-        "kontakt_telefon": "90000000", "firmanavn": "Firma AS", "org_nr": "999888777", "faktura_ref": "B1",
+        "kontakt_telefon": "90000000", "firmanavn": "Firma AS", "org_nr": "999900003", "faktura_ref": "B1",
         "deltaker_fornavn": ["Ola"], "deltaker_etternavn": ["Nordmann"], "deltaker_epost": ["ola@firma.no"],
-        "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on"})
+        "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on", **gruppeadresse()})
     (til, emne, html), = [m for m in sendt if m[0] == "kari.hr@firma.no"]
     assert emne == "Bedriftspåmelding til Veiledning i praksis – kvittering"
     assert "<p>Hei Kari,</p>" in html
-    assert "Takk for påmeldingen av 1 deltaker fra Firma AS" in html and "<li>1 fikk bekreftet plass</li>" in html
+    assert "Takk for påmeldingen av 1 deltaker fra EKSEMPEL KOMMUNE" in html and "<li>1 fikk bekreftet plass</li>" in html
+
+
+# ============================ ekstradeltaker: bare egne samlinger (standardoutput for hele kurset er låst over) ============================
+#
+# En ekstradeltaker på noen samlinger får radene fra db.paameldingens_kursdager: samme form som kursdagene ellers, men med kursets eget
+# samlingsnummer (samling_nr) og samling_flere. Malene og «Samling N» skal da vise bare deres samlinger, med riktig nummer.
+
+def _samlingsrad(dato, nr, sid, **over):
+    return {"dato": dato, "start_kl": None, "slutt_kl": None, "samling_id": sid, "samling_navn": None, "samling_nr": nr,
+            "samling_flere": True, **over}
+
+
+EKSTRA_DAGER = [_samlingsrad("2027-05-10", 2, 12), _samlingsrad("2027-05-11", 2, 12), _samlingsrad("2027-06-14", 3, 13)]
+
+
+def test_bekreftelse_for_ekstradeltaker_har_bare_deres_samlinger_med_kursets_nummer_og_ingen_fakturatekst():
+    _, html = _render_bek(p=DELTAKER, kurs=KURS, dager=EKSTRA_DAGER, faktura_plan=FakturaPlan(PLAN_INGEN))
+    assert "Samling 2: 10.–11.05.2027 kl. 09:00–15:00" in html and "Samling 3: 14.06.2027 kl. 09:00–15:00" in html
+    assert "Samling 1" not in html                                                        # kursets samling 1 er ikke deres
+    assert "Faktura på" not in html and "Kursavgiften" not in html and "1500 kr" not in html
+
+
+def test_bekreftelse_for_en_ekstradeltaker_paa_bare_samling_tre_heter_fortsatt_samling_tre():
+    _, html = _render_bek(p=DELTAKER, kurs=KURS, dager=[_samlingsrad("2027-06-14", 3, 13)], faktura_plan=FakturaPlan(PLAN_INGEN))
+    assert "Samling 3: 14.06.2027" in html and "Samling 1" not in html
+
+
+def test_ukefor_for_ekstradeltaker_lister_bare_deres_dager():
+    emne, html = _render("ukefor", d=DELTAKER, kurs=KURS, dager=EKSTRA_DAGER)
+    assert emne == "Velkommen til Veiledning i praksis – praktisk informasjon"
+    assert "som starter 2027-05-10." in html                                               # deres første dag
+    assert all(f"<li>{d} kl. 09:00–15:00</li>" in html for d in ("2027-05-10", "2027-05-11", "2027-06-14"))
+    assert "2027-03-01" not in html                                                        # kursets første dag (samling 1) er ikke med
+
+
+@pytest.mark.parametrize("nr,antall,emne_forventet", [
+    (1, 3, "I morgen starter Veiledning i praksis"), (2, 3, "I morgen, dag 2: Veiledning i praksis"),
+    (3, 3, "Siste kursdag i morgen: Veiledning i praksis"), (1, 1, "I morgen starter Veiledning i praksis")])
+def test_dagfor_for_ekstradeltaker_teller_blant_deres_egne_dager(nr, antall, emne_forventet):
+    emne, html = _render("dagfor", d=DELTAKER, kurs=KURS, dag=EKSTRA_DAGER[2], nr=nr, antall=antall)
+    assert emne == emne_forventet and "Tid: 2027-06-14 kl. 09:00–15:00" in html

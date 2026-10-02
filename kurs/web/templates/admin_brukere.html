@@ -5,6 +5,19 @@
   {% if entra %}Brukere som logger inn med Microsoft opprettes automatisk første gang, og får rollen fra Entra ID.{% endif %}</p>
 
 <div class="kort" style="max-width:820px; margin-bottom:18px">
+  <strong>Lenke til innloggingen</strong>
+  <p class="liten dempet" style="margin:4px 0 10px">Del denne lenken med dem som har fått en bruker her. Den fører til innloggingen til Admin.
+    {% if entra and lokal %}De logger inn med Microsoft-kontoen sin, eller med brukernavn og passord hvis du har laget det til dem.
+    {%- elif entra %}De logger inn med Microsoft-kontoen sin.
+    {%- elif lokal %}De logger inn med brukernavnet og passordet du har laget til dem.{% endif %}
+    Er de allerede innlogget, kommer de rett til Oversikten.</p>
+  <div class="lenkerad">
+    <input id="innloggingslenke" value="{{ innloggingslenke }}" readonly aria-label="Lenke til innloggingen">
+    <button type="button" class="sekundar" data-kopier="innloggingslenke">Kopier lenke</button>
+  </div>
+</div>
+
+<div class="kort" style="max-width:820px; margin-bottom:18px">
   <strong>Roller</strong>
   <ul class="liten" style="margin:6px 0 0; padding-left:18px">
     <li><strong>Systemadministrator</strong> – alt, inkludert brukere og daglig kjøring.</li>

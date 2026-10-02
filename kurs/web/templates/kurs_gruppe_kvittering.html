@@ -1,8 +1,15 @@
 {% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css). Kurs for IPR.no skal få en annen stil etter hvert. -#}
 {% block tittel %}Kvittering – {{ kurs.navn }}{% endblock %}
 {% block innhold %}
 <h1>Kvittering – {{ kurs.navn }}</h1>
-<p class="sub">{{ firma.firmanavn }}</p>
+<p class="sub">{% if firma.firmanavn %}{{ firma.firmanavn }}{% if firma.faktura_adresse %} · {{ firma.faktura_adresse }}, {{ firma.faktura_postnr }} {{ firma.faktura_sted }}{% endif %}{% else %}Organisasjonsnummer {{ firma.org_nr }}{% endif %}</p>
+{% if firmaopplysninger_mangler %}
+<div class="varselboks" role="status" style="margin-bottom:14px">
+  <strong>Vi kunne ikke hente firmaopplysningene akkurat nå</strong>
+  <p style="margin:6px 0 0">Påmeldingene er registrert med organisasjonsnummeret dere skrev inn. Firmanavn og fakturaadresse hentes fra Brønnøysundregistrene, og vi kontrollerer dem i etterkant. Dere trenger ikke gjøre noe mer.</p>
+</div>
+{% endif %}
 
 <div class="tabellboks"><table>
   <tr><th>Navn</th><th>Status</th></tr>
@@ -10,7 +17,7 @@
   <tr>
     <td>{{ r.navn }}</td>
     <td>
-      {% if r.paamelding_status == 'bekreftet' %}<span class="merke ok">Bekreftet</span>
+      {% if r.paamelding_status == 'bekreftet' %}<span class="merke ok">{{ STATUS.paameldt }}</span>
       {% elif r.paamelding_status == 'venteliste' %}<span class="merke gul">Venteliste</span>
       {% else %}<span class="merke feil">Ikke registrert{% if r.feilmelding %} – {{ r.feilmelding }}{% endif %}</span>
       {% endif %}

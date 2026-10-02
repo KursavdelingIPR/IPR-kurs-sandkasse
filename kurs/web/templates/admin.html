@@ -1,38 +1,162 @@
 {% extends "admin_base.html" %}
+{% block tittel %}Oversikt{% endblock %}
+{% block sideklasse %} class="bred"{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">{% endblock %}
 {% block innhold %}
+{% from "_sokefelt.html" import sokefelt, kurssokefelt %}
 <div class="verktoylinje" style="align-items:flex-start">
-  <div><h1>Oversikt</h1><p class="sub" style="margin-bottom:0">Kommende og pågående kurs. Alt som skjer automatisk, og det som trenger deg.</p></div>
-  {% if admin_rolle != 'lese' %}<a class="knapp plass" href="{{ url_for('admin_ny_kurs') }}">Nytt kurs +</a>{% endif %}
+  <div><h1>Oversikt</h1><p class="sub" style="margin-bottom:0">Finn deltakere og kurs, og se det som trenger deg.</p></div>
 </div>
 
-<h2 style="margin-top:14px">Kurs</h2>
-<div class="tabellboks"><table>
-  <tr><th scope="col">Kurs</th><th scope="col">Datoer</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col">Påmeldt</th><th scope="col">Venteliste</th><th scope="col">Fakturert</th></tr>
-  {% for k in kurs if k.status != 'avsluttet' and k.status != 'avlyst' %}
-  <tr>
-    <td><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a><div class="liten dempet">Kursnr. {{ k.kursnr }}</div></td>
-    <td class="liten">{{ k.start }}{% if k.slutt != k.start %} – {{ k.slutt }}{% endif %}</td>
-    <td>{{ k.type }}</td>
-    <td><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','utkast':'gra'}.get(k.status,'gra') }}">{{ k.status }}</span></td>
-    <td>{{ k.bekreftet }}{% if k.kapasitet %} / {{ k.kapasitet }}{% endif %}</td>
-    <td>{{ k.venteliste or '' }}</td>
-    <td>{% if k.fakturering == 'person' %}{{ k.fakturert }}{% else %}<span class="dempet liten">{{ k.fakturering }}</span>{% endif %}</td>
+<div class="sokepanel">
+  <div>
+    {{ sokefelt('sok-deltaker', etikett='Søk etter deltaker', plassholder='Navn, e-post, telefon eller påmeldingsnr.') }}
+    <p class="sok-hjelp">Finner personen på tvers av alle kurs, med påmeldinger, oppmøte og kursbevis. Trykk <kbd class="tast">/</kbd> på hvilken som helst side for å hoppe hit.</p>
+  </div>
+  <div>
+    {{ kurssokefelt('sok-kurs', 'kursfilter', verdi=sok) }}
+    <p class="sok-hjelp">Kursnummer eller deler av kursnavnet. Treffene vises i kurslisten under, og søket leter også i avsluttede kurs.</p>
+  </div>
+</div>
+
+{#- «Nytt kurs +» står i overskriftsraden til kurslisten, til høyre (Camilla 02.10.2026: «kan du flytte nytt kurs-knappen ned»), på linje med
+    høyrekanten til søkekortene over. Teksten i knappen og lenken er uendret. -#}
+<div class="verktoylinje kursrad">
+  <h2 id="kurs">Kurs</h2>
+  {% if admin_rolle != 'lese' %}<a class="knapp plass" href="{{ url_for('admin_ny_kurs') }}">Nytt kurs +</a>{% endif %}
+</div>
+{#- Filterskjemaet. Kurssøket øverst på siden (feltet «sok») hører til dette skjemaet via form="kursfilter". -#}
+<form method="get" id="kursfilter" action="{{ url_for('admin') }}#kurs" class="filterlinje">
+  <div class="f-smal"><label for="f-sted">Sted</label><select id="f-sted" name="sted" data-send-ved-endring>
+      <option value="" {{ 'selected' if not sted }}>Alle steder</option>
+      <option value="bergen" {{ 'selected' if sted == 'bergen' }}>Bergen</option>
+      <option value="oslo" {{ 'selected' if sted == 'oslo' }}>Oslo</option>
+      <option value="online" {{ 'selected' if sted == 'online' }}>Online</option>
+    </select>
+  </div>
+  <div class="f-smal"><label for="f-ansvarlig">Ansvarlig</label><select id="f-ansvarlig" name="ansvarlig" data-send-ved-endring>
+      <option value="">Alle</option>
+      {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if ansvarlig == a.id }}>{{ a.navn }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="f-bred"><label for="f-status">Status</label><select id="f-status" name="status" data-send-ved-endring>
+      <option value="" {{ 'selected' if not status }}>Kommende og pågående</option>
+      <option value="alle" {{ 'selected' if status == 'alle' }}>Alle kurs (også avsluttede og avlyste)</option>
+      <optgroup label="Bare kurs med status">
+        {% for s in kurs_statusverdier %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ status_navn.get(s, s) }}</option>{% endfor %}
+      </optgroup>
+    </select>
+  </div>
+  <div class="f-middels"><label for="f-sorter">Sorter etter</label><select id="f-sorter" name="sorter" data-send-ved-endring>
+      {% for verdi, tekst in sorteringer.items() %}<option value="{{ verdi }}" {{ 'selected' if sortering == verdi }}>{{ tekst }}</option>{% endfor %}
+      {% if sortering not in sorteringer %}<option value="{{ sortering }}" selected>Kolonne: {{ sortering_tekst }}</option>{% endif %}
+    </select>
+  </div>
+  <div class="f-minst"><label for="f-antall">Antall rader</label><select id="f-antall" name="antall" data-send-ved-endring>
+      {% for n in (10, 25, 50, 100) %}<option value="{{ n }}" {{ 'selected' if antall == n }}>{{ n }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="handlinger">
+    <label class="avkrysning"><input type="checkbox" name="mine" value="1" {{ 'checked' if mine }} data-send-ved-endring> Vis bare mine kurs</label>
+    <button class="sekundar">Bruk filtre</button>
+    <a class="liten" href="{{ nullstill_lenke }}">Nullstill filtre</a>
+  </div>
+</form>
+
+<div class="tabellboks kortliste"><table class="aktivitetstabell">
+  <thead><tr>
+    <th scope="col">{{ sorterlenke('kursnr', 'Kursnr') }}</th>
+    <th scope="col">{{ sorterlenke('navn', 'Tittel') }}</th>
+    <th scope="col">{{ sorterlenke('start', 'Start') }}</th>
+    <th scope="col">Sted / online</th>
+    <th scope="col">{{ STATUS_FLERTALL.paameldt }} / kapasitet</th>
+    <th scope="col">{{ sorterlenke('status', 'Status') }}</th>
+    <th scope="col">{{ sorterlenke('ansvarlig', 'Ansvarlig') }}</th>
+    <th scope="col"><span class="skjul-visuelt">Handlinger</span></th>
+  </tr></thead>
+  <tbody>
+  {% for k in kurs %}
+  <tr class="{{ 'avlyst' if k.status == 'avlyst' }}">
+    <td data-etikett="Kursnr">{{ k.kursnr }}</td>
+    <td class="tittel"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a>
+      {%- if k.idag_dag_id and k.status in ('aapen', 'full', 'aktiv') %}<div class="oppmote-idag"><a class="knapp liten" href="{{ url_for('admin_kurs_oppmote', kurs_id=k.id, dag_id=k.idag_dag_id) }}">{{ 'Se oppmøteliste i dag' if admin_rolle == 'lese' else 'Ta opp oppmøte i dag' }}</a></div>{% endif %}</td>
+    <td class="dato" data-etikett="Start"><span>{{ dato_tekst(k.start) or '–' }}{% if k.start and k.start_kl %} kl. {{ k.start_kl }}{% endif %}
+      {%- if k.antall_dager > 1 %}<span class="liten dempet" style="display:block">{{ k.antall_dager }} kursdager, til {{ dato_tekst(k.slutt) }}</span>{% endif %}</span></td>
+    <td class="sted" data-etikett="Sted"><span><span class="format {{ k.type }}">{{ formater.get(k.type, k.type) }}</span>
+      {%- if sted_tekst(k) %}<span class="stedsnavn">{{ sted_tekst(k) }}</span>{% endif %}</span></td>
+    <td class="tall" data-etikett="{{ STATUS_FLERTALL.paameldt }}"><span>{{ k.bekreftet }}{% if k.kapasitet %} / {{ k.kapasitet }}{% endif %}
+      {%- if k.ekstra_antall %}<span class="liten dempet delinje">+ {{ k.ekstra_antall }} {{ (STATUS.ekstradeltaker if k.ekstra_antall == 1 else STATUS_FLERTALL.ekstradeltaker)|lower }}</span>{% endif %}
+      {%- if k.venteliste %}<span class="liten dempet delinje">{{ k.venteliste }} på venteliste</span>{% endif %}
+      <span class="liten dempet delinje">{{ k.totalt_registrert }} registrert · {% if k.fakturering == 'person' %}{{ k.fakturert }} fakturert{% elif k.fakturering == 'organisasjon' %}faktureres samlet{% else %}gratis kurs{% endif %}</span></span></td>
+    <td data-etikett="Status"><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','avlyst':'feil','utkast':'gra'}.get(k.status,'gra') }}">{{ status_navn.get(k.status, k.status) }}</span></td>
+    <td class="ansvarlig" data-etikett="Ansvarlig">{{ k.ansvarlig_navn or '–' }}</td>
+    <td class="handling">
+      <div class="knapper">
+        <a class="knapp liten sekundar" href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}">Rediger</a>
+        <a class="knapp liten sekundar" href="{{ url_for('admin_kursside', kurs_id=k.id) }}" title="Siden deltakerne ser etter innlogging: program, presentasjoner, grupper og litteratur">Min side</a>
+        {% if admin_rolle != 'lese' %}<a class="knapp liten sekundar" href="{{ url_for('admin_ny_kurs', fra=k.id) }}" title="Dupliser «{{ k.navn }}»">Dupliser</a>{% endif %}
+      </div>
+    </td>
   </tr>
-  {% else %}<tr><td colspan="7" class="tom">Ingen kommende eller pågående kurs. {% if admin_rolle != 'lese' %}<a href="{{ url_for('admin_ny_kurs') }}">Opprett et nytt kurs</a>, eller {% endif %}<a href="{{ url_for('admin_aktiviteter') }}">se alle aktiviteter</a>.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="8" class="tom">{% if sok %}Ingen kurs matcher «{{ sok }}».{% else %}Ingen kurs å vise.{% endif %}{% if admin_rolle != 'lese' %} <a href="{{ url_for('admin_ny_kurs') }}">Opprett et nytt kurs</a>.{% endif %}</td></tr>{% endfor %}
+  </tbody>
 </table></div>
-<p class="liten dempet" style="margin-top:8px">Avsluttede og avlyste kurs finner du under <a href="{{ url_for('admin_aktiviteter') }}">Aktiviteter</a>.</p>
+
+<p class="liten dempet" style="margin-top:10px">
+  Viser {{ kurs|length }} av {{ totalt }} kurs · sortert: {{ sortering_tekst|lower }}.
+  {% if side > 1 %}<a href="{{ sidelenke(side - 1) }}">« Forrige</a>{% endif %}
+  Side {{ side }} av {{ siste_side }}
+  {% if side < siste_side %}<a href="{{ sidelenke(side + 1) }}">Neste »</a>{% endif %}
+</p>
+{% if not status %}<p class="liten dempet" style="margin-top:-4px">Avsluttede og avlyste kurs er skjult her. Velg «Alle kurs» under Status, eller søk etter kurset, for å se dem.</p>{% endif %}
 
 <h2>Status</h2>
-<div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
-  <div class="kort"><div class="liten dempet">Aktive / åpne kurs</div><div class="stat">{{ kurs | selectattr('status','in',['aapen','full','aktiv']) | list | length }}</div></div>
-  <div class="kort"><div class="liten dempet">Påmeldte (åpne kurs)</div><div class="stat">{{ kurs | selectattr('status','in',['aapen','full','aktiv']) | sum(attribute='bekreftet') }}</div></div>
-  <div class="kort"><div class="liten dempet">Mangler materiell</div><div class="stat" style="color:{{ 'var(--gul)' if mangler else 'inherit' }}">{{ mangler | length }}</div></div>
-  <div class="kort"><div class="liten dempet">Uavklarte operasjoner som krever manuell kontroll</div><div class="stat" style="color:{{ 'var(--feil)' if uavklart.totalt else 'inherit' }}">{{ uavklart.totalt }}</div>{% if uavklart.totalt %}<div class="liten dempet">E-post: {{ uavklart.epost }} · Faktura: {{ uavklart.faktura }}. Sendes/faktureres ikke automatisk på nytt.</div>
+<div class="statkort">
+  <div class="kort"><div class="liten dempet">Aktive / åpne kurs</div><div class="stat">{{ statistikk.aapne_kurs }}</div></div>
+  <div class="kort"><div class="liten dempet">{{ STATUS_FLERTALL.paameldt }} (åpne kurs)</div><div class="stat">{{ statistikk.paameldt }}</div></div>
+  {% if statistikk.ekstra %}<div class="kort"><div class="liten dempet">{{ STATUS_FLERTALL.ekstradeltaker }} (åpne kurs)</div><div class="stat">{{ statistikk.ekstra }}</div><div class="liten dempet">Teller ikke som {{ STATUS_FLERTALL.paameldt|lower }} og tar ikke plass.</div></div>{% endif %}
+</div>
+<h3 class="statgruppe">Trenger oppfølging</h3>
+<div class="statkort oppfolging">
+  <div class="kort{{ ' krever' if mangler }}"><div class="liten dempet">Mangler materiell</div><div class="stat" style="color:{{ 'var(--gul)' if mangler else 'inherit' }}">{{ mangler | length }}</div>{% if mangler %}<p class="liten" style="margin:6px 0 0"><a href="#materiell">Se kursene →</a></p>{% endif %}</div>
+  <div class="kort{{ ' krever' if firma_mangler }}"><div class="liten dempet">{{ FIRMA_MERKE }}</div><div class="stat" style="color:{{ 'var(--gul)' if firma_mangler else 'inherit' }}">{{ firma_mangler | length }}</div>{% if firma_mangler %}<div class="liten dempet">Firmanavn og adresse er ikke hentet fra Enhetsregisteret.</div>
+    <p class="liten" style="margin:6px 0 0"><a href="#firmakontroll">Se påmeldingene →</a></p>{% endif %}</div>
+  <div class="kort{{ ' krever' if adresse_venter }}"><div class="liten dempet">{{ FAKTURA_HOLDT_ADRESSE }}</div><div class="stat" style="color:{{ 'var(--gul)' if adresse_venter else 'inherit' }}">{{ adresse_venter | length }}</div>{% if adresse_venter %}<div class="liten dempet">Privat faktura lages ikke uten adresse, postnummer og poststed.</div>
+    <p class="liten" style="margin:6px 0 0"><a href="#adressekontroll">Se påmeldingene →</a></p>{% endif %}</div>
+  <div class="kort{{ ' krever feil' if uavklart.totalt }}"><div class="liten dempet">Uavklarte operasjoner som krever manuell kontroll</div><div class="stat" style="color:{{ 'var(--feil)' if uavklart.totalt else 'inherit' }}">{{ uavklart.totalt }}</div>{% if uavklart.totalt %}<div class="liten dempet">E-post: {{ uavklart.epost }} · Faktura: {{ uavklart.faktura }}. Sendes/faktureres ikke automatisk på nytt.</div>
     <p class="liten" style="margin:6px 0 0"><a href="{{ url_for('admin_uavklart') }}">Se og avklar →</a></p>{% endif %}</div>
 </div>
 
+{% if firma_mangler %}
+<h2 id="firmakontroll">{{ FIRMA_MERKE }}</h2>
+<p class="liten dempet">Firmanavn og fakturaadresse er ikke hentet fra Enhetsregisteret – for eksempel fordi registeret ikke svarte da påmeldingen ble registrert, eller fordi organisasjonsnummeret er ugyldig. Fakturaen lages først når opplysningene er på plass. Systemet prøver på nytt hver morgen.</p>
+<div class="tabellboks"><table>
+  <tr><th scope="col">Kurs</th><th scope="col">Deltaker</th><th scope="col">Organisasjonsnummer</th></tr>
+  {% for r in firma_mangler %}
+  <tr><td>{{ r.kursnr }} {{ r.kursnavn }}</td><td><a href="{{ url_for('admin_deltaker', kurs_id=r.kurs_id, paamelding_id=r.id) }}">{{ r.navn }}</a></td><td class="liten">{{ r.org_nr or '–' }}</td></tr>
+  {% endfor %}
+</table></div>
+{% if admin_rolle != 'lese' %}
+<form method="post" action="{{ url_for('admin_firmaopplysninger') }}" style="margin-top:10px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button>Hent manglende firmaopplysninger</button>
+</form>
+{% endif %}
+{% endif %}
+
+{% if adresse_venter %}
+<h2 id="adressekontroll">{{ FAKTURA_HOLDT_ADRESSE }}</h2>
+<p class="liten dempet">Deltakerne under betaler selv, men har ikke komplett privat adresse (en delvis adresse er tatt vare på, men gjelder ikke). En privat faktura opprettes og sendes aldri uten adresse, postnummer og poststed: den holdes tilbake og lages av seg selv når alle tre er lagt inn (under Personopplysninger i deltakervinduet).</p>
+<div class="tabellboks"><table>
+  <tr><th scope="col">Kurs</th><th scope="col">Deltaker</th></tr>
+  {% for r in adresse_venter %}
+  <tr><td>{{ r.kursnr }} {{ r.kursnavn }}</td><td><a href="{{ url_for('admin_deltaker', kurs_id=r.kurs_id, paamelding_id=r.id) }}">{{ r.navn }}</a> <span class="merke gul">{{ adresse_merke(r) }}</span></td></tr>
+  {% endfor %}
+</table></div>
+{% endif %}
+
 {% if mangler %}
-<h2>Materiell som mangler</h2>
+<h2 id="materiell">Materiell som mangler</h2>
 <div class="tabellboks"><table>
   <tr><th scope="col">Kurs</th><th scope="col">Ansvarlig</th><th scope="col">Frist</th><th scope="col"><span class="skjul-visuelt">Lenke</span></th></tr>
   {% for m in mangler %}
@@ -42,10 +166,4 @@
   {% endfor %}
 </table></div>
 {% endif %}
-
-<h2>Siste hendelser</h2>
-<div class="tabellboks"><table>
-  <tr><th scope="col">Tid</th><th scope="col">Hvem</th><th scope="col">Hendelse</th><th scope="col">Detaljer</th></tr>
-  {% for h in hendelser %}<tr><td class="liten dempet">{{ h.ts }}</td><td class="liten">{{ h.aktor }}</td><td>{{ h.handling }}</td><td class="liten dempet">{{ h.detaljer or '' }}</td></tr>{% endfor %}
-</table></div>
 {% endblock %}

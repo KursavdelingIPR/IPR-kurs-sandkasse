@@ -1,13 +1,52 @@
 {% extends "admin_base.html" %}
+{% block sideklasse %} class="bred"{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kursfarger.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kalender.css') }}">{% endblock %}
+{% macro hendelseskort(h, dagnr=none) %}
+<a class="kalenderkort kursfarge-{{ h.farge }} {{ h.status }}" href="{{ url_for('admin_kurs_deltakere', kurs_id=h.kurs_id) }}" title="{{ h.beskrivelse }}">
+  <span class="kortnavn">{{ h.navn }}</span>
+  <span class="kortdetaljer">
+    <span>{{ h.sted_visning }}</span>
+    {%- if h.tid %} <span>kl. {{ h.tid }}</span>{% endif %}
+  </span>
+  <span class="kortdetaljer dempet">
+    {%- if dagnr %}Dag {{ dagnr }} av {{ h.dager }}{% else %}{{ h.periode }}{% if h.dager > 1 %} ({{ h.dager }} dager){% endif %}{% endif %}
+    {%- if h.samling_tekst %} · {{ h.samling_tekst }}{% endif %}
+    {%- if h.ansvarlig %} · {{ h.ansvarlig }}{% endif %}
+    {%- if h.status in ('avlyst', 'utkast') %} · <strong>{{ h.status }}</strong>{% endif %}
+  </span>
+</a>
+{% endmacro %}
+{% macro oversiktsrad(r, anker=true) %}{% set h = r.h %}
+<article class="oversiktsrad kursfarge-{{ h.farge }} {{ h.status }}{{ ' tidligere' if r.tidligere }}{{ ' pagar' if r.pagar }}{{ ' neste' if r.neste }}"{% if r.neste and anker %} id="neste"{% endif %}>
+  <div class="odato"><span class="odag">{{ h.kort_periode }}</span><span class="oukedag">{{ h.ukedager }}</span></div>
+  <div class="oinnhold">
+    <div class="ohoved">
+      <div class="otittel"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=h.kurs_id) }}" title="{{ h.beskrivelse }}">{{ h.navn }}</a>
+        {%- if r.neste %} <span class="merke neste">Neste kurs</span>{% endif %}
+        {%- if r.pagar %} <span class="merke pagar">{{ 'I dag' if h.fra == h.til else 'Pågår' }}</span>{% endif %}
+        {%- if h.status == 'full' %} <span class="merke gul">Fullt</span>{% elif h.status == 'avlyst' %} <span class="merke gra">Avlyst</span>{% elif h.status == 'utkast' %} <span class="merke gra">Utkast</span>{% endif %}</div>
+      {% if h.samling_tekst %}<div class="osamling">{{ h.samling_tekst }}</div>{% endif %}
+      {% if r.samme_dag %}<div class="okollisjon">Samme dag som {% for navn, dager in r.samme_dag %}{{ navn }} ({{ dager }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+    </div>
+    <div class="ometa"><span class="osted">{{ h.sted_visning }}</span><span class="otid">{{ ('kl. ' ~ h.tid) if h.tid }}</span><span class="oansvarlig">{{ h.ansvarlig or '' }}</span><span class="opaameldte">{{ h.paameldte_tekst }}</span></div>
+  </div>
+</article>
+{% endmacro %}
 {% block innhold %}
 <h1>Kurskalender</h1>
-<p class="sub">Kursdager på tvers av alle kurs.</p>
+<p class="sub">Kursene i den rekkefølgen de kommer – neste kurs øverst. Samme farge betyr samme kursserie eller utdanning.</p>
 {% set visning = 'kalender' %}
 {% include "admin_aktivitet_faner.html" %}
 
-<form method="get" class="rad" style="align-items:end; margin-bottom:14px">
-  <input type="hidden" name="aar" value="{{ aar }}">
-  <input type="hidden" name="maned" value="{{ maned }}">
+<input type="checkbox" id="vis-filtre" class="filterbryter"{{ ' checked' if sted or ansvarlig or status }}>
+<label for="vis-filtre" class="filterknapp">Filtre{{ ' (i bruk)' if sted or ansvarlig or status }}</label>
+<form method="get" class="filterlinje">
+  {% if kalendervisning == 'uke' %}<input type="hidden" name="visning" value="uke">{% endif %}
+  {% if kalendervisning == 'maned' %}<input type="hidden" name="aar" value="{{ aar }}">
+  <input type="hidden" name="maned" value="{{ maned }}">{% endif %}
+  {% if kalendervisning == 'uke' %}<input type="hidden" name="dato" value="{{ dato.isoformat() }}">{% endif %}
   <div><label for="f-sted">Sted</label><select id="f-sted" name="sted">
       <option value="" {{ 'selected' if not sted }}>Alle steder</option>
       <option value="bergen" {{ 'selected' if sted == 'bergen' }}>Bergen</option>
@@ -25,40 +64,108 @@
       {% for s in kurs_statusverdier %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ s|capitalize }}</option>{% endfor %}
     </select>
   </div>
-  <div style="display:flex; gap:10px; align-items:center">
+  <div class="handlinger">
     <button class="sekundar">Filtrer</button>
     <a class="liten" href="{{ nullstill_lenke }}">Nullstill filtre</a>
   </div>
 </form>
 
-<div style="display:flex; align-items:center; gap:16px; margin-bottom:14px">
+<div class="kalenderverktoy">
+  {% if kalendervisning != 'oversikt' %}
   <a class="knapp sekundar liten" href="{{ forrige_lenke }}">« Forrige</a>
-  <h2 style="margin:0; min-width:180px; text-align:center">{{ maaned_navn }} {{ aar }}</h2>
+  <h2>{{ tittel }}</h2>
   <a class="knapp sekundar liten" href="{{ neste_lenke }}">Neste »</a>
+  <a class="liten" href="{{ idag_lenke }}">I dag</a>
+  {% else %}
+  <p class="forklaring">
+    <span><span class="prove farge">&nbsp;</span> farge = kursserie (samme farge = samme utdanning)</span>
+    <span><span class="prove avlyst">Avlyst</span></span><span><span class="prove utkast">Utkast</span></span>
+  </p>
+  {% endif %}
+  <nav class="visningsvalg" aria-label="Visning">
+    <a href="{{ visningslenker.oversikt }}"{{ ' aria-current="page"'|safe if kalendervisning == 'oversikt' }}>Kursoversikt</a>
+    <a href="{{ visningslenker.maned }}"{{ ' aria-current="page"'|safe if kalendervisning == 'maned' }}>Måned</a>
+    <a href="{{ visningslenker.uke }}"{{ ' aria-current="page"'|safe if kalendervisning == 'uke' }}>Uke</a>
+  </nav>
 </div>
+{% if kalendervisning != 'oversikt' %}<p class="forklaring">
+  <span><span class="prove farge">&nbsp;</span> farge = kursserie (samme farge = samme utdanning)</span>
+  <span><span class="prove avlyst">Avlyst</span></span><span><span class="prove utkast">Utkast</span></span>
+  <span><span class="prove rod">17</span> rød dag</span><span><span class="prove helg">L</span> helg</span>
+</p>{% endif %}
 
-<div class="tabellboks">
-<table style="table-layout:fixed; width:100%">
-  <tr>
-    {% for dagnavn in ('Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn') %}<th scope="col" style="width:14.28%">{{ dagnavn }}</th>{% endfor %}
-  </tr>
-  {% for uke in uker %}
-  <tr>
-    {% for d in uke %}
-    <td style="vertical-align:top; padding:6px; {{ 'background:var(--bla-lys)' if d == idag }}{% if d.month != maned %} opacity:.4{% endif %}">
-      <div class="liten dempet" style="margin-bottom:4px">{{ d.day }}</div>
-      {% for k in per_dag.get(d.isoformat(), []) %}
-      <div style="margin-bottom:5px">
-        <a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}" class="liten" style="display:block; line-height:1.3; word-break:break-word">
-          <span class="liten dempet">{{ k.kursnr }}</span> {{ k.navn }}
-        </a>
-        {% if k.sted_visning %}<div class="dempet" style="font-size:11px">{{ k.sted_visning }}</div>{% endif %}
-      </div>
-      {% endfor %}
-    </td>
-    {% endfor %}
-  </tr>
-  {% endfor %}
-</table>
+{% if kalendervisning == 'oversikt' %}
+{% if oversikt.neste or oversikt.i_dag %}
+<div class="nestelinje">
+  {% if oversikt.i_dag %}<p><strong>I dag:</strong> {% for r in oversikt.i_dag %}<a href="{{ url_for('admin_kurs_deltakere', kurs_id=r.h.kurs_id) }}">{{ r.h.navn }}</a>{% if r.h.samling_tekst %} <span class="dempet">({{ r.h.samling_tekst|lower }})</span>{% endif %}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+  {% if oversikt.neste %}{% set n = oversikt.neste.h %}<p><strong>Neste kurs:</strong> <a href="#neste">{{ n.kort_periode }} · {{ n.navn }}</a> <span class="dempet">– {{ oversikt.neste_om }}</span></p>{% endif %}
 </div>
+{% endif %}
+<nav class="maanedshopp" aria-label="Gå til måned">
+  {% for m in oversikt.maaneder %}<a href="#{{ m.anker }}"{% if not m.antall %} class="tom"{% endif %}>{{ m.kort }}{% if loop.first or m.maaned == 1 %} {{ m.aar }}{% endif %} <span class="antall">{{ m.antall }}</span></a>{% endfor %}
+  {% if oversikt.tidligere %}<a href="#tidligere" class="tom">Tidligere</a>{% endif %}
+</nav>
+{% for m in oversikt.maaneder %}
+<section class="oversiktsmaaned" id="{{ m.anker }}" aria-labelledby="{{ m.anker }}-tittel">
+  <h2 id="{{ m.anker }}-tittel">{{ m.tittel }} <span class="dempet">{{ m.antall }} {{ 'aktivitet' if m.antall == 1 else 'aktiviteter' }}</span></h2>
+  {% if m.gjennomforte %}<details class="gjennomforte">
+    <summary>{{ m.gjennomforte|length }} kurs gjennomført tidligere i {{ m.tittel.split(' ')[0]|lower }} – vis</summary>
+    {% for r in m.gjennomforte %}{{ oversiktsrad(r) }}{% endfor %}
+  </details>{% endif %}
+  {% for r in m.aktuelle %}{{ oversiktsrad(r) }}{% else %}{% if not m.gjennomforte %}<p class="tommaaned">Ingen kurs denne måneden.</p>{% else %}<p class="tommaaned">Ingen flere kurs denne måneden.</p>{% endif %}{% endfor %}
+</section>
+{% endfor %}
+{% if oversikt.tidligere %}
+<details class="tidligere" id="tidligere">
+  <summary>Tidligere kurs <span class="dempet">– siste 12 måneder, nyeste først</span></summary>
+  {% for m in oversikt.tidligere %}
+  <section class="oversiktsmaaned" aria-labelledby="{{ m.anker }}-tittel">
+    <h3 id="{{ m.anker }}-tittel">{{ m.tittel }}</h3>
+    {% for r in m.rader %}{{ oversiktsrad(r) }}{% endfor %}
+  </section>
+  {% endfor %}
+</details>
+{% endif %}
+{% endif %}
+
+{% if kalendervisning == 'maned' %}
+<div class="maanedsgrid" role="table" aria-label="{{ tittel }}">
+  <div class="ukedager" role="row">{% for n in ukedagnavn %}<div role="columnheader">{{ n }}</div>{% endfor %}</div>
+  {% for u in uker %}
+  <div class="kalenderuke" role="row" style="grid-template-rows:28px repeat({{ u.baner|length }}, 26px) minmax(10px, 1fr)">
+    {% for d in u.dager %}
+    <div class="dagcelle{{ ' utenfor' if not d.i_maaneden }}{{ ' helg' if d.helg }}{{ ' idag' if d.idag }}{{ ' rod' if d.rod_dag }}"
+         style="grid-column:{{ loop.index }}" role="cell"{% if d.rod_dag %} title="{{ d.rod_dag }}"{% endif %}>
+      <div class="dagtopp"><span class="dagnr">{{ d.dato.day }}</span>
+        {%- if loop.first %}<span class="ukenr">u{{ u.ukenr }}</span>{% endif %}
+        {%- if d.rod_dag %}<span class="rodnavn">{{ d.rod_dag }}</span>{% endif %}</div>
+    </div>
+    {% endfor %}
+    {% for bane in u.baner %}{% set rad = loop.index + 1 %}{% for s in bane %}
+    <a class="hendelse kursfarge-{{ s.hendelse.farge }} {{ s.hendelse.status }}{{ ' fra-forrige' if s.fra_forrige }}{{ ' til-neste' if s.til_neste }}"
+       style="grid-column:{{ s.kolonne + 1 }} / span {{ s.lengde }}; grid-row:{{ rad }}"
+       href="{{ url_for('admin_kurs_deltakere', kurs_id=s.hendelse.kurs_id) }}" title="{{ s.hendelse.beskrivelse }}">
+      {%- if s.fra_forrige %}◂ {% endif %}{% if s.hendelse.tid and not s.fra_forrige %}<span class="klokke">{{ s.hendelse.start_kl }}</span> {% endif %}{{ s.hendelse.navn }}
+      {%- if s.hendelse.samling_tekst %} <span class="samling">({{ s.hendelse.nr }}/{{ s.hendelse.antall }})</span>{% endif %}{% if s.til_neste %} ▸{% endif %}</a>
+    {% endfor %}{% endfor %}
+  </div>
+  {% endfor %}
+</div>
+<div class="maanedsliste">{# mobil: månedsrutenettet er for smalt, samme måned vises som liste #}
+  {% for r in maanedsrader %}{{ oversiktsrad(r, false) }}{% else %}<p class="tommaaned">Ingen kurs denne måneden.</p>{% endfor %}
+</div>
+{% endif %}
+
+{% if kalendervisning == 'uke' %}
+<div class="ukevisning">
+  {% for u in ukedager %}
+  <section class="ukedagkolonne{{ ' helg' if u.dag.helg }}{{ ' idag' if u.dag.idag }}{{ ' rod' if u.dag.rod_dag }}" aria-label="{{ u.navn }} {{ u.dag.dato.strftime('%d.%m.%Y') }}">
+    <h3>{{ u.navn }} <span>{{ u.dag.dato.strftime('%d.%m.') }}</span></h3>
+    {% if u.dag.rod_dag %}<p class="rodnavn">{{ u.dag.rod_dag }}</p>{% endif %}
+    {% for h, dagnr in u.hendelser %}{{ hendelseskort(h, dagnr if h.dager > 1 else none) }}{% else %}<p class="tomdag">Ingen kurs</p>{% endfor %}
+  </section>
+  {% endfor %}
+</div>
+{% endif %}
+<p class="liten dempet" style="margin-top:12px">Klikk på et kurs for å åpne det.{% if kalendervisning != 'oversikt' %} {{ antall_hendelser }} samling{{ 'er' if antall_hendelser != 1 }} i perioden.{% endif %}</p>
 {% endblock %}

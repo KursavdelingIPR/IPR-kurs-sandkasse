@@ -1,15 +1,21 @@
 Emne: {{ maltekst.emne }}
 {% extends "_ramme.html" %}{% block innhold %}
 {{ maltekst.innledning }}
-{#- LAASTE SYSTEMBLOKKER (kursdager, sted/QR-innsjekk, Zoom-informasjon, kursnotat): bygges av systemet fra kursdata, aldri fra admintekst. -#}
+{#- LAASTE SYSTEMBLOKKER (kursdager, sted/QR-innsjekk, Zoom-informasjon): bygges av systemet fra kursdata, aldri fra admintekst.
+    kurs.notat er en intern kommentar (bare for administratorer) og tas aldri med i e-post. -#}
 <p><strong>Kursdager</strong></p>
 <ul>{% for dag in dager %}<li>{{ dag.dato }} kl. {{ dag.start_kl or kurs.start_kl }}–{{ dag.slutt_kl or kurs.slutt_kl }}</li>{% endfor %}</ul>
 {% if kurs.type == 'digital' %}
 <p>Kurset holdes på Zoom. Du får lenken på e-post dagen før hver kursdag. Test gjerne lyd og bilde på forhånd.</p>
 {% else %}
 <p><strong>Sted:</strong> {{ kurs.sted }}<br>
-Ved ankomst registrerer du oppmøte ved å skanne QR-koden på skjermen (eller taste koden på {{ base_url }}/innsjekk).</p>
+Ved ankomst registrerer du oppmøte ved å skanne QR-koden på skjermen (eller logge inn med e-postadressen din, trykke «Registrer oppmøte» og skrive koden som vises på skjermen).</p>
 {% endif %}
-{% if kurs.notat %}<p>{{ kurs.notat }}</p>{% endif %}
+{#- LÅST SYSTEMBLOKK: personlig lenke til Min side. Bare med når kurset har en åpen Min side og lenken ikke er stengt. Bygges av systemet
+    (minside.url), aldri av admintekst. Lagres ikke i e-posthistorikken (skjult i kopien). -#}
+{% if min_side_url %}
+<p style="margin:20px 0"><a href="{{ min_side_url }}" style="background:#1f5c73;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Åpne Min side</a></p>
+<p style="font-size:13px;color:#667">Her finner du program, presentasjoner og litteratur for kurset, og opplysningene du ga oss ved påmeldingen. Lenken er personlig: ikke send den videre.</p>
+{% endif %}
 {{ maltekst.avslutning }}
 {% endblock %}

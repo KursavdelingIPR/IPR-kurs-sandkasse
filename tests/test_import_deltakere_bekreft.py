@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import config, db, import_deltakere as imp
 from kurs.integrasjoner import epost, visma
 from navnehjelp import navnedeler
@@ -50,7 +51,7 @@ def _antall_mail(con):
 
 
 def _rad(navn="Kari Nordmann", epost="kari@x.no", **over):
-    r = {**navnedeler(navn), "epost": epost}
+    r = {**navnedeler(navn), "epost": epost, **ADRESSE}
     r.update(over)
     return r
 

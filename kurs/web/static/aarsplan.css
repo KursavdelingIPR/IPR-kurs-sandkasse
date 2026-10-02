@@ -1,0 +1,77 @@
+/* Årsplanen (Kalender → Årsplan): tolv små månedskalendere, uke for uke som liste (som kurshjulet i Excel) og
+   kortene under. Lastes etter planlegging.css (felles for Liste, Kalender og Årsplan) og kursfarger.css (paletten). */
+:root { --kollisjon:#c62828; }
+.prove.kollisjon { box-shadow:inset 0 0 0 2px var(--kollisjon); font-weight:600; }
+.prove.idag { box-shadow:inset 0 0 0 2px var(--bla); font-weight:600; }
+.prove.advarsel { outline:none; border-bottom:2px dashed var(--blokk-kant); border-radius:0; }
+
+.aarsoppsummering { margin:0 0 8px; font-size:14.5px; }
+.aarsoppsummering a { font-weight:600; }
+#ledige, #overlapp, #konflikter { scroll-margin-top:12px; }
+
+/* Året: fire måneder per rad på stor skjerm, tre på laptop, to på nettbrett og én på mobil */
+.aarskalender { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:14px; margin:0 0 22px; }
+.minimaaned { min-width:0; padding:10px 10px 8px; border:1px solid var(--linje); border-radius:10px; background:#fff; }
+.minimaaned h2 { margin:0 0 6px; font-size:16px; }
+.minigrid { font-size:12px; }
+.minihode, .miniuke { display:grid; grid-template-columns:2.1em repeat(7, minmax(0, 1fr)); }
+.minihode span { padding:0 0 3px; font-size:11px; font-weight:600; letter-spacing:.03em; text-align:center;
+                 text-transform:uppercase; color:var(--dempet); }
+.minihode span:first-child { font-weight:400; text-align:left; text-transform:none; }
+.miniuke { min-height:28px; border-top:1px solid #eceff1; }
+.miniukenr { grid-column:1; grid-row:1 / -1; padding:2px 0 0; font-size:11px; color:var(--dempet); }
+.minidag { grid-row:1 / -1; min-width:0; padding:1px 4px 0; border-left:1px solid #f0f2f3; }
+.minidag .dnr { font-size:12px; font-weight:600; color:var(--tekst); }
+.minidag.utenfor { background:#fbfbfb; }
+.minidag.helg { background:var(--helg); }
+.minidag.ferie { background:var(--ferie); box-shadow:inset 0 -3px 0 var(--ferie-kant); }
+.minidag.sperre { background-image:repeating-linear-gradient(135deg, rgba(181,104,47,.28) 0 3px, transparent 3px 7px); }
+.minidag.advarsel { border-bottom:2px dashed var(--blokk-kant); }
+.minidag.rod { background-color:var(--rod-dag-lys); }
+.minidag.rod .dnr { color:var(--rod-dag); }
+.minidag.notat .dnr::after { content:" •"; color:var(--dempet); }
+.minidag.kollisjon { box-shadow:inset 0 0 0 2px var(--kollisjon); }
+.minidag.idag .dnr { display:inline-block; min-width:18px; padding:0 3px; border-radius:9px; background:var(--bla);
+                     color:#fff; text-align:center; }
+/* Blokken: fargen dekker dagene kurset går (--andel av elementet); navnet kan fortsette inn i ledige dager etter */
+.miniblokk { position:relative; z-index:1; display:block; min-width:0; margin:0 2px; padding:0 4px 0 7px; border-radius:4px;
+             background:linear-gradient(to right, var(--kf-mid, #c1d4dd) 0 var(--andel, 100%), transparent var(--andel, 100%));
+             box-shadow:inset 3px 0 0 var(--kf, var(--fysisk)); color:var(--tekst); font-size:11.5px; font-weight:600;
+             line-height:17px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; }
+.miniblokk:hover, .miniblokk:focus-visible { text-decoration:underline; }
+.miniblokk.fra-forrige { margin-left:0; padding-left:4px; border-top-left-radius:0; border-bottom-left-radius:0; box-shadow:none; }
+.miniblokk.til-neste { margin-right:0; border-top-right-radius:0; border-bottom-right-radius:0; }
+.miniblokk.utkast { font-weight:500; font-style:italic; opacity:.85; }
+.miniblokk.planblokk { --kf:#2e7d4f; --kf-mid:#d4eadc; color:#1f5237; }
+.minimaaned .opptatt { margin:6px 0 0; font-size:12.5px; color:var(--dempet); }
+
+/* Uke for uke: hver uke som en linje med kursene i tekst, som kurshjulet i Excel («Uke 3 – EFT 1-årig, 2. samling») */
+.ukeliste { gap:4px; }
+.ukeliste .ukerad { grid-template-columns:200px minmax(0, 1fr) minmax(200px, 340px); padding:5px 12px; border-radius:8px; }
+.ukeliste .ukehode { flex-direction:row; flex-wrap:wrap; align-items:baseline; gap:2px 8px; }
+.ukeliste .ukehode strong { font-size:14.5px; }
+.ukeliste .ukerad.ledig .ukehode strong { font-weight:600; color:var(--dempet); }
+.ukeaktiviteter { display:grid; gap:4px; margin:0; padding:0; list-style:none; font-size:14px; }
+.ukeaktiviteter li { padding:2px 8px; border-left:4px solid var(--kf, #c7d0d5); border-radius:3px;
+                     background:var(--kf-lys, #f6f8f9); }
+.ukeaktiviteter li a { font-weight:600; }
+.ukeaktiviteter li.plan { border-left-color:#2e7d4f; background:#e3f1e8; }
+.ukeaktiviteter li.utkast { border-left-style:dashed; background:#fff; }
+.ukeaktiviteter li.ledig { padding-left:0; border-left:0; background:none; color:var(--dempet); }
+
+.kollisjonsliste { display:grid; gap:6px; margin:0; padding-left:18px; font-size:14px; }
+
+@media (max-width: 1500px) { .aarskalender { grid-template-columns:repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1050px) { .aarskalender { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .ukeliste .ukerad { grid-template-columns:170px minmax(0, 1fr); } }
+@media (max-width: 760px) { .ukeliste .ukerad { grid-template-columns:1fr; } }
+@media (max-width: 640px) {
+  .aarskalender { grid-template-columns:1fr; }
+  .minigrid { font-size:13px; }
+  .minidag .dnr { font-size:13px; }
+}
+
+@media print {
+  .aarskalender { grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
+  .minimaaned { break-inside:avoid; }
+}

@@ -11,7 +11,7 @@
 <p class="liten dempet" style="margin-bottom:20px">Perioden gjelder kursdatoer (når kursene faktisk holdes/ble holdt) – bortsett fra «Fakturert», som er basert på fakturadato.</p>
 
 <div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); margin-bottom:24px">
-  <div class="kort"><div class="liten dempet">Bekreftede påmeldinger i perioden</div><div class="stat">{{ deltakelser }}</div></div>
+  <div class="kort"><div class="liten dempet">{{ STATUS_FLERTALL.paameldt }} i perioden</div><div class="stat">{{ deltakelser }}</div>{% if ekstradeltakelser %}<div class="liten dempet">+ {{ ekstradeltakelser }} {{ (STATUS.ekstradeltaker if ekstradeltakelser == 1 else STATUS_FLERTALL.ekstradeltaker)|lower }}</div>{% endif %}</div>
   <div class="kort"><div class="liten dempet">Kurs med venteliste</div><div class="stat">{{ venteliste_kurs|length }}</div></div>
   <div class="kort"><div class="liten dempet">Avlyste kurs i perioden</div><div class="stat">{{ avlyste_kurs|length }}</div></div>
   <div class="kort"><div class="liten dempet">Avmeldt i perioden</div><div class="stat">{{ avmeldt_antall }}</div></div>
@@ -47,6 +47,7 @@
 <p style="margin-top:20px; display:flex; gap:8px; flex-wrap:wrap">
   <a class="knapp sekundar liten" href="{{ url_for('admin_rapport_kurs', fra=fra, til=til) }}">Full kurs-rapport →</a>
   <a class="knapp sekundar liten" href="{{ url_for('admin_rapport_deltakere') }}">Deltakerregister →</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_sok') }}">Søk deltaker →</a>
   <a class="knapp sekundar liten" href="{{ url_for('admin_rapport_okonomi', fra=fra or None, til=til or None) }}">Økonomi og fakturaliste →</a>
 </p>
 {% endblock %}

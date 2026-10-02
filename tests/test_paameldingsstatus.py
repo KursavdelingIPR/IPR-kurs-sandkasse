@@ -1,9 +1,11 @@
-"""Påmeldingsstatus: seks statuser admin kan sette manuelt - Bekreftet, Venteliste, Avmeldt, Avslått, Utgått og Forlatt.
+"""Påmeldingsstatus: syv statuser admin kan sette manuelt - Påmeldt, Ekstradeltaker, Venteliste, Avmeldt, Avslått, Utgått
+og Forlatt.
 
 Avslått, Utgått og Forlatt er avmeldte påmeldinger med hver sin dato (migrering 6 og 8), og høyst én av dem kan være
-satt - både koden og CHECK-reglene i databasen passer på det. Plassen og ventelisten følger dagens regler. Selve
-statusendringen sender aldri e-post: bare den som blir bekreftet eller rykker opp fra ventelisten, behandles
-(bekreftelse og faktura) som før.
+satt - både koden og CHECK-reglene i databasen passer på det. Ekstradeltaker er en påmelding med plass (status
+«bekreftet») og ekstradeltaker_ts (migrering 16). Plassen og ventelisten følger dagens regler. Selve statusendringen
+sender aldri e-post: bare den som får plass eller rykker opp fra ventelisten, behandles (bekreftelse og faktura) som før.
+Ekstradeltaker har egne tester i tests/test_ekstradeltaker.py.
 """
 import sqlite3
 from datetime import date
@@ -75,7 +77,7 @@ def _sett(k, kid, pid, status, **ekstra):
 def _i_status(con, kid, fornavn, status) -> int:
     """En påmelding (med ledig plass) som har fått `status` av admin."""
     pid = _meld_paa(con, kid, fornavn)
-    if status != "bekreftet":
+    if status != "paameldt":
         db.sett_paamelding_status(con, pid, status, aktor=ADMIN)
         con.commit()
     return pid
@@ -91,7 +93,7 @@ def test_ny_database_har_kolonnene_og_migrering_8_legger_dem_til_i_en_gammel(con
         con.execute(f"ALTER TABLE paamelding DROP COLUMN {kolonne}")
     con.execute("DELETE FROM schema_versjon WHERE versjon >= 8")
     con.commit()
-    assert migreringer.kjor_manglende(con) == [8]
+    assert migreringer.kjor_manglende(con) == list(range(8, migreringer.KODEVERSJON + 1))      # 9 og senere kjøres også (endrer ingenting her)
     rad = con.execute("SELECT status, utgatt_ts, forlatt_ts FROM paamelding WHERE id=?", (pid,)).fetchone()
     assert (rad["status"], rad["utgatt_ts"], rad["forlatt_ts"]) == ("bekreftet", None, None)
     assert migreringer.kjor_manglende(con) == []                                   # kan kjøres flere ganger
@@ -127,6 +129,7 @@ def test_alle_overganger_gir_riktig_status_hoyst_en_dato_og_logges(con, fra, til
     con.commit()
     assert _status(con, pid) == til
     assert sum(1 for d in _datoer(con, pid) if d) == (1 if til in ("avslatt", "utgatt", "forlatt") else 0)
+    assert bool(_rad(con, pid)["ekstradeltaker_ts"]) == (til == "ekstradeltaker")     # bare Ekstradeltaker har tidsstempelet
     siste = con.execute("SELECT detaljer FROM hendelse WHERE handling='status_endret' ORDER BY id DESC").fetchone()[0]
     assert f'"fra": "{fra}", "til": "{til}"' in siste
 
@@ -146,7 +149,7 @@ def test_bekreftet_til_avsluttet_gir_plassen_til_forste_paa_ventelisten(con, til
     kari, nina, ola = (_meld_paa(con, kid, n) for n in ("Kari", "Nina", "Ola"))
     assert db.sett_paamelding_status(con, kari, til, aktor=ADMIN) == nina
     con.commit()
-    assert (_status(con, kari), _status(con, nina), _status(con, ola)) == (til, "bekreftet", "venteliste")
+    assert (_status(con, kari), _status(con, nina), _status(con, ola)) == (til, "paameldt", "venteliste")
 
 
 @pytest.mark.parametrize("til", AVSLUTTET)
@@ -165,7 +168,7 @@ def test_bekreftet_til_venteliste_rykker_ikke_rett_opp_igjen(con):
     kari, nina = _meld_paa(con, kid, "Kari"), _meld_paa(con, kid, "Nina")
     assert db.sett_paamelding_status(con, kari, "venteliste", aktor=ADMIN) == nina
     con.commit()
-    assert (_status(con, kari), _status(con, nina)) == ("venteliste", "bekreftet")
+    assert (_status(con, kari), _status(con, nina)) == ("venteliste", "paameldt")
 
 
 def test_bekreftet_til_venteliste_uten_andre_paa_ventelisten_blir_staaende(con):
@@ -180,7 +183,7 @@ def test_bekreftet_til_venteliste_uten_andre_paa_ventelisten_blir_staaende(con):
 def test_etter_overbooking_rykker_ingen_opp(con, til):
     kid = _kurs(con, kapasitet=1)
     kari, nina, ola = (_meld_paa(con, kid, n) for n in ("Kari", "Nina", "Ola"))
-    db.sett_paamelding_status(con, nina, "bekreftet", aktor=ADMIN, tillat_overbooking=True)   # 2 på 1 plass
+    db.sett_paamelding_status(con, nina, "paameldt", aktor=ADMIN, tillat_overbooking=True)   # 2 på 1 plass
     assert db.sett_paamelding_status(con, kari, til, aktor=ADMIN) is None
     con.commit()
     assert _status(con, ola) == "venteliste"
@@ -213,8 +216,8 @@ def test_avslatt_i_nedtrekkslisten_sender_ikke_avslag(con):
 def test_til_bekreftet_fra_utgatt_behandles_som_i_dag(con):
     kid = _kurs(con)
     una = _i_status(con, kid, "Una", "utgatt")
-    _sett(_admin(), kid, una, "bekreftet")
-    assert _status(con, una) == "bekreftet" and _datoer(con, una) == [None, None, None]
+    _sett(_admin(), kid, una, "paameldt")
+    assert _status(con, una) == "paameldt" and _datoer(con, una) == [None, None, None]
     assert _eposter(con, "Una") == ["bekreftelse"]
 
 
@@ -246,9 +249,9 @@ def test_utgatt_og_forlatt_kan_melde_seg_paa_igjen_og_historikken_beholdes(con, 
     kid = _kurs(con)
     pid = _i_status(con, kid, "Kari", status)
     assert _meld_paa(con, kid, "Kari") == pid                                       # samme påmelding tas i bruk igjen
-    assert _status(con, pid) == "bekreftet" and _datoer(con, pid) == [None, None, None]
+    assert _status(con, pid) == "paameldt" and _datoer(con, pid) == [None, None, None]
     rader = hendelseslogg.for_paamelding(con, _rad(con, pid), systemadmin=False).rader
-    assert [r.hva for r in rader][:2] == ["Påmeldt på nytt – bekreftet",
+    assert [r.hva for r in rader][:2] == ["Påmeldt på nytt",
                                          {"utgatt": "Satt til utgått", "forlatt": "Satt til forlatt",
                                           "avmeldt": "Avmeldt"}[status]]
 
@@ -289,17 +292,18 @@ def test_logger_viser_status_foer_og_ny_status_i_en_rad(con, til, overskrift):
     _sett(_admin(), kid, kari, til)
     rader = hendelseslogg.for_paamelding(con, _rad(con, kari), systemadmin=False).rader
     assert [(r.hva, r.detaljer) for r in rader[:1]] == [
-        (overskrift, ["Status før: Bekreftet", f"Ny status: {db.PAAMELDINGSSTATUSER[til]}"])]
-    assert [r.hva for r in rader[1:]] == ["Påmeldt – bekreftet"]                    # avmeldingen er samme handling
+        (overskrift, ["Status før: Påmeldt", f"Ny status: {db.PAAMELDINGSSTATUSER[til]}"])]
+    assert [r.hva for r in rader[1:]] == ["Påmeldt"]                    # avmeldingen er samme handling
 
 
 # ============================ lister, rapporter og eksport ============================
 
 def _kurs_med_alle_statuser(con) -> int:
-    """Én påmelding med hver status. Venteliste settes sist: ellers rykker Vera opp når en bekreftet plass blir ledig."""
+    """Én påmelding med hver status (unntatt Ekstradeltaker, som har egne tester). Venteliste settes sist: ellers rykker
+    Vera opp når en plass blir ledig."""
     kid = _kurs(con, kapasitet=10)
     for navn, status in [("Arne", "avmeldt"), ("Siri", "avslatt"), ("Una", "utgatt"), ("Finn", "forlatt"),
-                         ("Bente", "bekreftet"), ("Vera", "venteliste")]:
+                         ("Bente", "paameldt"), ("Vera", "venteliste")]:
         _i_status(con, kid, navn, status)
     return kid
 
@@ -309,8 +313,8 @@ def test_kursrapporten_teller_bare_frivillige_avmeldinger_som_avmeldt(con):
     tekst = _admin().get("/admin/rapporter/kurs.csv").get_data(as_text=True).lstrip("﻿").splitlines()
     hode = tekst[0].split(";")
     rad = dict(zip(hode, next(r for r in tekst[1:] if "Veiledning i gruppe" in r).split(";")))
-    assert hode[9:14] == ["Venteliste", "Avmeldt", "Avslått", "Utgått", "Forlatt"]
-    assert (rad["Bekreftet"], rad["Venteliste"], rad["Avmeldt"], rad["Avslått"], rad["Utgått"], rad["Forlatt"]) == \
+    assert hode[9:15] == ["Ekstradeltaker", "Venteliste", "Avmeldt", "Avslått", "Utgått", "Forlatt"]
+    assert (rad["Påmeldt"], rad["Venteliste"], rad["Avmeldt"], rad["Avslått"], rad["Utgått"], rad["Forlatt"]) == \
         ("1", "1", "1", "1", "1", "1")
     html = _admin().get("/admin/rapporter/kurs").get_data(as_text=True)
     assert '<th scope="col">Utgått</th><th scope="col">Forlatt</th>' in html
@@ -320,7 +324,7 @@ def test_eksport_og_utskriftslisten_viser_de_nye_statusene(con):
     kid = _kurs_med_alle_statuser(con)
     k = _admin()
     csv = k.get(f"/admin/kurs/{kid}/deltakere.csv").get_data(as_text=True)
-    for fornavn, status in [("Una", "utgått"), ("Finn", "forlatt"), ("Siri", "avslått"), ("Arne", "avmeldt")]:
+    for fornavn, status in [("Una", "Utgått"), ("Finn", "Forlatt"), ("Siri", "Avslått"), ("Arne", "Avmeldt")]:   # navnet som vises
         assert f"{fornavn};Test;{fornavn.lower()}@eksempel.no;;;{status}" in csv
     liste = k.get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&kol=status&status=utgatt").get_data(as_text=True)
     assert "Una Test" in liste and "Finn Test" not in liste and "Utgått" in liste
@@ -332,7 +336,9 @@ def test_tallene_og_merkene_i_deltakerlisten(con):
     html = _admin().get(f"/admin/kurs/{kid}/deltakere").get_data(as_text=True)
     for navn in ("Utgått", "Forlatt", "Avslått"):
         assert f'<div class="liten dempet">{navn}</div><div class="stat">1</div>' in html
-    assert '<span class="merke gra">utgått</span>' in html and '<span class="merke feil">forlatt</span>' in html
+    # statusen står som valgt alternativ i radens statusvelger, i samme farge som statusmerket før
+    assert '<option value="utgatt" selected>Utgått</option>' in html and '<option value="forlatt" selected>Forlatt</option>' in html
+    assert 'class="statusvelger gra"' in html and 'class="statusvelger feil"' in html
 
 
 def test_utgatt_og_forlatt_kan_anonymiseres(con):

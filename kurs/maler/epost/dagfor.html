@@ -9,5 +9,11 @@ Emne: {% if nr == 1 %}{{ maltekst.emne_forste }}{% elif nr == antall %}{{ maltek
 Bruk samme navn og e-post som ved påmelding – da registreres oppmøtet ditt automatisk.</p>
 {% endif %}
 {% if kurs.type != 'digital' %}<p>Sted: {{ kurs.sted }}. Husk å registrere oppmøte med QR-koden når du kommer.</p>{% endif %}
+{#- LÅST SYSTEMBLOKK: personlig lenke til Min side. Bare med når kurset har en åpen Min side og lenken ikke er stengt. Bygges av systemet
+    (minside.url), aldri av admintekst. Lagres ikke i e-posthistorikken (skjult i kopien). -#}
+{% if min_side_url %}
+<p style="margin:20px 0"><a href="{{ min_side_url }}" style="background:#1f5c73;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Åpne Min side</a></p>
+<p style="font-size:13px;color:#667">Her finner du program, presentasjoner og litteratur for kurset, og opplysningene du ga oss ved påmeldingen. Lenken er personlig: ikke send den videre.</p>
+{% endif %}
 {{ maltekst.avslutning }}
 {% endblock %}

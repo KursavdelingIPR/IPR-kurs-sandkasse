@@ -1,0 +1,4 @@
+<nav class="faner" aria-label="E-post">
+  <a class="{{ 'aktiv' if epostfane == 'maler' }}" href="{{ url_for('admin_maltekster') }}">Maler</a>
+  <a class="{{ 'aktiv' if epostfane == 'signaturer' }}" href="{{ url_for('admin_signaturer') }}">Signaturer</a>
+</nav>

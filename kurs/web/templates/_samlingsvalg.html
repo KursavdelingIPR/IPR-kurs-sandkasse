@@ -1,0 +1,21 @@
+{#- Samlingsvalget for en ekstradeltaker: «Hele kurset» (standard) eller avkrysning av samlinger. Felt: utvalg (hele eller noen) og samling
+    (id, flere). Brukes av steget «Sett til ekstradeltaker» (admin_deltaker_ekstra_valg.html), deltakervinduet og «Legg til deltaker».
+    Uten JavaScript virker det som det står: velger du «Bare utvalgte samlinger», må minst én samling være avkrysset, og er samlinger
+    avkrysset, må «Bare utvalgte samlinger» være valgt (serveren kontrollerer, og avviser motstridende valg i stedet for å tolke dem).
+    Med JavaScript velges «Bare utvalgte samlinger» av seg selv når du krysser av en samling, og «Hele kurset» fjerner avkrysningene
+    (static/app.js, data-samlingsvalg).
+    `samlinger`: [{id, tittel, periode, antall_dager}], `valgte`: id-ene som er valgt fra før (tom = hele kurset). -#}
+{% macro samlingsvalg(samlinger, valgte, prefiks='sv') %}
+<fieldset class="samlingsvalg" data-samlingsvalg>
+  <legend class="etikett">Deltar på</legend>
+  <label class="samlingsvalg-rad"><input type="radio" name="utvalg" value="hele" {{ 'checked' if not valgte }}> Hele kurset</label>
+  <label class="samlingsvalg-rad"><input type="radio" name="utvalg" value="noen" {{ 'checked' if valgte }}> Bare utvalgte samlinger</label>
+  <ul class="samlingsliste">
+    {% for s in samlinger %}
+    <li><label class="samlingsvalg-rad"><input type="checkbox" name="samling" value="{{ s.id }}" {{ 'checked' if s.id in valgte }}>
+      <span><strong>{{ s.tittel }}</strong> <span class="dempet">{{ s.periode }}{% if s.antall_dager > 1 %} · {{ s.antall_dager }} dager{% endif %}</span></span></label></li>
+    {% endfor %}
+  </ul>
+  <p class="liten dempet" style="margin:8px 0 0">Uten valg er deltakeren på hele kurset, også samlinger som legges til senere. Påminnelser, innsjekk, Min side og kursbevis gjelder bare samlingene som er valgt.</p>
+</fieldset>
+{% endmacro %}

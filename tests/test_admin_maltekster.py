@@ -189,6 +189,7 @@ def test_preview_bruker_standard_naar_ingen_override(con):
 @pytest.mark.parametrize("mal", list(MALER))
 def test_preview_bruker_kun_fiktive_data_for_alle_8_maler(con, mal):
     html = _innlogget().get(f"/admin/e-postmaler/{mal}/forhandsvis").get_data(as_text=True)
+    html = html.split('<main id="innhold">')[1]     # selve forhåndsvisningen: menyen (søkefeltet nevner «telefon») er ikke eksempeldata
     assert "Hei Ola," in html or "Hei Kari" in html  # deltakerens fornavn, kontaktperson eller kursholder
     for forbudt in ("@x.no", "@ipr.no", "@firma", "9999", "org_nr", "telefon"):
         assert forbudt not in html.lower() if forbudt.isalpha() else forbudt not in html

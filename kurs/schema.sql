@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS kurs (
     kapasitet       INTEGER,                        -- NULL = ubegrenset
     pris_nok        INTEGER NOT NULL DEFAULT 0,     -- eks. mva
     fakturering     TEXT NOT NULL DEFAULT 'person' CHECK (fakturering IN ('person','organisasjon','ingen')),
-    -- samlet = én faktura ved påmelding. per_samling = én faktura per kursdag, før hver samling.
+    -- samlet = én faktura ved påmelding. per_samling = én faktura per samling (migrering 9), før hver samling.
     -- deltaker_velger = deltakeren velger selv i påmeldingsskjemaet.
     betaling        TEXT NOT NULL DEFAULT 'samlet' CHECK (betaling IN ('samlet','per_samling','deltaker_velger')),
     faktura_dager_for INTEGER NOT NULL DEFAULT 14,   -- dager før hver samling delfaktura sendes
@@ -38,20 +38,42 @@ CREATE TABLE IF NOT EXISTS kurs (
     paameldingsfrist TEXT,                          -- ISO-dato, NULL = ingen frist
     paamelding_intro TEXT,                          -- ren tekst over skjemaet (fase 12C5), NULL = ingen introduksjonstekst
     paamelding_knappetekst TEXT,                    -- ren tekst paa paameldingsknappen, NULL = standard «Meld meg på»
-    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    paameldingsfrist_manuell INTEGER NOT NULL DEFAULT 0,  -- 1 = admin har satt fristen selv: endres ikke naar datoene endres
+    -- Signatur i påminnelser, kursbevis, avlysning og avslag (migrering «signaturer»): signatur_html satt = kursets egen,
+    -- tilpassede versjon; ellers signaturen signatur_id; ellers standardsignaturen. Se kurs/signaturer.py.
+    signatur_id     INTEGER REFERENCES signatur(id),
+    signatur_html   TEXT
+);
+
+-- Samlinger (migrering 9): kursdagene gruppert, f.eks. «Samling 1» over fire dager eller en enkelt veiledningsdag. Kursets
+-- datoer, klokkeslett og timer registreres per samling; QR, oppmøte, påminnelser og kursbevis ligger fortsatt per kursdag.
+CREATE TABLE IF NOT EXISTS samling (
+    id              INTEGER PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    navn            TEXT,                           -- valgfritt, f.eks. «Samling 1» eller «Veiledningsdag»
+    start_kl        TEXT NOT NULL,                  -- standard for samlingens dager (en dag kan overstyre)
+    slutt_kl        TEXT NOT NULL,
+    timer_pr_dag    REAL NOT NULL                   -- timer per kursdag på kursbeviset (en dag kan overstyre, kursdag.timer)
 );
 
 CREATE TABLE IF NOT EXISTS kursdag (
     id              INTEGER PRIMARY KEY,
     kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
     dato            TEXT NOT NULL,                  -- ISO yyyy-mm-dd
-    start_kl        TEXT,                           -- NULL = arv fra kurs
+    start_kl        TEXT,                           -- NULL = arv fra kurs (nye og endrede kurs har alltid dagens klokkeslett)
     slutt_kl        TEXT,
     innsjekk_token  TEXT UNIQUE NOT NULL,           -- lang, hemmelig – ligger i QR-koden
     innsjekk_kode   TEXT NOT NULL,                  -- kort kode (6 tegn) for de som ikke faar scannet
+    samling_id      INTEGER REFERENCES samling(id), -- migrering 9: samlingen dagen hører til
+    merknad         TEXT,                           -- valgfritt, f.eks. «Veiledningsdag»
+    timer           REAL,                           -- NULL = samlingens timer_pr_dag
     UNIQUE (kurs_id, dato)
 );
 
+-- Deltakerens PRIVATE adresse (adresse, postnr, poststed - migrering 14): påkrevd for alle deltakere i alle veier inn. En
+-- personopplysning (ikke sensitiv etter art. 9): aldri i logger, e-post eller eksport, og tømmes ved anonymisering
+-- (db.anonymiser_deltaker). Betaler deltakeren selv, kopieres den til paamelding.faktura_* når påmeldingen lages.
 CREATE TABLE IF NOT EXISTS deltaker (
     id              INTEGER PRIMARY KEY,
     epost           TEXT UNIQUE NOT NULL COLLATE NOCASE,
@@ -63,7 +85,10 @@ CREATE TABLE IF NOT EXISTS deltaker (
     yrkestittel     TEXT,
     hpr_nr          TEXT,                           -- helsepersonellnr (aktuelt for spesialistutdanning)
     visma_kunde_id  TEXT,
-    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    adresse         TEXT,                           -- privat adresse (migrering 14), se over tabellen
+    postnr          TEXT,
+    poststed        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS paamelding (
@@ -100,6 +125,11 @@ CREATE TABLE IF NOT EXISTS paamelding (
     -- Som Avslått er de 'avmeldt' med en dato. CHECK: høyst én av Avslått/Utgått/Forlatt, og bare på avmeldte påmeldinger.
     utgatt_ts       TEXT CHECK (utgatt_ts IS NULL OR (status='avmeldt' AND avslatt_ts IS NULL)),
     forlatt_ts      TEXT CHECK (forlatt_ts IS NULL OR (status='avmeldt' AND avslatt_ts IS NULL AND utgatt_ts IS NULL)),
+    -- ekstradeltaker (migrering 16): en påmelding som er PÅ KURSET (status er da 'bekreftet') og som administrator har merket
+    -- som ekstradeltaker. NULL = den vanlige statusen (påmeldt). Fra migrering 18 tar en ekstradeltaker ikke plass og teller ikke som
+    -- påmeldt (db.antall_bekreftet), får ikke automatisk bekreftelse eller faktura, og deltar på hele kurset eller bare samlingene i
+    -- tabellen ekstradeltaker_samling. CHECK: bare på påmeldinger som har plass.
+    ekstradeltaker_ts TEXT CHECK (ekstradeltaker_ts IS NULL OR status='bekreftet'),
     UNIQUE (kurs_id, deltaker_id)
 );
 
@@ -108,6 +138,16 @@ CREATE TABLE IF NOT EXISTS sensitivt (
     paamelding_id   INTEGER PRIMARY KEY REFERENCES paamelding(id) ON DELETE CASCADE,
     allergier       TEXT,
     tilrettelegging TEXT
+);
+
+-- Samlingsutvalget til ekstradeltakere (migrering 18). En ekstradeltaker (paamelding.ekstradeltaker_ts) deltar enten på HELE kurset
+-- (ingen rader her) eller bare på utvalgte samlinger (én rad per samling). Utvalget ryddes når påmeldingen slutter å være
+-- ekstradeltaker eller forlater plassen. Slettes en samling, går raden med (CASCADE). Alle samlinger valgt lagres aldri som rader:
+-- da er det «hele kurset» (db.sett_ekstradeltaker_samlinger). Ingen persondata: bare to id-er.
+CREATE TABLE IF NOT EXISTS ekstradeltaker_samling (
+    paamelding_id   INTEGER NOT NULL REFERENCES paamelding(id) ON DELETE CASCADE,
+    samling_id      INTEGER NOT NULL REFERENCES samling(id) ON DELETE CASCADE,
+    PRIMARY KEY (paamelding_id, samling_id)
 );
 
 CREATE TABLE IF NOT EXISTS faktura (
@@ -203,7 +243,8 @@ CREATE TABLE IF NOT EXISTS admin_utsending (
     emne            TEXT NOT NULL,
     tekst           TEXT NOT NULL,
     sendt_av_admin_id INTEGER REFERENCES admin_bruker(id),
-    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    signatur_html   TEXT                            -- signaturen i akkurat denne utsendelsen (renset), NULL = eldre utsendelse
 );
 
 -- Hvem utsendelsen var ment for, fastsatt (og validert mot kurs_id) ved forhaandsvisning - slik at
@@ -298,7 +339,8 @@ CREATE TABLE IF NOT EXISTS admin_bruker (
     rolle           TEXT NOT NULL DEFAULT 'kursadmin' CHECK (rolle IN ('system','kursadmin','lese')),
     entra_oid       TEXT UNIQUE,                    -- Microsoft Entra ID objekt-id (NULL = lokal bruker)
     epost           TEXT,
-    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    hovedsignatur_id INTEGER REFERENCES signatur(id) -- brukerens hovedsignatur i manuelle e-poster, NULL = standard
 );
 
 -- Revisjonsspor: hva skjedde, naar, og hvem/hva gjorde det
@@ -380,6 +422,24 @@ CREATE TABLE IF NOT EXISTS planlagt_aktivitet (
     CHECK (til_dato >= fra_dato)
 );
 
+-- Perioder i årsplanen (migrering «kalenderperioder»): skoleferier per område (Oslo, Vestland ...) som admin legger inn -
+-- aldri faste, nasjonale datoer i koden - og egne perioder: sperret periode (vises som konflikt) eller advarsel. Ingen av
+-- dem hindrer at kurs opprettes; de vises bare i årsplanen. gjelder avgrenser en sperre/advarsel til fysiske eller online
+-- kurs (f.eks. «Ikke webinarer i juli»). Røde dager lagres ikke: de regnes ut (kurs/helligdager.py).
+CREATE TABLE IF NOT EXISTS kalenderperiode (
+    id              INTEGER PRIMARY KEY,
+    type            TEXT NOT NULL CHECK (type IN ('skoleferie','sperre','advarsel')),
+    navn            TEXT NOT NULL,                  -- f.eks. «Høstferie», «Intern ferie», «Ikke webinarer i juli»
+    omraade         TEXT,                           -- skoleferie: området (Oslo, Vestland ...), ellers NULL
+    fra_dato        TEXT NOT NULL,                  -- ISO yyyy-mm-dd
+    til_dato        TEXT NOT NULL,
+    gjelder         TEXT NOT NULL DEFAULT 'alle' CHECK (gjelder IN ('alle','fysisk','online')),
+    notat           TEXT,                           -- ren tekst, kun internt
+    opprettet_av    TEXT,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (til_dato >= fra_dato)
+);
+
 -- Innholdet i dokumenter systemet selv lager (i dag: kursbevis). Lagres i databasen - ikke som filer, som ikke
 -- overlever omstart/skalering i Azure App Service og ikke er med i databasens sikkerhetskopi. dokument.url er da 'db:'.
 CREATE TABLE IF NOT EXISTS dokument_innhold (
@@ -395,4 +455,184 @@ CREATE TABLE IF NOT EXISTS integrasjon_token (
     navn            TEXT PRIMARY KEY,
     verdi           TEXT NOT NULL,
     oppdatert       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- E-posthistorikk (migrering «eposthistorikk»): en uforanderlig kopi av HVER e-post systemet sender, lagret FØR sendingen
+-- i samme transaksjon som reservasjonen i utsending_logg (Kjoring.send_ferdigrendret_en_gang). Kan ikke kopien lagres,
+-- sendes ikke e-posten. Én rad per forsøk: et nytt forsøk etter en feil får en ny rad, så feilede forsøk kan vises.
+-- Innholdet endres aldri etter lagring - bare status (sendt/feilet/ukjent) oppdateres. Innloggingslenker (personlig
+-- token) går ikke gjennom motoren og lagres aldri. «Retten til sletting» sletter kopiene (db.anonymiser_deltaker).
+CREATE TABLE IF NOT EXISTS sendt_epost (
+    id              INTEGER PRIMARY KEY,
+    paamelding_id   INTEGER REFERENCES paamelding(id),  -- NULL = gjelder ingen påmelding (kursholder, admin, bedrift)
+    kurs_id         INTEGER REFERENCES kurs(id),
+    nokkel          TEXT NOT NULL,                  -- samme nøkkel/type som utsending_logg (koblingen til dedup-raden)
+    type            TEXT NOT NULL,
+    mal             TEXT,                           -- malen e-posten ble laget fra (bekreftelse, dagfor ...), NULL = ukjent
+    til             TEXT NOT NULL,
+    kopi            TEXT,
+    fra             TEXT NOT NULL,
+    sendt_av        TEXT NOT NULL,                  -- 'system' eller 'admin:<brukernavn>' (som hendelse.aktor)
+    emne            TEXT NOT NULL,
+    html            TEXT NOT NULL,                  -- hele e-posten slik den ble sendt (bilder som cid:-referanser)
+    status          TEXT NOT NULL CHECK (status IN ('sender','sendt','feilet','ukjent')),
+    feilmelding     TEXT,                           -- sikker feiltekst (feil.sikker_feiltekst) - aldri personopplysninger
+    opprettet       TEXT NOT NULL,                  -- UTC, lagret før sendingen
+    sendt_ts        TEXT                            -- UTC, satt når e-posten er bekreftet sendt
+);
+CREATE INDEX IF NOT EXISTS sendt_epost_paamelding ON sendt_epost (paamelding_id, opprettet);
+
+-- Bilder og vedlegg i sendte e-poster. Lagres én gang per innhold (sha256), og endres aldri: byttes en logo, blir den nye
+-- en ny fil, og gamle e-poster viser fortsatt den gamle.
+CREATE TABLE IF NOT EXISTS epost_fil (
+    sha256          TEXT PRIMARY KEY,
+    mimetype        TEXT NOT NULL,
+    storrelse       INTEGER NOT NULL,
+    innhold         TEXT NOT NULL,                  -- base64
+    opprettet       TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sendt_epost_vedlegg (
+    sendt_epost_id  INTEGER NOT NULL REFERENCES sendt_epost(id) ON DELETE CASCADE,
+    nr              INTEGER NOT NULL,
+    sha256          TEXT NOT NULL REFERENCES epost_fil(sha256),
+    filnavn         TEXT NOT NULL,
+    innebygd_cid    TEXT,                           -- satt = bilde i teksten (cid:<verdi>), NULL = vanlig vedlegg
+    PRIMARY KEY (sendt_epost_id, nr)
+);
+
+-- Signaturbiblioteket (migrering «signaturer», E-postmaler → Signaturer). innhold er renset HTML (kurs/signaturer.py:
+-- bare trygg formatering, lenker og bilder fra signatur_bilde). Bildene står som /admin/signaturer/bilde/<id> og sendes
+-- som innebygde bilder (cid) - aldri som lenker til eksterne bilder. Bare én signatur er standard (reserve). versjon
+-- hindrer at to som redigerer samtidig overskriver hverandre. En signatur som er i bruk, kan ikke slettes.
+CREATE TABLE IF NOT EXISTS signatur (
+    id              INTEGER PRIMARY KEY,
+    navn            TEXT NOT NULL,
+    innhold         TEXT NOT NULL DEFAULT '',
+    standard        INTEGER NOT NULL DEFAULT 0,
+    versjon         INTEGER NOT NULL DEFAULT 1,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    opprettet_av    TEXT,                           -- 'system' eller 'admin:<brukernavn>' (som hendelse.aktor)
+    endret          TEXT,
+    endret_av       TEXT
+);
+
+-- Logoer og andre bilder i signaturer: bare PNG, JPEG og GIF (kontrollert ut fra innholdet), maks 1 MB og 1200 px bredt.
+-- Endres aldri - et nytt bilde blir en ny rad.
+CREATE TABLE IF NOT EXISTS signatur_bilde (
+    id              INTEGER PRIMARY KEY,
+    filnavn         TEXT NOT NULL,
+    mimetype        TEXT NOT NULL,
+    bredde          INTEGER NOT NULL,
+    hoyde           INTEGER NOT NULL,
+    storrelse       INTEGER NOT NULL,
+    sha256          TEXT NOT NULL,
+    alt             TEXT NOT NULL,                  -- alternativ tekst (vises hvis bildet ikke lastes, leses av skjermlesere)
+    innhold         TEXT NOT NULL,                  -- base64
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    opprettet_av    TEXT
+);
+
+-- Egne felt i påmeldingsskjemaet, per kurs (skjemabyggeren, migrering 13). Ledetekst, hjelpetekst og valg er ren tekst
+-- (escapes ved rendring). Bevisst INGEN CHECK på type, plassering og vis_naar_felt: som i kurs_skjemafelt valideres de i
+-- kurs/ekstrafelt.py før skriving og ved hver lesing, så nye typer kan komme uten at tabellen må bygges om. Et felt som
+-- har svar, kan ikke slettes (fremmednøkkelen i paamelding_svar hindrer det) - det skjules i stedet.
+-- Aldri sensitive opplysninger her: allergier og tilrettelegging har egne felt (tabellen sensitivt, slettes automatisk).
+CREATE TABLE IF NOT EXISTS kurs_ekstrafelt (
+    id              INTEGER PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    type            TEXT NOT NULL,                  -- tekst, langtekst, avkrysning, envalg, flervalg, nedtrekk
+    label           TEXT NOT NULL,                  -- feltnavnet deltakeren ser
+    hjelpetekst     TEXT,
+    valg            TEXT,                           -- JSON-liste med svaralternativene (ikke for tekst/langtekst)
+    obligatorisk    INTEGER NOT NULL DEFAULT 0 CHECK (obligatorisk IN (0,1)),
+    synlig          INTEGER NOT NULL DEFAULT 1 CHECK (synlig IN (0,1)),
+    plassering      TEXT NOT NULL DEFAULT 'om_deg', -- om_deg (sammen med telefon m.m.) eller til_slutt (før samtykket)
+    rekkefolge      INTEGER NOT NULL DEFAULT 0,     -- plass innenfor plasseringen, sammen med standardfeltene der
+    vis_naar_felt   TEXT,                           -- vises bare når dette feltet ('betaler' eller 'ekstra:<id>') ...
+    vis_naar_verdi  TEXT,                           -- ... har denne verdien. Begge NULL = vises alltid
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver endring
+    oppdatert_av    TEXT,                           -- aktor, f.eks. 'admin:kari'
+    CHECK ((vis_naar_felt IS NULL) = (vis_naar_verdi IS NULL))
+);
+
+-- Deltakerens svar på kursets egne felt. Ren tekst; flervalg lagres som JSON-liste. Slettes sammen med påmeldingen og
+-- ved anonymisering. Aldri i e-post, hendelseslogg eller driftslogg.
+CREATE TABLE IF NOT EXISTS paamelding_svar (
+    paamelding_id   INTEGER NOT NULL REFERENCES paamelding(id) ON DELETE CASCADE,
+    felt_id         INTEGER NOT NULL REFERENCES kurs_ekstrafelt(id),
+    verdi           TEXT NOT NULL,
+    PRIMARY KEY (paamelding_id, felt_id)
+);
+
+-- Kursside (migrering «kursside»): siden deltakerne ser etter innlogging, én per kurs (kurs/sideinnhold.py, kurs/sidelager.py).
+-- Innholdet er ETT JSON-dokument i to kopier: utkast (redigeres, autolagres) og publisert (det deltakerne ser). versjon øker
+-- ved hver lagring av utkastet og hindrer at to som redigerer samtidig overskriver hverandre (UPDATE ... WHERE versjon=...).
+-- Raden opprettes første gang siden lagres. Ingen deltakerdata utover fornavn + forbokstav i gruppetabeller som admin selv
+-- skriver (tømmes automatisk etter kurset, se daglig.py). Aldri allergier/tilrettelegging.
+CREATE TABLE IF NOT EXISTS kursside (
+    kurs_id             INTEGER PRIMARY KEY REFERENCES kurs(id) ON DELETE CASCADE,
+    utkast              TEXT NOT NULL DEFAULT '{}',     -- JSON (sideinnhold.py)
+    publisert           TEXT,                           -- JSON; NULL = aldri publisert
+    versjon             INTEGER NOT NULL DEFAULT 1,     -- utkastets versjon
+    publisert_versjon   INTEGER,                        -- utkastversjonen som ble publisert (versjon > publisert_versjon = upubliserte endringer)
+    aktiv               INTEGER NOT NULL DEFAULT 1 CHECK (aktiv IN (0,1)),   -- 0 = nedtatt for deltakerne (nødbrems)
+    innsjekk_krever_kode INTEGER NOT NULL DEFAULT 1 CHECK (innsjekk_krever_kode IN (0,1)),
+    stenges             TEXT,                           -- ISO-dato: en bestemt siste dag siden er åpen. NULL = bruk apen_dager (eller standard)
+    apen_dager          INTEGER CHECK (apen_dager IS NULL OR apen_dager BETWEEN 0 AND 3650),   -- dager etter siste kursdag siden er åpen. NULL = standard (KURSSIDE_ETTERTILGANG_DAGER, 180), 0 = ingen tidsbegrensning, 1-3650 = så mange dager
+    endret              TEXT,                           -- UTC, siste lagring av utkastet
+    endret_av           TEXT,                           -- 'admin:<brukernavn>'
+    publisert_tid       TEXT,
+    publisert_av        TEXT,
+    redigerer_av        TEXT,                           -- myk «noen redigerer nå»-markering (hjerteslag hvert 30. sekund)
+    redigerer_til       TEXT                            -- UTC; markeringen gjelder til dette tidspunktet
+);
+
+-- Tidligere versjoner: publiserte versjoner (arsak 'publisert') og automatiske sikkerhetskopier av utkastet før noe destruktivt
+-- (arsak 'sikkerhetskopi': gjenoppretting, «Start fra mal», «Hent fra annet kurs»). Beskjæres i sidelager: siste 30 + siste 20.
+CREATE TABLE IF NOT EXISTS kursside_versjon (
+    id              INTEGER PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    innhold         TEXT NOT NULL,                  -- JSON
+    arsak           TEXT NOT NULL CHECK (arsak IN ('publisert','sikkerhetskopi')),
+    merknad         TEXT,                           -- f.eks. «Før gjenoppretting», «Før mal»
+    versjon         INTEGER,                        -- utkastets versjon da raden ble laget
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    opprettet_av    TEXT
+);
+CREATE INDEX IF NOT EXISTS kursside_versjon_kurs ON kursside_versjon (kurs_id, id);
+
+-- Bilder og dokumenter til kurssiden. Metadata her, innholdet i kursside_fil_innhold (aldri SELECT * i lister). Samme innhold to
+-- ganger i samme kurs blir én rad (UNIQUE kurs_id + sha256). Type og mimetype settes av serveren ut fra endelse OG innhold.
+CREATE TABLE IF NOT EXISTS kursside_fil (
+    id              INTEGER PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    filnavn         TEXT NOT NULL,                  -- visningsnavn (renset, med æøå), maks 120 tegn
+    type            TEXT NOT NULL CHECK (type IN ('bilde','dokument')),
+    mimetype        TEXT NOT NULL,
+    storrelse       INTEGER NOT NULL,
+    sha256          TEXT NOT NULL,
+    bredde          INTEGER,                        -- bare bilder (kan mangle for webp)
+    hoyde           INTEGER,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    opprettet_av    TEXT,
+    UNIQUE (kurs_id, sha256)
+);
+CREATE INDEX IF NOT EXISTS kursside_fil_kurs ON kursside_fil (kurs_id);
+
+CREATE TABLE IF NOT EXISTS kursside_fil_innhold (
+    fil_id          INTEGER PRIMARY KEY REFERENCES kursside_fil(id) ON DELETE CASCADE,
+    innhold         TEXT NOT NULL                   -- base64 (ingen BLOB-kolonner i skjemaet: speilingstesten kjenner bare INTEGER/REAL/TEXT)
+);
+
+-- «Min side» for ett kurs (migrering 19): den personlige lenken i e-postene er en SIGNERT adresse (lenker.min_side_token) og lagres
+-- aldri. En rad finnes bare når en administrator har stengt lenken eller laget en ny: versjon økes (lenker i sendte e-poster slutter da å
+-- virke), og stengt=1 betyr at ingen lenke virker før administrator lager en ny. Ingen rad = versjon 0, åpen. Ingen personopplysninger.
+CREATE TABLE IF NOT EXISTS min_side_lenke (
+    paamelding_id   INTEGER PRIMARY KEY REFERENCES paamelding(id) ON DELETE CASCADE,
+    versjon         INTEGER NOT NULL DEFAULT 0,
+    stengt          INTEGER NOT NULL DEFAULT 0 CHECK (stengt IN (0,1)),
+    endret          TEXT,                           -- UTC
+    endret_av       TEXT                            -- 'admin:<brukernavn>'
 );

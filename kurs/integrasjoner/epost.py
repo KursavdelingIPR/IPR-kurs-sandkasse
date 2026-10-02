@@ -5,13 +5,15 @@ Prod:  Microsoft Graph sendMail fra kurs-postboksen (samme M365 som resten av IP
 """
 import base64
 import json
+import mimetypes
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from .. import config, lenker, maltekster
+from .. import config, kursdatoer, lenker, maltekster
 from . import m365
 
 _maler = Environment(
@@ -20,6 +22,8 @@ _maler = Environment(
 )
 # Egenskrevet e-post til deltakere (admin_melding.html): {{ tekst | flett(d) }} fletter inn mottakerens {fornavn}/{navn}.
 _maler.filters["flett"] = maltekster.manuell_tekst_til_html
+# Kursdagene gruppert per samling: {% for g in dager | samlinger(kurs) %} (samme visning som påmeldingssiden)
+_maler.filters["samlinger"] = kursdatoer.visning
 
 
 # Emnet er REN TEKST (e-postemne, ikke HTML): egen renderer UTEN autoescape. Ellers ble '&' til '&amp;' og '<' til
@@ -62,22 +66,60 @@ def render(mal: str, maltekst: dict | None = None, **data) -> tuple[str, str]:
     return emne, html
 
 
-def send(til: str, emne: str, html: str, vedlegg: list[Path] | None = None, kopi: str | None = None) -> None:
+@dataclass(frozen=True)
+class Vedlegg:
+    """En fil som sendes med e-posten. Med `cid` er den et bilde i selve teksten (<img src="cid:...">, f.eks. en logo i
+    signaturen), ellers et vanlig vedlegg. Det er nøyaktig disse bytene som sendes OG lagres i e-posthistorikken."""
+    filnavn: str
+    mimetype: str
+    innhold: bytes
+    cid: str | None = None
+
+
+def som_vedlegg(v) -> Vedlegg:
+    """Vedlegg eller filsti (eldre kallere) -> Vedlegg."""
+    if isinstance(v, Vedlegg):
+        return v
+    sti = Path(v)
+    return Vedlegg(sti.name, mimetypes.guess_type(sti.name)[0] or "application/octet-stream", sti.read_bytes())
+
+
+def send(til: str, emne: str, html: str, vedlegg: list | None = None, kopi: str | None = None) -> None:
+    filer = [som_vedlegg(v) for v in (vedlegg or [])]
     if config.DEMO:
-        _til_utboks(til, emne, html, vedlegg, kopi)
+        _til_utboks(til, emne, html, filer, kopi)
     else:
-        _graph_send(til, emne, html, vedlegg or [], kopi)
+        _graph_send(til, emne, html, filer, kopi)
+
+
+def html_med_innebygde_bilder(html: str, filer) -> str:
+    """cid:-referanser byttet ut med data:-adresser, til VISNING (sandkassens utboks og e-posthistorikken). Selve den
+    lagrede/sendte e-posten endres aldri."""
+    for v in filer:
+        if v.cid:
+            data = f"data:{v.mimetype};base64,{base64.b64encode(v.innhold).decode('ascii')}"
+            html = html.replace(f"cid:{v.cid}", data)
+    return html
 
 
 def _til_utboks(til, emne, html, vedlegg, kopi) -> None:
     config.UTBOKS.mkdir(parents=True, exist_ok=True)
     stempel = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     trygt = re.sub(r"[^a-z0-9]+", "_", til.lower())[:40]
-    meta = {"til": til, "kopi": kopi, "emne": emne, "vedlegg": [str(v) for v in (vedlegg or [])],
+    meta = {"til": til, "kopi": kopi, "emne": emne,
+            "vedlegg": [f"{v.filnavn} ({len(v.innhold)} byte)" for v in vedlegg if not v.cid],
             "tid": datetime.now().isoformat(timespec="seconds")}
     (config.UTBOKS / f"{stempel}_{trygt}.html").write_text(
-        f"<!--META {json.dumps(meta, ensure_ascii=False)} -->\n{html}", encoding="utf-8"
+        f"<!--META {json.dumps(meta, ensure_ascii=False)} -->\n{html_med_innebygde_bilder(html, vedlegg)}", encoding="utf-8"
     )
+
+
+def _graph_vedlegg(v: Vedlegg) -> dict:
+    vedlegg = {"@odata.type": "#microsoft.graph.fileAttachment", "name": v.filnavn, "contentType": v.mimetype,
+               "contentBytes": base64.b64encode(v.innhold).decode()}
+    if v.cid:
+        vedlegg.update(isInline=True, contentId=v.cid)
+    return vedlegg
 
 
 def _graph_send(til, emne, html, vedlegg, kopi) -> None:
@@ -85,14 +127,7 @@ def _graph_send(til, emne, html, vedlegg, kopi) -> None:
         "subject": emne,
         "body": {"contentType": "HTML", "content": html},
         "toRecipients": [{"emailAddress": {"address": til}}],
-        "attachments": [
-            {
-                "@odata.type": "#microsoft.graph.fileAttachment",
-                "name": v.name,
-                "contentBytes": base64.b64encode(v.read_bytes()).decode(),
-            }
-            for v in vedlegg
-        ],
+        "attachments": [_graph_vedlegg(v) for v in vedlegg],
     }
     if kopi:
         melding["ccRecipients"] = [{"emailAddress": {"address": kopi}}]

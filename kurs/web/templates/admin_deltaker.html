@@ -1,32 +1,78 @@
 {% extends "admin_deltaker_ramme.html" %}
+{% from "_samlingsvalg.html" import samlingsvalg %}
 {% block deltakerinnhold %}
 {% set kilder = {'skjema': 'Påmeldingsskjemaet', 'nettside': 'Skjemaet på nettsiden', 'gruppe': 'Bedriftspåmelding',
                  'admin': 'Manuelt av administrator', 'admin_import': 'Import fra fil'} %}
 
-{% if p.sveiper_utsatt and p.status in ('bekreftet', 'venteliste') %}
+{# En ekstradeltaker som ikke er behandlet, er alltid holdt tilbake (daglig jobb tar dem aldri): knappen skal ikke kunne forsvinne #}
+{% if (p.sveiper_utsatt or (p.ekstradeltaker_ts and not p.sveiper_kjort)) and p.status in ('bekreftet', 'venteliste') %}
+{# Bekreftelsen er sendt fra før, men systemet har ingen faktura (f.eks. en ekstradeltaker som er satt tilbake til Påmeldt): da er det bare fakturaen som gjenstår #}
+{% set bare_faktura = p.status == 'bekreftet' and not p.ekstradeltaker_ts and bekreftelse_sendt %}
 <div class="varselboks">
   <strong>Behandling holdt tilbake</strong>
+  {% if p.ekstradeltaker_ts %}
+  <p class="liten dempet" style="margin:6px 0 10px">{{ STATUS.ekstradeltaker }}: ingen automatisk bekreftelse eller faktura. Send manuelt ved behov. Bekreftelsen viser bare samlingene deltakeren deltar på ({{ utvalg_tekst|i_setning }}). Fakturaen lager du selv, utenfor systemet: prisen er ikke kursets standardpris, og systemet lager ingen faktura for en ekstradeltaker.</p>
+  {% elif bare_faktura %}
+  <p class="liten dempet" style="margin:6px 0 10px">Bekreftelsen er allerede sendt til denne e-postadressen og sendes ikke på nytt. {% if p.faktura_antall %}Fakturaene som er laget til {{ p.navn }} står (de krediteres ikke), men resten av fakturaene (delfakturaene) lager systemet ikke av seg selv. Trykk på knappen under hvis systemet skal lage de som gjenstår etter kursets vanlige regler{% else %}Systemet har ingen faktura til {{ p.navn }} og lager ingen av seg selv. Trykk på knappen under hvis systemet skal lage fakturaen etter kursets vanlige regler{% endif %}{% if p.betaling == 'per_samling' or kurs.betaling == 'per_samling' %} (kurset faktureres per samling: alle delfakturaene som er forfalt, lages da på én gang){% endif %}. <strong>Har du allerede fakturert i Visma, skal du ikke trykke på den.</strong></p>
+  {% else %}
   <p class="liten dempet" style="margin:6px 0 10px">Denne påmeldingen ble registrert manuelt. {% if p.status == 'venteliste' %}Ventelistebeskjeden{% else %}Bekreftelsen og faktureringen{% endif %}
     er bevisst ikke sendt/opprettet ennå.</p>
+  {% endif %}
   {% if kurs.status == 'utkast' %}
   <p class="liten dempet" style="margin:0">Kurset er ikke publisert ennå. Behandlingen kan først utløses når kurset er åpnet.</p>
   {% elif kurs.status == 'avlyst' %}
   <p class="liten dempet" style="margin:0">Kurset er avlyst og kan ikke behandles.</p>
   {% else %}
   <form method="post" action="{{ url_for('admin_deltaker_behandle', kurs_id=kurs.id, paamelding_id=p.id) }}"
-        data-bekreft="{{ 'Send ventelistebeskjed nå?' if p.status == 'venteliste' else 'Send bekreftelse og behandle fakturering nå?' }}">
+        data-bekreft="{{ 'Send ventelistebeskjed nå?' if p.status == 'venteliste' else ('Send bekreftelse nå? Det lages ingen faktura for en ekstradeltaker: den lager du selv.' if p.ekstradeltaker_ts else ('Behandle fakturering nå? Bekreftelsen sendes ikke på nytt. Har du allerede fakturert i Visma, skal du ikke gjøre dette.' if bare_faktura else 'Send bekreftelse og behandle fakturering nå?')) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button>{{ 'Send ventelistebeskjed nå' if p.status == 'venteliste' else 'Send bekreftelse og behandle fakturering nå' }}</button>
+    <button>{{ 'Send ventelistebeskjed nå' if p.status == 'venteliste' else ('Send bekreftelse nå' if p.ekstradeltaker_ts else ('Behandle fakturering nå' if bare_faktura else 'Send bekreftelse og behandle fakturering nå')) }}</button>
   </form>
   {% endif %}
 </div>
 {% endif %}
 
+{% set firma_mangler = p.status in ('bekreftet', 'venteliste') and firmaopplysninger_mangler(p) %}
+{% if firma_mangler %}
+<div class="varselboks" id="firmakontroll">
+  <strong>{{ FIRMA_MERKE }}</strong>
+  <p class="liten dempet" style="margin:6px 0 10px">Firmanavn og fakturaadresse skal komme fra Enhetsregisteret, og de er ikke hentet ennå – for eksempel fordi registeret ikke svarte da påmeldingen ble registrert, eller fordi organisasjonsnummeret mangler eller er ugyldig. Organisasjonsnummeret er lagret slik det ble oppgitt{% if p.org_nr %}: {{ p.org_nr }}{% endif %}. Fakturaen opprettes ikke før firmaopplysningene er på plass. Systemet prøver på nytt hver morgen{% if admin_rolle != 'lese' %}, eller du kan prøve nå{% endif %}.</p>
+  {% if admin_rolle != 'lese' %}
+  <form method="post" action="{{ url_for('admin_deltaker_firmaopplysninger', kurs_id=kurs.id, paamelding_id=p.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button>Hent firmaopplysninger på nytt</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{# Fakturaen holdes tilbake: en privat faktura lages aldri uten komplett privat adresse (privatadresse.py). Tydelig beskjed til administrator. #}
+{% if faktura_venter_adresse %}
+<div class="varselboks" id="fakturahold-adresse">
+  <strong>{{ holdt_overskrift(p) }}</strong>
+  <p class="liten dempet" style="margin:6px 0 {{ '10px' if admin_rolle != 'lese' else '0' }}">{{ p.navn }} betaler selv, og {% if adresse_merke(p) == ADRESSE_UFULLSTENDIG_MERKE %}privat adresse, postnummer og poststed er ikke alle lagt inn (det som er mottatt, er tatt vare på og står under Personopplysninger){% else %}privat adresse, postnummer og poststed er ikke lagt inn{% endif %}. {{ FAKTURA_HOLDT_TEKST }} Bekreftelsen til deltakeren påvirkes ikke.{% if p.sveiper_utsatt %} Påmeldingen er også holdt tilbake (se «Behandling holdt tilbake»): fakturaen lages først når du selv velger «Behandle fakturering nå».{% endif %}</p>
+  {% if admin_rolle != 'lese' %}<a class="knapp liten" href="#skjema-person">Gå til Personopplysninger</a>{% endif %}
+</div>
+{% endif %}
+
+{# Er adressen komplett, er den påkrevd og kan ikke tømmes. Mangler den (eldre person, eller registrert uten adresse via nettsiden/filimport),
+   er feltene ikke påkrevd fra serveren: resten av vinduet kan lagres som vanlig, og data-adressegruppe (app.js) gjør alle tre påkrevd
+   først når noen skriver i dem. #}
+{% set har_adresse = not adresse_mangler(p) %}
+{% set vis_adressevarsel = adresse_oppfoelging(p) %}      {# ikke for anonymiserte: de skal aldri bes om en ny adresse #}
 <form id="skjema-person" method="post" action="{{ url_for('admin_deltaker_person', kurs_id=kurs.id, paamelding_id=p.id) }}"
-      data-skjemanavn="Personopplysninger">
+      data-skjemanavn="Personopplysninger"{% if not har_adresse %} data-adressegruppe{% endif %}>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="versjon" value="{{ versjon_for('person', p) }}">
   <h2>Personopplysninger</h2>
+  {% if vis_adressevarsel %}
+  <div class="varselboks" id="adressekontroll">
+    <strong>{{ adresse_merke(p) }}</strong>
+    <p class="liten dempet" style="margin:6px 0 0">{% if adresse_merke(p) == ADRESSE_UFULLSTENDIG_MERKE %}Den private adressen er bare delvis lagt inn for {{ p.navn }}: noe kom inn fra nettsiden eller en fil, men ikke alt. Det som er mottatt, er tatt vare på og står under; fyll inn det som mangler.{% else %}Den private adressen er ikke lagt inn for {{ p.navn }} (for eksempel fordi personen er registrert
+      før adressen ble påkrevd, eller kom inn via nettsiden eller en fil uten adresse).{% endif %} Du kan lagre alt annet her som vanlig. Legg inn adressen
+      når du har den: fyll inn adresse, postnummer og poststed samlet. En privat faktura lages aldri uten komplett adresse: den holdes tilbake til adressen er på plass{% if faktura_venter_adresse %} (det gjelder denne påmeldingen akkurat nå){% endif %}.</p>
+  </div>
+  {% endif %}
   <p class="seksjonsinfo">Gjelder {{ p.navn }} som person, ikke bare dette kurset.{% if andre_paameldinger %}
     Endringer her gjelder også {{ andre_paameldinger }} {{ 'annen aktiv påmelding' if andre_paameldinger == 1 else 'andre aktive påmeldinger' }} vedkommende har.{% endif %}</p>
   <div class="skjemarad">
@@ -40,6 +86,20 @@
   <div class="skjemarad">
     <div><label for="f-epost">E-post</label><span class="merknad">(krav)</span></div>
     <div><input id="f-epost" name="epost" type="email" required value="{{ p.epost }}"></div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-adresse">Adresse</label><span class="merknad">{{ '(krav)' if har_adresse else '(fylles ut samlet)' }}</span></div>
+    <div><input id="f-adresse" name="adresse"{% if har_adresse %} required{% endif %} autocomplete="off" data-adressefelt aria-describedby="hjelp-adresse" value="{{ p.adresse or '' }}">
+      <p id="hjelp-adresse" class="hjelp">Deltakerens private adresse. Kreves for alle nye påmeldinger, også når arbeidsgiver betaler.{% if vis_adressevarsel %} <strong>Mangler – legg den inn.</strong> Fyll inn adresse, postnummer og poststed samlet, eller la alle tre stå tomme.{% endif %}</p></div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-postnr">Postnummer</label><span class="merknad">{{ '(krav)' if har_adresse else '(fylles ut samlet)' }}</span></div>
+    <div><input id="f-postnr" name="postnr" class="kort-felt"{% if har_adresse %} required{% endif %} inputmode="numeric" autocomplete="off" data-adressefelt aria-describedby="hjelp-postnr" value="{{ p.postnr or '' }}">
+      <p id="hjelp-postnr" class="hjelp">4 siffer i Norge.</p></div>
+  </div>
+  <div class="skjemarad">
+    <div><label for="f-poststed">Poststed</label><span class="merknad">{{ '(krav)' if har_adresse else '(fylles ut samlet)' }}</span></div>
+    <div><input id="f-poststed" name="poststed"{% if har_adresse %} required{% endif %} autocomplete="off" data-adressefelt value="{{ p.poststed or '' }}"></div>
   </div>
   <div class="skjemarad">
     <div><label for="f-telefon">Telefon</label></div>
@@ -62,6 +122,14 @@
   <input type="hidden" name="versjon" value="{{ versjon_for('paamelding', p) }}">
   <h2>Påmelding og faktura</h2>
   <p class="seksjonsinfo">Gjelder bare denne påmeldingen: {{ kurs.navn }} (kursnr. {{ kurs.kursnr }}).</p>
+  {#- Deltakerne skal helst ikke få fakturaen endret (det gir ekstra arbeid), men administrator kan gjøre unntak (Camilla 02.10.2026). Er fakturaen laget, står den i
+      Visma: det som endres her, gjelder fakturaer som ikke er laget ennå. -#}
+  {% if p.faktura_antall %}
+  <div class="varselboks gul" role="note" style="margin:0 0 14px">
+    <strong>Det er laget {{ p.faktura_antall }} faktura{{ 'er' if p.faktura_antall != 1 }} til {{ p.navn }}.</strong>
+    Fakturaer som er laget, endres ikke når du endrer her: de står i Visma og må rettes der. Det gjelder også hvem som betaler, og fakturaplanen.
+  </div>
+  {% endif %}
   <div class="skjemarad">
     <div><span class="etikett">Pris</span></div>
     <div><p class="feltverdi">{{ kurs.pris_nok|kr }} <span class="liten dempet">– styres av kurset</span></p></div>
@@ -70,13 +138,15 @@
     <div><span class="etikett" id="e-betaling">Betaling</span></div>
     <div>
       {% if prisvalg_redigerbar %}
-      <div class="valg" role="radiogroup" aria-labelledby="e-betaling">
+      <div class="valg" role="radiogroup" aria-labelledby="e-betaling" aria-describedby="hjelp-betaling">
         <label><input type="radio" name="betaling" value="samlet" {{ 'checked' if p.betaling != 'per_samling' }}> Samlet – hele beløpet i én faktura</label>
         <label><input type="radio" name="betaling" value="per_samling" {{ 'checked' if p.betaling == 'per_samling' }}> Per samling – én faktura før hver samling</label>
       </div>
+      <p id="hjelp-betaling" class="hjelp">Kurset er satt til {{ kurs_plan_tekst }}. Du kan gjøre et unntak for {{ p.navn }} så lenge ingenting er fakturert. Fakturaene
+        lages etter planen du velger, og endringen står i Logger.</p>
       {% else %}
       <p class="feltverdi">{{ {'samlet': 'Samlet', 'per_samling': 'Per samling'}.get(p.betaling, p.betaling) }}
-        <span class="liten dempet">– {{ 'allerede fakturert' if p.faktura_antall else 'styres av kurset' }}</span></p>
+        <span class="liten dempet">– {{ prisvalg_grunn }}</span></p>
       {% endif %}
     </div>
   </div>
@@ -93,8 +163,9 @@
       <div><input id="f-org_nr" name="org_nr" inputmode="numeric" value="{{ p.org_nr or '' }}"></div>
     </div>
     <div class="skjemarad">
-      <div><label for="f-org_navn">Firma-/avdelingsnavn</label><span class="merknad">(krav)</span></div>
-      <div><input id="f-org_navn" name="org_navn" value="{{ p.org_navn or '' }}"></div>
+      <div><span class="etikett">Firma-/avdelingsnavn</span></div>
+      <div><div class="felt-lest">{{ p.org_navn or 'Ikke hentet ennå' }}</div>
+        <p class="hjelp">Hentes fra Enhetsregisteret og kan ikke skrives inn. Endrer du organisasjonsnummeret, hentes firmanavn og adresse på nytt.{% if firma_mangler %} Bruk «Hent firmaopplysninger på nytt» øverst på siden.{% endif %}</p></div>
     </div>
     {% if p.faktura_epost %}
     <div class="skjemarad">
@@ -107,9 +178,17 @@
       <div><p class="feltverdi">{{ 'Ja – sendes som elektronisk faktura' if p.ehf else 'Nei' }}</p></div>
     </div>
   </div>
+  {% if p.betaler == 'organisasjon' %}
+  <div class="skjemarad">
+    <div><span class="etikett">Fakturaadresse</span></div>
+    <div><div class="felt-lest">{% if p.faktura_adresse or p.faktura_postnr or p.faktura_sted %}{{ p.faktura_adresse or '' }}{% if p.faktura_postnr or p.faktura_sted %}, {{ p.faktura_postnr or '' }} {{ p.faktura_sted or '' }}{% endif %}{% else %}{{ 'Ikke hentet ennå' if (firma_mangler or not p.org_navn) else 'Ingen adresse lagret' }}{% endif %}</div>
+      <p class="hjelp">Hentes fra Enhetsregisteret sammen med firmanavnet.</p></div>
+  </div>
+  {% else %}
   <div class="skjemarad">
     <div><label for="f-faktura_adresse">Fakturaadresse</label></div>
-    <div><input id="f-faktura_adresse" name="faktura_adresse" value="{{ p.faktura_adresse or '' }}"></div>
+    <div><input id="f-faktura_adresse" name="faktura_adresse" aria-describedby="hjelp-faktura-adresse" value="{{ p.faktura_adresse or '' }}">
+      <p id="hjelp-faktura-adresse" class="hjelp">Fylles inn fra deltakerens adresse (Personopplysninger) når påmeldingen registreres, og følger med når du retter adressen der (så lenge du ikke har skrevet en egen fakturaadresse her). Du kan endre den her, for eksempel hvis fakturaen skal til en annen adresse. Er feltene tomme, brukes deltakerens adresse.</p></div>
   </div>
   <div class="skjemarad">
     <div><label for="f-faktura_postnr">Postnummer</label></div>
@@ -119,6 +198,7 @@
     <div><label for="f-faktura_sted">Poststed</label></div>
     <div><input id="f-faktura_sted" name="faktura_sted" value="{{ p.faktura_sted or '' }}"></div>
   </div>
+  {% endif %}
   <div class="skjemarad">
     <div><label for="f-faktura_ref">Faktura merkes med</label></div>
     <div><input id="f-faktura_ref" name="faktura_ref" aria-describedby="hjelp-faktura_ref" value="{{ p.faktura_ref or '' }}">
@@ -147,6 +227,20 @@
   <div class="seksjonsknapper"><button>Lagre påmeldingen</button></div>
 </form>
 
+{% if skjemasvar is none %}
+<h2>Svar i påmeldingsskjemaet</h2>
+<p class="seksjonsinfo">Svarene kunne ikke vises akkurat nå. Prøv igjen om litt.</p>
+{% elif skjemasvar %}
+<h2>Svar i påmeldingsskjemaet</h2>
+<p class="seksjonsinfo">Svar på kursets egne spørsmål, slik deltakeren ga dem ved påmelding.</p>
+{% for label, verdi in skjemasvar %}
+<div class="skjemarad">
+  <div><span class="etikett">{{ label }}</span></div>
+  <div><p class="feltverdi" style="white-space:pre-line">{% if verdi %}{{ verdi }}{% else %}<span class="dempet">Ikke besvart</span>{% endif %}</p></div>
+</div>
+{% endfor %}
+{% endif %}
+
 <section class="statusboks" aria-labelledby="statusboks-tittel">
   <h2 id="statusboks-tittel">Status</h2>
   <div class="skjemarad">
@@ -154,13 +248,15 @@
     <div>
       <p class="feltverdi"><span class="merke {{ p|statusmerke }}">{{ p|paameldingsstatus }}</span></p>
       {% if p.avslatt_ts %}<p class="hjelp">Avslått {{ p.avslatt_ts[:10] }}. Deltakeren kan ikke melde seg på igjen selv – endre status for å gjenopprette påmeldingen.</p>{% endif %}
+      {% if p.ekstradeltaker_ts %}<p class="hjelp">Satt til {{ statusnavn.ekstradeltaker|lower }} {{ p.ekstradeltaker_ts[:10] }}: deltakeren er på kurset ({{ utvalg_tekst|i_setning }}), men tar ikke plass og teller ikke som {{ statusnavn.paameldt|lower }}. Ingen automatisk bekreftelse eller faktura.</p>{% endif %}
       {% if p.utgatt_ts %}<p class="hjelp">Satt til utgått {{ p.utgatt_ts[:10] }}: påmeldingen ble ikke fullført. Personen kan melde seg på igjen.</p>{% endif %}
       {% if p.forlatt_ts %}<p class="hjelp">Satt til forlatt {{ p.forlatt_ts[:10] }}: deltakelsen er avsluttet administrativt. Personen kan melde seg på igjen.</p>{% endif %}
       {% if statusvalg %}
-      {% set kan_overbooke = kurs_fullt and 'bekreftet' in statusvalg %}
+      {% set kan_overbooke = kurs_fullt and statusnokkel != 'paameldt' %}    {# får plass som Påmeldt, og kurset er fullt (en ekstradeltaker tar ingen plass) #}
+      {# data-status-tekster: hva som skjer for hver ny status (samme tekster som dialogen i deltakerlisten); JSON i enkeltfnutter, som tojson er laget for #}
       <form class="statusskjema" method="post" action="{{ url_for('admin_deltaker_status', kurs_id=kurs.id, paamelding_id=p.id) }}"
-            data-status-bekreft data-skjemanavn="Påmeldingsstatus"
-            {%- if kan_overbooke %} data-full-bekreft="Er du sikker på at du vil melde denne deltakeren på? Kurset er fullt ({{ bekreftet_antall }} av {{ kurs.kapasitet }} {{ 'plass' if kurs.kapasitet == 1 else 'plasser' }} er tatt)."{% endif %}>
+            data-status-bekreft data-skjemanavn="Påmeldingsstatus" data-status-tekster='{{ status_tekster|tojson }}'{% if samlinger | length > 1 %} data-ekstra-steg{% endif %}
+            {%- if kan_overbooke %} data-full-bekreft="Er du sikker på at du vil melde denne deltakeren på? Kurset er fullt ({{ bekreftet_antall }} av {{ kurs.kapasitet }} {{ 'plass' if kurs.kapasitet == 1 else 'plasser' }} er tatt).{{ retur_tillegg }}"{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% if kan_overbooke %}<input type="hidden" name="overbooking" value="">{% endif %}
         <select id="f-ny-status" name="status" required aria-label="Ny status">
@@ -170,15 +266,16 @@
         <button class="sekundar">Endre status</button>
       </form>
       <p class="hjelp">Statusen endres med en gang du trykker «Endre status» – uavhengig av lagreknappene over.
-        Avmeldt, Avslått, Utgått og Forlatt sender ingen e-post. Blir en bekreftet plass ledig, rykker første på ventelisten opp.</p>
+        Avmeldt, Avslått, Utgått og Forlatt sender ingen e-post. Blir en plass ledig, rykker første på ventelisten opp.
+        {{ statusnavn.ekstradeltaker }} er på kurset uten å ta plass: {{ statusnavn.paameldt }} til {{ statusnavn.ekstradeltaker }} frigjør en plass, og {{ statusnavn.ekstradeltaker }} til {{ statusnavn.paameldt }} krever en ledig plass.{% if samlinger | length > 1 %} Du velger samlingene i et eget steg.{% endif %}</p>
       {% if kan_overbooke %}<p class="hjelp">Kurset er fullt ({{ bekreftet_antall }} av {{ kurs.kapasitet }} {{ 'plass' if kurs.kapasitet == 1 else 'plasser' }} er tatt). Du kan likevel melde deltakeren på – du får et eget spørsmål først.</p>{% endif %}
       {% endif %}
     </div>
   </div>
   <div class="skjemarad">
     <div><span class="etikett">Fakturastatus</span></div>
-    <div><p class="feltverdi"><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(fakturastatus, 'gra') }}">{{ fakturastatus }}</span></p>
-      <p class="hjelp">Styres av fakturasystemet og kan ikke endres her.</p></div>
+    <div><p class="feltverdi"><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul','Venter på privat adresse':'gul'}.get(fakturastatus, 'gra') }}">{{ fakturastatus }}</span></p>
+      <p class="hjelp">Styres av fakturasystemet og kan ikke endres her.{% if faktura_venter_adresse %} Fakturaen venter på privat adresse (se meldingen øverst).{% endif %}</p></div>
   </div>
   <div class="skjemarad">
     <div><span class="etikett">Samtykke</span></div>
@@ -195,13 +292,72 @@
   </div>
 </section>
 
+{% if min_side_vis %}
+<section class="statusboks" aria-labelledby="minside-tittel">
+  <h2 id="minside-tittel">Min side</h2>
+  {% if min_side_stengt %}
+  <p class="seksjonsinfo">Lenken til Min side er stengt: ingen lenke virker for {{ p.fornavn }} før du lager en ny. Deltakeren kan fortsatt logge inn med e-post.</p>
+  {% elif min_side_utlopt %}
+  <p class="seksjonsinfo">Lenken til Min side utløp {{ min_side_utloper }} ({{ min_side_utloper_hvorfor }}) og virker ikke lenger. {{ p.fornavn }} kan logge inn med e-post (Mine kurs). E-postene fra systemet har ikke lenken til Min side etter dette.</p>
+  {% else %}
+  <p class="seksjonsinfo">{{ p.fornavn }}s personlige lenke til Min side. {% if min_side_apen %}Den står som en knapp i bekreftelsen og påminnelsene.{% else %}Kurset har ingen åpen Min side ennå (publiser den under Min side-fanen), så lenken står ikke i e-postene ennå.{% endif %}
+    Lenken virker til {{ min_side_utloper }} ({{ min_side_utloper_hvorfor }}). Send den bare til {{ p.fornavn }} selv: den gir tilgang til Min side for deltakeren.</p>
+  <div class="lenkerad">
+    <input id="min-side-lenke" value="{{ min_side_lenke }}" readonly aria-label="Personlig lenke til Min side">
+    <button type="button" class="sekundar" data-kopier="min-side-lenke">Kopier lenke</button>
+  </div>
+  {% endif %}
+  {% if not min_side_utlopt or min_side_stengt %}
+  <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
+    <form method="post" action="{{ url_for('admin_deltaker_min_side_lenke', kurs_id=kurs.id, paamelding_id=p.id) }}"
+          data-bekreft="{{ 'Lage en ny lenke? Den gamle lenken, også i e-poster som er sendt, virker ikke lenger.' if not min_side_stengt else 'Lage en ny lenke og åpne Min side for deltakeren igjen?' }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="handling" value="ny">
+      <button class="liten sekundar">{{ 'Lag ny lenke' if not min_side_stengt else 'Lag ny lenke og åpne igjen' }}</button>
+    </form>
+    {% if not min_side_stengt %}
+    <form method="post" action="{{ url_for('admin_deltaker_min_side_lenke', kurs_id=kurs.id, paamelding_id=p.id) }}"
+          data-bekreft="Stenge lenken? Ingen lenke til Min side virker for {{ p.fornavn }} før du lager en ny.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="handling" value="steng">
+      <button class="liten fare">Steng lenken</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="liten dempet" style="margin:10px 0 0">«Lag ny lenke» gjør at den gamle lenken slutter å virke, også for den som alt har åpnet den (nettleseren mister tilgangen ved neste klikk). «Steng lenken» stenger den helt, til du lager en ny.
+    Rettes e-postadressen, lages det automatisk en ny lenke: lenker som er sendt til den gamle adressen slutter da å virke.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if p.ekstradeltaker_ts %}
+<section class="statusboks" aria-labelledby="ekstra-tittel">
+  <h2 id="ekstra-tittel">{{ STATUS.ekstradeltaker }}: deltar på</h2>
+  <p class="seksjonsinfo">En ekstradeltaker er på kurset, men tar ikke plass og teller ikke som {{ statusnavn.paameldt|lower }}. Påminnelser, bekreftelse, innsjekk, Min side, oppmøte og kursbevis gjelder bare dagene i samlingene som er valgt.</p>
+  <p class="feltverdi" style="margin:8px 0"><span class="merke">{{ utvalg_tekst }}</span></p>
+  {% if samlinger | length > 1 %}
+    {% if admin_rolle != 'lese' %}
+    <form method="post" action="{{ url_for('admin_deltaker_samlinger', kurs_id=kurs.id, paamelding_id=p.id) }}" data-skjemanavn="Samlinger">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {# Utvalget slik det var da siden ble vist: har noen andre lagret et annet i mellomtiden, lagres ingenting (admin_deltaker_samlinger) #}
+      <input type="hidden" name="versjon" value="{{ utvalg_versjon }}">
+      {{ samlingsvalg(samlinger, valgte_samlinger) }}
+      <p style="margin:10px 0 4px"><button class="sekundar">Lagre samlinger</button></p>
+    </form>
+    {% endif %}
+  {% else %}
+  <p class="hjelp">Kurset har bare én samling, så deltakeren er på hele kurset.</p>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if p.status in ('bekreftet', 'venteliste') and admin_rolle != 'lese' %}
 <details class="faresone">
   <summary>Avslå påmeldingen</summary>
   <form method="post" action="{{ url_for('admin_deltaker_avsla', kurs_id=kurs.id, paamelding_id=p.id) }}" data-skjemanavn="Avslå påmeldingen"
-        data-bekreft="Avslå påmeldingen til {{ p.navn }}? Plassen går til den første på ventelisten.{% if p.faktura_antall %} Fakturaen krediteres ikke automatisk.{% endif %}">
+        data-bekreft="Avslå påmeldingen til {{ p.navn }}? {% if p.ekstradeltaker_ts %}En {{ STATUS.ekstradeltaker|lower }} tar ingen plass, så ingen rykker opp fra ventelisten.{% else %}Plassen går til den første på ventelisten.{% endif %}{% if p.faktura_antall %} Fakturaen krediteres ikke automatisk.{% endif %}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <p class="liten dempet">Plassen frigjøres og går til den første på ventelisten.</p>
+    <p class="liten dempet">{% if p.ekstradeltaker_ts %}En {{ STATUS.ekstradeltaker|lower }} tar ingen plass, så ingen rykker opp fra ventelisten.{% else %}Plassen frigjøres og går til den første på ventelisten.{% endif %}</p>
     <label for="f-melding">Begrunnelse til deltakeren (valgfri)</label>
     <textarea id="f-melding" name="melding" rows="2" maxlength="2000"></textarea>
     <label style="font-weight:normal"><input type="checkbox" name="send_epost" value="1" checked> Send avslaget på e-post</label>

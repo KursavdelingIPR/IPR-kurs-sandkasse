@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css) -#}
+{% import "_kursside_blokker.html" as bl %}
+{#- Min side for ett kurs, for deltakere (og forhåndsvisningen i administrasjonen). All data kommer ferdig filtrert fra deltakerside.bygg_visning (v).
+    Sideoppsettet bruker containerspørringer (static/kursside-delt.css), så forhåndsvisningen i en ramme og en ekte telefon gir samme
+    visning. Aside-delene («I dag», «Kursdager», «På denne siden») ligger i én <aside> som CSS deler opp: kolonne til høyre på PC,
+    og på mobil «I dag» først, så «hopp til»-knapper, blokkene og til slutt «Kursdager». Innsjekk-skjemaet vises når ruten har satt
+    v.oppmote_url (innsjekk-trinnet); uten den vises bare en kort forklaring. -#}
+{% block tittel %}Min side – {{ v.kurs.tittel }} – IPR Påmeldingssystem{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='kursside-delt.css') }}">
+{% if not forhandsvisning %}<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='kursside-delt.js') }}" defer></script>{% endif %}{% endblock %}
+{% block sideklasse %} class="dp-side{{ ' dp-forhandsvisning' if forhandsvisning }}"{% endblock %}
+{% block nav %}{% if not forhandsvisning %}{{ super() }}{% endif %}{% endblock %}
+{% block innhold %}
+{% include "_kursside_ikoner.html" %}
+<div class="dp-rot">
+  {% if forhandsvisning %}<div class="dp-forh" role="note">{{ bl.ikon('oye') }}<span>{{ v.forh_tekst }}</span></div>
+  {% else %}<a class="dp-brod" href="{{ v.min_side_url }}">{{ bl.ikon('tilbake') }}Mine kurs</a>{% endif %}
+
+  <header class="dp-hero{{ ' dp-hero-bilde' if v.topp_bilde }}">
+    {% if v.topp_bilde %}<figure class="dp-toppbilde"><img src="{{ v.topp_bilde.url }}" alt="{{ v.topp_bilde.alt }}">{% if v.topp_bilde.tekst %}<figcaption>{{ v.topp_bilde.tekst }}</figcaption>{% endif %}</figure>{% endif %}
+    <span class="dp-eyebrow">{{ bl.ikon('las') }}Min side · bare for påmeldte</span>
+    <h1>{{ v.kurs.tittel }}</h1>
+    {% if v.kurs.ingress %}<p class="dp-ingress">{{ v.kurs.ingress }}</p>{% endif %}
+    <ul class="dp-meta">
+      {% if v.kurs.sted or v.kurs.rom %}<li data-etikett="Sted">{{ bl.ikon('sted') }}<span>{{ v.kurs.sted }}{% if v.kurs.sted and v.kurs.rom %} · {% endif %}{{ v.kurs.rom }}{% if v.kurs.kart_url %} <a href="{{ v.kurs.kart_url }}" target="_blank" rel="noopener noreferrer">Vis på kart</a>{% endif %}</span></li>{% endif %}
+      {% if v.kurs.periode %}<li data-etikett="Datoer">{{ bl.ikon('kal') }}<span>{{ v.kurs.periode }}</span></li>{% endif %}
+      {% if v.kurs.tid %}<li data-etikett="Tid">{{ bl.ikon('klokke') }}<span>{{ v.kurs.tid }}</span></li>{% endif %}
+      {% if v.kurs.type_tekst %}<li data-etikett="Format">{{ bl.ikon('info') }}<span>{{ v.kurs.type_tekst }}</span></li>{% endif %}
+    </ul>
+    {% if v.pillene %}<div class="dp-hero-merker">{% for p in v.pillene %}<span class="dp-pille dp-pille-{{ p.stil }}">{% if p.stil == 'ok' %}{{ bl.ikon('hake') }}{% endif %}{{ p.tekst }}</span>{% endfor %}</div>{% endif %}
+  </header>
+
+  {% if v.melding %}<div class="dp-melding dp-melding-{{ v.melding.niva }}" role="status">
+    {{ bl.ikon('info' if v.melding.niva == 'info' else 'varsel') }}
+    <div><strong>Melding fra kursleder</strong>{% for linje in v.melding.tekst.split('\n') if linje.strip() %}<p>{{ linje }}</p>{% endfor %}</div></div>{% endif %}
+
+  <div class="dp-grid">
+    <aside class="dp-aside" aria-label="Oppsummering">
+      {% if v.i_dag %}
+      <section class="dp-idag{{ ' dp-idag-ok' if v.i_dag.registrert }}" id="i-dag" aria-labelledby="dp-idag-h">
+        <h2 class="dp-liten-h" id="dp-idag-h">{{ bl.ikon('klokke') }}I dag</h2>
+        <p class="dp-dag">{{ v.i_dag.dato_lang }}</p>
+        <p class="dp-under">{% if v.i_dag.samling %}{{ v.i_dag.samling }} · {% endif %}{% if v.i_dag.nr %}Dag {{ v.i_dag.nr }} av {{ v.i_dag.av }}{% endif %}{% if v.i_dag.tid %}{{ ' · ' if v.i_dag.nr }}{{ v.i_dag.tid }}{% endif %}{% if v.kurs.rom %} · {{ v.kurs.rom }}{% endif %}</p>
+        {% if v.oppmote_melding %}<p class="dp-svar dp-svar-{{ v.oppmote_melding.niva }}" role="{{ 'alert' if v.oppmote_melding.niva == 'feil' else 'status' }}">{{ v.oppmote_melding.tekst }}</p>{% endif %}
+        {% if v.i_dag.registrert %}
+          <p class="dp-registrert"><span class="dp-ring">{{ bl.ikon('hake') }}</span>Oppmøte registrert kl. {{ v.i_dag.registrert }}</p>
+        {% elif v.i_dag.tilbys and v.oppmote_url %}
+          <form class="dp-innsjekk" method="post" action="{{ v.oppmote_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="retur" value="kursside">
+            {% if v.i_dag.krever_kode %}
+            <p class="dp-hjelp">Skann QR-koden i kurslokalet når du kommer. Får du ikke skannet, kan du registrere oppmøtet her.</p>
+            <div class="dp-kodefelt"><label for="f-kode">Dagens kode</label>
+              <input id="f-kode" name="kode" class="dp-kode" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" required></div>
+            {% endif %}
+            <button type="submit">{{ bl.ikon('hake') }}Registrer oppmøte</button>
+            {% if v.i_dag.krever_kode %}<p class="dp-hjelp">Koden står på skjermen i kurslokalet. Du kan registrere deg én gang per kursdag.</p>{% endif %}
+          </form>
+        {% elif v.i_dag.forklaring %}<p class="dp-hjelp">{{ v.i_dag.forklaring }}</p>
+        {% elif v.i_dag.tilbys and v.i_dag.krever_kode %}<p class="dp-hjelp">Skann QR-koden i kurslokalet når du kommer. Du kan registrere deg én gang per kursdag.</p>{% endif %}
+        {{ bl.dagsrekke(v, forhandsvisning) }}
+      </section>
+      {% elif v.neste_dag %}
+      <section class="dp-idag" aria-labelledby="dp-idag-h">
+        <h2 class="dp-liten-h" id="dp-idag-h">{{ bl.ikon('kal') }}Neste kursdag</h2>
+        <p class="dp-dag">{{ v.neste_dag.dato_lang }}</p>
+        <p class="dp-under">{% if v.neste_dag.samling %}{{ v.neste_dag.samling }} · {% endif %}Dag {{ v.neste_dag.dag_nr }} av {{ v.neste_dag.av }}{% if v.neste_dag.tid %} · {{ v.neste_dag.tid }}{% endif %}{% if v.kurs.rom %} · {{ v.kurs.rom }}{% endif %}</p>
+        {{ bl.dagsrekke(v, forhandsvisning) }}
+      </section>
+      {% elif v.avsluttet %}
+      <section class="dp-idag" aria-labelledby="dp-idag-h">
+        <h2 class="dp-liten-h" id="dp-idag-h">{{ bl.ikon('hake') }}Kurset er avsluttet</h2>
+        <p class="dp-under">{{ v.apen_tekst }}</p>
+      </section>
+      {% endif %}
+
+      {% if v.kursdager %}
+      <section class="dp-dager" aria-labelledby="dp-dager-h">
+        <h2 class="dp-liten-h" id="dp-dager-h">{{ 'Samlinger og kursdager' if v.samlinger else 'Kursdager' }}</h2>
+        {% if v.samlinger %}{#- Kurs med flere samlinger: ALLE samlingene står her, hver med sine dager -#}
+        {% for g in v.samlinger %}
+        <h3 class="dp-samling"><span class="dp-samling-navn">{{ g.navn }}</span>{% if g.periode %}<span class="dp-samling-periode">{{ g.periode }}</span>{% endif %}{% if g.tag %}<span class="dp-idag-merke">{{ g.tag }}</span>{% endif %}</h3>
+        <ul>{% for d in g.dager %}{{ bl.dagrad(d, forhandsvisning) }}{% endfor %}</ul>
+        {% endfor %}
+        {% else %}
+        <ul>{% for d in v.kursdager %}{{ bl.dagrad(d, forhandsvisning) }}{% endfor %}</ul>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      {% if v.meny %}
+      <nav class="dp-meny" aria-labelledby="dp-meny-h">
+        <h2 class="dp-liten-h" id="dp-meny-h">På denne siden</h2>
+        <ul>{% for m in v.meny %}<li><a href="#blokk-{{ m.id }}">{{ bl.ikon(bl.ikonnavn[m.type]) }}{{ m.tittel }}</a></li>{% endfor %}</ul>
+      </nav>
+      {% endif %}
+
+      {% if not forhandsvisning %}<p class="dp-konto">Faktura, kursbevis og timer finner du under <a href="{{ v.min_side_url }}">Mine kurs</a>.</p>{% endif %}
+    </aside>
+
+    {% if v.meny %}
+    <nav class="dp-chips" aria-label="Hopp til">
+      {% for m in v.meny %}<a href="#blokk-{{ m.id }}">{{ m.tittel }}</a>{% endfor %}
+    </nav>
+    {% endif %}
+
+    <div class="dp-hoved">
+      {% include "_mine_opplysninger.html" %}
+      {% for b in v.blokker %}{{ bl.blokk(b) }}{% else %}
+      <div class="dp-blokk dp-tom"><p>Min side er åpnet, men det er ikke lagt ut noe mer ennå.</p></div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <p class="dp-fot">{% if v.sist_oppdatert %}Sist oppdatert {{ v.sist_oppdatert }} · {% endif %}Siden er bare for deltakere med bekreftet påmelding på kurset.
+    {% if not forhandsvisning %}<button type="button" class="dp-skriv-ut lenkeknapp" data-skriv-ut>{{ bl.ikon('skriv-ut') }}Skriv ut siden</button>{% endif %}</p>
+</div>
+{% endblock %}

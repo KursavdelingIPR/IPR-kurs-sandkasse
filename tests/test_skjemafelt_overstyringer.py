@@ -12,6 +12,11 @@ from kurs import skjemafelt as sf
 from kurs.skjemafelt import Advarsel, Overstyring, SkjemafeltFeil, SkjemaLesefeil
 
 
+# HPR-nummer er slått av i skjemaene (skjemafelt.HPR_I_SKJEMA = False, Camilla 02.10.2026). Disse testene gjelder koden som viser, validerer og lagrer det
+# (den finnes fortsatt og kan slås på igjen), så de slår det på. Standarden (av) testes i test_hpr_nummer_samles_ikke_inn.py.
+pytestmark = pytest.mark.usefixtures("hpr_i_skjema")
+
+
 @pytest.fixture
 def con(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "UTBOKS", tmp_path / "utboks")
@@ -175,7 +180,7 @@ def test_laast_felt_avvises(con, felt):
     assert _antall(con) == foer
 
 
-@pytest.mark.parametrize("felt", ["allergier", "tilrettelegging", "betaler", "org_nr", "faktura_epost", "betaling",
+@pytest.mark.parametrize("felt", ["betaler", "org_nr", "org_navn", "org_adresse", "betaling", "ekstra:1", "ekstra_1",
                                   "eget_felt", "Telefon", " telefon", "", None, 5])
 def test_ukjent_felt_og_systemblokkfelt_avvises(con, felt):
     kid = _kurs(con)
@@ -310,7 +315,7 @@ def test_tilbakestill_laast_felt_rydder_korrupt_rad(con):
     assert _rader(con, kid) == []
 
 
-@pytest.mark.parametrize("felt", ["eget_felt", "allergier", None, ""])
+@pytest.mark.parametrize("felt", ["eget_felt", "betaler", "org_nr", None, ""])
 def test_tilbakestill_ukjent_felt_avvises(con, felt):
     kid = _kurs(con)
     with pytest.raises(SkjemafeltFeil) as e:
@@ -385,7 +390,7 @@ def test_label_fra_overstyring_escapes_ved_rendring(con):
         from kurs import paameldingsside   # 12C5: malen krever side
         html = render_template("kurs.html", kurs=kurs, dager=[], f={}, plasser_igjen=None, skjema=skjema,
                                side=paameldingsside.effektiv_side(kurs))
-    assert '<label for="f-telefon">&lt;script&gt;x&lt;/script&gt; {{ 7*7 }}</label>' in html
+    assert '<label class="pm-etikett" for="f-telefon">&lt;script&gt;x&lt;/script&gt; {{ 7*7 }}</label>' in html
     assert "<script>x</script>" not in html
 
 
@@ -429,14 +434,66 @@ def test_rekkefolge_0_for_telefon_er_ogsaa_et_avvik():
 
 # ============================ effektivt_skjema med overstyringer ============================
 
-def test_default_uten_overstyringer_er_identisk_med_12c1():
-    forventet = sf.EffektivtSkjema((sf.EffektivtFelt("telefon", "Telefon", False),
-                                    sf.EffektivtFelt("arbeidssted", "Arbeidssted", False),
-                                    sf.EffektivtFelt("hpr_nr", "HPR-nummer", False)), True, True)
+def test_default_uten_overstyringer_er_kodet_standard():
+    tekst = {n: sf.REGISTER[n].hjelpetekst for n in ("faktura_ref", "faktura_kommentar", "allergier")}
+    forventet = sf.EffektivtSkjema(
+        (sf.EffektivtFelt("telefon", "Telefon", False), sf.EffektivtFelt("arbeidssted", "Arbeidssted", False),
+         sf.EffektivtFelt("hpr_nr", "HPR-nummer", False)), True, True,
+        (sf.EffektivtFelt("adresse", "Adresse", True), sf.EffektivtFelt("postnr", "Postnummer", True, "4 siffer i Norge."),
+         sf.EffektivtFelt("poststed", "Poststed", True)),
+        (sf.EffektivtFelt("faktura_ref", "Faktura merkes med", False, tekst["faktura_ref"]),
+         sf.EffektivtFelt("faktura_epost", "E-post for faktura", False),
+         sf.EffektivtFelt("faktura_kommentar", "Kommentar til faktura", False, tekst["faktura_kommentar"]),
+         sf.EffektivtFelt("ehf", "Elektronisk faktura", False, None, "avkrysning")),
+        (),
+        (sf.EffektivtFelt("allergier", "Allergier eller spesialkost", False, tekst["allergier"], "langtekst"),
+         sf.EffektivtFelt("tilrettelegging", "Behov for tilrettelegging", False, None, "langtekst")),
+        sf.INFO_STANDARD)
     tomt = sf.Leseresultat(sf.MappingProxyType({}), ())
     for skjema in (sf.effektivt_skjema(KURS_LOP), sf.effektivt_skjema(KURS_LOP, None),
-                   sf.effektivt_skjema(KURS_LOP, {}), sf.effektivt_skjema(KURS_LOP, tomt)):
+                   sf.effektivt_skjema(KURS_LOP, {}), sf.effektivt_skjema(KURS_LOP, tomt),
+                   sf.effektivt_skjema(KURS_LOP, tomt, ())):
         assert skjema == forventet
+
+
+def test_standard_hjelpetekst_kan_fjernes_og_settes_tilbake():
+    """Et felt med standard hjelpetekst: tom tekst lagres som '' (bevisst ingen hjelpetekst); lik standard = ingen
+    overstyring; et felt uten standard hjelpetekst lagrer aldri ''."""
+    standard = sf.REGISTER["faktura_ref"].hjelpetekst
+    assert sf.normaliser_overstyring("faktura_ref", {"hjelpetekst": "  "}) == Overstyring(hjelpetekst="")
+    assert sf.normaliser_overstyring("faktura_ref", {"hjelpetekst": f" {standard}\r\n"}).er_tom
+    assert sf.normaliser_overstyring("telefon", {"hjelpetekst": ""}).er_tom
+    uten = sf.effektivt_skjema(KURS, {"faktura_ref": Overstyring(hjelpetekst="")})
+    assert _felt_i(uten.firmafelt, "faktura_ref").hjelpetekst is None
+    les = sf.les_overstyringer([{"felt": "faktura_ref", "synlig": None, "obligatorisk": None, "rekkefolge": None,
+                                 "label": None, "hjelpetekst": ""},
+                                {"felt": "telefon", "synlig": None, "obligatorisk": None, "rekkefolge": None,
+                                 "label": None, "hjelpetekst": ""}])
+    assert dict(les.overstyringer) == {"faktura_ref": Overstyring(hjelpetekst="")} and not les.har_advarsler
+
+
+def _felt_i(felt, nokkel):
+    return next(f for f in felt if f.nokkel == nokkel)
+
+
+@pytest.mark.parametrize("felt,egenskaper,grunn", [
+    ("allergier", {"obligatorisk": True}, sf.IKKE_TILLATT), ("tilrettelegging", {"rekkefolge": 1}, sf.IKKE_TILLATT),
+    ("ehf", {"obligatorisk": True}, sf.IKKE_TILLATT), ("faktura_ref", {"rekkefolge": 0}, sf.IKKE_TILLATT),
+    ("vis_pris", {"label": "Pris"}, sf.IKKE_TILLATT), ("vis_pris", {"obligatorisk": True}, sf.IKKE_TILLATT),
+    ("hpr_nr", {"synlig": False}, sf.IKKE_TILLATT),
+])
+def test_felt_kan_bare_endres_innenfor_sine_grenser(felt, egenskaper, grunn):
+    assert _feil(felt, egenskaper).grunn == grunn
+
+
+@pytest.mark.parametrize("felt,egenskaper,forventet", [
+    ("allergier", {"synlig": False, "label": "Allergier"}, Overstyring(synlig=False, label="Allergier")),
+    ("faktura_epost", {"obligatorisk": True}, Overstyring(obligatorisk=True)),
+    ("vis_pris", {"synlig": False}, Overstyring(synlig=False)),
+    ("yrkestittel", {"synlig": True, "rekkefolge": 1}, Overstyring(synlig=True, rekkefolge=1)),
+])
+def test_nye_standardfelt_kan_tilpasses(felt, egenskaper, forventet):
+    assert sf.normaliser_overstyring(felt, egenskaper) == forventet
 
 
 @pytest.mark.parametrize("felt,annet", [("telefon", "arbeidssted"), ("arbeidssted", "telefon")])
@@ -494,10 +551,19 @@ def test_hpr_folger_spesialistlop_uansett_overstyring():
 
 def test_laaste_felt_og_systemblokker_paavirkes_aldri():
     over = {n: Overstyring(synlig=False, obligatorisk=False, label="X", rekkefolge=0, hjelpetekst="H")
-            for n in ("navn", "fornavn", "etternavn", "epost", "samtykke", "allergier", "tilrettelegging", "betaler",
-                      "faktura", "sensitivt")}
+            for n in ("navn", "fornavn", "etternavn", "epost", "samtykke", "betaler", "faktura", "sensitivt", "org_nr",
+                      "org_navn", "betaling", "ekstra:1")}
     for kurs in (KURS, KURS_LOP, {**KURS, "type": "digital"}, {**KURS, "fakturering": "ingen"}):
         assert sf.effektivt_skjema(kurs, over) == sf.effektivt_skjema(kurs)
+
+
+def test_sensitive_felt_blir_aldri_obligatoriske_eller_flyttes_av_haandlaget_overstyring():
+    o = Overstyring(obligatorisk=True, rekkefolge=-1, label="Allergier", hjelpetekst="H")
+    s = sf.effektivt_skjema(KURS, {"allergier": o, "tilrettelegging": o})
+    assert [(f.nokkel, f.label, f.obligatorisk, f.hjelpetekst) for f in s.sensitive_felt] == [
+        ("allergier", "Allergier", False, "H"), ("tilrettelegging", "Allergier", False, "H")]
+    digitalt = sf.effektivt_skjema({**KURS, "type": "digital"}, {"allergier": Overstyring(synlig=True)})
+    assert digitalt.sensitive_felt == () and not digitalt.vis_sensitive_felt
 
 
 @pytest.mark.parametrize("kurs,faktura,sensitivt", [

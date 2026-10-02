@@ -4,8 +4,8 @@
 <h1>Allergier og tilrettelegging</h1>
 <p class="sub">{{ kurs.navn }} · Sensitive opplysninger – visning logges, og dataene slettes automatisk etter kurset.</p>
 <div class="tabellboks"><table>
-  <tr><th scope="col">Navn</th><th scope="col">Allergier / spesialkost</th><th scope="col">Tilrettelegging</th></tr>
-  {% for r in rader %}<tr><td>{{ r.navn }}</td><td>{{ r.allergier or '' }}</td><td>{{ r.tilrettelegging or '' }}</td></tr>
-  {% else %}<tr><td colspan="3" class="dempet">Ingen registrert.</td></tr>{% endfor %}
+  <tr><th scope="col">Navn</th>{% if deltar_paa %}<th scope="col">Deltar på</th>{% endif %}<th scope="col">Allergier / spesialkost</th><th scope="col">Tilrettelegging</th></tr>
+  {% for r in rader %}<tr><td>{{ r.navn }}</td>{% if deltar_paa %}<td>{{ deltar_paa.get(r.pid, 'Hele kurset') }}</td>{% endif %}<td>{{ r.allergier or '' }}</td><td>{{ r.tilrettelegging or '' }}</td></tr>
+  {% else %}<tr><td colspan="{{ 4 if deltar_paa else 3 }}" class="dempet">Ingen registrert.</td></tr>{% endfor %}
 </table></div>
 {% endblock %}

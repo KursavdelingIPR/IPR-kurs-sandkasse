@@ -408,7 +408,9 @@ def test_emne_er_klikkbart_paa_deltaker_kommunikasjon(con):
     uid = _utsending_id(r.get_data(as_text=True))
     klient.post(f"/admin/kurs/{kid}/epost/send", data={"utsending_id": uid})
     tekst = klient.get(f"/admin/kurs/{kid}/deltaker/{pid}/kommunikasjon").get_data(as_text=True)
-    assert f'href="/admin/kurs/{kid}/epost/{uid}"' in tekst
+    kopi = re.search(rf'href="(/admin/kurs/{kid}/deltaker/{pid}/epost/\d+)"[^>]*>Klikk meg</a>', tekst)
+    assert kopi                                        # emnet åpner e-posten slik den ble sendt ...
+    assert f'href="/admin/kurs/{kid}/epost/{uid}"' in klient.get(kopi[1]).get_data(as_text=True)  # ... og utsendelsen
 
 
 # ---------------- kun status='sendt' vises som sendt (trinn 2.5, sluttkontroll) ----------------
@@ -429,16 +431,19 @@ def test_kun_sendt_status_vises_som_sendt_i_alle_kommunikasjonsvisninger(con, st
     con.execute("INSERT INTO utsending_logg (nokkel, mottaker, type, status) VALUES (?,?,?,?)",
                 (f"kurs:{kid}", "a@x.no", "autotype", status))
     con.execute("UPDATE utsending_logg SET status=? WHERE nokkel LIKE 'adhoc:%'", (status,))
+    con.execute("UPDATE sendt_epost SET status=?", ({"reservert": "sender"}.get(status, status),))
     con.commit()
 
     deltaker = klient.get(f"/admin/kurs/{kid}/deltaker/{pid}/kommunikasjon").get_data(as_text=True)
     kurs_side = klient.get(f"/admin/kurs/{kid}/kommunikasjon").get_data(as_text=True)
     detalj = klient.get(f"/admin/kurs/{kid}/epost/{uid}")
 
-    assert ("Manuelt emne" in deltaker) is skal_vises and ("autotype" in deltaker) is skal_vises
+    merke = {"sendt": "Sendt", "reservert": "Sendes nå", "ukjent": "Uavklart", "feilet": "Feilet"}[status]
+    assert "Manuelt emne" in deltaker and "autotype" in deltaker      # E-poster-fanen viser alle forsøk ...
+    assert deltaker.count(f">{merke}</span>") == 2                    # ... med riktig status ...
+    assert (">Sendt</span>" in deltaker) is skal_vises                # ... og aldri som sendt når de ikke er det
     assert ("Manuelt emne" in kurs_side) is skal_vises and ("autotype" in kurs_side) is skal_vises
     assert (detalj.status_code == 200) is skal_vises  # ellers 404: aldri vist som sendt
     if not skal_vises:
-        assert "Ingen e-post sendt ennå." in deltaker
         assert "Ingen manuell e-post sendt for dette kurset ennå." in kurs_side
         assert "Ingen automatisk e-post sendt for dette kurset ennå." in kurs_side

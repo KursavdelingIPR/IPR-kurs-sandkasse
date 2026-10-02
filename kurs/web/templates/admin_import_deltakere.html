@@ -15,10 +15,17 @@
     <li>Kun CSV-filer (.csv)</li>
     <li>Maks 2 MB</li>
     <li>Maks 300 rader</li>
-    <li>Obligatoriske kolonner: <strong>Fornavn</strong>, <strong>Etternavn</strong> og <strong>E-post</strong> – resten er valgfrie</li>
+    {% if adresse_kreves_i_csv() %}
+    <li>Obligatoriske kolonner: <strong>Fornavn</strong>, <strong>Etternavn</strong>, <strong>E-post</strong>, <strong>Adresse</strong>, <strong>Postnr</strong> og <strong>Poststed</strong> – resten er valgfrie. Adressen er deltakerens <strong>private</strong> adresse og <strong>må være med</strong> for hver rad, også når arbeidsgiver betaler (fakturaen sendes automatisk ved påmelding, og da må adressen være klar). En fil uten adressekolonnene avvises. Rader uten adresse stoppes i forhåndsvisningen.</li>
+    {% else %}
+    <li>Obligatoriske kolonner: <strong>Fornavn</strong>, <strong>Etternavn</strong> og <strong>E-post</strong> – resten er valgfrie. Adressen skal egentlig alltid være med, men kravet er <strong>midlertidig slått av</strong> (nødbrems, innstillingen <code>ADRESSE_KREVES_I_CSV=0</code>). Kolonnene <strong>Adresse</strong>, <strong>Postnr</strong> og <strong>Poststed</strong> (deltakerens <strong>private</strong> adresse) er derfor <strong>ikke påkrevd</strong> i filimporten nå: de kan mangle, eller stå tomme på en rad. Fyller du ut noen av dem på en rad, må du fylle ut alle tre, ellers stoppes raden i forhåndsvisningen. En person uten adresse importeres, men merkes «{{ ADRESSE_MANGLER_MERKE }}» i deltakerlisten til du har lagt inn adressen i deltakervinduet.</li>
+    {% endif %}
+    <li>Betaler deltakeren selv, sendes fakturaen til denne adressen. Har personen en adresse fra før, beholdes den (filen kan være eldre enn det som er registrert).</li>
+    <li>Når <strong>Betaler</strong> er «organisasjon», fyller du bare inn <strong>Org.nr</strong> (gyldig, 9 siffer). Firmanavn og fakturaadresse hentes fra Enhetsregisteret rett etter importen – kolonnen Firmanavn brukes ikke for firma. Fakturaen venter til de er hentet.</li>
   </ul>
   <p class="liten" style="margin-bottom:16px">
     <a href="{{ url_for('admin_deltaker_import_mal') }}">Last ned CSV-mal →</a>
+    <span class="dempet">– har kolonnene Fornavn, Etternavn, E-post, Adresse, Postnr og Poststed først, og én eksempelrad{% if adresse_kreves_i_csv() %}. Adressekolonnene er påkrevd.{% else %}. Adressekolonnene er valgfrie.{% endif %}</span>
   </p>
 
   <form method="post" enctype="multipart/form-data">

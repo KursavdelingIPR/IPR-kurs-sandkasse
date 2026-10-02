@@ -1,54 +1,142 @@
 {% extends "base.html" %}
-{% block tittel %}Min side – IPR Påmeldingssystem{% endblock %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css) -#}
+{% import "_kursside_blokker.html" as bl %}
+{#- Mine kurs: deltakerens oversikt over alle kursene sine (ett kort per påmelding, med «Åpne Min side» og «Registrer oppmøte i dag») og «Min konto»
+    (fakturaer, kursbevis og dokumenter, timer i spesialistløp). Min konto vises bare når deltakeren er innlogget med e-post (`full`); kom deltakeren inn
+    med den personlige lenken, står en knapp for å bekrefte e-posten i stedet. Selve kursinnholdet ligger på Min side for hvert kurs.
+    Bare det siden skal vise kommer inn fra ruten (min_side i app.py): ingen adresse, ingen intern kommentar, aldri innsjekk-kode. -#}
+{% block tittel %}Mine kurs – IPR Påmeldingssystem{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='min-side.css') }}">{% endblock %}
 {% block innhold %}
+{% include "_kursside_ikoner.html" %}
+<div class="ms-rot">
 <h1>Hei, {{ deltaker.fornavn or deltaker.navn }}</h1>
 <p class="sub">{{ deltaker.epost }}{% if deltaker.arbeidssted %} · {{ deltaker.arbeidssted }}{% endif %}</p>
 
-{% for lopnavn, timer in lop.items() %}
-<div class="kort" style="display:flex; gap:24px; align-items:center; flex-wrap:wrap">
-  <div><div class="liten dempet">{{ lopnavn }}-spesialistløp · dokumenterte timer</div><div class="stat">{{ '%g' % timer }}</div></div>
-  <div class="liten dempet" style="flex:1; min-width:200px">Summert fra registrert oppmøte på alle samlinger. Timekrav for godkjenning avklares med IPR.</div>
-</div>
-{% endfor %}
+<div class="ms-rutenett">
+  <section class="ms-hoved" aria-labelledby="mine-kurs">
+    <h2 id="mine-kurs">Mine kurs</h2>
+    {% for x in kursliste %}{% set p = x.p %}{% set ks = x.kursside %}
+    <article class="ms-kurs" id="kurs-{{ p.kurs_id }}" aria-labelledby="kurs-{{ p.kurs_id }}-h">
+      <div class="ms-kurs-topp">
+        <div class="ms-kurs-navn">
+          <h3 id="kurs-{{ p.kurs_id }}-h">{{ p.navn }}</h3>
+          <p class="ms-meta">
+            <span>{{ {'digital':'Digitalt','fysisk':p.sted or 'Fysisk','hybrid':'Hybrid'}[p.type] }}{% if x.periode %} · {{ x.periode }}{% endif %}</span>
+            {% if p.kursstatus == 'avlyst' %}<span class="merke feil">Avlyst</span>
+            {% elif p.status == 'venteliste' %}<span class="merke gul">Venteliste</span>
+            {% elif p.kursstatus == 'avsluttet' %}<span class="merke gra">Gjennomført</span>
+            {% else %}<span class="merke ok">{{ STATUS.paameldt }}</span>{% endif %}
+            {% if p.betaling == 'per_samling' %}<span class="merke">Delt betaling</span>{% endif %}
+          </p>
+        </div>
+        {% if ks.kan_apne %}<a class="knapp ms-apne" href="{{ url_for('deltakerside', kode=p.kode) }}">Åpne Min side{{ bl.ikon('pil-hoyre') }}</a>
+        {% elif ks.tekst %}<p class="ms-kursside-tekst">{{ ks.tekst }}</p>{% endif %}
+      </div>
 
-<h2>Mine kurs</h2>
-{% for x in kursliste %}{% set p = x.p %}
-<div class="kort">
-  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap">
-    <div><strong>{{ p.navn }}</strong>
-      <div class="liten dempet">{{ {'digital':'Digitalt','fysisk':p.sted or 'Fysisk','hybrid':'Hybrid'}[p.type] }}</div></div>
-    <div>
-      {% if p.status == 'venteliste' %}<span class="merke gul">Venteliste</span>
-      {% elif p.kursstatus == 'avsluttet' %}<span class="merke gra">Gjennomført</span>
-      {% else %}<span class="merke ok">Påmeldt</span>{% endif %}
-      {% if p.betaling == 'per_samling' %}<span class="merke">Delt betaling</span>{% endif %}
+      {% if p.status == 'bekreftet' %}
+      {% if x.i_dag %}{% set d = x.i_dag %}
+      <section class="ms-idag{{ ' ms-idag-ok' if d.registrert }}" id="idag-{{ p.kurs_id }}" aria-labelledby="idag-{{ p.kurs_id }}-h">
+        <h4 id="idag-{{ p.kurs_id }}-h">{{ bl.ikon('klokke') }}Registrer oppmøte i dag</h4>
+        <p class="ms-idag-dag">{{ d.dato_lang|capitalize }}{% if d.nr %} · dag {{ d.nr }} av {{ d.av }}{% endif %}{% if d.tid %} · {{ d.tid }}{% endif %}</p>
+        {% if x.melding %}<p class="ms-svar ms-svar-{{ x.melding.niva }}" role="{{ 'alert' if x.melding.niva == 'feil' else 'status' }}">{{ x.melding.tekst }}</p>{% endif %}
+        {% if d.registrert %}
+        <p class="ms-registrert"><span class="ms-ring">{{ bl.ikon('hake') }}</span>Du er registrert for i dag · kl. {{ d.registrert }}</p>
+        <p class="ms-hjelp">Du kan bare registreres én gang per kursdag, så her er alt i orden.</p>
+        {% elif d.tilbys %}
+        <form method="post" action="{{ url_for('deltakerside_oppmote', kode=p.kode) }}" data-en-gang>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="retur" value="min_side">
+          <p class="ms-hjelp">Skann QR-koden i kurslokalet når du kommer. Får du ikke skannet, kan du registrere deg her.</p>
+          {% if d.krever_kode %}
+          <label for="kode-{{ p.kurs_id }}">Dagens kode</label>
+          <input id="kode-{{ p.kurs_id }}" name="kode" class="ms-kode" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" required>
+          {% endif %}
+          <button type="submit" class="ms-registrer">{{ bl.ikon('hake') }}Registrer oppmøte</button>
+          <p class="ms-hjelp">{% if d.krever_kode %}Koden står på skjermen i kurslokalet. {% endif %}Du kan bare registreres én gang per kursdag.</p>
+        </form>
+        {% elif d.forklaring %}<p class="ms-hjelp">{{ d.forklaring }}</p>{% endif %}
+      </section>
+      {% endif %}
+
+      {% if x.dager %}
+      <div class="ms-dager">
+        <span class="ms-dager-tittel">Oppmøte</span>
+        {% for d in x.dager %}<span class="merke {{ 'ok' if d.kilde else ('gra' if d.dato >= idag else 'feil') }}" title="{{ d.dato }}{{ ' – registrert' if d.kilde else (' – kommer' if d.dato >= idag else ' – ikke registrert') }}">{{ d.dato[8:10] }}.{{ d.dato[5:7] }}. {{ '✓' if d.kilde else ('' if d.dato >= idag else '✗') }}</span>{% endfor %}
+      </div>
+      {% endif %}
+      {% if p.zoom_url and p.kursstatus != 'avsluttet' %}<p class="ms-liten">Zoom: <a href="{{ p.zoom_url }}">{{ p.zoom_url }}</a></p>{% endif %}
+      {% if x.filer %}<div class="ms-materiell"><p class="ms-liten"><strong>Kursmateriell</strong></p>
+        <ul class="ms-liste">{% for fil in x.filer %}<li><a href="{{ url_for('materiell', kurs_id=p.kurs_id, navn=fil.navn) }}">{{ fil.navn }}</a></li>{% endfor %}</ul></div>{% endif %}
+      {% endif %}
+    </article>
+    {% else %}<p class="dempet">Du har ingen påmeldinger.</p>{% endfor %}
+  </section>
+
+  {% if full %}
+  <aside class="ms-konto" aria-labelledby="ms-konto-h">
+    <h2 id="ms-konto-h">Min konto</h2>
+    <a class="ms-kontokort" href="#fakturaer"><strong>Fakturaer</strong>
+      <span>{% if antall_fakturaer %}{{ antall_fakturaer }} faktura{{ 'er' if antall_fakturaer != 1 }}{% if antall_ubetalt %} · {{ antall_ubetalt }} ubetalt{% endif %}{% else %}Ingen fakturaer ennå{% endif %}</span></a>
+    <a class="ms-kontokort" href="#dokumenter"><strong>Kursbevis og dokumenter</strong>
+      <span>{% if antall_kursbevis %}{{ antall_kursbevis }} kursbevis{% elif dokumenter %}{{ dokumenter|length }} dokument{{ 'er' if dokumenter|length != 1 }}{% else %}Ingen dokumenter ennå{% endif %}</span></a>
+    {% if lop %}<a class="ms-kontokort" href="#timer"><strong>Timer i spesialistløp</strong>
+      <span>{% for lopnavn, timer in lop.items() %}{{ lopnavn }} · {{ '%g' % timer }} timer{{ ' · ' if not loop.last }}{% endfor %}</span></a>{% endif %}
+  </aside>
+  {% else %}
+  <aside class="ms-konto" aria-labelledby="ms-konto-h">
+    <h2 id="ms-konto-h">Min konto</h2>
+    <div class="ms-bekreft">
+      <p>Fakturaer, kursbevis og timer vises først når du har bekreftet e-posten din.</p>
+      <form method="post" action="{{ url_for('bekreft_epost') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="neste" value="{{ url_for('min_side') }}">
+        <button type="submit">Send meg en lenke på e-post</button>
+      </form>
     </div>
-  </div>
-  {% if p.status == 'bekreftet' %}
-  <div style="margin-top:12px; display:flex; gap:6px; flex-wrap:wrap">
-    {% for d in x.dager %}<span class="merke {{ 'ok' if d.kilde else ('gra' if d.dato >= idag else 'feil') }}" title="{{ d.kilde or '' }}">{{ d.dato }} {{ '✓' if d.kilde else ('' if d.dato >= idag else '✗') }}</span>{% endfor %}
-  </div>
-  {% if x.fakturaer %}
-  <p class="liten" style="margin:12px 0 4px"><strong>Fakturaer</strong></p>
-  <ul class="liten" style="margin:0; padding-left:18px">
-    {% for fak in x.fakturaer %}<li>Faktura {{ fak.faktura_nr }}{% if fak.dato %} – samling {{ fak.dato }}{% endif %} ·
-      {{ '{:,}'.format(fak.belop_nok).replace(',', ' ') }} kr · <span class="merke {{ 'ok' if fak.status == 'betalt' }}">{{ fak.status }}</span></li>{% endfor %}
-    {% if p.betaling == 'per_samling' %}<li class="dempet">Resterende samlinger faktureres fortløpende før hver samling.</li>{% endif %}
-  </ul>
-  {% endif %}
-  {% if p.zoom_url and p.kursstatus != 'avsluttet' %}<p class="liten" style="margin-top:10px">Zoom: <a href="{{ p.zoom_url }}">{{ p.zoom_url }}</a></p>{% endif %}
-  {% if x.filer %}<p class="liten" style="margin:12px 0 4px"><strong>Kursmateriell</strong></p>
-    <ul class="liten" style="margin:0; padding-left:18px">{% for fil in x.filer %}<li><a href="{{ url_for('materiell', kurs_id=p.kurs_id, navn=fil.navn) }}">{{ fil.navn }}</a></li>{% endfor %}</ul>{% endif %}
+  </aside>
   {% endif %}
 </div>
-{% else %}<p class="dempet">Du har ingen påmeldinger.</p>{% endfor %}
 
-<h2>Dokumenter</h2>
-<div class="tabellboks"><table>
-  <tr><th>Dokument</th><th>Type</th><th>Kurs</th><th>Dato</th></tr>
-  {% for d in dokumenter %}
-  <tr><td><a href="{{ url_for('dokument', dok_id=d.id) }}" target="_blank">{{ d.tittel }}</a></td>
-      <td><span class="merke">{{ d.type }}</span></td><td>{{ d.kursnavn or '' }}</td><td class="dempet">{{ d.opprettet[:10] }}</td></tr>
-  {% else %}<tr><td colspan="4" class="dempet">Ingen dokumenter ennå.</td></tr>{% endfor %}
-</table></div>
+{% if full %}
+<section class="ms-del" id="fakturaer" aria-labelledby="fakturaer-h">
+  <h2 id="fakturaer-h">Fakturaer</h2>
+  {% if antall_fakturaer %}
+  <div class="tabellboks"><table>
+    <tr><th scope="col">Kurs</th><th scope="col">Faktura</th><th scope="col">Beløp</th><th scope="col">Status</th></tr>
+    {% for x in kursliste %}{% for fak in x.fakturaer %}
+    <tr><td data-etikett="Kurs">{{ x.p.navn }}{% if fak.dato %}<div class="liten dempet">Samling {{ fak.dato[8:10] }}.{{ fak.dato[5:7] }}.{{ fak.dato[:4] }}</div>{% endif %}</td>
+        <td data-etikett="Faktura">{{ fak.faktura_nr or '–' }}</td>
+        <td class="ms-belop" data-etikett="Beløp">{{ '{:,}'.format(fak.belop_nok).replace(',', ' ') }} kr</td>
+        <td data-etikett="Status"><span class="merke {{ 'ok' if fak.status == 'betalt' }}">{{ {'opprettet':'Opprettet','sendt':'Sendt','betalt':'Betalt','kreditert':'Kreditert'}.get(fak.status, 'Under behandling') }}</span></td></tr>
+    {% endfor %}{% endfor %}
+  </table></div>
+  {% if kursliste|selectattr('p.betaling', 'equalto', 'per_samling')|list %}<p class="liten dempet">Resterende samlinger faktureres fortløpende før hver samling.</p>{% endif %}
+  {% else %}<p class="dempet">Du har ingen fakturaer ennå.</p>{% endif %}
+</section>
+
+<section class="ms-del" id="dokumenter" aria-labelledby="dokumenter-h">
+  <h2 id="dokumenter-h">Dokumenter</h2>
+  <div class="tabellboks"><table>
+    <tr><th scope="col">Dokument</th><th scope="col">Type</th><th scope="col">Kurs</th><th scope="col">Dato</th></tr>
+    {% for d in dokumenter %}
+    <tr><td data-etikett="Dokument"><a href="{{ url_for('dokument', dok_id=d.id) }}" target="_blank" rel="noopener">{{ d.tittel }}</a></td>
+        <td data-etikett="Type"><span class="merke">{{ d.type }}</span></td><td data-etikett="Kurs">{{ d.kursnavn or '' }}</td><td class="dempet" data-etikett="Dato">{{ d.opprettet[:10] }}</td></tr>
+    {% else %}<tr><td colspan="4" class="dempet">Ingen dokumenter ennå.</td></tr>{% endfor %}
+  </table></div>
+</section>
+
+{% if lop %}
+<section class="ms-del" id="timer" aria-labelledby="timer-h">
+  <h2 id="timer-h">Timer i spesialistløp</h2>
+  {% for lopnavn, timer in lop.items() %}
+  <div class="kort ms-lop">
+    <div><div class="liten dempet">{{ lopnavn }}-spesialistløp · dokumenterte timer</div><div class="stat">{{ '%g' % timer }}</div></div>
+    <div class="liten dempet ms-lop-tekst">Summert fra registrert oppmøte på alle samlinger. Timekrav for godkjenning avklares med IPR.</div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+{% endif %}
+</div>
 {% endblock %}

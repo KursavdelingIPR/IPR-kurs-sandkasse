@@ -3,6 +3,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import config, daglig, db, sveiper
 from kurs.kjoring import Kjoring
 
@@ -192,7 +193,7 @@ def test_paamelding_stoppes_etter_frist_via_web(con):
     con.execute("UPDATE kurs SET paameldingsfrist=? WHERE id=?", ((date.today() - timedelta(days=1)).isoformat(), kid))
     con.commit()
     klient = _klient()
-    r = klient.post("/kurs/WEB1", data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "samtykke": "on",
+    r = klient.post("/kurs/WEB1", data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "samtykke": "on", **ADRESSE,
                                         "betaler": "person"})
     assert r.status_code == 400
     assert "frist" in r.get_data(as_text=True).lower()

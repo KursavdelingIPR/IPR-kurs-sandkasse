@@ -1,4 +1,5 @@
 {% extends "admin_base.html" %}
+{% import "_kursskjema.html" as skjema %}
 {% block innhold %}
 {% include "admin_kurs_header.html" %}
 {% include "admin_kurs_faner.html" %}
@@ -35,7 +36,7 @@
     </form>
     {% elif kurs.status != 'avsluttet' %}
     <form method="post" action="{{ url_for('admin_avlys_kurs', kurs_id=kurs.id) }}"
-          data-bekreft="Avlyse «{{ kurs.navn }}»? Alle bekreftede og de på venteliste varsles på e-post med én gang. Fakturaer krediteres ikke automatisk – det må gjøres manuelt i Visma.">
+          data-bekreft="Avlyse «{{ kurs.navn }}»? Alle {{ STATUS_FLERTALL.paameldt|lower }}{% if ekstra_antall %}, {{ STATUS_FLERTALL.ekstradeltaker|lower }}{% endif %} og de på venteliste varsles på e-post med én gang. Fakturaer krediteres ikke automatisk – det må gjøres manuelt i Visma.">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <p style="margin-top:8px"><button class="liten fare">Avlys kurs</button></p>
     </form>
@@ -44,7 +45,7 @@
 
   <div class="kort">
     <strong>Ansvarlig</strong>
-    <p class="liten dempet" style="margin:4px 0 10px">Brukes til «vis bare mine aktiviteter».</p>
+    <p class="liten dempet" style="margin:4px 0 10px">Brukes til «Vis bare mine kurs» på Oversikten.</p>
     <form method="post" action="{{ url_for('admin_sett_ansvarlig', kurs_id=kurs.id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <select name="ansvarlig_admin_id" aria-label="Ansvarlig">
@@ -58,87 +59,130 @@
 
 <h2>Kursinnstillinger</h2>
 <form id="kursform" method="post" action="{{ url_for('admin_kurs_oppsett_lagre', kurs_id=kurs.id) }}"
-      data-type-sted-vakt="{{ bekreftet_antall }}" data-opprinnelig-type="{{ kurs.type }}" data-opprinnelig-sted="{{ kurs.sted or '' }}"
-      class="kort" style="max-width:820px">
+      data-type-sted-vakt="{{ bekreftet_antall }}" data-type-sted-ord="{{ STATUS_FLERTALL.paameldt|lower }}" data-type-sted-paameldte="{{ paameldte_antall }}" data-type-sted-ekstra="{{ ekstra_antall }}" data-type-sted-ekstra-ord="{{ (STATUS.ekstradeltaker if ekstra_antall == 1 else STATUS_FLERTALL.ekstradeltaker)|lower }}" data-opprinnelig-type="{{ kurs.type }}" data-opprinnelig-sted="{{ kurs.sted or '' }}"
+      class="kort kursskjema" data-kursskjema>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="versjon" value="{{ versjon_for('kurs', kurs) }}">
-  <div class="rad">
-    <div style="grid-column:span 3"><label for="f-navn">Kursnavn *</label><input id="f-navn" name="navn" required value="{{ kurs.navn }}"></div>
-  </div>
-  <div class="rad">
-    <div><label for="f-type">Type</label><select id="f-type" name="type">
-      <option value="fysisk" {{ 'selected' if kurs.type == 'fysisk' }}>Fysisk</option>
-      <option value="digital" {{ 'selected' if kurs.type == 'digital' }}>Digitalt</option>
-      <option value="hybrid" {{ 'selected' if kurs.type == 'hybrid' }}>Hybrid</option>
-    </select></div>
-    <div><label for="f-sted">Sted</label><input id="f-sted" name="sted" value="{{ kurs.sted or '' }}"></div>
-    <div><label for="f-zoom_url">Zoom-lenke</label><input id="f-zoom_url" name="zoom_url" value="{{ kurs.zoom_url or '' }}">
-      <p class="liten dempet" style="margin:4px 0 0">Tom = opprettes automatisk 8 dager før start (kun digitalt/hybrid).</p></div>
-  </div>
+  <label for="f-navn">Kursnavn *</label><input id="f-navn" name="navn" required maxlength="200" value="{{ v.navn }}">
+  {{ skjema.format_og_sted(v, formater, zoom=true) }}
   {% if bekreftet_antall %}
-  <p class="liten dempet" style="margin-top:8px">Kurset har {{ bekreftet_antall }} bekreftede deltakere. Endres type eller sted,
+  <p class="liten dempet" style="margin-top:8px">Kurset har {{ paameldte_antall }} {{ STATUS_FLERTALL.paameldt|lower }} deltakere{% if ekstra_antall %} og {{ ekstra_antall }} {{ (STATUS.ekstradeltaker if ekstra_antall == 1 else STATUS_FLERTALL.ekstradeltaker)|lower }}{% endif %}. Endres format eller sted,
     varsles du før lagring – det kan gjøre informasjon som allerede er sendt utdatert.</p>
   {% endif %}
   <div class="rad">
-    <div><label for="f-kapasitet">Kapasitet</label><input id="f-kapasitet" name="kapasitet" type="number" min="1" value="{{ kurs.kapasitet or '' }}">
+    <div><label for="f-kapasitet">Kapasitet</label><input id="f-kapasitet" name="kapasitet" type="number" min="1" value="{{ v.kapasitet }}">
       <p class="liten dempet" style="margin:4px 0 0">Tom = ubegrenset. Øker du kapasiteten, rykker ventelisten automatisk opp.</p></div>
-    <div><label for="f-paameldingsfrist">Påmeldingsfrist</label><input id="f-paameldingsfrist" name="paameldingsfrist" type="date" value="{{ kurs.paameldingsfrist or '' }}">
-      <p class="liten dempet" style="margin:4px 0 0">Tom = ingen frist.</p></div>
+    <div>{{ skjema.paameldingsfrist(v, idag, forste_kursdag, fristforslag) }}</div>
   </div>
 
-  {% if faktura_laast %}
-  <p class="liten dempet" style="margin-top:16px">Pris og fakturaoppsett kan ikke endres – kurset har en faktura som er opprettet, forsøkt eller planlagt.</p>
-  <div class="rad">
-    <div><div class="etikett">Pris eks. mva</div><p class="liten dempet" style="margin-top:8px">{{ kurs.pris_nok }} kr</p></div>
-    <div><div class="etikett">Fakturering</div><p class="liten dempet" style="margin-top:8px">{{ kurs.fakturering }}</p></div>
-    <div><div class="etikett">Betaling</div><p class="liten dempet" style="margin-top:8px">{{ kurs.betaling }}</p></div>
+  <h3 class="skjemadel">Betaling</h3>
+  {#- Pris og fakturaoppsett kan alltid endres (Camilla 01.10.2026: den som bruker systemet må kunne rette en pris uten utvikler). Har kurset
+      fakturaer, forsøk eller planlagte fakturaer, står det en gul boks under feltene med det som gjelder, og endringen må bekreftes:
+      app.js viser avkryssingen når et felt i [data-okonomi] er endret og gjør den påkrevd; serveren krever den uansett (bekreft_okonomi). -#}
+  <div data-okonomi>
+    <div class="rad">
+      <div><label for="f-pris_nok">Pris eks. mva (kr)</label><input id="f-pris_nok" name="pris_nok" type="number" min="0" value="{{ v.pris_nok }}" style="max-width:14em">
+        <p class="liten dempet" style="margin:4px 0 0">0 = gratis (ingen faktura).</p></div>
+    </div>
+    {{ skjema.betaling(v) }}
   </div>
-  {% else %}
-  <div class="rad">
-    <div><label for="f-pris_nok">Pris eks. mva (kr)</label><input id="f-pris_nok" name="pris_nok" type="number" min="0" value="{{ kurs.pris_nok }}"></div>
-    <div><label for="f-fakturering">Fakturering</label><select id="f-fakturering" name="fakturering">
-      <option value="person" {{ 'selected' if kurs.fakturering == 'person' }}>Per deltaker (automatisk)</option>
-      <option value="organisasjon" {{ 'selected' if kurs.fakturering == 'organisasjon' }}>Samlet til organisasjon</option>
-      <option value="ingen" {{ 'selected' if kurs.fakturering == 'ingen' }}>Ingen</option>
-    </select></div>
-    <div><label for="f-betaling">Betaling</label><select id="f-betaling" name="betaling">
-      <option value="samlet" {{ 'selected' if kurs.betaling == 'samlet' }}>Hele beløpet i én faktura</option>
-      <option value="per_samling" {{ 'selected' if kurs.betaling == 'per_samling' }}>Delt opp – én faktura før hver samling</option>
-      <option value="deltaker_velger" {{ 'selected' if kurs.betaling == 'deltaker_velger' }}>La deltakeren velge</option>
-    </select></div>
-  </div>
-  <div class="rad">
-    <div><label for="f-faktura_dager_for">Delfaktura sendes (dager før hver samling)</label><input id="f-faktura_dager_for" name="faktura_dager_for" type="number" min="0" max="180" value="{{ kurs.faktura_dager_for }}"></div>
+  {% if faktura_bundet %}
+  <div class="varselboks gul" role="note" style="margin-top:14px" data-okonomi-varsel>
+    <p style="margin:0 0 6px"><strong>Kurset har allerede {{ faktura_binding }}.</strong> Pris og fakturaoppsett kan fortsatt endres, men:</p>
+    <ul style="margin:0 0 10px; padding-left:20px">
+      <li>Fakturaer som allerede er laget, endres ikke. Må en av dem rettes, gjøres det i Visma.</li>
+      <li>Ny pris, ny fakturering og nytt antall dager før samlingen gjelder bare fakturaer som ikke er laget ennå. Har en deltaker fått faktura for noen
+        av samlingene, deles resten (ny pris minus det som er fakturert) på samlingene som gjenstår.</li>
+      <li>Ny fakturaplan (samlet, per samling eller deltakeren velger) gjelder bare nye påmeldinger. De som allerede er påmeldt, beholder planen de har.</li>
+      {% if faktura_forsok %}<li>Du har uavklarte fakturaforsøk (siden <a href="{{ url_for('admin_uavklart') }}">Uavklarte operasjoner</a>). Beløpet som foreslås der, bruker den nye prisen:
+        sjekk beløpet mot Visma før du registrerer fakturaen.</li>{% endif %}
+    </ul>
+    <label class="valg" data-okonomi-bekreft><input type="checkbox" name="bekreft_okonomi" value="1"> Jeg forstår dette og vil endre pris eller fakturaoppsett</label>
   </div>
   {% endif %}
 
-  <div class="rad">
-    <div><label for="f-kursholder_epost">Kursholder e-post</label><input id="f-kursholder_epost" name="kursholder_epost" type="email" value="{{ kurs.kursholder_epost or '' }}">
-      <p class="liten dempet" style="margin:4px 0 0">Oppdaterer også hvem ikke-leverte materiellpurringer sendes til.</p></div>
-  </div>
-  <label for="f-notat">Praktisk info (tas med i velkomst-e-post)</label><textarea id="f-notat" name="notat" rows="3">{{ kurs.notat or '' }}</textarea>
+  <h3 class="skjemadel">Intern kommentar</h3>
+  {{ skjema.intern_kommentar(v, vis_etikett=false) }}
 
   <p style="margin-top:16px"><button class="liten">Lagre kursinnstillinger</button></p>
 </form>
 
+<h2 id="kursgjennomforing">Kursgjennomføring</h2>
+{% if datofeil %}
+<div class="flash feil" role="alert"><strong>Datoene er ikke lagret.</strong>
+  <ul style="margin:6px 0 0; padding-left:20px">{% for x in datofeil %}<li>{{ x }}</li>{% endfor %}</ul></div>
+{% endif %}
+<form method="post" action="{{ url_for('admin_kurs_kursdatoer', kurs_id=kurs.id) }}" class="kort kursskjema" data-kursskjema
+      {% if bekreftet_antall %}data-bekreft="Kurset har {{ paameldte_antall }} {{ STATUS_FLERTALL.paameldt|lower }} deltakere{% if ekstra_antall %} og {{ ekstra_antall }} {{ (STATUS.ekstradeltaker if ekstra_antall == 1 else STATUS_FLERTALL.ekstradeltaker)|lower }}{% endif %}. De får ikke beskjed om endrede datoer automatisk. Vil du lagre datoene?"{% endif %}>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="kursdato_versjon" value="{{ kursdato_versjon }}">
+  {{ skjema.kursgjennomforing(rader, oppsummering) }}
+  <p class="liten dempet">Kursdager som beholdes, beholder innsjekkoden og QR-koden sin. En kursdag med registrert oppmøte eller faktura kan ikke fjernes.
+    {% if bekreftet_antall %}Deltakerne får ikke beskjed om endrede datoer automatisk.{% endif %}</p>
+  {% if admin_rolle != 'lese' %}<p style="margin-top:12px"><button class="liten">Lagre kursdatoer</button></p>{% endif %}
+</form>
+
 <h2>Kursdager og innsjekk</h2>
 <div class="tabellboks"><table>
-  <tr><th scope="col">Dato</th><th scope="col">Kode</th><th scope="col">Oppmøte</th><th scope="col"></th></tr>
-  {% for d in dager %}
-  <tr><td>{{ d.dato }}{% if d.dato == idag %} <span class="merke ok">i dag</span>{% endif %}</td>
-      <td><code style="font-size:15px; letter-spacing:.1em">{{ d.innsjekk_kode }}</code></td>
-      <td>{{ oppmote_antall.get(d.id, 0) }} / {{ bekreftet_antall }}</td>
-      <td><a class="knapp liten" href="{{ url_for('admin_qr', kurs_id=kurs.id, dag_id=d.id) }}" target="_blank">Vis QR på skjerm</a></td></tr>
+  <thead><tr><th scope="col">Dato</th><th scope="col">Kode</th><th scope="col">Oppmøte</th><th scope="col"><span class="skjul-visuelt">Handlinger</span></th></tr></thead>
+  {% for g, dagrader in dager_per_samling %}
+  <tbody>
+    {% if g.navn %}<tr class="samlingstopp"><th scope="row" colspan="4">{{ g.navn }} · {{ g.periode }} · kl. {{ g.tid }}</th></tr>{% endif %}
+    {% for d in dagrader %}
+    {% set tid = (d.start_kl or d.samling_start_kl or kurs.start_kl) ~ '–' ~ (d.slutt_kl or d.samling_slutt_kl or kurs.slutt_kl) %}
+    <tr><td>{{ d.dato|dagdato }}{% if d.dato == idag %} <span class="merke ok">i dag</span>{% endif %}
+          {% if not g.navn or tid != g.tid %}<span class="liten dempet"> · kl. {{ tid }}</span>{% endif %}
+          {% if d.merknad %} <span class="merke">{{ d.merknad }}</span>{% endif %}</td>
+        <td><code style="font-size:15px; letter-spacing:.1em">{{ d.innsjekk_kode }}</code></td>
+        <td>{{ oppmote_antall.get(d.id, 0) }} / {{ paa_dagen.get(d.id, 0) }}</td>
+        <td><span style="display:inline-flex; flex-wrap:wrap; gap:6px">
+          <a class="knapp liten" href="{{ url_for('admin_qr', kurs_id=kurs.id, dag_id=d.id) }}" target="_blank">Vis QR på skjerm</a>
+          {# Oppmøtelisten: kursleders reserve når noen ikke får skannet QR-koden. Fylt knapp på dagens dag, ellers omriss. #}
+          <a class="knapp liten{{ '' if d.dato == idag else ' sekundar' }}" href="{{ url_for('admin_kurs_oppmote', kurs_id=kurs.id, dag_id=d.id) }}">{{ 'Se oppmøteliste' if admin_rolle == 'lese' else 'Ta opp oppmøte' }}</a>
+        </span></td></tr>
+    {% endfor %}
+  </tbody>
   {% endfor %}
 </table></div>
 
-{% if kurs.sharepoint_mappe %}<h2>Kursmateriell (SharePoint: {{ kurs.sharepoint_mappe }}/Presentasjoner)</h2>
-{% else %}<h2>Kursmateriell</h2>
+{% if kurs.sharepoint_mappe %}<h2 id="kursmateriell">Kursmateriell (SharePoint: {{ kurs.sharepoint_mappe }}/Presentasjoner)</h2>
+{% else %}<h2 id="kursmateriell">Kursmateriell</h2>
 <div class="flash info" role="status">Kurset har ingen SharePoint-mappe ennå (den kunne ikke lages da kurset ble opprettet).
   Kursholder kan likevel laste opp – mappen lages da automatisk.
   {% if admin_rolle != 'lese' %}<form method="post" action="{{ url_for('admin_sharepoint_mappe', kurs_id=kurs.id) }}" style="margin:8px 0 0">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten">Lag SharePoint-mappe</button></form>{% endif %}</div>
 {% endif %}
 {% if filer %}<ul>{% for f in filer %}<li>{{ f.navn }} <span class="dempet liten">({{ (f.storrelse / 1024) | round(0) | int }} kB)</span></li>{% endfor %}</ul>
-{% else %}<p class="dempet">Ingen filer ennå. Kursholder laster opp via opplastingslenken i purre-e-posten.</p>{% endif %}
+{% else %}<p class="dempet">Ingen filer ennå. Kursholder laster opp via opplastingslenken i påminnelsen.</p>{% endif %}
+
+<h3 class="skjemadel">Presentasjon fra kursholder</h3>
+{% if materiell %}
+<ul class="materielliste">
+  {% for m in materiell %}
+  <li>{{ m.beskrivelse }} fra {{ m.ansvarlig_navn }} ({{ m.ansvarlig_epost }}) · frist {{ m.frist|dagdato }} ·
+    {% if m.levert_ts %}<span class="merke ok">levert</span>{% elif m.frist < idag %}<span class="merke feil">ikke levert – fristen er passert</span>{% else %}<span class="merke gul">venter</span>{% endif %}
+    {% if not m.levert_ts and admin_rolle != 'lese' %}
+    <form method="post" action="{{ url_for('admin_fjern_materiell_krav', kurs_id=kurs.id, krav_id=m.id) }}" class="innebygd"
+          data-bekreft="Fjerne forespørselen til {{ m.ansvarlig_navn }}? Kursholderen får ingen flere påminnelser om den.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten fare">Fjern</button></form>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}<p class="liten dempet">Ingen forespørsler om presentasjon.</p>{% endif %}
+{% if admin_rolle != 'lese' %}
+<details class="kort materiellforesporsel">
+  <summary>Be kursholder om presentasjon</summary>
+  <form method="post" action="{{ url_for('admin_be_om_materiell', kurs_id=kurs.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="rad">
+      <div><label for="m-navn">Kursholderens navn *</label><input id="m-navn" name="ansvarlig_navn" required maxlength="200"></div>
+      <div><label for="m-epost">E-post *</label><input id="m-epost" name="ansvarlig_epost" type="email" required maxlength="200"></div>
+      <div><label for="m-frist">Frist for presentasjonen *</label><input id="m-frist" name="frist" type="date" required></div>
+    </div>
+    <p class="liten dempet">Kursholderen får e-post med opplastingslenke 7, 2 og 0 dager før fristen. Er ingenting levert når fristen er passert, varsles kursadministrasjonen.</p>
+    <p><button class="liten">Lagre forespørselen</button></p>
+  </form>
+</details>
+{% endif %}
 {% endblock %}

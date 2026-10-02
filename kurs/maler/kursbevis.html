@@ -17,9 +17,10 @@
   <h1>Kursbevis</h1>
   <p>Dette bekrefter at</p>
   <p class="navn">{{ navn }}</p>
-  <p>har gjennomført</p>
+  <p>{% if samlinger %}har deltatt på {{ samlinger|i_setning }} i{% else %}har gjennomført{% endif %}</p>
   <p style="font-size:1.3rem"><strong>{{ kurs.navn }}</strong></p>
   <table>
+    {% if samlinger %}<tr><td>Samlinger</td><td>{{ samlinger }} (av kursets {{ antall_samlinger }})</td></tr>{% endif %}
     <tr><td>Kursdager</td><td>{{ dager | join(', ') }}</td></tr>
     <tr><td>Timer</td><td>{{ '%g' % timer }}</td></tr>
     {% if kurs.sted %}<tr><td>Sted</td><td>{{ kurs.sted }}</td></tr>{% endif %}

@@ -35,9 +35,11 @@ def person(con):
     """En deltaker med spor i alle tabeller som kan inneholde personopplysninger. Kurset er avsluttet."""
     kid = db.opprett_kurs(con, kode="GDPR-2030", navn="Personvernkurs", datoer=["2030-03-01"], pris_nok=3000,
                           type="fysisk", sharepoint_mappe="K/G")
-    pid, _ = db.meld_paa(con, kid, epost=EPOST, fornavn="Mona", etternavn="Person",
+    felt_id = db.opprett_ekstrafelt(con, kid, {"type": "tekst", "label": "Hvor jobber du?"}, 4)
+    pid, _ = db.meld_paa(con, kid, epost=EPOST, fornavn="Mona", etternavn="Person", svar={felt_id: "Mona-klinikken"},
                          deltaker={"telefon": "90011222", "arbeidssted": "Klinikken", "yrkestittel": "Psykolog",
-                                   "hpr_nr": "1234567"},
+                                   "hpr_nr": "1234567", "adresse": "Sporbarveien 4711", "postnr": "4711",
+                                   "poststed": "Sporbarby"},
                          paamelding={"faktura_adresse": "Gate 1", "faktura_postnr": "5000", "faktura_sted": "Bergen",
                                      "intern_kommentar": "Ring henne", "faktura_ref": "Mona"},
                          sensitivt={"allergier": "Nøtter"})
@@ -51,6 +53,10 @@ def person(con):
     con.execute("INSERT INTO dokument_innhold (dokument_id, innhold) VALUES (?, '<h1>Mona Person</h1>')", (dok,))
     con.execute("INSERT INTO innlogging_token (token, deltaker_id, utloper) VALUES ('tok', ?, '2030-01-01')", (did,))
     db.marker_sendt(con, f"kurs:{kid}", EPOST.lower(), "bekreftelse")
+    kopi = db.lagre_epostkopi(con, nokkel=f"kurs:{kid}", type_="bekreftelse", til=EPOST.lower(), fra=config.AVSENDER_EPOST,
+                              sendt_av="system", emne="Bekreftelse", html="<p>Hei Mona Person, 90011222</p>",
+                              paamelding_id=pid, kurs_id=kid)
+    db.sett_epostkopi_status(con, kopi, "sendt")
     fid = db.sett_inn(con, """INSERT INTO firmapaamelding (kurs_id, innsendingsnokkel, kvittering_token, kontakt_navn,
                               kontakt_epost, kontakt_telefon, firmanavn) VALUES (?,?,?,?,?,?,?)""",
                       (kid, "n1", "k1", "Mona Person", EPOST.upper(), "90011222", "Klinikken AS"))
@@ -65,22 +71,32 @@ def person(con):
 def _alt(con) -> str:
     """Hele databasen som tekst (for å lete etter rester av personopplysninger)."""
     tabeller = ("deltaker", "paamelding", "sensitivt", "dokument", "dokument_innhold", "innlogging_token", "utsending_logg",
-                "firmapaamelding", "firmapaamelding_rad", "henvendelse", "hendelse")
+                "firmapaamelding", "firmapaamelding_rad", "henvendelse", "hendelse", "sendt_epost", "sendt_epost_vedlegg",
+                "epost_fil", "paamelding_svar")
     return "\n".join(str([tuple(r) for r in con.execute(f"SELECT * FROM {t}")]) for t in tabeller)
 
 
 def test_anonymisering_fjerner_personopplysningene_overalt(con, person):
     for_ = _alt(con).lower()
     assert "mona" in for_ and "90011222" in for_ and "nøtteallergi" in for_                 # sporene finnes før
+    assert "sporbarveien 4711" in for_ and "sporbarby" in for_                              # også den private adressen
     ut = db.anonymiser_deltaker(con, person["did"], aktor="admin:test")
     con.commit()
     alt = _alt(con).lower()
-    for spor in ("mona", "90011222", "psykolog", "1234567", "nøtter", "gate 1", "ring henne", "nøtteallergi"):
+    for spor in ("mona", "90011222", "psykolog", "1234567", "nøtter", "gate 1", "ring henne", "nøtteallergi",
+                 "mona-klinikken", "sporbarveien", "sporbarby"):
         assert spor not in alt, spor
+    # Deltakerens private adresse er tømt på personen, og fakturaadressen (kopien) på påmeldingene
+    d = con.execute("SELECT adresse, postnr, poststed FROM deltaker WHERE id=?", (person["did"],)).fetchone()
+    assert tuple(d) == (None, None, None)
+    p = con.execute("SELECT faktura_adresse, faktura_postnr, faktura_sted FROM paamelding WHERE id=?",
+                    (person["pid"],)).fetchone()
+    assert tuple(p) == (None, None, None)
     d = con.execute("SELECT navn, epost FROM deltaker WHERE id=?", (person["did"],)).fetchone()
     assert (d["navn"], d["epost"]) == (db.ANONYM_NAVN, f"anonymisert-{person['did']}@{db.ANONYM_DOMENE}")
-    assert ut == {"paameldinger": 1, "sensitivt": 1, "dokumenter": 1, "innloggingslenker": 1, "utsendingslogg": 1,
-                  "firmarader": 1, "firmakontakt": 1, "henvendelser": 1}
+    assert ut == {"paameldinger": 1, "sensitivt": 1, "skjemasvar": 1, "dokumenter": 1, "innloggingslenker": 1,
+                  "utsendingslogg": 1, "epostkopier": 1, "importforhandsvisninger": 0, "firmarader": 1, "firmakontakt": 1,
+                  "henvendelser": 1}
     logg = con.execute("SELECT detaljer FROM hendelse WHERE handling='deltaker_anonymisert'").fetchone()["detaljer"]
     assert json.loads(logg) == {"deltaker_id": person["did"], **ut}
 

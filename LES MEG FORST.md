@@ -43,13 +43,18 @@ Gjør det samme på den andre PC-en.
 
 Sider du kan prøve (mens sandkassen kjører):
 
-- **http://127.0.0.1:5000** – kursoversikt og påmelding (det deltakerne ser)
-- **http://127.0.0.1:5000/admin** – admin. Brukernavn: **admin**, passord: **demo**
-- **http://127.0.0.1:5000/sporsmal** – «Spør oss», KI-assistenten
-- **http://127.0.0.1:5000/logg-inn** – Min side. Skriv `kari.nordmann@example.no`, og klikk lenken som vises.
-- **http://127.0.0.1:5000/innsjekk** – innsjekk med kode
+- **http://127.0.0.1:5000** – startsiden: innlogging til Admin og ingenting annet (den enkle adressen alle kan få). Brukernavn: **admin**, passord: **demo**
+- **http://127.0.0.1:5000/admin** – Oversikten i admin (er du ikke innlogget, kommer du til innloggingen først)
+- **http://127.0.0.1:5000/logg-inn** – innlogging for deltakerne. Skriv `kari.nordmann@example.no`, og klikk lenken som vises: du havner på **Min side**
+  for «Parterapi i praksis» (der er det kursdag i dag). Derfra kommer du til **Mine kurs** (menyen øverst til høyre). Den personlige lenken til Min side
+  (den som står som knapp i e-postene) finner du i admin: kurset → Deltakere → klikk på en deltaker → boksen **Min side**.
+- Innsjekk: QR-koden for en kursdag finner du i admin: kurset → Oppsett → «Vis QR på skjerm». Uten QR-kode registrerer deltakeren oppmøte på Min side
+  (kortet «I dag», med dagens kode). Den gamle siden `/innsjekk` er fjernet.
+- «Spør oss» og Kunnskapsbase er **slått av** som standard (menyvalgene er borte). Skal du prøve dem, sett `ASSISTENT_AKTIV=1`
+  (se `.env.example`) og start på nytt.
 
-Nytt i admin: **Aktiviteter → Årsplan** (hele året, ledige uker), **Deltakerliste** på hvert kurs (velg kolonner,
+Nytt i admin: **Min side** på hvert kurs (siden deltakerne ser etter innlogging: program, presentasjoner, grupper, litteratur og deres egne opplysninger; se
+`dokumentasjon/Min side - slik gjør du.md`), QR-plakat for innsjekk, **Kalender → Årsplan** (hele året, ledige uker), **Deltakerliste** på hvert kurs (velg kolonner,
 skriv ut / lagre som PDF / CSV), **Avslå** på deltakersiden, **Rapporter → Økonomi** og **Uavklarte operasjoner**
 på oversikten. Hva som gjenstår før drift: `STATUS-PAMELDINGSSYSTEM.md`.
 
@@ -130,6 +135,6 @@ Inntil GitHub er på plass: gjør endringer på **én** PC, og bruk den andre ba
 | `kurs/` | Selve programmet |
 | `kurs/maler/epost/` | Tekstene i e-postene som sendes ut – enkle å endre |
 | `tests/` | Automatiske tester som sjekker at alt virker |
-| `dokumentasjon/` | Bakgrunn: møteopplegg, kartleggingsark, IT-henvendelse og Stians referanseløsning |
+| `dokumentasjon/` | Bakgrunn: møteopplegg, kartleggingsark, IT-henvendelse og Stians referanseløsning. Også `menyer-forklart.md` (hva menyvalgene gjør, på enkel norsk) og `lenke-til-terapiakademiet.md` |
 
 Spørsmål? Ta kontakt med Jan.

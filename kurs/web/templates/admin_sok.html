@@ -1,0 +1,78 @@
+{% extends "admin_base.html" %}
+{% block tittel %}Søk etter deltaker{% endblock %}
+{% block innhold %}
+{% from "_sokefelt.html" import sokefelt %}
+<h1>Søk etter deltaker</h1>
+<p class="sub">Finn en person på tvers av alle kurs – og se påmeldinger, oppmøte og kursbevis.</p>
+{{ sokefelt('sok-side', stor=True, verdi=sok_q, autofokus=not res.sok.gyldig) }}
+
+{% if res.sok.tom %}
+<div class="kort sokhjelp">
+  <h2>Hva kan du søke på?</h2>
+  <ul>
+    <li><strong>Navn</strong> – hele eller deler av for- og etternavn, i hvilken som helst rekkefølge («kari hansen», «hansen kari», «kar han»). Store og små bokstaver og æøå spiller ingen rolle.</li>
+    <li><strong>E-post</strong> – hele adressen eller en del av den («kari.hansen@», «@eksempel.no»).</li>
+    <li><strong>Telefon</strong> – med eller uten mellomrom, bindestrek og +47 («900 12 345»). Minst {{ SOK_MIN_SIFFER }} sifre.</li>
+    <li><strong>HPR-nummer</strong> – minst {{ SOK_MIN_SIFFER }} sifre.</li>
+    <li><strong>Påmeldingsnummer</strong> – tallet som står som #N i deltakervinduet («#12»).</li>
+    <li><strong>Kursnummer eller kurskode</strong> – viser alle som er påmeldt kurset («1001», «EFT-2027-1»). Av kurskoden holder det med de første {{ SOK_MIN_KURSKODE }} tegnene («eft-»).</li>
+  </ul>
+  <p class="liten dempet">Skriver du flere ord, må alle treffe samme person («kari 1001» = Kari på kurs 1001). Du kan også lime inn
+    «Navn &lt;e-post&gt;» rett fra e-postprogrammet. Anonymiserte personer kan ikke finnes.
+    Trykk <kbd class="tast">/</kbd> på en hvilken som helst side for å hoppe til søkefeltet.</p>
+</div>
+{% elif res.sok.for_kort %}
+<div class="kort" role="status"><p style="margin:0">Skriv minst ett ord med {{ SOK_MIN_TEGN }} tegn (eller et tall) for å søke.</p></div>
+{% else %}
+  {% if res.sok.avkortet %}<p class="liten dempet" role="status">Søket er avkortet til de første {{ SOK_MAKS_TEGN }} tegnene og {{ SOK_MAKS_ORD }} ordene.</p>{% endif %}
+  {% for k in res.kurs %}
+  <div class="varselboks" style="margin-bottom:12px">Søket peker på kurset <strong>{{ k.kursnr }} {{ k.navn }}</strong> ({{ k.kode }}).
+    <a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}">Åpne deltakerlisten for kurset →</a></div>
+  {% endfor %}
+  {% if res.totalt == 0 %}
+  <div class="kort" role="status">
+    <p style="margin:0 0 8px"><strong>Ingen treff på «{{ res.sok.tekst }}».</strong></p>
+    <ul class="liten" style="margin:0; padding-left:18px">
+      <li>Sjekk stavemåten, eller prøv bare etternavnet eller en del av e-postadressen.</li>
+      <li>Telefon: skriv sifrene uten landskode. Kursnummer og påmeldingsnummer må være nøyaktige.</li>
+      <li>Skriver du flere ord, må alle treffe samme person – prøv med færre ord.</li>
+      <li>Anonymiserte personer vises ikke. Hele registeret finner du under <a href="{{ url_for('admin_rapport_deltakere') }}">Rapporter → Deltakerregister</a>.</li>
+    </ul>
+  </div>
+  {% else %}
+  <p class="sokantall" role="status">{% if res.flere %}Viser {{ res.personer|length }} av {{ res.totalt }} personer – skriv mer for å snevre inn.{% else %}{{ res.totalt }} {{ 'person' if res.totalt == 1 else 'personer' }} funnet.{% endif %}</p>
+  {% for p in res.personer %}
+  <article class="kort persontreff" id="person-{{ p.id }}" aria-labelledby="person-{{ p.id }}-navn">
+    <div class="persontopp">
+      <h2 id="person-{{ p.id }}-navn">{% for del, treff in p.navn_deler %}{% if treff %}<mark>{{ del }}</mark>{% else %}{{ del }}{% endif %}{% endfor %}</h2>
+      <a class="liten" href="{{ url_for('admin_rapport_deltaker', deltaker_id=p.id) }}">Personside (fakturaer m.m.) →</a>
+    </div>
+    <p class="personinfo liten">
+      <span>{% for del, treff in p.epost_deler %}{% if treff %}<mark>{{ del }}</mark>{% else %}{{ del }}{% endif %}{% endfor %}</span>
+      {% if p.telefon %}<span>{{ p.telefon }}</span>{% endif %}
+      {% if p.arbeidssted %}<span>{{ p.arbeidssted }}</span>{% endif %}
+      {% if p.vis_hpr %}<span>HPR-nummer {{ p.hpr_nr }}</span>{% endif %}
+    </p>
+    <p class="treffgrunn liten">{{ p.grunn }}</p>
+    <div class="tabellboks"><table class="soketabell">
+      <thead><tr><th scope="col">Kurs</th><th scope="col">Datoer</th><th scope="col">Påmelding</th><th scope="col">Oppmøte</th><th scope="col">Kursbevis</th></tr></thead>
+      <tbody>
+      {% for m in p.paameldinger %}
+      <tr{% if m.treff %} class="treff-rad"{% endif %}>
+        <td data-label="Kurs"><a href="{{ url_for('admin_deltaker', kurs_id=m.kurs_id, paamelding_id=m.paamelding_id) }}"><strong>{{ m.kurs_navn }}</strong></a>{% if m.treff %} <span class="merke">Treff</span>{% endif %}
+          <div class="liten dempet">{{ m.kode }} · kursnr. {{ m.kursnr }} · påmelding #{{ m.paamelding_id }}</div></td>
+        <td data-label="Datoer" class="liten">{{ m.datoer or '–' }}</td>
+        <td data-label="Påmelding"><span class="merke {{ m|statusmerke }}">{{ m.status_navn }}</span></td>
+        <td data-label="Oppmøte" class="liten">{{ m.oppmote }}</td>
+        <td data-label="Kursbevis" class="liten"><span class="merke brytes {{ m.kursbevis_farge }}">{{ m.kursbevis }}</span>
+          {% if m.kursbevis_dok %}<div class="liten dempet kursbevis-info">{{ m.kursbevis_epost }} · <a href="{{ url_for('dokument', dok_id=m.kursbevis_dok) }}" target="_blank" rel="noopener noreferrer">Åpne kursbeviset</a></div>{% endif %}</td>
+      </tr>
+      {% else %}<tr><td colspan="5" class="dempet">Ingen påmeldinger.</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </article>
+  {% endfor %}
+  {% if res.flere %}<p class="liten dempet">Det finnes {{ res.totalt - res.personer|length }} personer til. Skriv mer av navnet, e-postadressen eller nummeret for å finne riktig person.</p>{% endif %}
+  {% endif %}
+{% endif %}
+{% endblock %}

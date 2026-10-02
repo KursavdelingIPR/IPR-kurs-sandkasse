@@ -105,7 +105,7 @@ def test_ukefor_standardtekst_fysisk_og_lik_direkte_render(con, ut):
     assert "<p>Hei Ola,</p>" in html                                        # standardhilsenen: fornavn
     assert "Nå er det snart tid for <strong>Veiledning i praksis</strong>, som starter 2027-03-04." in html
     assert "<li>2027-03-04 kl. 09:00–16:00</li>" in html and "<li>2027-03-05 kl. 09:00–16:00</li>" in html
-    assert "<strong>Sted:</strong> Oslo" in html and f"taste koden på {config.BASE_URL}/innsjekk" in html
+    assert "<strong>Sted:</strong> Oslo" in html and "skrive koden som vises på skjermen" in html and "/innsjekk" not in html
     assert "Kurset holdes på Zoom" not in html
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
     d = {"navn": "Ola Nordmann", "fornavn": "Ola"}
@@ -136,8 +136,8 @@ def test_ukefor_gyldig_override_brukes_og_systemblokkene_er_uendret(con, ut):
     emne, html = _mail(ut, start="Snart")
     assert emne == "Snart: Veiledning i praksis" and "<p>Hei Ola Nordmann!</p>" in html
     assert "<strong>Veiledning i praksis</strong> starter 2027-03-04." in html
-    assert f'Se <a href="{config.BASE_URL}/min-side">Min side</a>.' in html
-    assert "<li>2027-03-04 kl. 09:00–16:00</li>" in html and "<strong>Sted:</strong> Oslo" in html and "<p>Ta med votter</p>" in html
+    assert f'Se <a href="{config.BASE_URL}/min-side">Mine kurs</a>.' in html
+    assert "<li>2027-03-04 kl. 09:00–16:00</li>" in html and "<strong>Sted:</strong> Oslo" in html and "Ta med votter" not in html
 
 
 def test_ukefor_reset_gir_standard_igjen(con, ut):
@@ -162,7 +162,7 @@ def test_ukefor_laaste_blokker_kan_ikke_fjernes_med_tom_eller_minimal_tekst(con,
     _daglig(con, IDAG)
     _, html = _mail(ut)
     assert "<p>X</p>" in html and "<li>2027-03-04 kl. 09:00–16:00</li>" in html
-    assert "Kurset holdes på Zoom" in html and "<p>Ta med votter</p>" in html
+    assert "Kurset holdes på Zoom" in html and "Ta med votter" not in html    # intern kommentar
 
 
 def test_html_i_redigerbar_tekst_escapes_i_begge_maler(con, ut):

@@ -1,79 +1,271 @@
 {% extends "admin_base.html" %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='paamelding.css') }}">
+<noscript><style>.sb-mer[hidden] { display:table-row; } .sb-mer-knapp { display:none; }</style></noscript>{% endblock %}
 {% block innhold %}
 {% include "admin_kurs_header.html" %}
 {% include "admin_kurs_faner.html" %}
-{# Fase 12C4A. All tekst fra admin er ren tekst og escapes av Jinja - aldri |safe. #}
-{% macro merke(tilpasset) %}{% if tilpasset is not none %}<span class="merke {{ 'gul' if tilpasset else 'gra' }}">{{ 'Tilpasset' if tilpasset else 'Standard' }}</span>{% endif %}{% endmacro %}
-{% macro fast_felt(navn, tekst) %}
-<div class="kort" style="max-width:720px">
-  <div style="display:flex; justify-content:space-between; gap:10px"><strong>{{ navn }}</strong><span class="merke gra">Fast felt</span></div>
-  <p class="liten dempet" style="margin:6px 0 0">{{ tekst }}</p>
-</div>
-{% endmacro %}
+{#- Skjemabyggeren. All tekst fra admin (feltnavn, hjelpetekster, valg) er ren tekst og escapes av Jinja - aldri |safe.
+    Uten JavaScript er «Mer»-feltene åpne og ▲▼ lagrer og flytter; med JavaScript flyttes radene med en gang. -#}
+{%- set typetekst = {'telefon': 'telefonnummer', 'arbeidssted': 'tekst', 'yrkestittel': 'tekst, lagres på deltakeren',
+                     'faktura_ref': 'tekst, står på fakturaen', 'faktura_epost': 'e-postadresse',
+                     'faktura_kommentar': 'tekst', 'ehf': 'avkrysning', 'allergier': 'sensitivt, slettes etter kurset',
+                     'tilrettelegging': 'sensitivt, slettes etter kurset'} -%}
+
+{%- macro piler(n, navn) -%}
+<button type="submit" name="flytt" value="{{ n }}:opp" class="sb-pil" data-flytt="opp" aria-label="Flytt «{{ navn }}» opp">▲</button>
+<button type="submit" name="flytt" value="{{ n }}:ned" class="sb-pil" data-flytt="ned" aria-label="Flytt «{{ navn }}» ned">▼</button>
+{%- endmacro -%}
+
+{%- macro merknapp(id) -%}
+<button type="button" class="sekundar liten sb-mer-knapp" data-mer="{{ id }}" aria-controls="{{ id }}" aria-expanded="false">Mer</button>
+{%- endmacro -%}
+
+{%- macro fastrad(navn, tekst, krav=true) -%}
+<tr class="sb-fastrad">
+  <td class="sb-flytt"></td>
+  <td class="sb-navn"><span class="sb-fast">{{ navn }}</span></td>
+  <td class="sb-type">{{ tekst }}</td>
+  <td class="sb-sjekk">{% if krav %}<input type="checkbox" checked disabled aria-label="Krav: {{ navn }}">{% else %}<span class="dempet">–</span>{% endif %}</td>
+  <td class="sb-sjekk"><input type="checkbox" checked disabled aria-label="Vis: {{ navn }}"></td>
+  <td class="sb-merkol"></td>
+</tr>
+{%- endmacro -%}
+
+{#- Et standardfelt (telefon, fakturafeltene, allergier ...). `seksjon`: kan flyttes innenfor «Om deg». -#}
+{%- macro standardrad(n, seksjon=none) -%}
+{%- set f = register[n] %}{% set x = v[n] -%}
+<tbody class="sb-felt" id="felt-{{ n }}"{% if seksjon %} data-flyttbar="{{ n }}" data-seksjon="{{ seksjon }}"{% endif %}>
+  <tr>
+    <td class="sb-flytt">{% if seksjon %}{{ piler(n, x.label) }}{% endif %}</td>
+    <td class="sb-navn"><input name="{{ n }}_label" maxlength="{{ maks_label }}" value="{{ x.label }}" placeholder="{{ f.label }}" aria-label="Feltnavn: {{ f.label }}"></td>
+    <td class="sb-type">{{ f.label }}{% if x.tilpasset %} <span class="merke gul">Tilpasset</span>{% endif %}
+      <span class="dempet">Standardfelt, {{ typetekst[n] }}{% if f.kategori == 'sensitiv' and not vis_sensitiv %} – vises ikke på digitale kurs{% endif %}</span></td>
+    <td class="sb-sjekk">{% if 'obligatorisk' in f.overstyrbart %}<input type="checkbox" name="{{ n }}_obligatorisk"{{ ' checked' if x.obligatorisk }} aria-label="Krav: {{ f.label }}">{% else %}<span class="dempet" title="Kan ikke være krav">–</span>{% endif %}</td>
+    <td class="sb-sjekk"><input type="checkbox" name="{{ n }}_synlig"{{ ' checked' if x.synlig }} aria-label="Vis: {{ f.label }}"></td>
+    <td class="sb-merkol">{{ merknapp('mer-' ~ n) }}</td>
+  </tr>
+  <tr class="sb-mer" id="mer-{{ n }}"{% if n not in aapne %} hidden{% endif %}><td colspan="6">
+    <label for="f-{{ n }}-hjelpetekst">Hjelpetekst <span class="dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn, vises under feltet)</span></label>
+    <textarea id="f-{{ n }}-hjelpetekst" name="{{ n }}_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ x.hjelpetekst }}</textarea>
+    {%- if f.hjelpetekst %}
+    <p class="dempet">Standard: «{{ f.hjelpetekst }}» Tøm feltet for å fjerne hjelpeteksten.</p>
+    {%- endif %}
+    {%- if f.kategori == 'sensitiv' %}
+    <p class="dempet">Kan aldri være krav. Lagres bare til kurset er gjennomført, og slettes da automatisk. Vises bare på kurs med oppmøte (ikke digitale kurs).</p>
+    {%- elif n == 'yrkestittel' %}
+    <p class="dempet">Lagres på deltakeren (samme felt som Yrkestittel i deltakervinduet).</p>
+    {%- endif %}
+  </td></tr>
+</tbody>
+{%- endmacro -%}
+
+{#- Et av kursets egne felt. -#}
+{%- macro egetrad(ref, seksjon) -%}
+{%- set x = v[ref] %}{% set fid = ref[7:]|int %}{% set valg = betingelsesvalg[fid] -%}
+<tbody class="sb-felt sb-eget" id="felt-ekstra-{{ fid }}" data-flyttbar="{{ ref }}" data-seksjon="{{ seksjon }}">
+  <tr>
+    <td class="sb-flytt">{{ piler(ref, x.label) }}</td>
+    <td class="sb-navn"><input name="ekstra_{{ fid }}_label" maxlength="{{ maks_label }}" value="{{ x.label }}" required aria-label="Feltnavn (eget felt)"></td>
+    <td class="sb-type">
+      <select name="ekstra_{{ fid }}_type" aria-label="Type: {{ x.label }}"{{ ' disabled' if x.antall_svar }}>
+        {%- for t, navn in typer.items() %}<option value="{{ t }}"{{ ' selected' if x.type == t }}>{{ navn }}</option>{% endfor -%}
+      </select>
+      <span class="dempet">Eget felt{% if x.antall_svar %} · {{ x.antall_svar }} {{ 'svar' }}{% endif %}</span>
+      {%- if not x.betingelse_ok %} <span class="merke feil">Vises ikke: rett «Vis bare når»</span>{% endif %}
+    </td>
+    <td class="sb-sjekk"><input type="checkbox" name="ekstra_{{ fid }}_obligatorisk"{{ ' checked' if x.obligatorisk }} aria-label="Krav: {{ x.label }}"></td>
+    <td class="sb-sjekk"><input type="checkbox" name="ekstra_{{ fid }}_synlig"{{ ' checked' if x.synlig }} aria-label="Vis: {{ x.label }}"></td>
+    <td class="sb-merkol">{{ merknapp('mer-ekstra-' ~ fid) }}</td>
+  </tr>
+  <tr class="sb-mer" id="mer-ekstra-{{ fid }}"{% if ref not in aapne %} hidden{% endif %}><td colspan="6">
+    <div class="sb-mer-rutenett">
+      <div>
+        <label for="f-ekstra-{{ fid }}-hjelpetekst">Hjelpetekst <span class="dempet">(valgfri, maks {{ maks_hjelpetekst_egne }} tegn, vises under feltet)</span></label>
+        <textarea id="f-ekstra-{{ fid }}-hjelpetekst" name="ekstra_{{ fid }}_hjelpetekst" rows="3" maxlength="{{ maks_hjelpetekst_egne }}">{{ x.hjelpetekst }}</textarea>
+        <label for="f-ekstra-{{ fid }}-valg">Svaralternativer <span class="dempet">(ett per linje)</span></label>
+        <textarea id="f-ekstra-{{ fid }}-valg" name="ekstra_{{ fid }}_valg" rows="4">{{ x.valg }}</textarea>
+        <p class="dempet">For envalg, flervalg og nedtrekksliste. For avkrysning: teksten ved boksen (tom = «Ja»). Brukes ikke for tekstfelt.</p>
+      </div>
+      <div>
+        <label for="f-ekstra-{{ fid }}-plassering">Plassering</label>
+        <select id="f-ekstra-{{ fid }}-plassering" name="ekstra_{{ fid }}_plassering">
+          {%- for p, navn in plasseringer.items() %}<option value="{{ p }}"{{ ' selected' if x.plassering == p }}>{{ navn }}</option>{% endfor -%}
+        </select>
+        <label for="f-ekstra-{{ fid }}-vis_naar">Vis bare når</label>
+        {%- if valg is none %}
+        <p class="dempet" id="f-ekstra-{{ fid }}-vis_naar">Andre felt vises etter svaret på dette feltet, så dette feltet vises alltid.</p>
+        {%- else %}
+        <select id="f-ekstra-{{ fid }}-vis_naar" name="ekstra_{{ fid }}_vis_naar">
+          <option value="">Alltid</option>
+          {%- for verdi, tekst in valg %}<option value="{{ verdi }}"{{ ' selected' if x.vis_naar == verdi }}>{{ tekst }}</option>{% endfor %}
+        </select>
+        <p class="dempet">Feltet vises bare når svaret over er valgt. Krav gjelder bare når feltet vises.</p>
+        {%- endif %}
+        <div class="sb-slett">
+          {%- if x.antall_svar %}
+          <span class="dempet">Feltet har svar og kan ikke slettes. Ta bort haken under «Vis» for å skjule det.</span>
+          {%- else %}
+          <button type="submit" form="slett-{{ fid }}" class="fare liten">Slett feltet</button>
+          {%- endif %}
+        </div>
+      </div>
+    </div>
+  </td></tr>
+</tbody>
+{%- endmacro -%}
 
 <h2 style="margin-top:0">Påmeldingsskjema</h2>
 
 {% if lesefeil %}
 <div class="flash feil" style="max-width:720px">Skjemainnstillingene kunne ikke leses akkurat nå. Ingen endringer er gjort. Prøv igjen om litt.</div>
 {% else %}
-<p style="max-width:720px">Her velger du hvilke opplysninger deltakerne skal fylle ut når de melder seg på dette kurset.</p>
-<p><a class="knapp sekundar" href="{{ url_for('admin_forhandsvis_paamelding', kurs_id=kurs.id) }}" target="_blank" rel="noopener">Forhåndsvis påmeldingsskjema</a></p>
-<p class="liten dempet" style="max-width:720px">Forhåndsvisningen viser det som sist ble lagret. Lagre først for å se endringene dine.</p>
+<div class="kort sb-lenke">
+  <strong>Lenke til påmeldingsskjemaet</strong>
+  <p class="liten dempet">Send lenken til deltakerne, eller legg den på ipr.no. «Forhåndsvis» åpner det ekte skjemaet i en ny fane – med samme adresse.</p>
+  <div class="sb-lenkerad">
+    <input id="f-lenke" value="{{ offentlig_lenke }}" readonly aria-label="Lenke til påmeldingsskjemaet">
+    <button type="button" class="sekundar" data-kopier="f-lenke">Kopier lenke</button>
+    <a class="knapp" href="{{ url_for('kursside', kode=kurs.kode) }}" target="_blank" rel="noopener">Forhåndsvis påmeldingsskjema ↗</a>
+  </div>
+  {%- if not offentlig %}
+  <p class="liten" style="margin:10px 0 0">{% if kurs.status == 'utkast' %}Kurset er et utkast. Lenken virker for deltakerne når kurset er åpnet for påmelding{% else %}Kurset er {{ kurs.status }}, så skjemaet er stengt for deltakerne{% endif %} – nå er det bare innloggede administratorer som ser skjemaet.</p>
+  {%- endif %}
+  <p class="liten dempet" style="margin:6px 0 0">Forhåndsvisningen viser det som sist ble lagret. Lagre først for å se endringene dine.</p>
+</div>
 
 {% if advarsler %}
-<div class="flash feil" style="max-width:720px">
+<div class="flash feil" style="max-width:980px">
   Noen lagrede skjemainnstillinger kunne ikke brukes, og standardverdien brukes i stedet. Kontroller oppsettet og lagre, eller tilbakestill skjemaet til standard.
   <ul style="margin:6px 0 0; padding-left:18px">{% for a in advarsler %}<li>{{ a }}</li>{% endfor %}</ul>
+  {%- if uleselige %}
+  <div class="sb-advarsel-knapper">{% for fid in uleselige %}<button type="submit" form="slett-{{ fid }}" class="fare liten">Slett eget felt nr. {{ fid }}</button>{% endfor %}</div>
+  {%- endif %}
 </div>
 {% endif %}
 
-<form method="post" action="{{ url_for('admin_kurs_paameldingsskjema_lagre', kurs_id=kurs.id) }}">
+<div data-ulagret-vakt>
+<form method="post" action="{{ url_for('admin_kurs_paameldingsskjema_lagre', kurs_id=kurs.id) }}" id="skjemabygger" data-skjemabygger data-skjemanavn="Skjemabyggeren">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  {{ fast_felt('Fornavn', 'Alltid synlig og obligatorisk. Kan flettes inn i e-post som {fornavn}.') }}
-  {{ fast_felt('Etternavn', 'Alltid synlig og obligatorisk.') }}
-  {{ fast_felt('E-post', 'Alltid synlig og obligatorisk. Brukes til bekreftelse og innlogging på Min side.') }}
+  <input type="hidden" name="rekkefolge_om_deg" value="{{ v.rekkefolge.om_deg|join(',') }}">
+  <input type="hidden" name="rekkefolge_til_slutt" value="{{ v.rekkefolge.til_slutt|join(',') }}">
 
-  {% for n in konfig_rekkefolge %}{% set x = v[n] %}
-  <div class="kort" style="max-width:720px">
-    <div style="display:flex; justify-content:space-between; gap:10px"><strong>{{ register[n].label }}</strong>{{ merke(x.tilpasset) }}</div>
-    <label style="font-weight:normal"><input type="checkbox" name="{{ n }}_synlig" {{ 'checked' if x.synlig }}>Vis feltet</label>
-    <label style="font-weight:normal; margin-top:6px"><input type="checkbox" name="{{ n }}_obligatorisk" {{ 'checked' if x.obligatorisk }}>Obligatorisk</label>
-    <p class="liten dempet" style="margin:2px 0 0">Gjelder bare når feltet vises. Innstillingen beholdes selv om feltet skjules.</p>
-    <label for="f-{{ n }}-label">Ledetekst <span class="liten dempet">(maks {{ maks_label }} tegn, tom = «{{ register[n].label }}»)</span></label>
-    <input id="f-{{ n }}-label" name="{{ n }}_label" maxlength="{{ maks_label }}" value="{{ x.label }}">
-    <label for="f-{{ n }}-hjelpetekst">Hjelpetekst <span class="liten dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn, vises under feltet)</span></label>
-    <textarea id="f-{{ n }}-hjelpetekst" name="{{ n }}_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ x.hjelpetekst }}</textarea>
-  </div>
-  {% endfor %}
+  <section class="kort sb-info" aria-labelledby="sb-info-tittel">
+    <h3 class="sb-seksjonstittel" id="sb-info-tittel">Informasjonsboksen</h3>
+    <p class="liten dempet" style="margin:4px 0 6px">Velg hva boksen ved siden av skjemaet viser. Datoene, stedet, prisen og fristen endres under Oppsett.</p>
+    <div class="sb-avkrysninger">
+      {%- for n in infofelt %}
+      <label><input type="checkbox" name="{{ n }}_synlig"{{ ' checked' if v[n].synlig }}>Vis {{ register[n].label|lower }}</label>
+      {%- endfor %}
+    </div>
+    <p class="liten dempet" style="margin:6px 0 0">Er kurset fullt, står det alltid at nye påmeldinger kommer på venteliste.</p>
+  </section>
 
-  <div class="kort" style="max-width:720px">
-    <strong>Rekkefølge</strong>
-    <label style="font-weight:normal"><input type="radio" name="rekkefolge" value="{{ telefon_forst }}" {{ 'checked' if v.rekkefolge == telefon_forst }}>Telefon først</label>
-    <label style="font-weight:normal; margin-top:6px"><input type="radio" name="rekkefolge" value="{{ arbeidssted_forst }}" {{ 'checked' if v.rekkefolge == arbeidssted_forst }}>Arbeidssted først</label>
-  </div>
-
-  <div class="kort" style="max-width:720px">
-    <div style="display:flex; justify-content:space-between; gap:10px"><strong>HPR-nummer</strong><span><span class="merke gra">Systemstyrt</span> {{ merke(v.hpr_nr.tilpasset) }}</span></div>
-    <p class="liten dempet" style="margin:6px 0 0">Vises bare når kurset er del av et spesialistløp, og er aldri obligatorisk. Kun hjelpeteksten kan endres.
-      {% if kurs.spesialistlop %}Dette kurset er i spesialistløpet «{{ kurs.spesialistlop }}», så feltet vises.{% else %}Dette kurset har ikke spesialistløp, så feltet vises ikke nå.{% endif %}</p>
-    <label for="f-hpr_nr_hjelpetekst">Hjelpetekst <span class="liten dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn)</span></label>
-    <textarea id="f-hpr_nr_hjelpetekst" name="hpr_nr_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ v.hpr_nr.hjelpetekst }}</textarea>
+  <div class="sb-topp">
+    <div>
+      <h3 class="sb-seksjonstittel">Skjemabygger</h3>
+      <p class="liten dempet">Feltene står i den rekkefølgen deltakeren ser dem. Endre feltnavn, krav og vis i tabellen, flytt med ▲▼, og åpne «Mer» for hjelpetekst og flere valg.</p>
+    </div>
+    <button>Lagre påmeldingsskjema</button>
   </div>
 
-  <div class="kort" style="max-width:720px">
-    <div style="display:flex; justify-content:space-between; gap:10px"><strong>Faktura, betaling, allergier og tilrettelegging</strong><span class="merke gra">Systemstyrt</span></div>
-    <p class="liten dempet" style="margin:6px 0 0">Styres av kursets oppsett (pris, fakturering og kurstype) og kan ikke endres her.</p>
+  <div class="tabellboks">
+  <table class="sb-tabell">
+    <thead><tr><th scope="col"><span class="skjul-visuelt">Flytt</span></th><th scope="col">Feltnavn</th><th scope="col">Type</th><th scope="col" class="sb-sjekk">Krav</th><th scope="col" class="sb-sjekk">Vis</th><th scope="col"><span class="skjul-visuelt">Mer</span></th></tr></thead>
+
+    <tbody class="sb-seksjon"><tr><th scope="rowgroup" colspan="6">Om deg</th></tr></tbody>
+    <tbody class="sb-fast">
+      {{ fastrad('Fornavn', 'Fast felt') }}
+      {{ fastrad('Etternavn', 'Fast felt') }}
+      {{ fastrad('E-post', 'Fast felt – brukes til bekreftelse og Min side') }}
+      {{ fastrad('Adresse', 'Fast felt – deltakerens private adresse, lagres på personen. Krav for alle deltakere') }}
+      {{ fastrad('Postnummer', 'Fast felt – 4 siffer i Norge') }}
+      {{ fastrad('Poststed', 'Fast felt') }}
+    </tbody>
+    {%- for n in v.rekkefolge.om_deg %}
+    {% if n in register %}{{ standardrad(n, 'om_deg') }}{% else %}{{ egetrad(n, 'om_deg') }}{% endif %}
+    {%- endfor %}
+    {#- HPR-nummer samles ikke inn lenger (02.10.2026, skjemafelt.HPR_I_SKJEMA): raden vises bare hvis det slås på igjen. -#}
+    {% if hpr_i_skjema %}
+    <tbody class="sb-felt" id="felt-hpr_nr">
+      <tr class="sb-fastrad">
+        <td class="sb-flytt"></td>
+        <td class="sb-navn"><span class="sb-fast">HPR-nummer</span></td>
+        <td class="sb-type">Systemstyrt{% if v.hpr_nr.tilpasset %} <span class="merke gul">Tilpasset</span>{% endif %}
+          <span class="dempet">{% if vis_hpr %}Vises: kurset er i spesialistløpet «{{ kurs.spesialistlop }}»{% else %}Vises bare på kurs i et spesialistløp – ikke på dette kurset{% endif %}</span></td>
+        <td class="sb-sjekk"><span class="dempet" title="Aldri krav">–</span></td>
+        <td class="sb-sjekk"><span class="dempet" title="Styres av spesialistløpet">–</span></td>
+        <td class="sb-merkol">{{ merknapp('mer-hpr_nr') }}</td>
+      </tr>
+      <tr class="sb-mer" id="mer-hpr_nr"{% if 'hpr_nr' not in aapne %} hidden{% endif %}><td colspan="6">
+        <label for="f-hpr_nr_hjelpetekst">Hjelpetekst <span class="dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn)</span></label>
+        <textarea id="f-hpr_nr_hjelpetekst" name="hpr_nr_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ v.hpr_nr.hjelpetekst }}</textarea>
+        <p class="dempet">Kun hjelpeteksten kan endres. Feltet er aldri krav.</p>
+      </td></tr>
+    </tbody>
+    {% endif %}
+
+    <tbody class="sb-seksjon"><tr><th scope="rowgroup" colspan="6">Faktura <span class="dempet">{% if vis_blokk %}– vises på dette kurset, fordi deltakeren faktureres{% else %}– vises ikke på dette kurset (gratis, eller deltakeren faktureres ikke){% endif %}</span></th></tr></tbody>
+    <tbody class="sb-fast">{{ fastrad('Betale privat / firma', 'Fast felt – deltakeren velger') }}</tbody>
+    <tbody class="sb-seksjon"><tr><th scope="rowgroup" colspan="6"><span class="dempet">Når deltakeren betaler privat</span></th></tr></tbody>
+    <tbody class="sb-fast">{{ fastrad('Fakturaadresse', 'Deltakerens egen adresse (Adresse, Postnummer og Poststed under «Om deg») – ingen egne felt', krav=false) }}</tbody>
+    <tbody class="sb-seksjon"><tr><th scope="rowgroup" colspan="6"><span class="dempet">Når firma betaler</span></th></tr></tbody>
+    <tbody class="sb-fast">
+      {{ fastrad('Organisasjonsnummer', 'Fast felt – deltakeren skriver org.nr. eller søker på firmanavn') }}
+      {{ fastrad('Firmanavn, adresse, postnummer, poststed', 'Hentes automatisk fra Brønnøysundregistrene', krav=false) }}
+    </tbody>
+    {%- for n in firmafelt %}
+    {{ standardrad(n) }}
+    {%- endfor %}
+
+    <tbody class="sb-seksjon"><tr><th scope="rowgroup" colspan="6">Til slutt</th></tr></tbody>
+    {%- for n in v.rekkefolge.til_slutt %}
+    {{ egetrad(n, 'til_slutt') }}
+    {%- endfor %}
+    {%- for n in sensitive %}
+    {{ standardrad(n) }}
+    {%- endfor %}
+    <tbody class="sb-fast">{{ fastrad('Samtykke', 'Fast felt – vilkår for kurs og personvernerklæringen') }}</tbody>
+  </table>
   </div>
-
-  {{ fast_felt('Samtykke', 'Alltid synlig og obligatorisk: godkjenning av vilkår og personvernerklæring.') }}
-
-  <p><button>Lagre påmeldingsskjema</button></p>
+  <p style="margin-top:14px"><button>Lagre påmeldingsskjema</button></p>
 </form>
 
-<form method="post" action="{{ url_for('admin_kurs_paameldingsskjema_tilbakestill', kurs_id=kurs.id) }}"
-      data-bekreft="Tilbakestille påmeldingsskjemaet for dette kurset til standard? Alle tilpasninger av telefon, arbeidssted og HPR-hjelpetekst fjernes.">
+<section class="kort sb-nytt" id="nytt-felt" aria-labelledby="sb-nytt-tittel" style="margin-top:22px">
+  <h3 class="sb-seksjonstittel" id="sb-nytt-tittel">Legg til et ekstrafelt</h3>
+  <p class="liten dempet" style="margin:4px 0 8px">Nye felt legges sist i valgt del av skjemaet. Deretter kan du flytte og endre dem i tabellen over.</p>
+  <form method="post" action="{{ url_for('admin_kurs_ekstrafelt_ny', kurs_id=kurs.id) }}" class="sb-nytt-skjema">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div><label for="ny-label">Feltnavn</label><input id="ny-label" name="label" maxlength="{{ maks_label }}" required value="{{ nytt.label or '' }}"></div>
+    <div><label for="ny-type">Type</label>
+      <select id="ny-type" name="type">{% for t, navn in typer.items() %}<option value="{{ t }}"{{ ' selected' if nytt.type == t }}>{{ navn }}</option>{% endfor %}</select></div>
+    <div><label for="ny-plassering">Plassering</label>
+      <select id="ny-plassering" name="plassering">{% for p, navn in plasseringer.items() %}<option value="{{ p }}"{{ ' selected' if nytt.plassering == p }}>{{ navn }}</option>{% endfor %}</select></div>
+    <div><button>Legg til</button></div>
+    <div class="sb-nytt-valg"><label for="ny-valg">Svaralternativer <span class="liten dempet">(ett per linje – bare for envalg, flervalg og nedtrekksliste)</span></label>
+      <textarea id="ny-valg" name="valg" rows="3">{{ nytt.valg or '' }}</textarea></div>
+  </form>
+  <p class="liten" style="margin:16px 0 2px"><strong>Hurtigvalg</strong></p>
+  <form method="post" action="{{ url_for('admin_kurs_ekstrafelt_ny', kurs_id=kurs.id) }}" class="sb-maler">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {%- for n, mal in maler.items() %}
+    <button name="mal" value="{{ n }}" class="sekundar liten">+ {{ mal[0] }}</button>
+    {%- endfor %}
+  </form>
+  <p class="liten dempet" style="margin:10px 0 0">Ikke bruk egne felt til helseopplysninger, allergier eller andre sensitive opplysninger. Bruk feltene «{{ register['allergier'].label }}» og «{{ register['tilrettelegging'].label }}», som slettes automatisk etter kurset.</p>
+</section>
+
+{%- for fid, e in egne.items() %}
+<form id="slett-{{ fid }}" method="post" action="{{ url_for('admin_kurs_ekstrafelt_slett', kurs_id=kurs.id, felt_id=fid) }}" data-bekreft="Slette feltet «{{ e.label }}»? Det kan ikke angres."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
+{%- endfor %}
+{%- for fid in uleselige %}
+<form id="slett-{{ fid }}" method="post" action="{{ url_for('admin_kurs_ekstrafelt_slett', kurs_id=kurs.id, felt_id=fid) }}" data-bekreft="Slette eget felt nr. {{ fid }}? Det kan ikke angres."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
+{%- endfor %}
+
+<form method="post" action="{{ url_for('admin_kurs_paameldingsskjema_tilbakestill', kurs_id=kurs.id) }}" style="margin-top:22px"
+      data-bekreft="Tilbakestille påmeldingsskjemaet for dette kurset til standard? Alle endringer i standardfeltene og informasjonsboksen fjernes. Kursets egne felt beholdes.">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <button class="sekundar liten">Tilbakestill til standard</button>
+  <button class="sekundar liten">Tilbakestill standardfeltene</button>
 </form>
+</div>
 {% endif %}
 {% endblock %}

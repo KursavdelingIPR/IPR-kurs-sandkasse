@@ -3,10 +3,12 @@
 <p class="liten"><a href="{{ url_for('admin_rapport_deltakere') }}">← Deltakerregister</a></p>
 <h1>{{ deltaker.navn }}</h1>
 <p class="sub">{{ deltaker.epost }}{% if deltaker.telefon %} · {{ deltaker.telefon }}{% endif %}{% if deltaker.arbeidssted %} · {{ deltaker.arbeidssted }}{% endif %}{% if deltaker.yrkestittel %} · {{ deltaker.yrkestittel }}{% endif %}</p>
+{#- Innsyn (art. 15): personrapporten viser ALT vi har om personen, også den private adressen. Adressen står aldri i lister eller CSV. -#}
+<p class="liten dempet">Privat adresse: {% if deltaker.adresse or deltaker.postnr or deltaker.poststed %}{{ deltaker.adresse or '' }}, {{ deltaker.postnr or '' }} {{ deltaker.poststed or '' }}{% else %}ikke registrert{% endif %}</p>
 
 <h2>Kurs ({{ paameldinger|length }})</h2>
 <div class="tabellboks"><table>
-  <tr><th scope="col">Kurs</th><th scope="col">Påmeldingsstatus</th><th scope="col">Kursstatus</th><th scope="col">Påmeldt</th><th scope="col"></th></tr>
+  <tr><th scope="col">Kurs</th><th scope="col">Påmeldingsstatus</th><th scope="col">Kursstatus</th><th scope="col">Påmeldingsdato</th><th scope="col"></th></tr>
   {% for p in paameldinger %}
   <tr>
     <td>{{ p.kursnr }} {{ p.kurs_navn }}</td>
@@ -37,7 +39,7 @@
 {% if admin_rolle == 'system' and not deltaker.epost.endswith('@anonymisert.invalid') %}
 <h2>Retten til sletting</h2>
 <div class="kort">
-  <p class="liten">Fjerner navn, e-post, telefon, arbeidssted, profesjon, HPR-nummer, fakturaadresser, kommentarer,
+  <p class="liten">Fjerner navn, e-post, telefon, adresse, arbeidssted, profesjon, HPR-nummer, fakturaadresser, kommentarer,
     allergier/tilrettelegging, kursbevis, innloggingslenker og henvendelser for denne personen i hele påmeldingssystemet.
     Anonyme tall (påmeldinger, oppmøte, fakturaer) beholdes, slik at statistikk og regnskap stemmer.
     <strong>Kan ikke angres.</strong> Personer med aktive påmeldinger må meldes av først.</p>

@@ -3,15 +3,20 @@
 Kjores umiddelbart fra nettskjemaet OG av den daglige jobben (fanger opp det som feilet).
 Hver deltaker behandles for seg: feiler Visma for én, stopper det ikke de andre.
 
+Privat faktura: lages og sendes ALDRI uten komplett privat adresse (adresse, postnr, poststed): _opprett holder den tilbake til
+adressen er lagt inn, uten aa skrive noe (kurs/privatadresse.py). Firma faktureres paa firmaets adresse fra Enhetsregisteret.
+
 Fakturering styres av kurs.betaling / paamelding.betaling:
   samlet      -> én faktura paa hele belopet ved paamelding
-  per_samling -> én faktura pr kursdag, opprettet `kurs.faktura_dager_for` dager for hver samling
+  per_samling -> én faktura per samling, opprettet `kurs.faktura_dager_for` dager foer samlingens foerste kursdag
+                 (migrering 9: kursdagene er gruppert i samlinger - kurs som hadde delt faktura foer det, har én samling
+                 per kursdag, saa deres delfakturaer er som foer)
 """
 import calendar
 from dataclasses import dataclass
 from datetime import date
 
-from . import db
+from . import db, firmaopplysninger, privatadresse
 from .feil import sikker_feiltekst
 from .integrasjoner import visma
 from .kjoring import Kjoring
@@ -38,7 +43,9 @@ def kjor(k: Kjoring, paamelding_id: int | None = None, *, ignorer_utsatt: bool =
     """
     if ignorer_utsatt and not paamelding_id:
         raise ValueError("ignorer_utsatt krever en bestemt paamelding_id")
-    utsatt_vilkar = "" if ignorer_utsatt else " AND p.sveiper_utsatt=0"
+    utsatt_vilkar = "" if ignorer_utsatt else " AND p.sveiper_utsatt=0 AND p.ekstradeltaker_ts IS NULL"
+    # (En ekstradeltaker får aldri automatisk bekreftelse eller faktura: prisen er ikke kursets standardpris. Den holdes tilbake
+    # med sveiper_utsatt=1, og sperren her er en ekstra sikring. Admin sender manuelt: ignorer_utsatt=True.)
     # avlyst: skal aldri faa e-post/faktura. utkast: ikke publisert ennaa, skal aldri behandles
     # automatisk (fase 9 - admin kan registrere med tillat_utkast, men det skal ikke sendes noe
     # for kurset er aapnet). sveiper_utsatt=1: admin har bevisst bedt om AA VENTE (fase 9) - skal
@@ -85,7 +92,7 @@ def _en_trygt(k: Kjoring, p) -> None:
 def _en(k: Kjoring, p) -> None:
     nokkel = f"kurs:{p['kurs_id']}"
     kurs = k.con.execute("SELECT * FROM kurs WHERE id=?", (p["kurs_id"],)).fetchone()
-    dager = db.kursdager(k.con, p["kurs_id"])
+    dager = db.paameldingens_kursdager(k.con, p)    # en ekstradeltaker med samlingsutvalg får bare sine samlinger i bekreftelsen
 
     if p["status"] == "venteliste":
         k.send_en_gang(nokkel, p["epost"], "venteliste", "venteliste", paamelding_id=p["id"], p=p, kurs=kurs)
@@ -111,6 +118,8 @@ def _en(k: Kjoring, p) -> None:
 
 def _lag_plan(k: Kjoring, p, dager=None) -> "FakturaPlan":
     """Bygger FakturaPlan for en paamelding fra dens egne felt + den autoritative kursdaglisten (db.kursdager)."""
+    if db.er_ekstradeltaker(p):        # ingen automatisk faktura for en ekstradeltaker (prisen er ikke kursets standardpris)
+        return FakturaPlan(PLAN_INGEN)
     dager = db.kursdager(k.con, p["kurs_id"]) if dager is None else dager
     return faktura_plan(fakturering=p["fakturering"], pris_nok=p["pris_nok"], status=p["status"], betaling=p["betaling"],
                         faktura_onskes_na=p["faktura_onskes_na"], kursdager=[d["dato"] for d in dager], idag=k.idag)
@@ -133,9 +142,8 @@ def _fakturering_ferdig(k: Kjoring, p, plan: "FakturaPlan") -> bool:
     if plan.modus == PLAN_NA:
         return k.con.execute(
             "SELECT 1 FROM faktura WHERE paamelding_id=? AND kursdag_id IS NULL", (p["id"],)).fetchone() is not None
-    for dag in db.kursdager(k.con, p["kurs_id"]):
-        if _forfalt(k.idag, dag["dato"], p["faktura_dager_for"]) and not k.con.execute(
-                "SELECT 1 FROM faktura WHERE paamelding_id=? AND kursdag_id=?", (p["id"], dag["id"])).fetchone():
+    for _nr, samling, _kursdag_id, _belop in delfakturaer_som_gjenstaar(k.con, p, samlinger_til_fakturering(k.con, p["kurs_id"])):
+        if _forfalt(k.idag, samling[0]["dato"], p["faktura_dager_for"]):
             return False
     return True
 
@@ -160,13 +168,64 @@ def _faktura_finnes(con, paamelding_id: int, kursdag_id: int | None) -> bool:
 
 
 def skal_faktureres(p) -> bool:
-    return p["fakturering"] == "person" and p["pris_nok"] > 0 and p["status"] == "bekreftet"
+    """Skal påmeldingen faktureres automatisk? Ikke en ekstradeltaker (ekstradeltaker_ts satt): prisen er ikke kursets
+    standardpris, så admin fakturerer manuelt. En rad uten ekstradeltaker_ts (f.eks. bare fakturering, pris og status) regnes
+    som vanlig påmelding."""
+    return (p["fakturering"] == "person" and p["pris_nok"] > 0 and p["status"] == "bekreftet"
+            and not db.er_ekstradeltaker(p))
 
 
 def delbelop(pris: int, antall: int) -> list[int]:
     """Deler belopet likt. Rest legges paa forste faktura, slik at summen alltid stemmer."""
     grunn, rest = divmod(pris, antall)
     return [grunn + rest] + [grunn] * (antall - 1)
+
+
+def samlinger_til_fakturering(con, kurs_id: int) -> list[list]:
+    """Kursdagene gruppert per samling, i rekkefoelgen samlingene starter (db.kursdager er sortert paa dato). En kursdag
+    uten samling blir sin egen gruppe. Delt faktura er én faktura per gruppe."""
+    grupper: dict = {}
+    for d in db.kursdager(con, kurs_id):
+        grupper.setdefault(d["samling_id"] if d["samling_id"] is not None else ("dag", d["id"]), []).append(d)
+    return list(grupper.values())
+
+
+def delfakturaer_som_gjenstaar(con, p, samlinger: list[list]) -> list[tuple]:
+    """Delfakturaene en paamelding ikke har faatt ennaa: [(nr, kursdagene i samlingen, kursdag_id, beloep)].
+
+    En samling er fakturert naar en faktura er knyttet til EN av kursdagene i den - vanligvis den foerste, men dagene kan
+    endres etterpaa (en fakturert kursdag kan aldri fjernes, db.lagre_samlinger). Finnes et fakturaforsoek paa en dag i
+    samlingen, knyttes fakturaen til den dagen, saa forsoeket fullfoeres i stedet for at et nytt lages. Ellers knyttes den
+    til samlingens foerste kursdag (unik per paamelding og kursdag, som foer).
+    Beloepet som gjenstaar (prisen minus det som alt er fakturert) deles likt paa samlingene som gjenstaar, med resten paa
+    den foerste (delbelop) - samme beloep som foer naar samlingene er uendret, og summen blir alltid prisen, ogsaa om
+    antallet samlinger endres underveis."""
+    fakturert = {r["kursdag_id"]: r["belop_nok"] for r in con.execute(
+        "SELECT kursdag_id, belop_nok FROM faktura WHERE paamelding_id=? AND kursdag_id IS NOT NULL", (p["id"],))}
+    forsok = {r["kursdag_id"] for r in con.execute(
+        "SELECT kursdag_id FROM faktura_forsok WHERE paamelding_id=? AND kursdag_id IS NOT NULL", (p["id"],))}
+    gjenstaar, brukt = [], 0
+    for nr, samling in enumerate(samlinger, start=1):
+        ider = [d["id"] for d in samling]
+        if any(i in fakturert for i in ider):
+            brukt += sum(fakturert[i] for i in ider if i in fakturert)
+            continue
+        gjenstaar.append((nr, samling, next((i for i in ider if i in forsok), ider[0])))
+    if not gjenstaar:
+        return []
+    andeler = delbelop(max(p["pris_nok"] - brukt, 0), len(gjenstaar))
+    return [(nr, samling, kursdag_id, belop) for (nr, samling, kursdag_id), belop in zip(gjenstaar, andeler)]
+
+
+def fakturering_gjenstaar(con, p) -> bool:
+    """Gjenstår det en faktura systemet ellers ville laget av seg selv for denne påmeldingen? Samlet betaling: ingen faktura finnes ennå.
+    Per samling: minst en delfaktura er ikke laget (uansett om den er forfalt ennå). Ren lesing. `p` er en påmeldingsrad med id, kurs_id,
+    betaling og pris_nok. Brukes når en ekstradeltaker settes tilbake til Påmeldt: da skal systemet ikke begynne å fakturere av seg selv,
+    heller ikke resten av delfakturaene (brukerens beslutning 01.10.2026) - det som gjenstår, holdes tilbake til administrator velger
+    «Behandle fakturering nå». Et fakturaforsøk uten ekte faktura regnes som gjenstående (uavklarte forsøk avgjør administrator)."""
+    if p["betaling"] == "per_samling":
+        return bool(delfakturaer_som_gjenstaar(con, p, samlinger_til_fakturering(con, p["kurs_id"])))
+    return con.execute("SELECT 1 FROM faktura WHERE paamelding_id=? AND kursdag_id IS NULL", (p["id"],)).fetchone() is None
 
 
 def fakturer(k: Kjoring, p, plan: "FakturaPlan | None" = None) -> None:
@@ -176,7 +235,7 @@ def fakturer(k: Kjoring, p, plan: "FakturaPlan | None" = None) -> None:
       mangler_kursdag -> ingen faktura, ingen Visma, ingen faktura_forsok; kun en trygg hendelse (konfigurasjonsfeil)
       utsatt          -> ingen faktura/Visma/faktura_forsok; lagrer faktura_tidligst_dato (ikke committet her)
       na              -> samlet faktura via _opprett (uendret claim/Visma-sikkerhet)
-      per_samling     -> uendret: delfaktura for hver forfalt samling via _opprett
+      per_samling     -> delfaktura for hver forfalt samling via _opprett (delfakturaer_som_gjenstaar)
     """
     plan = plan or _lag_plan(k, p)
     if plan.modus == PLAN_INGEN:
@@ -192,12 +251,11 @@ def fakturer(k: Kjoring, p, plan: "FakturaPlan | None" = None) -> None:
     if plan.modus == PLAN_NA:
         _opprett(k, p, None, p["pris_nok"], f"{p['kursnavn']} – {p['navn']}")
         return
-    dager = db.kursdager(k.con, p["kurs_id"])
-    belop = delbelop(p["pris_nok"], len(dager))
-    for nr, (dag, sum_) in enumerate(zip(dager, belop), start=1):
-        if _forfalt(k.idag, dag["dato"], p["faktura_dager_for"]):
-            _opprett(k, p, dag["id"], sum_,
-                     f"{p['kursnavn']} – {p['navn']} – samling {nr} av {len(dager)} ({dag['dato']})")
+    samlinger = samlinger_til_fakturering(k.con, p["kurs_id"])
+    for nr, samling, kursdag_id, sum_ in delfakturaer_som_gjenstaar(k.con, p, samlinger):
+        if _forfalt(k.idag, samling[0]["dato"], p["faktura_dager_for"]):
+            _opprett(k, p, kursdag_id, sum_,
+                     f"{p['kursnavn']} – {p['navn']} – samling {nr} av {len(samlinger)} ({samling[0]['dato']})")
 
 
 def _forfalt(idag: date, dato: str, dager_for: int) -> bool:
@@ -275,7 +333,8 @@ def forfalte_delfakturaer(k: Kjoring) -> None:
     (sveiper_utsatt er ikke relevant her: en tilbakeholdt rad naar aldri sveiper_kjort=1
     i utgangspunktet, siden det kravet haandheves i kjor().)
     """
-    for p in k.con.execute(SQL_DELTAKER + """ WHERE p.status='bekreftet' AND p.betaling='per_samling'
+    for p in k.con.execute(SQL_DELTAKER + """ WHERE p.status='bekreftet' AND p.ekstradeltaker_ts IS NULL
+                                              AND p.betaling='per_samling'
                                               AND p.sveiper_kjort=1 AND k.fakturering='person' AND k.pris_nok > 0
                                               AND k.status!='avlyst'"""):
         try:
@@ -302,8 +361,8 @@ def utsatte_fakturaer(k: Kjoring, paamelding_id: int | None = None) -> None:
     Kurs som avlyses mellom SELECT og Visma-kallet er samme eksisterende (ikke-utvidede) race som resten av motoren.
     """
     rader = k.con.execute(
-        SQL_DELTAKER + """ WHERE p.status='bekreftet' AND p.sveiper_kjort=1 AND p.betaling='samlet'
-                           AND p.faktura_tidligst_dato IS NOT NULL
+        SQL_DELTAKER + """ WHERE p.status='bekreftet' AND p.ekstradeltaker_ts IS NULL AND p.sveiper_kjort=1
+                           AND p.betaling='samlet' AND p.faktura_tidligst_dato IS NOT NULL
                            AND (p.faktura_onskes_na=1 OR p.faktura_tidligst_dato <= ?)
                            AND k.fakturering='person' AND k.pris_nok > 0 AND k.status NOT IN ('avlyst','utkast')
                            AND NOT EXISTS (SELECT 1 FROM faktura f WHERE f.paamelding_id=p.id AND f.kursdag_id IS NULL)"""
@@ -320,8 +379,8 @@ def utsatte_fakturaer(k: Kjoring, paamelding_id: int | None = None) -> None:
 
 
 def oppdater_faktura_hold_etter_kursdagendring(con, kurs_id: int) -> int:
-    """SKAL kalles i SAMME transaksjon som enhver endring av kursets kursdager (ingen slik editor finnes ennaa - en vakttest
-    feiler hvis ny kode skriver til kursdag uten aa gaa via denne). Holder lagrede faktura_tidligst_dato i takt med foerste
+    """SKAL kalles i SAMME transaksjon som enhver endring av kursets kursdager (db.lagre_samlinger gjoer det - en vakttest
+    feiler hvis annen kode skriver til kursdag uten aa gaa via denne). Holder lagrede faktura_tidligst_dato i takt med foerste
     kursdag, slik at en gammel seksmaanedersdato aldri brukes mot et nytt kursoppsett.
 
     Berorer KUN aktive, ennaa ufakturerte hold: bekreftet, samlet, fakturering=person med pris, faktura_tidligst_dato satt,
@@ -352,6 +411,18 @@ def oppdater_faktura_hold_etter_kursdagendring(con, kurs_id: int) -> int:
     return antall
 
 
+def _fakturaadresse(con, p, org: bool) -> tuple | None:
+    """(adresse, postnr, sted) fakturaen sendes til, eller None naar fakturaen maa vente paa privat adresse.
+    Firma: adressen fra Enhetsregisteret (paamelding.faktura_*), aldri deltakerens private adresse. Betaler deltakeren selv:
+    den KOMPLETTE private adressen (privatadresse.faktura_adresse: kopien paa paameldingen, ellers personens egen). Deltakerens
+    adresse er alltid krav i skjemaet, men eldre/test-personer og personer registrert uten adresse mens noedbremsen for webhook/CSV
+    var paa (merket «Privat adresse mangler») har den ikke: en privat faktura opprettes og sendes ALDRI uten komplett adresse
+    (brukerens beslutning 01.10.2026) - den holdes tilbake til adressen er lagt inn."""
+    if org:
+        return (p["faktura_adresse"], p["faktura_postnr"], p["faktura_sted"])
+    return privatadresse.faktura_adresse(con, p)
+
+
 def _opprett(k: Kjoring, p, kursdag_id: int | None, belop: int, linjetekst: str) -> None:
     """Oppretter EN faktura (samlet eller for en samling). Transaksjonsforlop (ingen laas over Visma-kallet):
 
@@ -369,13 +440,27 @@ def _opprett(k: Kjoring, p, kursdag_id: int | None, belop: int, linjetekst: str)
     """
     if _faktura_finnes(k.con, p["id"], kursdag_id):
         return  # allerede fakturert – unik indeks i databasen er ekstra sikring
+    if firmaopplysninger.mangler(p):
+        # Firma betaler, men firmanavnet er ikke hentet fra Enhetsregisteret ennå («Firmaopplysninger må kontrolleres»):
+        # ingen faktura uten kundenavn. Ingenting skrives (heller ingen logg, så jobben forblir idempotent) - raden tas
+        # igjen ved neste kjøring, siden sveiper_kjort ikke settes, og fakturaen lages når opplysningene er på plass.
+        k.si(f"  påmelding {p['id']}: faktura venter - {firmaopplysninger.MERKE.lower()}")
+        return
     org = p["betaler"] == "organisasjon"
+    fakturaadresse = _fakturaadresse(k.con, p, org)
+    if fakturaadresse is None:
+        # Privat betaler uten komplett privat adresse (adresse, postnr og poststed): ingen faktura uten adresse. Som sperren over
+        # skrives ingenting (heller ingen logg, så jobben forblir idempotent): raden tas igjen ved neste kjøring, siden sveiper_kjort
+        # ikke settes, og fakturaen lages når adressen er lagt inn. Administrator ser det som «Privat adresse mangler» (privatadresse.py).
+        k.si(f"  påmelding {p['id']}: faktura venter - {privatadresse.VENTER_TEKST}")
+        return
+    adresse, postnr, sted = fakturaadresse
     g = visma.Fakturagrunnlag(
         kunde_navn=p["org_navn"] if org else p["navn"],
         kunde_epost=p["faktura_epost"] or p["epost"],
         er_privatperson=not org,
         org_nr=p["org_nr"] if org else None,
-        adresse=p["faktura_adresse"], postnr=p["faktura_postnr"], sted=p["faktura_sted"],
+        adresse=adresse, postnr=postnr, sted=sted,
         ehf=bool(p["ehf"]),
         deres_ref=p["faktura_ref"] or (p["navn"] if org else None),
         linjetekst=linjetekst,

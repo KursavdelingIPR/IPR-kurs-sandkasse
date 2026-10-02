@@ -132,6 +132,8 @@ def _tillegg(navn, standard, koder) -> Felt:
 # Standardhilsen i malene til deltakere (og kontaktpersoner): fornavnet. Den er vanlig, redigerbar tekst - admin bestemmer
 # selv om og hvor {fornavn} skal staa. Kursholdere (purring) har bare ett navnefelt og faar fullt navn.
 _D = "Hei {fornavn},\n\n"
+_PAAMELDTE = db.PAAMELDINGSSTATUSER_FLERTALL["paameldt"].lower()      # de som har plass (beskrivelsene av malene)
+_EKSTRA = db.PAAMELDINGSSTATUSER_FLERTALL["ekstradeltaker"]           # er på kurset, men bare på samlingene de er satt opp på
 _D_KURSHOLDER = "Hei {navn},\n\n"
 _P = {"fornavn", "navn"}            # mottakerens navnekoder i alle maler til deltakere/kontaktpersoner
 
@@ -150,14 +152,16 @@ MALER: dict[str, Mal] = {
                                        "plass, får du automatisk plassen og en bekreftelse på e-post.",
                          _P | {"kursnavn"})}),
     "ukefor": Mal(
-        "Praktisk informasjon (uken før)", "Sendes til bekreftede deltakere en uke før kursstart.",
+        "Praktisk informasjon (uken før)", f"Sendes til {_PAAMELDTE} deltakere en uke før kursstart. {_EKSTRA} får den en uke før "
+                                          "den første samlingen de er satt opp på.",
         {"emne": _emne("Emne", "Velkommen til {kursnavn} – praktisk informasjon", _P | {"kursnavn", "startdato"}),
          "innledning": _hoved("Innledning", _D + "Nå er det snart tid for {kursnavn}, som starter {startdato}.",
                               _P | {"kursnavn", "startdato"}),
          "avslutning": _tillegg("Avslutning", "", _P | {"kursnavn", "startdato"})}),
     "dagfor": Mal(
-        "Påminnelse dagen før kursdag", "Sendes til bekreftede deltakere dagen før hver kursdag "
-                                       "(egen tekst for første dag, dager midt i kurset og siste dag).",
+        "Påminnelse dagen før kursdag", f"Sendes til {_PAAMELDTE} deltakere dagen før hver kursdag "
+                                       "(egen tekst for første dag, dager midt i kurset og siste dag). "
+                                       f"{_EKSTRA} får den bare dagen før kursdagene i samlingene de er satt opp på.",
         {"emne_forste": _emne("Emne – første kursdag", "I morgen starter {kursnavn}",
                               _P | {"kursnavn", "dato", "dagnummer", "antall_dager"}),
          "emne_midt": _emne("Emne – dag midt i kurset", "I morgen, dag {dagnummer}: {kursnavn}",
@@ -178,11 +182,11 @@ MALER: dict[str, Mal] = {
          "tekst": Felt("Tekst", TEKST,
                        _D + "Vi må dessverre informere om at {kursnavn} er avlyst.\n\n"
                        "Har du allerede mottatt faktura, tar kursadministrasjonen kontakt med deg om det videre. "
-                       "Har du spørsmål, kan du svare på denne e-posten eller bruke «Spør oss» på {sporsmal_url}.\n\n"
+                       "Har du spørsmål, kan du svare på denne e-posten.\n\n"
                        "Vi beklager ulempen dette medfører.",
                        frozenset(_P | {"kursnavn", "min_side", "sporsmal_url"}), _MAKS_TEKST, False)}),
     "kursbevis_klar": Mal(
-        "Kursbevis klart", "Sendes til deltakeren når kursbeviset er lagt på Min side.",
+        "Kursbevis klart", "Sendes til deltakeren når kursbeviset er lagt under Mine kurs.",
         {"emne": _emne("Emne", "Kursbevis: {kursnavn}", _P | {"kursnavn"}),
          "tekst": _hoved("Tekst", _D + "Takk for deltakelsen på {kursnavn}. Kursbeviset ditt ligger nå på {min_side}.",
                          _P | {"kursnavn"})}),
@@ -342,9 +346,16 @@ def ren_tekst_til_html(tekst: str) -> Markup:
 
 def _kodeverdi_html(kode: str, verdier: dict, mal: str, felt: str) -> Markup:
     if kode == "min_side":
-        return Markup('<a href="{}/min-side">Min side</a>').format(config.BASE_URL)   # format escaper verdien
+        # Lenken til DENNE mottakerens Min side (bygget av systemet, aldri fra admintekst) når e-posten gjelder et kurs med åpen Min side;
+        # ellers oversikten «Mine kurs» (krever innlogging med e-post). format escaper verdien.
+        personlig = verdier.get("min_side_url")
+        if isinstance(personlig, str) and personlig.startswith(f"{config.BASE_URL}/min/"):
+            return Markup('<a href="{}">Min side</a>').format(personlig)
+        return Markup('<a href="{}/min-side">Mine kurs</a>').format(config.BASE_URL)
     if kode == "sporsmal_url":
-        return escape(f"{config.BASE_URL}/sporsmal")
+        # «Spør oss» er av som standard (siden gir 404): en lagret tekst med koden peker da på innloggingen for deltakere i stedet for en
+        # død adresse (startsiden / er innloggingen til Admin og er ikke noe sted å sende en deltaker)
+        return escape(f"{config.BASE_URL}/sporsmal" if config.ASSISTENT_AKTIV else f"{config.BASE_URL}/logg-inn")
     if kode not in verdier:
         raise MalFeil(MANGLER_VERDI, mal, felt, f"Verdien for {{{kode}}} mangler.")
     ren = escape(_rens_verdi(verdier[kode]))
@@ -393,7 +404,7 @@ def felttekst_til_emne(mal: str, felt: str, tekst: str, verdier: dict) -> str:
 
 # Koder admin kan bruke i en egenskrevet e-post til én eller flere deltakere. Det legges ikke til noen automatisk hilsen -
 # admin bestemmer selv om og hvor {fornavn} skal staa. Samme strenge tolker (whitelist) og escaping som de redigerbare malene.
-MANUELLE_KODER = frozenset({"fornavn", "navn"})
+MANUELLE_KODER = frozenset({"fornavn", "navn", "min_side"})
 
 
 def valider_manuell_tekst(tekst: str) -> str:
@@ -405,14 +416,24 @@ def valider_manuell_tekst(tekst: str) -> str:
 
 
 def manuell_tekst_til_html(tekst: str, mottaker) -> Markup:
-    """Egenskrevet e-posttekst -> trygg HTML for ÉN mottaker: {fornavn}/{navn} byttes med mottakerens egne verdier. All tekst
+    """Egenskrevet e-posttekst -> trygg HTML for ÉN mottaker: {fornavn}/{navn} byttes med mottakerens egne verdier, og {min_side} med
+    mottakerens egen lenke til Min side (eller «Mine kurs» når mottakeren ikke har noen). All tekst
     og alle verdier escapes; blank linje -> avsnitt, linjeskift -> <br> (som i de redigerbare malene)."""
     verdier = _person(mottaker)
+    try:
+        personlig = mottaker["min_side_url"]       # satt av systemet (Kjoring.send_admin_utsending), aldri fra admintekst
+    except (KeyError, IndexError, TypeError):
+        personlig = None
 
     def linje(l: str) -> Markup:
         ut = Markup("")
         for slag, verdi in _parse(l, MANUELLE_KODER):
-            ut += escape(verdi) if slag == "tekst" else escape(_rens_verdi(verdier[verdi]))
+            if slag == "tekst":
+                ut += escape(verdi)
+            elif verdi == "min_side":
+                ut += _kodeverdi_html("min_side", {"min_side_url": personlig}, "admin_melding", "tekst")
+            else:
+                ut += escape(_rens_verdi(verdier[verdi]))
         return ut
     return _avsnitt_til_html(valider_manuell_tekst(tekst), linje)
 
@@ -483,6 +504,13 @@ def _person(rad) -> dict:
     return {"fornavn": rad["fornavn"], "navn": rad["navn"]}
 
 
+def _med_min_side(verdier: dict, data) -> dict:
+    """Legger den personlige lenken til Min side (min_side_url, bygget av Kjoring) til verdiene når e-posten har en. Det er ikke en kode
+    admin kan skrive: bare {min_side} bruker den, og bare når den er systembygd (se _kodeverdi_html)."""
+    lenke = data.get("min_side_url") if hasattr(data, "get") else None
+    return {**verdier, "min_side_url": lenke} if lenke else verdier
+
+
 def _venteliste_verdier(data) -> dict:
     return {**_person(data["p"]), "kursnavn": data["kurs"]["navn"]}
 
@@ -502,20 +530,25 @@ def _bekreftelse_verdier(data) -> dict:
     verdier = {**_person(data["p"]), "kursnavn": data["kurs"]["navn"]}
     if data["dager"]:
         verdier["startdato"] = data["dager"][0]["dato"]
-    return verdier
+    return _med_min_side(verdier, data)
 
 
 def _ukefor_verdier(data) -> dict:
-    """KUN det registeret tillater: navn, kursnavn og foerste kursdag (ISO). Kursdager/klokkeslett, sted/QR-innsjekk, Zoom-
-    informasjon og kursnotat er LAASTE systemblokker i malfilen - aldri koder, aldri redigerbare."""
-    return {**_person(data["d"]), "kursnavn": data["kurs"]["navn"], "startdato": data["dager"][0]["dato"]}
+    """KUN det registeret tillater: navn, kursnavn og foerste kursdag (ISO). Kursdager/klokkeslett, sted/QR-innsjekk og Zoom-
+    informasjon er LAASTE systemblokker i malfilen - aldri koder, aldri redigerbare. (Kursets notat er en intern kommentar
+    og er aldri med i e-post.) `dager` er dagene mottakeren er på (en ekstradeltaker: bare egne samlinger), så {startdato} er
+    DERES første dag. Uten dager utelates {startdato} (bruker admin den, blir det MalFeil - aldri en oppdiktet dato)."""
+    verdier = {**_person(data["d"]), "kursnavn": data["kurs"]["navn"]}
+    if data["dager"]:
+        verdier["startdato"] = data["dager"][0]["dato"]
+    return _med_min_side(verdier, data)
 
 
 def _dagfor_verdier(data) -> dict:
     """KUN det registeret tillater. Tid, sted/QR og Zoom-lenke/ID/passord er LAASTE systemblokker i malfilen (Zoom-hemmeligheter
     er aldri koder). Alle varianter (forste/midt/siste) faar verdier, saa en ugyldig variant feiler lukket uansett dag."""
-    return {**_person(data["d"]), "kursnavn": data["kurs"]["navn"], "dato": data["dag"]["dato"],
-            "dagnummer": data["nr"], "antall_dager": data["antall"]}
+    return _med_min_side({**_person(data["d"]), "kursnavn": data["kurs"]["navn"], "dato": data["dag"]["dato"],
+                          "dagnummer": data["nr"], "antall_dager": data["antall"]}, data)
 
 
 def _kursbevis_klar_verdier(data) -> dict:

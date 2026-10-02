@@ -3,6 +3,12 @@
 {% include "admin_kurs_header.html" %}
 {% include "admin_kurs_faner.html" %}
 
+<div class="kort seksjonstopp kurssignatur">
+  <p><strong>Signatur</strong> i påminnelser, kursbevis, avlysning og avslag: {{ kurssignatur.navn }}</p>
+  {% if admin_rolle != 'lese' %}<a class="knapp liten sekundar" href="{{ url_for('admin_kurs_signatur', kurs_id=kurs.id) }}">Endre signatur</a>
+  {% else %}<a class="liten" href="{{ url_for('admin_kurs_signatur', kurs_id=kurs.id) }}">Se signaturen</a>{% endif %}
+</div>
+
 <h2>Manuelt sendt</h2>
 <p class="liten dempet">Send til deltakere via avkrysning i Deltakere-fanen, eller til én deltaker fra deltakerprofilen.</p>
 <div class="tabellboks"><table>

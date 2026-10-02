@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css). Kurs for IPR.no skal få en annen stil etter hvert. -#}
 {% block innhold %}
 <div class="kort" style="max-width:560px">
 {% if status == 'bekreftet' %}
@@ -8,6 +9,12 @@
   <h1>Du står på venteliste</h1>
   <p>Takk, {{ fornavn }}. <strong>{{ kurs.navn }}</strong> er fullt, men du får automatisk plass og beskjed på e-post hvis noen melder seg av.</p>
 {% endif %}
-  <p><a class="knapp sekundar" href="{{ url_for('logg_inn') }}">Gå til Min side</a></p>
+{% if firmaopplysninger_mangler %}
+  <div class="varselboks" role="status">
+    <strong>Vi kunne ikke hente firmaopplysningene akkurat nå</strong>
+    <p style="margin:6px 0 0">Påmeldingen din er registrert med organisasjonsnummeret du skrev inn. Firmanavn og fakturaadresse hentes fra Brønnøysundregistrene, og vi kontrollerer dem i etterkant. Du trenger ikke gjøre noe mer.</p>
+  </div>
+{% endif %}
+  <p><a class="knapp sekundar" href="{{ url_for('logg_inn') }}">Logg inn</a></p>
 </div>
 {% endblock %}

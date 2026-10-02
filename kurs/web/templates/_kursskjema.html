@@ -1,0 +1,143 @@
+{#- Felles deler av kursskjemaet: «Opprett kurs» (admin_ny_kurs.html) og kursinnstillingene i Oppsett
+    (admin_kurs_oppsett.html). Verdiene `v` er tekst fra app._kursverdier / _standardverdier / _innsendte_verdier.
+    Oppførselen (samlinger, dager, frist, format og betaling) ligger i static/app.js og styres av data-attributter. -#}
+
+{% macro format_og_sted(v, formater, zoom=false) %}
+<fieldset data-format>
+  <legend class="etikett">Format *</legend>
+  <div class="valgrad">
+    {% for verdi, tekst in formater.items() %}<label class="valg-inline"><input type="radio" name="type" value="{{ verdi }}" {{ 'checked' if v.type == verdi }} required> {{ tekst }}</label>
+    {% endfor %}
+  </div>
+</fieldset>
+<div class="rad">
+  <div data-sted-felt{{ ' hidden' if v.type == 'digital' }}>
+    <label for="f-sted">Sted *</label>
+    <input id="f-sted" name="sted" value="{{ v.sted }}" maxlength="200"{{ ' required' if v.type != 'digital' }}>
+  </div>
+  {% if zoom %}
+  <div data-zoom-felt{{ ' hidden' if v.type == 'fysisk' }}>
+    <label for="f-zoom_url">Zoom-lenke</label>
+    <input id="f-zoom_url" name="zoom_url" value="{{ v.zoom_url }}" aria-describedby="f-zoom_url-hjelp">
+    <p class="liten dempet" id="f-zoom_url-hjelp" style="margin:4px 0 0">Tom = opprettes automatisk 8 dager før start.</p>
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+
+{% macro dagrad(d, n) %}
+<tr data-dag="{{ d.iso }}">
+  <th scope="row" data-dagtekst>{{ d.tekst }}</th>
+  <td><input type="time" name="s-{{ n }}-d-{{ d.iso }}-start" value="{{ d.start }}" aria-label="Fra kl. {{ d.tekst }}" data-dagfelt="start"></td>
+  <td><input type="time" name="s-{{ n }}-d-{{ d.iso }}-slutt" value="{{ d.slutt }}" aria-label="Til kl. {{ d.tekst }}" data-dagfelt="slutt"></td>
+  <td><input type="number" min="0" max="24" step="0.25" name="s-{{ n }}-d-{{ d.iso }}-timer" value="{{ d.timer }}" aria-label="Timer {{ d.tekst }}" data-dagfelt="timer" class="timefelt"></td>
+  <td><input name="s-{{ n }}-d-{{ d.iso }}-merknad" value="{{ d.merknad }}" maxlength="100" aria-label="Merknad {{ d.tekst }}" placeholder="F.eks. Veiledningsdag" data-dagfelt="merknad"></td>
+  <td class="midt"><input type="checkbox" name="s-{{ n }}-d-{{ d.iso }}-fjern" value="1"{{ ' checked' if d.fjern }} aria-label="Ikke med: {{ d.tekst }}" data-dagfelt="fjern"></td>
+</tr>
+{% endmacro %}
+
+
+{% macro samlingsrad(r, n, nr) %}
+<fieldset class="samling" data-samling data-varighet="{{ r.varighet or '' }}">
+  <legend>Samling <span data-samling-nr>{{ nr }}</span></legend>
+  <input type="hidden" name="s-{{ n }}-id" value="{{ r.id }}" data-samlingsfelt="id">
+  <div class="samlingsfelt">
+    <div class="samling-navn"><label for="s-{{ n }}-navn">Navn <span class="dempet">(valgfritt)</span></label>
+      <input id="s-{{ n }}-navn" name="s-{{ n }}-navn" value="{{ r.navn }}" maxlength="100" placeholder="F.eks. Samling 1" data-samlingsfelt="navn"></div>
+    <div><label for="s-{{ n }}-fra">Fra dato *</label>
+      <input id="s-{{ n }}-fra" name="s-{{ n }}-fra" type="date" value="{{ r.fra }}" data-samlingsfelt="fra"></div>
+    <div><label for="s-{{ n }}-til">Til dato</label>
+      <input id="s-{{ n }}-til" name="s-{{ n }}-til" type="date" value="{{ r.til }}" data-samlingsfelt="til" aria-describedby="s-{{ n }}-hjelp"></div>
+    <div><label for="s-{{ n }}-start">Fra kl.</label>
+      <input id="s-{{ n }}-start" name="s-{{ n }}-start" type="time" value="{{ r.start }}" data-samlingsfelt="start"></div>
+    <div><label for="s-{{ n }}-slutt">Til kl.</label>
+      <input id="s-{{ n }}-slutt" name="s-{{ n }}-slutt" type="time" value="{{ r.slutt }}" data-samlingsfelt="slutt"></div>
+    <div><label for="s-{{ n }}-timer">Timer per dag</label>
+      <input id="s-{{ n }}-timer" name="s-{{ n }}-timer" type="number" min="0" max="24" step="0.25" value="{{ r.timer }}" data-samlingsfelt="timer"></div>
+  </div>
+  <p class="liten dempet samlingshjelp" id="s-{{ n }}-hjelp">Til dato: la feltet stå tomt for én dag. Timer per dag står på kursbeviset.<span data-varighetstekst>{% if r.varighet %} Samlingen i originalkurset varte {{ r.varighet }} dag{{ 'er' if r.varighet != 1 }}.{% endif %}</span></p>
+  <details class="samlingsdager" data-samlingsdager{{ ' open' if r.har_avvik }}>
+    <summary>Vis dager</summary>
+    <p class="liten dempet">Tomme felt betyr at dagen følger samlingen. Fyll bare inn det som er annerledes, f.eks. egne klokkeslett eller merknaden «Veiledningsdag». Kryss av for «Ikke med» for å ta ut en enkelt dag.</p>
+    <div class="tabellboks" data-dagtabell{{ ' hidden' if not r.dager }}><table class="dagtabell">
+      <thead><tr><th scope="col">Dag</th><th scope="col">Fra kl.</th><th scope="col">Til kl.</th><th scope="col">Timer</th><th scope="col">Merknad</th><th scope="col">Ikke med</th></tr></thead>
+      <tbody data-dagrader>{% for d in r.dager %}{{ dagrad(d, n) }}{% endfor %}</tbody>
+    </table></div>
+    <p class="liten dempet" data-ingen-dager{{ ' hidden' if r.dager }}>Fyll inn fra-dato først, så vises dagene her.</p>
+  </details>
+  <p class="samlingsknapper">
+    <button type="button" class="sekundar liten" data-kopier-samling>Kopier samling</button>
+    <button type="button" class="fare liten" data-fjern-samling>Fjern samling</button>
+  </p>
+</fieldset>
+{% endmacro %}
+
+
+{% macro kursgjennomforing(rader, oppsummering) %}
+<div class="samlinger" data-samlinger data-neste="{{ rader|length }}">
+  <p class="liten dempet" style="margin-top:0">Én rad per samling. Et éndagskurs er én samling med bare fra-dato.
+    Har kurset flere samlinger, legger du til en ny eller kopierer en du har (samme klokkeslett og antall dager – velg bare ny fra-dato).</p>
+  <div data-samlingsliste>
+    {% for r in rader %}{{ samlingsrad(r, loop.index0, loop.index) }}{% endfor %}
+  </div>
+  <template data-samlingsmal>{{ samlingsrad({"id": "", "navn": "", "fra": "", "til": "", "start": "09:00", "slutt": "16:00", "timer": "6", "varighet": none, "dager": [], "har_avvik": false}, "__N__", "") }}</template>
+  <template data-dagmal>{{ dagrad({"iso": "__DATO__", "tekst": "", "start": "", "slutt": "", "timer": "", "merknad": "", "fjern": false}, "__N__") }}</template>
+  <p class="samlingsverktoy"><button type="button" class="sekundar liten" data-legg-til-samling>+ Legg til samling</button></p>
+  <p class="samlingsoppsummering" data-samlingsoppsummering aria-live="polite">{{ oppsummering }}</p>
+</div>
+{% endmacro %}
+
+
+{% macro paameldingsfrist(v, idag, forste_kursdag="", forslag="") %}
+<div data-frist data-idag="{{ idag }}" data-forste-kursdag="{{ forste_kursdag }}">
+  <label for="f-paameldingsfrist">Påmeldingsfrist</label>
+  <input id="f-paameldingsfrist" name="paameldingsfrist" type="date" value="{{ v.paameldingsfrist }}" data-frist-felt class="datofelt" aria-describedby="f-frist-auto f-frist-egen">
+  <input type="hidden" name="paameldingsfrist_manuell" value="{{ v.paameldingsfrist_manuell }}" data-frist-manuell>
+  <p class="liten dempet" id="f-frist-auto" style="margin:4px 0 0" data-frist-auto{{ ' hidden' if v.paameldingsfrist_manuell == '1' }}>Foreslås automatisk: én måned før første kursdag. Fristen følger datoene til du endrer den selv.</p>
+  <p class="liten dempet" id="f-frist-egen" style="margin:4px 0 0" data-frist-egen{{ ' hidden' if v.paameldingsfrist_manuell != '1' }}>Du har satt fristen selv, så den endres ikke når datoene endres. Tom = ingen frist.
+    <button type="button" class="lenkeknapp" data-frist-forslag>Bruk forslaget{% if forslag %} ({{ forslag[8:10] }}.{{ forslag[5:7] }}.{{ forslag[:4] }}){% endif %}</button></p>
+</div>
+{% endmacro %}
+
+
+{% macro betaling(v) %}
+<input type="hidden" name="betalingsmaater" value="1">
+<fieldset>
+  <legend class="etikett">Betalingsmåter</legend>
+  <div class="valgrad">
+    <label class="valg-inline"><input type="checkbox" name="betalingsmaate" value="faktura"{{ ' checked' if v.faktura }} data-faktura-valg> Faktura</label>
+    <label class="valg-inline deaktivert"><input type="checkbox" disabled aria-describedby="kort-hjelp"> Kort</label>
+  </div>
+  <p class="liten dempet" id="kort-hjelp" style="margin:2px 0 0">Kort kommer når kortbetaling er på plass, og vises ikke for deltakerne før det. Uten Faktura må kurset være gratis.</p>
+</fieldset>
+<div data-fakturavalg{{ ' hidden' if not v.faktura }}>
+  <fieldset>
+    <legend class="etikett">Fakturaplan</legend>
+    <label class="valg"><input type="radio" name="betaling" value="samlet"{{ ' checked' if v.betaling not in ('per_samling', 'deltaker_velger') }} data-fakturaplan> Hele kursavgiften i én faktura</label>
+    <label class="valg"><input type="radio" name="betaling" value="per_samling"{{ ' checked' if v.betaling == 'per_samling' }} data-fakturaplan> Én faktura per samling</label>
+    <label class="valg"><input type="radio" name="betaling" value="deltaker_velger"{{ ' checked' if v.betaling == 'deltaker_velger' }} data-fakturaplan> La deltakeren velge
+      <span class="liten dempet">&nbsp;– har kurset bare én samling, får deltakeren ikke noe valg, men én vanlig faktura</span></label>
+  </fieldset>
+  <div data-dager-for{{ ' hidden' if v.betaling not in ('per_samling', 'deltaker_velger') }}>
+    <label for="f-faktura_dager_for">Fakturaen for en samling sendes (dager før samlingen)</label>
+    <input id="f-faktura_dager_for" name="faktura_dager_for" type="number" min="0" max="180" value="{{ v.faktura_dager_for }}" class="kort-felt">
+  </div>
+  <details class="flere-innstillinger"{{ ' open' if v.fakturering == 'organisasjon' }}>
+    <summary>Flere innstillinger</summary>
+    {#- Av = hver deltaker får faktura, og deltakeren velger selv i påmeldingsskjemaet om den skal til seg selv eller
+        arbeidsgiver. Uten avkrysning sendes feltet ikke, og fakturering blir «person» (_les_okonomi). -#}
+    <label class="valg"><input type="checkbox" name="fakturering" value="organisasjon"{{ ' checked' if v.fakturering == 'organisasjon' }} aria-describedby="f-organisasjon-hjelp"> Kurset faktureres samlet til organisasjonen</label>
+    <p class="liten dempet" id="f-organisasjon-hjelp" style="margin:2px 0 0 26px">Ingen individuelle fakturaer opprettes for deltakerne –
+      kurset faktureres manuelt, f.eks. et bedriftsinternt kurs. Uten avkrysning velger deltakeren selv i påmeldingsskjemaet
+      om fakturaen skal gå til seg selv eller arbeidsgiver.</p>
+  </details>
+</div>
+{% endmacro %}
+
+
+{% macro intern_kommentar(v, vis_etikett=true) %}
+<label for="f-notat"{{ ' class="skjul-visuelt"'|safe if not vis_etikett }}>Intern kommentar</label>
+<textarea id="f-notat" name="notat" rows="3" aria-describedby="f-notat-hjelp">{{ v.notat }}</textarea>
+<p class="liten dempet" id="f-notat-hjelp" style="margin:4px 0 0">Bare for administratorer. Vises aldri for deltakerne: ikke på påmeldingssiden, på Min side, i e-post eller på kursbevis.</p>
+{% endmacro %}

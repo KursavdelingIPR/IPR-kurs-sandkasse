@@ -88,10 +88,10 @@ def test_vis_bare_mine_aktiviteter_filtrerer_paa_ansvarlig(con):
 
     klient = _klient()
     _logg_inn(klient)
-    tekst_alle = klient.get("/admin/aktiviteter").get_data(as_text=True)
+    tekst_alle = klient.get("/admin").get_data(as_text=True)
     assert "Mitt kurs" in tekst_alle and "Annet kurs" in tekst_alle
 
-    tekst_mine = klient.get("/admin/aktiviteter?mine=1").get_data(as_text=True)
+    tekst_mine = klient.get("/admin?mine=1").get_data(as_text=True)
     assert "Mitt kurs" in tekst_mine
     assert "Annet kurs" not in tekst_mine
 
@@ -102,7 +102,7 @@ def test_soek_paa_kursnavn(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    tekst = klient.get("/admin/aktiviteter?sok=parterapi").get_data(as_text=True)
+    tekst = klient.get("/admin?sok=parterapi").get_data(as_text=True)
     assert "Parterapi i praksis" in tekst
     assert "EFT spesialistutdanning" not in tekst
 
@@ -113,7 +113,7 @@ def test_antall_rader_begrenser_resultatet(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    r = klient.get("/admin/aktiviteter?antall=10")
+    r = klient.get("/admin?antall=10")
     assert r.status_code == 200
     for n in range(3):
         assert f"Kurs {n}" in r.get_data(as_text=True)
@@ -125,7 +125,7 @@ def test_standardsortering_setter_avsluttede_kurs_sist(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    tekst = klient.get("/admin/aktiviteter").get_data(as_text=True)
+    tekst = klient.get("/admin?status=alle").get_data(as_text=True)          # standardvisningen skjuler avsluttede kurs
     assert tekst.index("Fremtidig kurs") < tekst.index("Gammelt kurs")
 
 
@@ -240,7 +240,7 @@ def test_bergen_filter_paavirker_listen(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t = klient.get("/admin/aktiviteter?sted=bergen").get_data(as_text=True)
+    t = klient.get("/admin?sted=bergen").get_data(as_text=True)
     assert "Bergenskurs" in t and "Oslokurs" not in t
 
 
@@ -250,7 +250,7 @@ def test_oslo_filter_paavirker_listen(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t = klient.get("/admin/aktiviteter?sted=oslo").get_data(as_text=True)
+    t = klient.get("/admin?sted=oslo").get_data(as_text=True)
     assert "Oslokurs" in t and "Bergenskurs" not in t
 
 
@@ -261,7 +261,7 @@ def test_online_filter_fanger_digital_type_og_stedtekst_som_i_kalenderen(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t = klient.get("/admin/aktiviteter?sted=online").get_data(as_text=True)
+    t = klient.get("/admin?sted=online").get_data(as_text=True)
     assert "Digitalt kurs" in t and "Kurs med Zoom i stedfelt" in t
     assert "Fysisk kurs" not in t
 
@@ -274,7 +274,7 @@ def test_ansvarlig_dropdown_filter_paavirker_listen(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t = klient.get(f"/admin/aktiviteter?ansvarlig={admin_id}").get_data(as_text=True)
+    t = klient.get(f"/admin?ansvarlig={admin_id}").get_data(as_text=True)
     assert "Mitt kurs" in t and "Annet kurs" not in t
 
 
@@ -284,7 +284,7 @@ def test_statusfilter_paavirker_listen(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t = klient.get("/admin/aktiviteter?status=avlyst").get_data(as_text=True)
+    t = klient.get("/admin?status=avlyst").get_data(as_text=True)
     assert "Avlyst kurs" in t and "Åpent kurs" not in t
 
 
@@ -297,7 +297,7 @@ def test_nye_filtre_kan_kombineres_med_soek_og_mine(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t = klient.get(f"/admin/aktiviteter?sted=bergen&ansvarlig={admin_id}&mine=1&sok=bergen").get_data(as_text=True)
+    t = klient.get(f"/admin?sted=bergen&ansvarlig={admin_id}&mine=1&sok=bergen").get_data(as_text=True)
     assert "Bergen mitt kurs" in t
     assert "Bergen annet kurs" not in t
     assert "Oslo mitt kurs" not in t
@@ -308,7 +308,7 @@ def test_nye_filtre_beholdes_i_sorteringslenker(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t = klient.get("/admin/aktiviteter?sted=bergen").get_data(as_text=True)
+    t = klient.get("/admin?sted=bergen").get_data(as_text=True)
     assert "sted=bergen" in t
 
 
@@ -317,6 +317,6 @@ def test_nullstill_filtre_paa_aktivitetsoversikten(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t = klient.get("/admin/aktiviteter?sted=bergen").get_data(as_text=True)
-    assert 'href="/admin/aktiviteter"' in t
+    t = klient.get("/admin?sted=bergen").get_data(as_text=True)
+    assert 'href="/admin"' in t
     assert "Nullstill filtre" in t

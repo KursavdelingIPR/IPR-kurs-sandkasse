@@ -1,6 +1,6 @@
 """Årsplan / kurshjul: kurs automatisk, planlagte aktiviteter og notater, overlapp, ledige perioder, roller og migrering."""
 import json
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from werkzeug.datastructures import MultiDict
@@ -44,8 +44,24 @@ def _plan(con, tittel, fra, til=None, type_="plan", sted=None, notat=None):
     return pid
 
 
-def _celle(plan, maaned, dag, idag=date(2000, 1, 1)):
-    return aarsplan.rutenett(plan, idag)[maaned - 1][1][dag - 1]
+def _maaned(plan, maaned, idag=date(2000, 1, 1)):
+    return aarsplan.aarskalender(plan, idag)[maaned - 1]
+
+
+def _dag(plan, maaned, dag, idag=date(2000, 1, 1)):
+    """Dagen i månedskalenderen (bare månedens egne datoer)"""
+    return next(d for u in _maaned(plan, maaned, idag).uker for d in u.dager if d.i_maaneden and d.dato.day == dag)
+
+
+def _blokker(plan, maaned):
+    """{(type, tekst, første dag, siste dag)} for blokkene i måneden (en blokk deles ved ukeskifte)"""
+    ut = set()
+    for u in _maaned(plan, maaned).uker:
+        mandag = u.dager[0].dato
+        for b in (b for bane in u.baner for b in bane):
+            ut.add((b.type, b.tekst, (mandag + timedelta(days=b.kolonne)).day,
+                    (mandag + timedelta(days=b.kolonne + b.lengde - 1)).day))
+    return ut
 
 
 # ============================ validering ============================
@@ -88,22 +104,29 @@ def test_kurs_kommer_med_automatisk_men_ikke_avlyste(con):
     _kurs(con, "A3", "Utkastkurs", ["2031-04-01"], status="utkast")
     plan = aarsplan.hent(con, AAR)
     assert sorted(k["navn"] for k in plan.kurs) == ["Grunnkurs", "Utkastkurs"]
-    assert _celle(plan, 3, 10).tekst == "K" and _celle(plan, 3, 12).tekst == ""
+    assert _dag(plan, 3, 10).opptatt == 1 and _dag(plan, 3, 12).opptatt == 0
+    assert _blokker(plan, 3) == {("kurs", "Grunnkurs", 10, 11)}                  # det avlyste kurset er ikke med
+    (utkast,) = [b for u in _maaned(plan, 4).uker for bane in u.baner for b in bane]
+    assert (utkast.tekst, utkast.status) == ("Utkastkurs", "utkast")
 
 
-def test_rutenett_viser_plan_notat_overlapp_helg_og_dager_som_ikke_finnes(con):
+def test_aarskalender_viser_kurs_plan_notat_kollisjon_helg_og_bare_maanedens_dager(con):
     _kurs(con, "B1", "Kurs B", ["2031-05-06", "2031-05-07"])
     _plan(con, "Planlagt parkurs", "2031-05-07", "2031-05-08")
     _plan(con, "Husk søknadsfrist", "2031-05-20", type_="notat")
     plan = aarsplan.hent(con, AAR)
-    assert (_celle(plan, 5, 6).tekst, _celle(plan, 5, 6).klasse) == ("K", "kurs")
-    assert (_celle(plan, 5, 7).tekst, _celle(plan, 5, 7).klasse) == ("2", "overlapp")
-    assert (_celle(plan, 5, 8).tekst, _celle(plan, 5, 8).klasse) == ("P", "plan")
-    assert (_celle(plan, 5, 20).tekst, _celle(plan, 5, 20).klasse) == ("N", "notat")
-    assert _celle(plan, 5, 3).klasse == "helg"                            # lørdag 3. mai 2031
-    assert _celle(plan, 2, 30).klasse == "utenfor" and _celle(plan, 2, 30).tekst == ""
-    assert "Kurs B" in _celle(plan, 5, 7).tittel and "Planlagt: Planlagt parkurs" in _celle(plan, 5, 7).tittel
-    assert "idag" in aarsplan.rutenett(plan, date(2031, 5, 6))[4][1][5].klasse
+    assert (_dag(plan, 5, 6).opptatt, _dag(plan, 5, 6).klasser) == (1, "")
+    assert (_dag(plan, 5, 7).opptatt, _dag(plan, 5, 7).klasser) == (2, "kollisjon")
+    assert (_dag(plan, 5, 8).opptatt, _dag(plan, 5, 8).klasser) == (1, "")
+    assert (_dag(plan, 5, 20).opptatt, _dag(plan, 5, 20).klasser) == (0, "notat")     # notater opptar ingenting
+    assert _dag(plan, 5, 3).klasser == "helg"                               # lørdag 3. mai 2031
+    assert _blokker(plan, 5) == {("kurs", "Kurs B", 6, 7), ("plan", "Planlagt: Planlagt parkurs", 7, 8)}
+    februar = _maaned(plan, 2)
+    assert [d.dato.day for u in februar.uker for d in u.dager if d.i_maaneden] == list(range(1, 29))
+    assert {d.klasser for u in februar.uker for d in u.dager if not d.i_maaneden} == {"utenfor"}
+    assert "Kurs B" in _dag(plan, 5, 7).tittel and "Planlagt: Planlagt parkurs" in _dag(plan, 5, 7).tittel
+    assert _maaned(plan, 5).opptatt_tekst == "Opptatt: 6.–8. mai"             # notatet 20. mai opptar ingenting
+    assert "idag" in _dag(plan, 5, 6, idag=date(2031, 5, 6)).klasser.split()
 
 
 def test_overlapp_teller_kurs_og_planer_men_ikke_notater(con):
@@ -133,14 +156,20 @@ def test_kantuker_regnes_med_kursdager_i_naboaaret(con):
     assert aarsplan.hent(con, 2032).kurs == []                              # men kurset listes bare i 2031
 
 
-def test_per_maaned_har_datotekster_og_planer_over_maanedsskifte(con):
+def test_maanedene_har_opptatte_dager_samlinger_og_planer_over_maanedsskifte(con):
     _kurs(con, "F1", "Samlingskurs", ["2031-10-06", "2031-10-07", "2031-11-03"])
     _plan(con, "Lang plan", "2031-10-30", "2031-11-02", sted="Oslo")
-    m = aarsplan.per_maaned(aarsplan.hent(con, AAR))
-    okt, nov = m[9], m[10]
-    assert okt["kurs"][0]["datotekst"] == "6. og 7. okt" and nov["kurs"][0]["datotekst"] == "3. nov"
-    assert okt["planer"][0]["periodetekst"] == "30. okt – 2. nov" and nov["planer"][0]["tittel"] == "Lang plan"
-    assert m[0]["kurs"] == [] and m[0]["planer"] == []
+    plan = aarsplan.hent(con, AAR)
+    okt, nov = _maaned(plan, 10), _maaned(plan, 11)
+    assert okt.opptatt_tekst == "Opptatt: 6.–7. og 30.–31. okt" and nov.opptatt_tekst == "Opptatt: 1.–3. nov"
+    assert _blokker(plan, 10) == {("kurs", "Samlingskurs 1/2", 6, 7), ("plan", "Planlagt: Lang plan", 30, 31)}
+    assert _blokker(plan, 11) == {("kurs", "Samlingskurs 2/2", 3, 3), ("plan", "Planlagt: Lang plan", 1, 2)}
+    (okt_plan,) = [b for u in okt.uker for bane in u.baner for b in bane if b.type == "plan"]
+    (nov_plan,) = [b for u in nov.uker for bane in u.baner for b in bane if b.type == "plan"]
+    assert (okt_plan.til_neste, nov_plan.fra_forrige) == (True, True)            # samme plan fortsetter
+    assert "30. okt – 2. nov" in okt_plan.tittel and "Oslo" in okt_plan.tittel
+    assert [p["periodetekst"] for p in aarsplan.planliste(plan)] == ["30. okt – 2. nov"]
+    assert _maaned(plan, 1).opptatt_tekst == "Ingen kurs eller planer"
 
 
 def test_opprett_og_slett_logger_uten_fritekst(con):
@@ -162,10 +191,10 @@ def test_siden_viser_aaret_kurs_overlapp_og_ledige_perioder(con):
     _kurs(con, "G1", "Grunnkurs i EFT", ["2031-03-10"])
     _kurs(con, "G2", "Parterapi", ["2031-03-10"])
     html = _admin().get(f"/admin/aktiviteter/aarsplan?aar={AAR}").get_data(as_text=True)
-    assert "<h1>Årsplan 2031</h1>" in html and 'aria-current="page">Aktiviteter</a>' in html
+    assert "<h1>Årsplan 2031</h1>" in html and 'aria-current="page">Kalender</a>' in html
     assert 'class="aktiv" href="/admin/aktiviteter/aarsplan">Årsplan</a>' in html
-    assert '<th scope="row" class="mnd">Mars</th>' in html
-    assert "<strong>10. mar</strong>: " in html                               # overlapp-listen
+    assert '<h2 id="mnd-3-tittel">Mars</h2>' in html and html.count('<section class="minimaaned"') == 12
+    assert "<strong>10. mar</strong>: Grunnkurs i EFT og Parterapi</li>" in html        # kollisjonslisten
     assert "Grunnkurs i EFT" in html and "Ledige perioder" in html
     assert "2 kurs · 2 kursdager · 0 planlagte aktiviteter" in html
 

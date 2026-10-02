@@ -1,0 +1,112 @@
+{% extends "admin_base.html" %}
+{#- Oppmøteliste for kursleder: en enkel side på mobilen der kursleder trykker på navnene (reserve når QR-koden ikke virker). Deltakeren gjør
+    ingenting. Hver rad er et vanlig skjema med én stor knapp, så alt virker uten JavaScript; static/oppmoteliste.js gjør at trykket ikke
+    laster siden på nytt (fetch), og legger til søket. Ingen persondata utover navn vises (e-posten ligger bare som skjult søkenøkkel). -#}
+{% block tittel %}Oppmøteliste – {{ kurs.navn }}{% endblock %}
+{% block header_attr %} class="admin-topp oppmote-hode"{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='oppmoteliste.css') }}">
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='oppmoteliste.js') }}" defer></script>{% endblock %}
+
+{% macro radinnhold(r, som_knapp) -%}
+  <span class="opp-navn" id="opp-navn-{{ r.paamelding_id }}">{{ r.navn }}</span>
+  <span class="opp-info" id="opp-info-{{ r.paamelding_id }}">{{ r.hvordan }}</span>
+  <span class="opp-merke"{% if som_knapp %} aria-hidden="true"{% endif %}><span class="opp-hake" aria-hidden="true">✓</span> <span class="opp-merketekst">{{ 'Til stede' if r.til_stede else 'Ikke registrert' }}</span></span>
+{%- endmacro %}
+
+{% block innhold %}
+{% set kurs_url = url_for('admin_kurs_deltakere', kurs_id=kurs.id) ~ '#oppmote' %}
+{% set liste_url = url_for('admin_kurs_oppmote', kurs_id=kurs.id, dag_id=dag.id) %}
+<div class="opp" data-oppmoteliste data-csrf="{{ csrf_token() }}"
+     data-rad-url="{{ url_for('admin_kurs_oppmote_rad', kurs_id=kurs.id, dag_id=dag.id) }}"
+     data-alle-url="{{ url_for('admin_kurs_oppmote_alle', kurs_id=kurs.id, dag_id=dag.id) }}"
+     data-status-url="{{ url_for('admin_kurs_oppmote_status', kurs_id=kurs.id, dag_id=dag.id) }}">
+
+  <div class="opp-hode">
+    <p class="opp-over">Oppmøteliste</p>
+    <h1>{{ kurs.navn }}</h1>
+    <p class="opp-dag"><strong>{{ dato_lang }}</strong>{% if dag_nr %} · dag {{ dag_nr }} av {{ dag_av }}{% endif %}{% if er_idag %} <span class="merke ok">i dag</span>{% endif %}</p>
+  </div>
+
+  {% if faner %}
+  <nav class="opp-dager" aria-label="Velg kursdag">
+    <ul>
+      {% for f in faner %}<li><a href="{{ url_for('admin_kurs_oppmote', kurs_id=kurs.id, dag_id=f.id) }}"{% if f.valgt %} aria-current="page"{% endif %}><span class="opp-dagnr">Dag {{ f.nr }}</span><span class="opp-dagdato">{{ f.kort }}{% if f.er_idag %} · i dag{% endif %}</span></a></li>{% endfor %}
+    </ul>
+  </nav>
+  {% endif %}
+
+  {% if not tillatt %}
+  <section class="opp-forklaring" aria-labelledby="opp-ikke-startet">
+    <h2 id="opp-ikke-startet">Kursdagen er ikke startet ennå</h2>
+    <p>Oppmøte kan bare tas opp fra og med kursdagen, som er {{ dato_lang }}. {{ totalt }} {{ 'deltaker har' if totalt == 1 else 'deltakere har' }} plass på kurset.</p>
+    <p class="opp-forklaring-lenker">{% if faner %}Velg en av dagene over, eller gå{% else %}Gå{% endif %} <a href="{{ kurs_url }}">tilbake til kurset</a>.</p>
+  </section>
+  {% else %}
+
+  {# Toppen står fast når man ruller: telleren (oppdateres for skjermlesere), «Ferdig» og søket (søket vises først når JavaScript er på) #}
+  <div class="opp-topplinje">
+    <p class="opp-teller" id="opp-teller" aria-live="polite" aria-atomic="true"><strong id="opp-antall">{{ antall }}</strong> av <span id="opp-totalt">{{ totalt }}</span> til stede</p>
+    <a class="knapp sekundar opp-ferdig" href="{{ kurs_url }}">Ferdig</a>
+    <div class="opp-sok" id="opp-sok-boks" hidden>
+      <label class="skjul-visuelt" for="opp-sok">Søk etter navn eller e-post</label>
+      <input id="opp-sok" type="search" placeholder="Søk etter navn …" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" maxlength="100">
+      <p class="opp-sokstatus" id="opp-sokstatus" role="status"></p>
+    </div>
+  </div>
+
+  {% if panel %}
+  <section class="opp-bekreft" id="bekreft" aria-labelledby="opp-bekreft-tittel">
+    <h2 id="opp-bekreft-tittel">{{ panel.tittel }}</h2>
+    <p>{{ panel.tekst }}</p>
+    <form method="post" action="{{ panel.action }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% for navn, verdi in panel.felt %}<input type="hidden" name="{{ navn }}" value="{{ verdi }}">{% endfor %}
+      {% if panel.kan_sendes %}<button class="opp-storknapp{{ ' fare' if panel.fare }}">{{ panel.knapp }}</button>{% endif %}
+      <a class="knapp sekundar opp-storknapp" href="{{ liste_url }}">{{ 'Avbryt' if panel.kan_sendes else 'Lukk' }}</a>
+    </form>
+  </section>
+  {% endif %}
+
+  {% if kan_endre and rader %}
+  <div class="opp-alle">
+    <a class="knapp opp-storknapp" href="{{ url_for('admin_kurs_oppmote', kurs_id=kurs.id, dag_id=dag.id, bekreft='merk_alle') }}#bekreft" data-oppmote-alle="merk_alle">Merk alle til stede</a>
+    <a class="knapp sekundar fare opp-storknapp" href="{{ url_for('admin_kurs_oppmote', kurs_id=kurs.id, dag_id=dag.id, bekreft='fjern_alle') }}#bekreft" data-oppmote-alle="fjern_alle">Fjern alle merkede</a>
+  </div>
+  <p class="opp-hint" id="opp-alle-hint" hidden>Tøm søket for å bruke «Merk alle til stede» og «Fjern alle merkede».</p>
+  {% endif %}
+
+  {% if rader %}
+  <ul class="opp-liste" id="opp-liste" aria-label="Deltakere">
+    {% for r in rader %}
+    <li class="opp-rad" id="rad-{{ r.paamelding_id }}" data-rad data-pid="{{ r.paamelding_id }}" data-tilstede="{{ 1 if r.til_stede else 0 }}" data-kilde="{{ r.kilde }}"
+        data-sok="{{ r.sok }}" data-sok-ascii="{{ r.sok_ascii }}">
+      {% if kan_endre %}
+      <form method="post" action="{{ url_for('admin_kurs_oppmote_rad', kurs_id=kurs.id, dag_id=dag.id) }}" data-rad-skjema>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="paamelding_id" value="{{ r.paamelding_id }}">
+        <input type="hidden" name="onsket" value="{{ 'fra' if r.til_stede else 'til' }}">
+        <button type="submit" class="opp-knapp" aria-pressed="{{ 'true' if r.til_stede else 'false' }}" aria-labelledby="opp-navn-{{ r.paamelding_id }}" aria-describedby="opp-info-{{ r.paamelding_id }}">{{ radinnhold(r, true) }}</button>
+      </form>
+      {% else %}
+      <div class="opp-knapp opp-lesing">{{ radinnhold(r, false) }}</div>
+      {% endif %}
+      <p class="opp-radfeil" hidden></p>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="opp-ingen" id="opp-ingen-treff" hidden>Ingen treff. Sjekk stavemåten, eller tøm søket.</p>
+  {% else %}
+  <p class="opp-ingen">Ingen deltakere har plass på kurset ennå.</p>
+  {% endif %}
+
+  {% if not kan_endre %}<p class="opp-hint">Du har lesetilgang: du ser oppmøtet, men kan ikke endre det.</p>{% endif %}
+  <p class="opp-hint opp-endret" id="opp-endret" hidden>Deltakerlisten er endret av noen andre. <a href="{{ liste_url }}">Last siden på nytt</a> for å se den siste listen.</p>
+  <p class="opp-hint opp-frakoblet" id="opp-frakoblet" hidden>Ingen nettforbindelse akkurat nå. Oppmøtet som vises kan være utdatert.</p>
+
+  <div class="opp-meldinger">
+    <p class="opp-melding" id="opp-melding" role="status" hidden></p>
+    <p class="opp-feilmelding" id="opp-feil" role="alert" hidden></p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,24 +1,83 @@
 <!doctype html>
+{#- Innsjekk-plakaten for én kursdag: vises på skjermen i kurslokalet, eller skrives ut (A4, «Skriv ut plakat»). Stor QR, kursnavn, dato,
+    «dag n av m», tydelig instruks og dagens kode som reserve. QR-koden og koden gjelder bare på selve kursdagen. Siden oppdaterer tallet
+    «sjekket inn» hvert 20. sekund (ikke mens du skriver ut). Ingen skript utenom app.js (skriv ut-knappen) og innsjekk-plakat.js. -#}
 <html lang="no"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Innsjekk – {{ kd.navn }}</title>
-<meta http-equiv="refresh" content="20">
+<title>Innsjekk – {{ kd.navn }}{% if dag_nr %} – dag {{ dag_nr }}{% endif %}</title>
+<noscript><meta http-equiv="refresh" content="20"></noscript>
 <style>
-  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:#fff; color:#1d2a33; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; box-sizing:border-box; }
-  .wrap { display:flex; gap:6vw; align-items:center; flex-wrap:wrap; justify-content:center; }
-  .qr svg { width:min(60vh, 80vw); height:auto; display:block; }
-  h1 { font-size:clamp(24px,4vw,48px); margin:0 0 8px; font-weight:600; }
-  .dato { color:#5d6b75; font-size:clamp(16px,2vw,24px); }
-  .kode { font-size:clamp(40px,7vw,96px); letter-spacing:.15em; font-weight:700; color:#1f5c73; margin:4px 0; font-family:Consolas,monospace; }
-  .liten { color:#5d6b75; font-size:clamp(14px,1.6vw,20px); }
-  .teller { margin-top:32px; font-size:clamp(16px,2vw,24px); }
-</style></head>
-<body><div class="wrap">
-  <div class="qr">{{ svg }}</div>
+  :root { --bla:#1f5c73; --bla-lys:#e7f0f3; --tekst:#1d2a33; --dempet:#4f5d67; --linje:#dfe5e8; --ok:#1f6a43; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:#fff; color:var(--tekst); line-height:1.4; }
+  .verktoy { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; padding:10px 20px; background:var(--bla-lys); border-bottom:1px solid var(--linje); font-size:15px; }
+  .verktoy a { color:var(--bla); }
+  .verktoy button { font:inherit; font-size:15px; padding:7px 16px; border-radius:7px; border:1px solid var(--bla); background:var(--bla); color:#fff; cursor:pointer; }
+  .verktoy button:hover { background:#174a5d; }
+  .verktoy .plass { margin-left:auto; color:var(--dempet); }
+  :focus-visible { outline:3px solid #f3a53d; outline-offset:2px; }
+  .advarsel { margin:0; padding:10px 20px; background:#fbf1d9; color:#6d4c00; font-size:15px; border-bottom:1px solid #ecd59b; }
+  .plakat { display:grid; grid-template-columns:auto minmax(0,1fr); gap:0 clamp(24px,5vw,80px); align-items:center; justify-content:center; padding:clamp(16px,3vw,40px); min-height:calc(100vh - 60px); }
+  .qr svg { display:block; width:min(62vh, 44vw); height:auto; }
+  .over { margin:0 0 6px; font-size:clamp(15px,1.8vw,24px); letter-spacing:.08em; text-transform:uppercase; color:var(--dempet); font-weight:700; }
+  h1 { margin:0 0 6px; font-size:clamp(28px,4.2vw,60px); line-height:1.12; font-weight:650; }
+  .dato { margin:0; color:var(--dempet); font-size:clamp(18px,2.4vw,32px); }
+  .steg { margin:clamp(16px,2.4vw,34px) 0 0; padding:0; list-style:none; counter-reset:steg; font-size:clamp(17px,2.1vw,30px); }
+  .steg li { counter-increment:steg; display:flex; gap:.6em; align-items:baseline; margin:.35em 0; }
+  .steg li::before { content:counter(steg); flex:none; width:1.5em; height:1.5em; border-radius:50%; background:var(--bla); color:#fff; display:inline-grid; place-items:center; font-size:.8em; font-weight:700; }
+  .en-gang { margin:.6em 0 0; font-size:clamp(16px,1.9vw,26px); font-weight:650; color:var(--ok); }
+  .reserve { margin-top:clamp(16px,2.4vw,34px); padding-top:clamp(12px,1.6vw,22px); border-top:2px solid var(--linje); font-size:clamp(15px,1.7vw,24px); color:var(--dempet); }
+  .reserve strong { color:var(--tekst); overflow-wrap:anywhere; }
+  .kode { display:block; margin-top:4px; font-family:Consolas,"Courier New",monospace; font-size:clamp(40px,7vw,100px); letter-spacing:.15em; font-weight:700; color:var(--bla); }
+  .teller { margin:clamp(14px,2vw,28px) 0 0; font-size:clamp(16px,2vw,26px); color:var(--ok); font-weight:650; }
+  @media (max-width: 860px) {
+    .plakat { grid-template-columns:minmax(0,1fr); justify-items:center; text-align:center; min-height:0; }
+    .qr svg { width:min(80vw, 60vh); }
+    .steg li { text-align:left; }
+  }
+  @page { size:A4 portrait; margin:12mm; }
+  @media print {
+    .ikke-utskrift { display:none !important; }
+    body { background:#fff; color:#000; }
+    .plakat { display:block; text-align:center; padding:0; min-height:0; }
+    .qr svg { width:10cm; height:10cm; margin:2mm auto 5mm; }
+    .over { font-size:13pt; color:#333; }
+    h1 { font-size:30pt; color:#000; }
+    .dato { font-size:18pt; color:#000; }
+    .steg { display:block; max-width:16cm; margin:6mm auto 0; text-align:left; font-size:15pt; }
+    .steg li::before { background:#000; }
+    .en-gang { font-size:14pt; color:#000; margin-top:4mm; }
+    .reserve { margin-top:6mm; padding-top:4mm; font-size:13pt; color:#000; border-top:1.5pt solid #000; }
+    .kode { font-size:40pt; color:#000; }
+  }
+</style>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='app.js') }}" defer></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='innsjekk-plakat.js') }}" defer></script>
+</head>
+<body data-oppdater="20">
+<div class="verktoy ikke-utskrift">
+  <a href="{{ url_for('admin_kurs_oppsett', kurs_id=kd.kurs_id) }}">‹ Tilbake til kurset</a>
+  <button type="button" data-skriv-ut>Skriv ut plakat</button>
+  <a href="{{ url_for('admin_kurs_oppmote', kurs_id=kd.kurs_id, dag_id=kd.id) }}">Oppmøteliste (hvis noen ikke får skannet)</a>
+  <span class="plass">Oppdateres automatisk hvert 20. sekund</span>
+</div>
+{% if not gjelder_i_dag %}<p class="advarsel ikke-utskrift" role="note"><strong>Denne QR-koden gjelder ikke i dag.</strong> Den virker bare på selve kursdagen ({{ dato_lang }}). I dag er det {{ idag_lang }}.</p>{% endif %}
+<main class="plakat">
+  <div class="qr" role="img" aria-label="QR-kode for innsjekk">{{ svg }}</div>
   <div>
+    <p class="over">Innsjekk{% if dag_nr %} · dag {{ dag_nr }} av {{ dag_av }}{% endif %}</p>
     <h1>{{ kd.navn }}</h1>
-    <div class="dato">{{ kd.dato }}</div>
-    <p class="liten" style="margin-top:36px">Skann QR-koden med mobilkameraet.<br>Får du ikke skannet? Gå til <strong>{{ kode_url }}</strong> og tast:</p>
-    <div class="kode">{{ kd.innsjekk_kode }}</div>
-    <div class="teller">✓ {{ antall }} sjekket inn</div>
+    <p class="dato">{{ dato_lang }}</p>
+    <ol class="steg">
+      <li>Åpne kameraet på telefonen og hold det mot QR-koden.</li>
+      <li>Trykk på lenken som kommer opp.</li>
+      {% if krever_innlogging %}<li>Skriv e-postadressen du meldte deg på med, klikk på lenken du får på e-post, og trykk «Registrer oppmøte».</li>
+      {% else %}<li>Skriv e-postadressen du meldte deg på med, og trykk «Registrer oppmøte».</li>{% endif %}
+    </ol>
+    <p class="en-gang">Du registrerer deg én gang hver kursdag.</p>
+    <div class="reserve">Får du ikke skannet? Logg inn på <strong>{{ kode_url|replace('https://', '')|replace('http://', '') }}</strong> (eller åpne Min side fra e-posten vi har sendt deg), trykk «Registrer oppmøte» og skriv koden:
+      <span class="kode">{{ kd.innsjekk_kode }}</span></div>
+    <p class="teller ikke-utskrift">✓ {{ antall }} sjekket inn</p>
+    <p class="ikke-utskrift" style="margin:.4em 0 0; font-size:clamp(14px,1.6vw,20px)"><a href="{{ url_for('admin_kurs_oppmote', kurs_id=kd.kurs_id, dag_id=kd.id) }}">Får noen ikke skannet? Åpne oppmøtelisten og trykk på navnene.</a></p>
   </div>
-</div></body></html>
+</main>
+</body></html>

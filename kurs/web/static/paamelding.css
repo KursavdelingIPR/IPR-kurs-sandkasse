@@ -1,0 +1,219 @@
+/* Påmeldingssiden (kurs.html) og skjemabyggeren (admin_kurs_paameldingsskjema.html). Bygger på fargene og
+   komponentene i base.html (--bla, .kort, .merke, knapper). Feltnavnet står til venstre og «(krav)» under, som i
+   Pindena; på smale skjermer står feltnavnet over feltet. */
+
+/* ---------------- påmeldingssiden ---------------- */
+.pm-admin { display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; background:#fbf1d9; border:1px solid #edd9a3;
+  color:#5c4300; border-radius:10px; padding:12px 16px; margin-bottom:20px; font-size:14px; }
+.pm-admin p { margin:0; flex:1 1 320px; }
+.pm-admin-lenke { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; flex:1 1 440px; }
+.pm-admin-lenke input { flex:1 1 240px; width:auto; min-width:0; font-size:13px; padding:6px 9px; }
+.pm-admin a { color:#5c4300; font-weight:600; }
+
+/* Tittelområde: tittel og en rolig merkelapp med kurstypen. (Vekt 600 = «Semibold»; 620/650 tegnes som Bold i Segoe UI.) */
+.pm-topp { margin:0 0 22px; }
+.pm-topp h1 { margin:0; font-size:28px; line-height:1.2; font-weight:600; letter-spacing:-.012em; text-wrap:pretty;
+  overflow-wrap:anywhere; }
+.pm-topp .sub { display:inline-block; margin:10px 0 0; padding:1px 12px; border-radius:20px; background:var(--bla-lys);
+  color:var(--bla); font-size:13px; line-height:1.7; font-weight:600; }
+
+/* Sidens oppsett. Mobil først: alt står i én kolonne (ingress, informasjonsboks, skjema). Over 960 px kommer boksen
+   til høyre for skjemaet (se nederst i denne delen). */
+/* Fokusring på radio, avkrysning, lenker og knapp: blå (7:1 mot hvitt), ikke den oransje standarden fra base.html (2:1). */
+.pm-oppsett :focus-visible { outline-color:var(--bla); }
+.pm-oppsett { --pm-kant:#7f8c93; --pm-kant-hover:#5d6b75; --pm-ring:rgba(31,92,115,.26);
+  display:grid; grid-template-columns:minmax(0, 1fr); }
+.pm-intro { white-space:pre-line; margin:0 0 20px; padding:2px 0 2px 16px; max-width:64ch;
+  border-left:3px solid var(--bla); line-height:1.6; text-wrap:pretty; overflow-wrap:anywhere; }
+.pm-skjema { padding:26px 32px 30px; min-width:0; border-radius:12px;
+  box-shadow:0 1px 2px rgba(23, 50, 64, .04), 0 10px 28px -14px rgba(23, 50, 64, .14); }
+
+/* Informasjonsboksen: kompakt kort. Smal skjerm: hver opplysning er et lite felt med ikon og navn over verdien, og
+   feltene flyter ved siden av hverandre når det er plass (Pris og Påmeldingsfrist side om side, samlingene ved siden av
+   hverandre på nettbrett). Skjules alle opplysningene i skjemabyggeren, blir det verken tom boks eller tom kolonne. */
+.pm-info { margin:0 0 16px; padding:14px 18px 15px; border-radius:12px;
+  display:flex; flex-wrap:wrap; align-items:flex-start; gap:12px 28px;
+  box-shadow:0 1px 2px rgba(23, 50, 64, .04), 0 10px 28px -14px rgba(23, 50, 64, .14); }
+.pm-info:not(:has(.pm-info-del)) { display:none; }
+.pm-info-del { flex:0 1 auto; min-width:0; }
+.pm-info-dager, .pm-info-fullt { flex:1 1 100%; }
+.pm-info-sted { flex:1 1 260px; }
+.pm-info h2 { display:flex; align-items:center; gap:8px; margin:0 0 2px; font-size:12.5px; line-height:20px; font-weight:600;
+  color:var(--dempet); }
+.pm-ikon { flex:none; width:16px; height:16px; fill:none; stroke:var(--bla); stroke-width:1.7; stroke-linecap:round;
+  stroke-linejoin:round; }
+.pm-info p, .pm-info ul { margin:0; }
+.pm-info p, .pm-info li { font-size:14px; line-height:20px; overflow-wrap:anywhere; text-wrap:pretty; }
+.pm-info ul { list-style:none; padding:0; display:flex; flex-wrap:wrap; gap:4px 28px; }
+.pm-info li { display:flex; flex-wrap:wrap; align-items:baseline; column-gap:8px; min-width:0; }
+.pm-info li .dempet { font-size:13px; }
+.pm-info ul.pm-avvik { display:block; flex:0 0 100%; margin:1px 0 0; padding-left:9px; border-left:2px solid var(--linje); }
+.pm-info .pm-avvik li { display:block; font-size:12.5px; line-height:1.4; color:var(--dempet); }
+.pm-info .pm-avvik li + li { margin-top:2px; }
+/* Tydelig rekkefølge å lese i: datoene er halvfete og prisen er fet og blå. Resten er vanlig tekst. */
+.pm-dato { font-weight:600; }
+.pm-info-pris p { font-size:15.5px; line-height:20px; font-weight:600; color:var(--bla-mork); }
+/* «Fullt»: en varselstripe over hele boksens bredde (mørk gul tekst på lys gul, over 4,5:1 i kontrast) */
+.pm-info-fullt p { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:8px; background:#fbf0d3; color:#6f4d00; }
+.pm-info-fullt .pm-ikon { stroke:currentColor; }
+.pm-info-fullt .merke { padding:0; background:none; color:inherit; font-size:13px; line-height:1.4; font-weight:600;
+  white-space:normal; }
+
+.pm-skjema > h2 { margin:0 0 6px; padding-bottom:14px; border-bottom:1px solid var(--linje); font-size:20px; line-height:1.3;
+  font-weight:600; }
+/* Seksjonsskille: navnet med en hårstrek etter seg. Gruppene som vises etter et valg (firma eller privat) ligger i et
+   lysere panel, slik at de leses som én gruppe. */
+.pm-deltittel { display:flex; align-items:center; gap:14px; margin:26px 0 2px; padding:0; border:0; font-size:15px;
+  line-height:1.3; font-weight:600; color:var(--bla); }
+.pm-deltittel::after { content:""; flex:1 1 auto; height:1px; background:var(--linje); }
+.pm-skille { margin:18px 0 6px; border-top:1px solid var(--linje); }
+.pm-gruppe { margin:8px -17px 10px; padding:6px 16px 8px; background:#f5f8fa; border:1px solid #e3eaee; border-radius:12px; }
+.pm-rad { display:grid; grid-template-columns:minmax(150px, 30%) minmax(0, 1fr); gap:4px 24px; padding:8px 0; }
+.pm-rad[hidden], .pm-gruppe[hidden] { display:none; }
+.pm-etikett { display:block; margin:0; padding-top:11px; text-align:right; font-size:14.5px; line-height:21px; font-weight:600;
+  overflow-wrap:anywhere; }
+.pm-krav { display:block; font-size:12.5px; line-height:1.4; font-weight:400; color:var(--dempet); }
+.pm-felt { min-width:0; }
+.pm-felt > input, .pm-felt > select, .pm-felt > textarea { max-width:520px; padding:10px 12px; font-size:15px; line-height:21px;
+  border:1px solid var(--pm-kant); border-radius:8px; transition:border-color .12s, box-shadow .12s; }
+.pm-felt > textarea { min-height:96px; resize:vertical; }
+.pm-felt > select { appearance:none; padding-right:36px; cursor:pointer;
+  background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5l4.5 4.5 4.5-4.5' fill='none' stroke='%235d6b75' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 13px center / 12px 8px; }
+.pm-felt > input:hover, .pm-felt > select:hover, .pm-felt > textarea:hover { border-color:var(--pm-kant-hover); }
+.pm-felt > input:user-invalid, .pm-felt > select:user-invalid, .pm-felt > textarea:user-invalid { border-color:var(--feil); }
+/* Fokus: blå kant og lysfelt. Den gjennomsiktige kanten (outline) gir en tydelig ramme i Windows høykontrast. */
+.pm-felt > input:focus-visible, .pm-felt > select:focus-visible, .pm-felt > textarea:focus-visible { outline:2px solid transparent;
+  border-color:var(--bla); box-shadow:0 0 0 3px var(--pm-ring); }
+.pm-felt > input::placeholder, .pm-felt > textarea::placeholder { color:#68757f; }
+.pm-valg { padding-top:5px; }
+.pm-valg label { display:flex; align-items:flex-start; gap:10px; margin:0; padding:5px 0; font-size:15px; line-height:21px;
+  font-weight:400; cursor:pointer; overflow-wrap:anywhere; }
+.pm-valg label input { flex:none; width:18px; height:18px; margin:2px 0 0; accent-color:var(--bla); cursor:pointer; }
+.pm-hjelp { margin:6px 0 0; font-size:13px; line-height:1.45; color:var(--dempet); white-space:pre-line; max-width:520px;
+  text-wrap:pretty; overflow-wrap:anywhere; }
+.pm-tekst { margin:0; padding-top:11px; overflow-wrap:anywhere; }
+.pm-personvern { margin-top:0; }
+.pm-felt input[readonly], .pm-felt input.pm-auto { background:#e9eef1; color:var(--tekst); border-color:#d3dbe0; }
+.pm-felt input[readonly]:hover, .pm-felt input.pm-auto:hover { border-color:#d3dbe0; }
+.pm-felt input[readonly]:focus-visible, .pm-felt input.pm-auto:focus-visible { border-color:var(--bla); }
+.pm-felt input.pm-auto::placeholder { color:var(--dempet); }
+.pm-knapperad { padding-top:16px; }
+.pm-knapperad button { min-width:180px; padding:11px 24px; font-size:15px; font-weight:600; border-radius:8px;
+  box-shadow:0 1px 2px rgba(23, 74, 93, .25); }
+.pm-knapperad button:hover { box-shadow:0 2px 8px rgba(23, 74, 93, .3); }
+.pm-knapperad p { margin:12px 0 0; }
+
+/* Organisasjonsnummer: forslag fra Brønnøysundregistrene */
+.pm-oppslag { position:relative; }
+.pm-status { margin:6px 0 0; font-size:13px; line-height:1.45; min-height:0; }
+.pm-status:empty { display:none; }
+.pm-status.ok { color:var(--ok); }
+.pm-status.feil { color:var(--feil); }
+.pm-status.advarsel { color:#8a5f00; }
+.pm-forslag { list-style:none; margin:6px 0 0; padding:4px 0; max-width:520px; max-height:330px; overflow-y:auto;
+  background:#fff; border:1px solid var(--pm-kant); border-radius:10px; box-shadow:0 10px 26px rgba(23, 50, 64, .16); }
+.pm-forslag[hidden] { display:none; }
+.pm-forslag li { padding:8px 14px; cursor:pointer; line-height:1.35; }
+.pm-forslag li + li { border-top:1px solid #eef1f3; }
+.pm-forslag li:hover, .pm-forslag li[aria-selected="true"] { background:var(--bla-lys); }
+.pm-forslag .navn { display:block; font-weight:600; }
+.pm-forslag .dempet { display:block; font-size:13px; }
+.pm-forslag .tom { padding:8px 14px; color:var(--dempet); cursor:default; }
+
+/* Bred skjerm (over 960 px): boksen står til høyre og følger med når man ruller. Navnet står til venstre og verdien til
+   høyre; kolonnen med navn er akkurat så bred som det lengste navnet (subgrid), så alle verdiene starter likt. */
+@media (min-width: 961px) {
+  .pm-oppsett { grid-template-columns:minmax(0, 1fr) 340px; grid-template-areas:"intro info" "skjema info";
+    grid-template-rows:auto 1fr; column-gap:28px; align-items:start; }
+  .pm-oppsett:not(:has(.pm-info-del)) { grid-template-columns:minmax(0, 1fr); grid-template-areas:"intro" "skjema"; }
+  .pm-intro { grid-area:intro; }
+  .pm-skjema { grid-area:skjema; }
+  /* 340 px bred: verdikolonnen (ca. 182 px) rekker den bredeste fristdatoen, «mandag 13. september 2027», på én linje.
+     Er boksen høyere enn vinduet (mange samlinger med avvik), ruller den i seg selv, så alt kan nås mens man fyller ut. */
+  .pm-info { grid-area:info; position:sticky; top:16px; margin:0; padding:15px 16px;
+    display:grid; grid-template-columns:max-content minmax(0, 1fr); gap:0 12px;
+    max-height:calc(100vh - 32px); overflow-y:auto; scrollbar-width:thin; }
+  .pm-info-del { display:grid; grid-template-columns:subgrid; grid-column:1 / -1; align-items:start; padding:5px 0; }
+  .pm-info-del:first-child { padding-top:0; }
+  .pm-info-del:last-child { padding-bottom:0; }
+  .pm-info h2 { margin:0; }
+  .pm-info ul { display:block; }
+  .pm-info li + li { margin-top:6px; }
+  /* Én tynn skillelinje mellom datoene og det praktiske. Flere samlinger eller avvik: navnet står over listen, så dato
+     og klokkeslett får plass på samme rad. */
+  .pm-info-dager:not(:last-child) { padding-bottom:10px; margin-bottom:5px; border-bottom:1px solid var(--linje); }
+  .pm-info-dager:has(li + li), .pm-info-dager:has(.pm-avvik) { grid-template-columns:minmax(0, 1fr); row-gap:6px; }
+  .pm-info-dager:has(li + li) ul, .pm-info-dager:has(.pm-avvik) ul { padding-left:24px; }
+  .pm-info-fullt { margin-top:5px; }
+  .pm-info-fullt p { grid-column:1 / -1; }
+}
+/* Er vinduet lavt, følger ikke boksen med (den kan ellers bli høyere enn vinduet) */
+@media (max-height: 700px) {
+  .pm-info { position:static; max-height:none; overflow:visible; }
+}
+@media (max-width: 640px) {
+  .pm-topp h1 { font-size:24px; }
+  .pm-rad { grid-template-columns:minmax(0, 1fr); gap:5px; padding:7px 0; }
+  .pm-etikett { text-align:left; padding-top:0; }
+  .pm-krav { display:inline; }
+  .pm-skjema { padding:20px 16px 22px; }
+  .pm-gruppe { margin-inline:-11px; padding-inline:10px; }
+  .pm-felt > input, .pm-felt > select, .pm-felt > textarea { font-size:16px; }
+  .pm-rad > span:empty { display:none; }
+  .pm-knapperad button { width:100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-felt > input, .pm-felt > select, .pm-felt > textarea, .pm-knapperad button { transition:none; }
+}
+@media (forced-colors: active) {
+  .pm-topp .sub, .pm-info-fullt p { border:1px solid CanvasText; }
+}
+@media print { .pm-admin { display:none; } .pm-info { position:static; box-shadow:none; max-height:none; overflow:visible; } }
+
+/* ---------------- skjemabyggeren ---------------- */
+.sb-lenke { max-width:980px; }
+.sb-lenke > strong { display:block; font-size:16px; }
+.sb-lenke p { margin:4px 0 10px; }
+.sb-lenkerad { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; }
+.sb-lenkerad input { flex:1 1 320px; width:auto; min-width:0; background:#f7f9fa; }
+.sb-seksjonstittel { font-size:17px; margin:0; }
+.sb-info .sb-avkrysninger { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:2px 18px; }
+.sb-info .sb-avkrysninger label { display:flex; align-items:center; font-weight:400; font-size:14px; margin:6px 0; }
+.sb-topp { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; margin:26px 0 10px; }
+.sb-topp p { margin:2px 0 0; }
+.sb-tabell { min-width:780px; }
+.sb-tabell thead th { position:sticky; top:0; z-index:1; }
+.sb-tabell td { vertical-align:middle; }
+.sb-tabell tbody.sb-seksjon th { background:#eef4f7; color:var(--bla); font-size:13px; letter-spacing:.02em; padding:9px 12px; }
+.sb-tabell tbody.sb-seksjon th .dempet { font-weight:400; text-transform:none; letter-spacing:0; margin-left:6px; }
+.sb-tabell tbody.sb-felt:hover td { background:#fbfcfc; }
+.sb-tabell tbody.sb-felt.sb-flyttet td { background:#fff8e6; transition:background-color .6s; }
+.sb-flytt { width:1%; white-space:nowrap; padding-right:0 !important; }
+button.sb-pil { padding:1px 7px; font-size:12px; line-height:1.5; background:#fff; color:var(--bla); border:1px solid #c7d0d5;
+  border-radius:5px; }
+button.sb-pil:hover { background:var(--bla-lys); border-color:var(--bla); box-shadow:none; }
+button.sb-pil:disabled { visibility:hidden; }
+.sb-navn input { min-width:180px; }
+.sb-navn .sb-fast { padding:8px 0; font-weight:600; }
+.sb-type { font-size:14px; min-width:170px; }
+.sb-type .dempet { display:block; font-size:12.5px; }
+.sb-type select { font-size:14px; padding:6px 8px; }
+.sb-sjekk { text-align:center; width:64px; }
+.sb-sjekk input { margin:0; width:18px; height:18px; accent-color:var(--bla); }
+.sb-merkol { width:1%; white-space:nowrap; text-align:right; }
+.sb-mer td { background:#f5f8f9; padding:14px 18px 16px; }
+.sb-mer label { font-size:13px; }
+.sb-mer-rutenett { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:0 26px; }
+.sb-mer .dempet { font-size:12.5px; margin:4px 0 0; }
+.sb-mer .sb-slett { margin-top:16px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.sb-fastrad td { color:var(--dempet); }
+.sb-fastrad .sb-navn { color:var(--tekst); }
+.sb-nytt .sb-nytt-skjema { display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.2fr) auto;
+  gap:0 14px; align-items:end; }
+.sb-nytt .sb-nytt-skjema textarea { grid-column:1 / -1; }
+.sb-nytt .sb-nytt-valg { grid-column:1 / -1; }
+.sb-maler { display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 4px; }
+.sb-advarsel-knapper { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+@media (max-width: 760px) {
+  .sb-mer-rutenett, .sb-nytt .sb-nytt-skjema { grid-template-columns:minmax(0, 1fr); }
+}

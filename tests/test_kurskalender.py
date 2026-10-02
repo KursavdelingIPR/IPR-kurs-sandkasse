@@ -1,4 +1,5 @@
 """Fase 8, trinn 3: kurskalender (lesevisning), ingen deltakerdata, ingen parallelle kalenderdata."""
+import re
 from datetime import date, timedelta
 
 import pytest
@@ -106,7 +107,9 @@ def test_kurs_med_flere_kursdager_vises_paa_hver_dato(con):
     klient = _klient()
     _logg_inn(klient)
     t = _hent(klient, aar=2027, maned=3).get_data(as_text=True)
-    assert t.count("Kurs med flere dager") == 2
+    rutenett = t.split('<div class="maanedsgrid"')[1].split('<div class="maanedsliste">')[0]
+    blokker = re.findall(r'<a class="hendelse[^>]*title="Kurs med flere dager · (\d\d\.\d\d\.\d{4})', rutenett)
+    assert blokker == ["05.03.2027", "19.03.2027"]          # én blokk på hver dato (to samlinger)
 
 
 def test_flere_kurs_samme_dag_vises_alle(con):
@@ -236,27 +239,16 @@ def test_nullstill_filtre(con):
     assert 'href="/admin/aktiviteter/kalender?aar=2027&amp;maned=3"' in t
 
 
-# ---------------- trinn 4: Liste | Kalender-veksling ----------------
+# ---------------- trinn 4: Kalender i hovedmenyen, Kalender | Årsplan som faner ----------------
 
-def test_veksling_vises_paa_begge_sider(con):
+def test_kalender_og_aarsplan_har_faner_og_kurslisten_er_ikke_en_fane(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t_liste = klient.get("/admin/aktiviteter").get_data(as_text=True)
-    t_kalender = _hent(klient).get_data(as_text=True)
-    for tekst in (t_liste, t_kalender):
-        assert "Liste" in tekst and "Kalender" in tekst
-        assert 'href="/admin/aktiviteter"' in tekst
-        assert 'href="/admin/aktiviteter/kalender"' in tekst
-
-
-def test_liste_er_aktiv_paa_aktivitetsoversikten(con):
-    con.commit()
-    klient = _klient()
-    _logg_inn(klient)
-    t = klient.get("/admin/aktiviteter").get_data(as_text=True)
-    assert '<a class="aktiv" href="/admin/aktiviteter">Liste</a>' in t
-    assert '<a class="" href="/admin/aktiviteter/kalender">Kalender</a>' in t
+    for t in (_hent(klient).get_data(as_text=True), klient.get("/admin/aktiviteter/aarsplan").get_data(as_text=True)):
+        fanene = t.split('<nav class="faner">')[1].split("</nav>")[0]
+        assert ">Kalender</a>" in fanene and ">Årsplan</a>" in fanene
+        assert "Liste" not in fanene                       # kurslisten ligger på Oversikten
 
 
 def test_kalender_er_aktiv_paa_kalendersiden(con):
@@ -265,13 +257,14 @@ def test_kalender_er_aktiv_paa_kalendersiden(con):
     _logg_inn(klient)
     t = _hent(klient).get_data(as_text=True)
     assert '<a class="aktiv" href="/admin/aktiviteter/kalender">Kalender</a>' in t
-    assert '<a class="" href="/admin/aktiviteter">Liste</a>' in t
+    assert '<a class="" href="/admin/aktiviteter/aarsplan">Årsplan</a>' in t
 
 
-def test_kalender_ligger_ikke_i_hovedmenyen(con):
+def test_kalender_har_egen_fane_i_hovedmenyen(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t = klient.get("/admin/aktiviteter").get_data(as_text=True)
-    hovedmeny = t.split('<nav class="faner">')[0]
-    assert "Kalender" not in hovedmeny
+    for url, aktiv in (("/admin", False), ("/admin/aktiviteter/kalender", True), ("/admin/aktiviteter/aarsplan", True)):
+        hovedmeny = klient.get(url).get_data(as_text=True).split("<nav>")[1].split("</nav>")[0]
+        assert '<a href="/admin/aktiviteter/kalender" ' in hovedmeny and ">Kalender</a>" in hovedmeny, url
+        assert ('aria-current="page">Kalender</a>' in hovedmeny) == aktiv, url

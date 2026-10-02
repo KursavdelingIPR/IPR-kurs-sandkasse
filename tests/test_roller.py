@@ -113,7 +113,7 @@ def test_lesetilgang_kan_se_men_ikke_endre(con):
     kid = _kurs(con)
     lese = _bruker(con, "lese")
     assert lese.get("/admin").status_code == 200
-    assert lese.get("/admin/aktiviteter").status_code == 200
+    assert lese.get("/admin").status_code == 200
     assert lese.get(f"/admin/kurs/{kid}/deltakere").status_code == 200
     assert lese.get(f"/admin/kurs/{kid}/oppsett").status_code == 200
     assert lese.get("/admin/rapporter").status_code == 200
@@ -150,7 +150,7 @@ def test_kursadmin_kan_alt_daglig_men_ikke_brukere_og_daglig_jobb(con):
     assert k.get(f"/admin/kurs/{kid}/allergiliste").status_code == 200
     assert k.get("/admin/e-postmaler").status_code == 200
     r = k.post(f"/admin/kurs/{kid}/oppsett", data={"navn": "Endret", "type": "fysisk", "fakturering": "person",
-                                                  "betaling": "samlet", "pris_nok": "1000"})
+                                                  "betaling": "samlet", "pris_nok": "1000", "sted": "Bergen"})
     assert r.status_code == 302
     assert con.execute("SELECT navn FROM kurs WHERE id=?", (kid,)).fetchone()[0] == "Endret"
     assert con.execute("SELECT COUNT(*) FROM admin_bruker WHERE brukernavn='x'").fetchone()[0] == 0

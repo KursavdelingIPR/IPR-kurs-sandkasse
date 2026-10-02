@@ -1,4 +1,5 @@
 {% extends "admin_base.html" %}
+{% from "_samlingsvalg.html" import samlingsvalg %}
 {% block innhold %}
 {% include "admin_kurs_header.html" %}
 {% include "admin_kurs_faner.html" %}
@@ -14,7 +15,8 @@
 {% endif %}
 
 {% if plasser_igjen is not none %}
-<p class="liten dempet">{% if plasser_igjen > 0 %}{{ plasser_igjen }} plasser igjen.{% else %}Kurset er fullt – deltakeren settes på venteliste.{% endif %}</p>
+<p class="liten dempet">{% if plasser_igjen > 0 %}{{ plasser_igjen }} plasser igjen.{% else %}Kurset er fullt – deltakeren settes på venteliste (bortsett fra {{ STATUS_FLERTALL.ekstradeltaker|lower }}).{% endif %}
+  {{ STATUS_FLERTALL.ekstradeltaker }} tar ikke plass og teller ikke med her.</p>
 {% endif %}
 
 <form method="post" class="kort" style="max-width:720px">
@@ -23,11 +25,24 @@
     <div><label for="f-fornavn">Fornavn *</label><input id="f-fornavn" name="fornavn" required value="{{ f.fornavn or '' }}"></div>
     <div><label for="f-etternavn">Etternavn *</label><input id="f-etternavn" name="etternavn" required value="{{ f.etternavn or '' }}"></div>
     <div><label for="f-epost">E-post *</label><input id="f-epost" name="epost" type="email" required value="{{ f.epost or '' }}"></div>
+    <div><label for="f-adresse">Adresse *</label><input id="f-adresse" name="adresse" required autocomplete="off" value="{{ f.adresse or '' }}"></div>
+    <div><label for="f-postnr">Postnummer *</label><input id="f-postnr" name="postnr" required autocomplete="off" aria-describedby="hjelp-adresse" value="{{ f.postnr or '' }}"></div>
+    <div><label for="f-poststed">Poststed *</label><input id="f-poststed" name="poststed" required autocomplete="off" value="{{ f.poststed or '' }}"></div>
     <div><label for="f-telefon">Telefon</label><input id="f-telefon" name="telefon" value="{{ f.telefon or '' }}"></div>
     <div><label for="f-yrkestittel">Yrkestittel</label><input id="f-yrkestittel" name="yrkestittel" value="{{ f.yrkestittel or '' }}"></div>
     <div><label for="f-arbeidssted">Arbeidssted</label><input id="f-arbeidssted" name="arbeidssted" value="{{ f.arbeidssted or '' }}"></div>
     <div><label for="f-hpr_nr">HPR-nummer</label><input id="f-hpr_nr" name="hpr_nr" value="{{ f.hpr_nr or '' }}"></div>
   </div>
+  <p id="hjelp-adresse" class="liten dempet">Adressen er deltakerens <strong>private</strong> adresse, og den kreves alltid (også når arbeidsgiver betaler). Postnummer: 4 siffer i Norge. Betaler deltakeren selv, sendes fakturaen til denne adressen.</p>
+
+  <fieldset class="samlingsvalg" style="margin-top:18px">
+    <legend class="etikett">{{ STATUS.ekstradeltaker }}</legend>
+    <label class="samlingsvalg-rad"><input type="checkbox" name="ekstradeltaker" value="1" {{ 'checked' if ekstra_valgt }} aria-describedby="hjelp-ekstra">
+      <span><strong>Registrer som ekstradeltaker</strong> (teller ikke som fullverdig deltaker)</span></label>
+    <p id="hjelp-ekstra" class="liten dempet" style="margin:4px 0 0 26px">En ekstradeltaker er på kurset, men tar ikke plass og teller ikke som {{ STATUS.paameldt|lower }}. Hen settes aldri på venteliste, heller ikke når kurset er fullt. Ingen automatisk bekreftelse eller faktura: bekreftelsen kan du sende fra deltakervinduet, og fakturaen lager du selv, utenfor systemet. Adressen er fortsatt påkrevd.</p>
+    {% if samlinger | length > 1 %}{{ samlingsvalg(samlinger, valgte_samlinger) }}
+    <p class="liten dempet" style="margin:4px 0 0">Samlingsvalget gjelder bare en ekstradeltaker: velger du samlinger, må «Registrer som ekstradeltaker» være avkrysset (det krysses av for deg når JavaScript er på).</p>{% endif %}
+  </fieldset>
 
   {% if kurs.fakturering == 'person' and kurs.pris_nok %}
   <label style="margin-top:18px">Hvem betaler?</label>
@@ -35,29 +50,27 @@
   <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} data-vis="org">Arbeidsgiver betaler</label>
   <div id="org" class="{{ '' if f.betaler == 'organisasjon' else 'skjul' }}">
     <div class="rad">
-      <div><label for="f-org_navn">Firmanavn</label><input id="f-org_navn" name="org_navn" value="{{ f.org_navn or '' }}"></div>
       <div><label for="f-org_nr">Organisasjonsnummer</label><input id="f-org_nr" name="org_nr" value="{{ f.org_nr or '' }}"></div>
       <div><label for="f-faktura_ref">Fakturareferanse / bestillernr.</label><input id="f-faktura_ref" name="faktura_ref" value="{{ f.faktura_ref or '' }}"></div>
       <div><label for="f-faktura_epost">E-post for faktura</label><input id="f-faktura_epost" name="faktura_epost" value="{{ f.faktura_epost or '' }}"></div>
     </div>
+    <p class="liten dempet">Skriv bare organisasjonsnummeret. Firmanavn og fakturaadresse hentes fra Enhetsregisteret når påmeldingen registreres. Svarer ikke registeret, merkes påmeldingen «Firmaopplysninger må kontrolleres», og fakturaen venter.</p>
     <label style="font-weight:normal"><input type="checkbox" name="ehf" {{ 'checked' if f.ehf }}>Send som EHF (elektronisk faktura)</label>
   </div>
 
-  {% if kurs.betaling == 'deltaker_velger' %}
+  {% set antall_samlinger = (dager | samlinger(kurs)) | length %}
+  {#- Med bare én samling er det ikke noe å velge: én vanlig faktura (db.meld_paa) -#}
+  {% if kurs.betaling == 'deltaker_velger' and antall_samlinger > 1 %}
   <label style="margin-top:18px">Betaling</label>
   <label style="font-weight:normal"><input type="radio" name="betaling" value="samlet" {{ 'checked' if f.betaling != 'per_samling' }}>
     Hele beløpet i én faktura ({{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr)</label>
   <label style="font-weight:normal"><input type="radio" name="betaling" value="per_samling" {{ 'checked' if f.betaling == 'per_samling' }}>
-    Delt opp – én faktura før hver samling (ca. {{ '{:,}'.format((kurs.pris_nok / dager|length)|round(0,'floor')|int).replace(',', ' ') }} kr × {{ dager|length }})</label>
-  {% elif kurs.betaling == 'per_samling' %}
-  <p class="liten" style="margin-top:18px">Kurset faktureres per samling: ca. {{ '{:,}'.format((kurs.pris_nok / dager|length)|round(0,'floor')|int).replace(',', ' ') }} kr før hver av de {{ dager|length }} samlingene.</p>
+    Delt opp – én faktura før hver samling (ca. {{ '{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' ') }} kr × {{ antall_samlinger }})</label>
+  {% elif kurs.betaling == 'per_samling' and antall_samlinger > 1 %}
+  <p class="liten" style="margin-top:18px">Kurset faktureres per samling: ca. {{ '{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' ') }} kr før hver av de {{ antall_samlinger }} samlingene.</p>
   {% endif %}
 
-  <div class="rad">
-    <div><label for="f-faktura_adresse">Fakturaadresse</label><input id="f-faktura_adresse" name="faktura_adresse" value="{{ f.faktura_adresse or '' }}"></div>
-    <div><label for="f-faktura_postnr">Postnr.</label><input id="f-faktura_postnr" name="faktura_postnr" value="{{ f.faktura_postnr or '' }}"></div>
-    <div><label for="f-faktura_sted">Sted</label><input id="f-faktura_sted" name="faktura_sted" value="{{ f.faktura_sted or '' }}"></div>
-  </div>
+  <p class="liten dempet">Betaler deltakeren selv, sendes fakturaen til deltakerens adresse over. Betaler arbeidsgiver, hentes fakturaadressen fra Enhetsregisteret.</p>
   {% endif %}
 
   <label style="margin-top:18px">Kommentar til faktura/påmelding</label>

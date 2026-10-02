@@ -1,0 +1,50 @@
+/* Innsjekk (prefiks inn-): siden deltakeren kommer til når hun skanner QR-koden i kurslokalet, og resultatsiden. Laget for telefon først
+   (stor knapp, stor skrift i feltene så telefonen ikke zoomer), og fungerer like fint på PC. Farger fra base.html (:root); sidespesifikke
+   variabler på .inn-rot (aldri :root). Kontrast minst 4,5:1: #1f6a43 på #dff3e7 (ok), #8a1d15 på #fbe7e5 (feil), #123f50 på #e7f0f3 (info). */
+.inn-rot { --inn-ok:#1f6a43; --inn-ok-bg:#dff3e7; --inn-rod:#8a1d15; --inn-rod-bg:#fbe7e5; --inn-info:#123f50; --inn-info-bg:#e7f0f3; --inn-skygge:0 1px 2px rgba(15,30,38,.06), 0 6px 20px rgba(15,30,38,.07); }
+.inn-rot .ik { width:20px; height:20px; flex:none; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.ik-sprite { position:absolute; width:0; height:0; overflow:hidden; }
+
+.inn-kort { max-width:460px; margin:8px auto 0; background:#fff; border:1px solid var(--linje); border-radius:16px; box-shadow:var(--inn-skygge); padding:26px 24px 24px; }
+.inn-eyebrow { margin:0 0 6px; font-size:12.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--dempet); font-weight:700; }
+.inn-kort h1 { margin:0 0 6px; font-size:26px; line-height:1.2; font-weight:650; overflow-wrap:anywhere; }
+.inn-dag { margin:0 0 14px; color:var(--dempet); }
+
+/* «Dag 2 av 4»: en stolpe med ett felt per kursdag (dagen i dag er mørkest). Teksten «Dag 2 av 4» står alltid ved siden av, så ingenting er bare farge. */
+.inn-fremdrift { display:flex; gap:5px; margin:0 0 20px; }
+.inn-seg { flex:1; height:7px; border-radius:4px; background:#dfe5e8; }
+.inn-seg-ferdig { background:#8db8c9; }
+.inn-seg-na { background:var(--bla); }
+
+.inn-kort label { margin:14px 0 6px; font-size:14.5px; }
+.inn-kort input { min-height:50px; font-size:16px; }
+.inn-kode { text-align:center; text-transform:uppercase; letter-spacing:.3em; font-size:24px !important; font-weight:650; padding-left:16px; border-color:#8fa3ad; }
+.inn-kode::placeholder { color:#77868f; letter-spacing:.3em; }
+.inn-knapp { display:flex; align-items:center; justify-content:center; gap:9px; width:100%; min-height:54px; margin-top:16px; padding:12px 18px; font-size:17px; font-weight:600; border-radius:10px; text-align:center; }
+.inn-handling { margin:18px 0 0; }
+.inn-handling .inn-knapp { margin-top:10px; }
+.inn-hjelp { margin:14px 0 0; font-size:13.5px; color:var(--dempet); }
+
+/* Meldinger og resultat */
+.inn-melding { display:flex; gap:10px; align-items:flex-start; margin:14px 0 0; padding:12px 14px; border-radius:10px; font-size:15px; text-align:left; }
+.inn-melding p { margin:0; }
+.inn-melding .ik { margin-top:2px; }
+.inn-melding-info { background:var(--inn-info-bg); color:var(--inn-info); }
+.inn-melding-ok { background:var(--inn-ok-bg); color:var(--inn-ok); }
+.inn-resultat { text-align:center; padding-top:32px; }
+.inn-ring { width:80px; height:80px; margin:0 auto 16px; border-radius:50%; display:grid; place-items:center; color:#fff; background:var(--ok); font-size:46px; font-weight:700; line-height:1; }
+.inn-ring .ik { width:42px; height:42px; stroke-width:3; }
+.inn-feil .inn-ring { background:var(--feil); }
+.inn-resultat h1 { font-size:24px; }
+.inn-tekst { margin:0 0 10px; font-size:16px; }
+.inn-under { margin:0 0 14px; color:var(--dempet); font-size:14.5px; }
+.inn-resultat .inn-fremdrift { max-width:280px; margin:0 auto 6px; }
+.inn-boks { margin-top:22px; padding:16px; border:1px solid var(--linje); border-radius:12px; background:#f7fafb; }
+.inn-boks h2 { margin:0 0 4px; font-size:16.5px; }
+.inn-boks p { margin:0; color:var(--dempet); font-size:14.5px; }
+.inn-boks .inn-knapp { margin-top:12px; }
+
+@media (max-width: 600px) {
+  .inn-kort { padding:22px 18px 20px; margin-top:0; }
+  .inn-kort h1 { font-size:23px; }
+}

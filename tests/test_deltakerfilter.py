@@ -79,12 +79,12 @@ def test_statusvalg_som_avkrysning_med_antall_i_stedet_for_nedtrekksmeny(con):
     kid = _kurs_med_deltakere(con)
     html = _liste(_admin(), kid)
     assert 'id="f-status"' not in html and "<select" not in html.split('id="deltakerfilter"')[1].split("</form>")[0]
-    for verdi, navn in [("bekreftet", "Bekreftet"), ("venteliste", "Venteliste"), ("avmeldt", "Avmeldt"),
+    for verdi, navn in [("paameldt", "Påmeldt"), ("ekstradeltaker", "Ekstradeltaker"), ("venteliste", "Venteliste"), ("avmeldt", "Avmeldt"),
                         ("avslatt", "Avslått"), ("utgatt", "Utgått"), ("forlatt", "Forlatt")]:
         assert f'<input type="checkbox" name="status" value="{verdi}" >' in html
         assert f'{navn} <span class="antall" data-antall="{verdi}">' in html
-    assert _antall(html) == {"bekreftet": "2", "venteliste": "2", "avmeldt": "1", "avslatt": "1", "utgatt": "1",
-                             "forlatt": "1"}
+    assert _antall(html) == {"paameldt": "2", "ekstradeltaker": "0", "venteliste": "2", "avmeldt": "1", "avslatt": "1",
+                             "utgatt": "1", "forlatt": "1"}
     assert 'id="velg-alle-synlige"' in html
     assert '<noscript><button class="sekundar liten">Søk</button></noscript>' in html     # bare uten JavaScript
 
@@ -99,10 +99,10 @@ def test_uten_filter_vises_alle_og_nullstill_er_skjult(con):
 
 def test_flere_statuser_kan_velges_samtidig(con):
     kid = _kurs_med_deltakere(con)
-    html = _liste(_admin(), kid, "?status=bekreftet&status=venteliste")
+    html = _liste(_admin(), kid, "?status=paameldt&status=venteliste")
     assert _navn(synlige_rader(html)) == {"Mari Hansen", "Marie Olsen", "Stig Berg", "Øyvind Åsheim"}
     assert _navn(skjulte_rader(html)) == {"Tone Nilsen", "Frida Lie", "Una Dal", "Finn Vik"}
-    assert 'value="bekreftet" checked>' in html and 'value="venteliste" checked>' in html
+    assert 'value="paameldt" checked>' in html and 'value="venteliste" checked>' in html
     assert 'value="avmeldt" >' in html
     assert "Viser 4 av 8 deltakere." in html
     assert re.search(r'data-nullstill-filter\s*>Nullstill filter', html)                  # synlig når filteret er aktivt
@@ -148,10 +148,10 @@ def test_sok_og_status_kombineres_og_tallene_folger_sokeet(con):
     html = _liste(k, kid, "?sok=mar&status=venteliste")
     assert synlige_rader(html) == ""
     assert re.search(r'<tr data-ingen-treff="deltaker"\s*>', html)                         # «Ingen deltakere matcher»
-    assert _antall(html) == {"bekreftet": "2", "venteliste": "0", "avmeldt": "0", "avslatt": "0", "utgatt": "0",
-                             "forlatt": "0"}
+    assert _antall(html) == {"paameldt": "2", "ekstradeltaker": "0", "venteliste": "0", "avmeldt": "0", "avslatt": "0",
+                             "utgatt": "0", "forlatt": "0"}
     assert "Viser 0 av 8 deltakere." in html
-    html = _liste(k, kid, "?sok=mar&status=bekreftet")
+    html = _liste(k, kid, "?sok=mar&status=paameldt")
     assert _navn(synlige_rader(html)) == {"Mari Hansen", "Marie Olsen"}
     assert re.search(r'<tr data-ingen-treff="deltaker"\s+hidden>', html)
 
@@ -185,7 +185,7 @@ def test_handlingene_for_valgte_er_uendret(con):
 
 
 @pytest.mark.parametrize("par, antall", [((), 8), ((("sok", "øyv"),), 1), ((("sok", "MAR"),), 2),
-                                         ((("status", "bekreftet"), ("status", "venteliste")), 4),
+                                         ((("status", "paameldt"), ("status", "venteliste")), 4),
                                          ((("sok", "mar"), ("status", "venteliste")), 0), ((("status", "avslatt"),), 1),
                                          ((("status", "utgatt"), ("status", "forlatt")), 2)])
 def test_eksport_av_treff_folger_samme_regel_som_listen(con, par, antall):
@@ -199,7 +199,7 @@ def test_eksport_av_treff_folger_samme_regel_som_listen(con, par, antall):
 
 def test_eksportlenken_tar_med_filteret(con):
     kid = _kurs_med_deltakere(con)
-    html = _liste(_admin(), kid, "?sok=mar&status=bekreftet&status=venteliste")
-    assert (f'href="/admin/kurs/{kid}/deltakere.csv?sok=mar&amp;status=bekreftet&amp;status=venteliste">'
+    html = _liste(_admin(), kid, "?sok=mar&status=paameldt&status=venteliste")
+    assert (f'href="/admin/kurs/{kid}/deltakere.csv?sok=mar&amp;status=paameldt&amp;status=venteliste">'
             "Eksporter treff (Excel)</a>") in html
     assert f'data-grunnadresse="/admin/kurs/{kid}/deltakere.csv"' in html

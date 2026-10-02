@@ -21,6 +21,12 @@ import pytest
 from kurs import config, db, sveiper
 from kurs import skjemafelt as sf
 from kurs.kjoring import Kjoring
+from adressehjelp import ADRESSE
+
+
+# HPR-nummer er slått av i skjemaene (skjemafelt.HPR_I_SKJEMA = False, Camilla 02.10.2026). Disse testene gjelder koden som viser, validerer og lagrer det
+# (den finnes fortsatt og kan slås på igjen), så de slår det på. Standarden (av) testes i test_hpr_nummer_samles_ikke_inn.py.
+pytestmark = pytest.mark.usefixtures("hpr_i_skjema")
 
 
 @pytest.fixture
@@ -59,7 +65,7 @@ def _lagre(con, kid, felt, **egenskaper):
 
 
 EPOST = "test.person@eksempel.no"
-BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": EPOST, "samtykke": "on"}
+BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": EPOST, "samtykke": "on", **ADRESSE}
 
 
 def _post(kode, **data):
@@ -132,25 +138,33 @@ def _sett_opp_overstyrt(con, kode="OVR"):
     return kid
 
 
+def _med_navn(html) -> list[dict]:
+    return [a for a in _inputs(html) if a.get("name")]      # adminlinjens lenkefelt (uten name) er ikke skjemafelt
+
+
 def test_get_og_forhaandsvisning_viser_samme_overstyrte_skjema(con):
     kid = _sett_opp_overstyrt(con)
-    sider = [_klient().get("/kurs/OVR"), _admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding")]
+    sider = [_klient().get("/kurs/OVR"), _admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding", follow_redirects=True)]
     for r in sider:
         html = r.get_data(as_text=True)
         assert r.status_code == 200
         assert _deltakerfelt(html) == ["arbeidssted", "hpr_nr"]
         assert "required" in _attrs(html, "arbeidssted")
-        assert '<label for="f-arbeidssted">Arbeidsgiver *</label>' in html
+        assert ('<label class="pm-etikett" for="f-arbeidssted">Arbeidsgiver <span class="pm-krav">(krav)</span></label>'
+                in html)
         assert "Brukes på kursbeviset." in html and "Finnes i Helsepersonellregisteret." in html
         assert "required" not in _attrs(html, "hpr_nr")
     offentlig, preview = (r.get_data(as_text=True) for r in sider)
-    assert _inputs(offentlig) == _inputs(preview)
+    assert _med_navn(offentlig) == _med_navn(preview)
 
 
 def test_forhaandsvisning_er_fortsatt_get_only_og_uten_registrering(con):
     kid = _sett_opp_overstyrt(con)
+    con.execute("UPDATE kurs SET status='utkast' WHERE id=?", (kid,))
+    con.commit()
     assert _admin().post(f"/admin/kurs/{kid}/forhandsvis-paamelding", data=BASIS).status_code == 405
-    html = _admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding").get_data(as_text=True)
+    assert _admin().post("/kurs/OVR", data=BASIS).status_code == 404
+    html = _admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding", follow_redirects=True).get_data(as_text=True)
     assert "data-ingen-innsending" in html and '<button type="button">Meld meg på</button>' in html
     assert _antall(con, "paamelding") == 0
 
@@ -158,10 +172,12 @@ def test_forhaandsvisning_er_fortsatt_get_only_og_uten_registrering(con):
 def test_standardskjema_uten_overstyringer_er_uendret(con):
     _kurs(con, kode="STD", spesialistlop="EFT")
     html = _klient().get("/kurs/STD").get_data(as_text=True)
-    assert '<div><label for="f-telefon">Telefon</label><input id="f-telefon" name="telefon" value=""></div>' in html
-    assert '<div><label for="f-arbeidssted">Arbeidssted</label><input id="f-arbeidssted" name="arbeidssted" value=""></div>' in html
-    assert '<div><label for="f-hpr_nr">HPR-nummer</label><input id="f-hpr_nr" name="hpr_nr" value=""></div>' in html
-    assert 'id="hjelp-' not in html and "aria-describedby" not in html
+    for navn, label, attrs in (("telefon", "Telefon", ' type="tel" autocomplete="tel"'),
+                               ("arbeidssted", "Arbeidssted", ' autocomplete="organization"'),
+                               ("hpr_nr", "HPR-nummer", "")):
+        assert f'<label class="pm-etikett" for="f-{navn}">{label}</label>' in html
+        assert f'<input id="f-{navn}" name="{navn}"{attrs} value="">' in html
+        assert f'id="hjelp-{navn}"' not in html and "aria-describedby" not in _attrs(html, navn)
 
 
 # ============================ hjelpetekst ============================
@@ -172,10 +188,10 @@ def test_hjelpetekst_er_escapet_ren_tekst_med_linjeskift(con):
     _lagre(con, kid, "telefon", hjelpetekst=farlig)
     _lagre(con, kid, "hpr_nr", hjelpetekst="Linje 1\nLinje 2")
     html = _klient().get("/kurs/HJ").get_data(as_text=True)
-    assert ('<p id="hjelp-telefon" class="liten dempet" style="white-space:pre-line; margin:4px 0 0">'
+    assert ('<p id="hjelp-telefon" class="pm-hjelp">'
             "&lt;script&gt;alert(1)&lt;/script&gt;\n{{ 7*7 }} &lt;b&gt;fet&lt;/b&gt; **md**</p>") in html
     assert "<script>alert(1)</script>" not in html and "<b>fet</b>" not in html
-    assert '<p id="hjelp-hpr_nr" class="liten dempet" style="white-space:pre-line; margin:4px 0 0">Linje 1\nLinje 2</p>' in html
+    assert '<p id="hjelp-hpr_nr" class="pm-hjelp">Linje 1\nLinje 2</p>' in html
     assert _attrs(html, "telefon")["aria-describedby"] == "hjelp-telefon"
     assert "aria-describedby" not in _attrs(html, "arbeidssted")
 
@@ -183,7 +199,7 @@ def test_hjelpetekst_er_escapet_ren_tekst_med_linjeskift(con):
 def test_hjelpetekst_vises_ogsaa_i_forhaandsvisning(con):
     kid = _kurs(con, kode="HJ2")
     _lagre(con, kid, "arbeidssted", hjelpetekst="Hjelp <i>x</i>")
-    html = _admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding").get_data(as_text=True)
+    html = _admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding", follow_redirects=True).get_data(as_text=True)
     assert ">Hjelp &lt;i&gt;x&lt;/i&gt;</p>" in html
 
 
@@ -303,8 +319,12 @@ def test_f_hele_fakturablokken_ignoreres_naar_den_ikke_vises(con, oppsett):
     assert r.status_code == 200                                     # ingen krav om org.nr. utloeses
     p = _paamelding(con, kid)
     assert (p["betaler"], p["ehf"], p["betaling"]) == ("person", 0, "samlet")
-    for k in ("org_navn", "org_nr", "faktura_ref", "faktura_epost", "faktura_adresse", "faktura_postnr", "faktura_sted"):
+    for k in ("org_navn", "org_nr", "faktura_ref", "faktura_epost"):
         assert p[k] is None, k
+    # Det manipulerte «faktura_adresse» er ikke lagret. Deltakeren betaler selv, så fakturaadressen er hans egen adresse
+    # (kopiert fra personen) - aldri noe klienten sendte som faktura_adresse.
+    assert (p["faktura_adresse"], p["faktura_postnr"], p["faktura_sted"]) == (
+        ADRESSE["adresse"], ADRESSE["postnr"], ADRESSE["poststed"])
     assert _antall(con, "faktura") == 0 and _antall(con, "faktura_forsok") == 0
 
 
@@ -314,22 +334,28 @@ def test_f_betaler_organisasjon_uten_org_nr_utloeser_ikke_krav_naar_blokken_er_s
     assert r.status_code == 200 and "Fyll inn organisasjon" not in r.get_data(as_text=True)
 
 
-def test_synlig_fakturablokk_har_uendret_validering_og_lagring(con):
+def test_synlig_fakturablokk_validering_og_lagring(con):
+    """Firma betaler: organisasjonsnummeret kreves og må finnes i Enhetsregisteret. Firmanavn og adresse lagres fra
+    registeret (her demovirksomheten 999999999) - aldri det klienten sender."""
     kid = _kurs(con, kode="FV", betaling="deltaker_velger")
     r = _post("FV", betaler="organisasjon", org_navn="Eksempel Org", org_nr="")
-    assert r.status_code == 400 and "Fyll inn organisasjon og org.nr. når arbeidsgiver betaler." in r.get_data(as_text=True)
+    assert r.status_code == 400 and "Skriv et gyldig organisasjonsnummer (9 siffer)" in r.get_data(as_text=True)
     assert _paamelding(con, kid) is None
     assert _post("FV", **{**MANIPULERT_FAKTURA, "org_navn": "Eksempel Org"}).status_code == 200
     p = _paamelding(con, kid)
-    assert (p["betaler"], p["org_navn"], p["org_nr"], p["ehf"], p["betaling"], p["faktura_ref"], p["faktura_sted"]) == (
-        "organisasjon", "Eksempel Org", "999999999", 1, "per_samling", "MANIP-REF", "Manipby")
+    assert (p["betaler"], p["org_navn"], p["org_nr"], p["ehf"], p["betaling"], p["faktura_ref"], p["faktura_epost"],
+            p["faktura_adresse"], p["faktura_postnr"], p["faktura_sted"]) == (
+        "organisasjon", "DEMOVIRKSOMHET AS", "999999999", 1, "per_samling", "MANIP-REF", "manip@eksempel.no",
+        "Demoveien 1", "0101", "DEMOBY")
 
 
 def test_synlig_fakturablokk_person_betaler(con):
+    """Betaler deltakeren selv, er fakturaadressen hans egen adresse: kopiert fra personen, ikke fra et faktura-felt."""
     kid = _kurs(con, kode="FP")
-    assert _post("FP", betaler="person", faktura_adresse="Eksempelveien 1").status_code == 200
+    assert _post("FP", betaler="person", faktura_adresse="Manipveien 1").status_code == 200
     p = _paamelding(con, kid)
-    assert (p["betaler"], p["faktura_adresse"], p["org_navn"]) == ("person", "Eksempelveien 1", None)
+    assert (p["betaler"], p["faktura_adresse"], p["faktura_postnr"], p["faktura_sted"], p["org_navn"]) == (
+        "person", ADRESSE["adresse"], ADRESSE["postnr"], ADRESSE["poststed"], None)
 
 
 def test_ukjente_ekstra_postfelt_ignoreres(con):
@@ -398,9 +424,9 @@ def test_get_ved_lesefeil_gir_kontrollert_503(con):
 
 
 def test_forhaandsvisning_ved_lesefeil_gir_kontrollert_503(con):
-    kid = _kurs(con, kode="LFP")
+    kid = _kurs(con, kode="LFP", status="utkast")
     _bryt_lesing(con)
-    html = _sjekk_feilside(_admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding"))
+    html = _sjekk_feilside(_admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding", follow_redirects=True))
     assert "forhåndsvisningen kan ikke vises" in html
 
 
@@ -462,7 +488,7 @@ def test_noyaktig_en_lesing_per_request(con, teller):
         ("POST valideringsfeil", lambda: _post("EN", telefon=""), 400),
         ("POST suksess", lambda: _post("EN", telefon="123"), 200),
         ("POST Paameldingsfeil (allerede paameldt)", lambda: _post("EN", telefon="123"), 400),
-        ("forhaandsvisning", lambda: admin.get(f"/admin/kurs/{kid}/forhandsvis-paamelding"), 200),
+        ("forhaandsvisning (ekte side for admin)", lambda: admin.get("/kurs/EN"), 200),
     ]
     for navn, kall, status in tilfeller:
         teller.clear()
@@ -478,7 +504,8 @@ def test_ved_lesefeil_ett_forsok_deretter_kontrollert_feil(con, monkeypatch):
         kall.append(kurs_id)
         raise sf.SkjemaLesefeil(kurs_id)
     monkeypatch.setattr(db, "hent_skjemaoverstyringer", feiler)
-    for r in (_klient().get("/kurs/EF"), _post("EF"), _admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding")):
+    for r in (_klient().get("/kurs/EF"), _post("EF"),
+              _admin().get(f"/admin/kurs/{kid}/forhandsvis-paamelding", follow_redirects=True)):
         assert r.status_code == 503
     assert kall == [kid, kid, kid]
     assert _antall(con, "paamelding") == 0
@@ -527,7 +554,7 @@ def test_toctou_skjult_i_a_synlig_i_b_ignorerer_fortsatt_verdien(con, endre_ette
     assert _post("TB", telefon="MANIPULERT").status_code == 200
     assert _deltaker(con)["telefon"] is None                              # lagret etter A
     html = _klient().get("/kurs/TB").get_data(as_text=True)              # neste request: B
-    assert '<label for="f-telefon">Mobil</label>' in html
+    assert '<label class="pm-etikett" for="f-telefon">Mobil</label>' in html
 
 
 # ============================ korrupte overstyringer / advarsler ============================
@@ -552,12 +579,13 @@ def test_korrupt_overstyring_gir_fungerende_side_uten_logging_ved_visning(con):
     _korrupt(con, kid)
     admin = _admin()                                 # innlogging logges (admin_innlogget) - telles foer visningene
     foer = _antall(con, "hendelse")
-    for r in (_klient().get("/kurs/KO"), admin.get(f"/admin/kurs/{kid}/forhandsvis-paamelding")):
+    for r in (_klient().get("/kurs/KO"), admin.get(f"/admin/kurs/{kid}/forhandsvis-paamelding", follow_redirects=True)):
         html = r.get_data(as_text=True)
         assert r.status_code == 200
         assert _deltakerfelt(html) == ["telefon", "arbeidssted", "hpr_nr"]    # HPR kan ikke skjules
-        assert '<label for="f-telefon">Telefon *</label>' in html                              # gyldig del av raden brukes
-        assert "Gyldig HPR-hjelp" in html and '<label for="f-hpr_nr">HPR-nummer</label>' in html
+        assert ('<label class="pm-etikett" for="f-telefon">Telefon <span class="pm-krav">(krav)</span></label>'
+                in html)                                                       # gyldig del av raden brukes
+        assert "Gyldig HPR-hjelp" in html and '<label class="pm-etikett" for="f-hpr_nr">HPR-nummer</label>' in html
         assert "HEMMELIG" not in html
     assert _antall(con, "hendelse") == foer                                     # ingen skriving ved visning
 

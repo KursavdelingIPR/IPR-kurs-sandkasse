@@ -187,7 +187,7 @@ def test_kursbevis_varsles_paa_epost_med_lenke_til_min_side(con, sendt):
     (til, emne, html), = sendt
     assert (til, emne) == ("ola@x.no", "Kursbevis: Veiledning i praksis")
     assert "Takk for deltakelsen på <strong>Veiledning i praksis</strong>." in html
-    assert f'<a href="{config.BASE_URL}/min-side">Min side</a>' in html
+    assert f'<a href="{config.BASE_URL}/min-side">Mine kurs</a>' in html
 
 
 def test_tilgang_eier_og_admin_faar_bevis_andre_deltakere_faar_403(con, sendt):

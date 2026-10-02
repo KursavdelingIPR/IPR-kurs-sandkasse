@@ -1,0 +1,173 @@
+{% extends "admin_base.html" %}
+{% import "_kursside_blokker.html" as bl %}
+{#- Min side i administrasjonen: redigeringsvisningen (fanen «Min side» på kurset).
+    Sidens innhold og alle adresser ligger som JSON i #ks-data (SPEC §6.12); JavaScript-en (kursside-admin*.js) bygger blokkortene av
+    skjelettene i <template> (_kursside_admin_maler.html) og åpner dialogene (_kursside_admin_dialoger.html). Alt som er fast tekst,
+    felt og ledetekster står ferdig i malene, så testene kan skanne dem. Ingen tekst fra databasen står i JavaScript-filene.
+    Skrivebeskyttet (rollen «lese»): data-skrivebeskyttet="1" på #ks-rot; JavaScript-en deaktiverer da alle felt og starter ikke autolagring. -#}
+{% block tittel %}Min side – {{ kurs.navn }} – IPR Påmeldingssystem{% endblock %}
+{% block sideklasse %} class="bred ks-side-kropp"{% endblock %}
+{% block hode %}
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kursside-admin.css') }}">
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='kursside-admin.js') }}" defer></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='kursside-admin-liste.js') }}" defer></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='kursside-admin-blokker.js') }}" defer></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='kursside-admin-filer.js') }}" defer></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='kursside-admin-dialoger.js') }}" defer></script>
+{% endblock %}
+{% block innhold %}
+{% include "_kursside_ikoner.html" %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+<div class="ks-info" role="note">{{ bl.ikon('info') }}<span><strong>Min side:</strong> siden deltakerne ser etter at de har logget inn eller åpnet sin personlige lenke (knappen «Åpne Min side» i bekreftelsen og påminnelsene). Bare de som har bekreftet påmelding på dette kurset får tilgang.
+  <a href="{{ url_for('admin_kurs_nettside', kurs_id=kurs.id) }}">Nettside</a>-fanen gjelder påmeldingssiden som alle kan se.</span></div>
+
+<div id="ks-rot" class="ks-rot" data-skrivebeskyttet="{{ 1 if skrivebeskyttet else 0 }}">
+  {% if skrivebeskyttet %}<div class="ks-banner ks-banner-info" role="note">{{ bl.ikon('las') }}<span>Du har lesetilgang – du kan se siden, men ikke endre den.</span></div>{% endif %}
+  <div id="ks-bannere" class="ks-bannere" data-ks="melding"></div>
+
+  <div class="ks-verktoy" role="region" aria-label="Status og handlinger">
+    <span class="ks-status"><span class="ks-prikk" data-ks="prikk" aria-hidden="true"></span><strong data-ks="status">Laster …</strong><small data-ks="status-detalj"></small></span>
+    <span class="ks-lagret" data-ks="lagre-status" role="status"></span>
+    <span class="plass">
+      {% if not skrivebeskyttet %}
+      <button type="button" class="sekundar" data-ks="angre" disabled>{{ bl.ikon('angre') }}<span class="ks-tk">Angre</span></button>
+      <button type="button" class="sekundar" data-ks="gjor-om" disabled>{{ bl.ikon('gjorom') }}<span class="ks-tk">Gjør om</span></button>
+      {% endif %}
+      <a class="knapp sekundar" href="{{ data.urls.forhandsvis }}?versjon=utkast" target="_blank" rel="noopener" data-ks="forhandsvis">{{ bl.ikon('ekstern') }}<span><span class="ks-tk">Forhåndsvis som deltaker</span><span class="ks-bare-smal">Forhåndsvis</span></span></a>
+      {% if not skrivebeskyttet %}<button type="button" data-ks="publiser">{{ bl.ikon('last-opp') }}<span>Publiser …</span></button>{% endif %}
+    </span>
+  </div>
+
+  <div class="ks-side">
+    <div class="ks-kol">
+      <section class="ks-lenkeboks" aria-labelledby="ks-lenker-h">
+        <h2 id="ks-lenker-h" class="skjul-visuelt">Lenker til Min side og innstillinger</h2>
+        <div class="ks-lenkerad">
+          <label for="ks-lenke-direkte">Direkte til Min side for dette kurset</label>
+          <input id="ks-lenke-direkte" type="text" readonly value="{{ data.lenker.direkte }}">
+          <button type="button" class="sekundar" data-ks="kopier-direkte" data-kopier="ks-lenke-direkte">{{ bl.ikon('kopi') }}Kopier lenke</button>
+        </div>
+        <div class="ks-lenkerad">
+          <label for="ks-lenke-generell">Innlogging for alle kurs</label>
+          <input id="ks-lenke-generell" type="text" readonly value="{{ data.lenker.generell }}">
+          <button type="button" class="sekundar" data-ks="kopier-generell" data-kopier="ks-lenke-generell">{{ bl.ikon('kopi') }}Kopier lenke</button>
+        </div>
+        <p class="ks-hjelp">Legg lenken på terapiakademiet.no. Deltakerne logger inn med e-post og kommer rett hit. Vil du bruke én felles lenke for alle kurs, bruker du <strong>/logg-inn</strong> – da finner systemet kurset til deltakeren selv.</p>
+        <div class="ks-innst">
+          <span>{{ bl.ikon('las') }}Bare deltakere med bekreftet påmelding på dette kurset</span>
+          <span>{{ bl.ikon('kal') }}<span data-ks="innst-stenges">Åpen til …</span>{% if not skrivebeskyttet %} · <button type="button" class="lenkeknapp" data-ks="innstillinger">Endre</button>{% endif %}</span>
+          <span>{{ bl.ikon('qr') }}<span data-ks="innst-kode">Innsjekk på nett</span>{% if not skrivebeskyttet %} · <button type="button" class="lenkeknapp" data-ks="innstillinger-kode">Endre</button>{% endif %}</span>
+        </div>
+      </section>
+
+      <section class="ks-topp" aria-labelledby="ks-topp-h">
+        <h2 id="ks-topp-h">Sidens topp</h2>
+        <div class="ks-topp-felt">
+          <div><label for="ks-f-tittel">Tittel</label>
+            <input id="ks-f-tittel" type="text" data-topp="tittel" maxlength="{{ data.grenser.tittel }}" placeholder="{{ kurs.navn }}" autocomplete="off">
+            <p class="ks-hjelp">Tomt = kursets navn.</p></div>
+          <div><label for="ks-f-rom">Rom eller etasje</label>
+            <input id="ks-f-rom" type="text" data-topp="rom" maxlength="{{ data.grenser.rom }}" placeholder="F.eks. Rom 3, 2. etasje" autocomplete="off">
+            <p class="ks-hjelp">Vises etter kursets sted i toppfeltet.</p></div>
+        </div>
+        <label for="ks-f-ingress">Ingress</label>
+        <input id="ks-f-ingress" type="text" data-topp="ingress" maxlength="{{ data.grenser.ingress }}" placeholder="Én setning om hva siden inneholder" autocomplete="off">
+        <fieldset class="ks-melding">
+          <legend>Melding øverst <small>(valgfri)</small></legend>
+          <div class="ks-niva-rad" role="radiogroup" aria-label="Type melding øverst">
+            <label class="ks-niva i"><input type="radio" name="ks-melding-niva" value="info" data-topp="melding-niva">{{ bl.ikon('info') }}Informasjon</label>
+            <label class="ks-niva v"><input type="radio" name="ks-melding-niva" value="viktig" data-topp="melding-niva">{{ bl.ikon('varsel') }}Viktig</label>
+          </div>
+          <label for="ks-f-melding" class="skjul-visuelt">Meldingstekst</label>
+          <textarea id="ks-f-melding" rows="2" data-topp="melding-tekst" maxlength="{{ data.grenser.melding }}" placeholder="F.eks. Vi har byttet rom fra i morgen. Tomt = ingen melding."></textarea>
+          <p class="ks-hjelp">Vises øverst på siden, over alt annet. Bruk den til det som endrer seg fra dag til dag.</p>
+        </fieldset>
+      </section>
+
+      <div class="ks-listehode">
+        <h2 id="ks-innhold-h">Innhold <small data-ks="antall">0 blokker</small></h2>
+        <div class="ks-listeknapper" role="group" aria-label="Verktøy for innholdet">
+          {% if not skrivebeskyttet %}<button type="button" class="sekundar" data-ks="rask" aria-pressed="false">{{ bl.ikon('kompakt') }}<span class="ks-tk">Rask omorganisering</span><span class="ks-bare-smal">Omorganiser</span></button>{% endif %}
+          <button type="button" class="sekundar" data-ks="fold-alle" data-tilstand="lukk">{{ bl.ikon('opp') }}<span>Fold sammen alle</span></button>
+          {% if not skrivebeskyttet %}
+          <button type="button" class="sekundar" data-ks="hent-fra">{{ bl.ikon('kopi') }}<span class="ks-tk">Hent fra annet kurs</span><span class="ks-bare-smal">Hent</span></button>
+          <button type="button" class="sekundar" data-ks="mal">{{ bl.ikon('mal') }}<span class="ks-tk">Start fra mal</span><span class="ks-bare-smal">Mal</span></button>
+          <button type="button" class="sekundar" data-ks="finn">{{ bl.ikon('sok') }}<span class="ks-tk">Finn og erstatt</span><span class="ks-bare-smal">Finn</span></button>
+          {% endif %}
+          <button type="button" class="sekundar" data-ks="versjoner">{{ bl.ikon('historikk') }}<span class="ks-tk">Tidligere versjoner</span><span class="ks-bare-smal">Versjoner</span></button>
+        </div>
+      </div>
+      <p class="ks-fast-hjelp">{{ bl.ikon('skjold') }}Ikke skriv navn, e-postadresser eller helseopplysninger om deltakere. Alle på kurset ser siden.</p>
+      <div class="ks-rask-info" data-ks="rask-info" hidden role="note">{{ bl.ikon('kompakt') }}<span><strong>Rask omorganisering.</strong> Alle blokkene er foldet sammen. Dra i håndtaket, eller kryss av flere og bruk knappene nederst. Trykk <strong>Ferdig</strong> (eller Esc) når du er ferdig.</span>
+        <button type="button" class="sekundar liten" data-ks="rask-ferdig">{{ bl.ikon('hake') }}Ferdig</button></div>
+
+      <div class="ks-liste" data-ks="blokkliste" id="ks-blokkliste"></div>
+      <div class="ks-tomtilstand" data-ks="tom" hidden>
+        <p><strong>Siden er tom.</strong> Legg til en blokk under, eller start fra en ferdig mal.</p>
+        {% if not skrivebeskyttet %}<p><button type="button" data-ks="mal-tom">{{ bl.ikon('mal') }}Start fra standardmalen</button></p>{% endif %}
+      </div>
+
+      {% if not skrivebeskyttet %}
+      <div class="ks-bulk" data-ks="handlingsstolpe" role="toolbar" aria-label="Handlinger for valgte blokker" hidden>
+        <b data-ks="bulk-antall">0 valgt</b>
+        <button type="button" data-bulk="skjul">{{ bl.ikon('oyeav') }}Skjul</button>
+        <button type="button" data-bulk="vis">{{ bl.ikon('oye') }}Vis</button>
+        <button type="button" data-bulk="dupliser">{{ bl.ikon('kopi') }}Dupliser</button>
+        <button type="button" data-bulk="topp">{{ bl.ikon('pilopp') }}Flytt til toppen</button>
+        <button type="button" data-bulk="bunn">{{ bl.ikon('pilned') }}Flytt til bunnen</button>
+        <button type="button" class="fare" data-bulk="slett">{{ bl.ikon('slett') }}Slett</button>
+        <span class="ks-bulk-valg"><button type="button" data-bulk="alle">Velg alle</button><button type="button" data-bulk="ingen">Fjern valg</button></span>
+      </div>
+
+      <section class="ks-legg-til" aria-labelledby="ks-legg-til-h" data-ks="legg-til-omrade">
+        <h2 id="ks-legg-til-h">Legg til blokk</h2>
+        <div class="ks-palett">
+          {% for typ, navn, hjelp, ikon in [
+            ('tekst', 'Tekst', 'Tekst med fet, kursiv, lister og lenker', 'tekst'),
+            ('viktig', 'Viktig', 'Fremhevet melding: info, viktig eller advarsel', 'info'),
+            ('program', 'Program', 'Dager med klokkeslett, tema, sted og hvem', 'kal'),
+            ('filer', 'Filer', 'Presentasjoner og dokumenter til nedlasting', 'fil'),
+            ('lenker', 'Lenker', 'Litteratur, Zoom og andre nettadresser', 'lenke'),
+            ('tabell', 'Grupper/tabell', 'Gruppeinndeling eller annen tabell', 'gruppe'),
+            ('kontakt', 'Kontakt', 'Kontaktpersoner med telefon og e-post', 'bruker'),
+            ('bilde', 'Bilde', 'Toppbilde eller bilde i teksten', 'bilde')] %}
+          <button type="button" class="ks-flis" data-ks="legg-til" data-type="{{ typ }}"><span class="ikon ks-t-{{ typ }}" aria-hidden="true">{{ bl.ikon(ikon) }}</span><b>{{ navn }}</b><span class="hjelp">{{ hjelp }}</span></button>
+          {% endfor %}
+        </div>
+      </section>
+      <p class="ks-tips"><span><kbd>Alt</kbd> + <kbd>↑</kbd>/<kbd>↓</kbd> flytter blokken</span><span><kbd>Ctrl</kbd> + <kbd>S</kbd> lagrer nå</span><span><kbd>Ctrl</kbd> + <kbd>Z</kbd> angrer</span></p>
+      <p class="ks-tips">Utkastet lagres automatisk. Deltakerne ser ikke noe før du publiserer.</p>
+      {% endif %}
+    </div>
+
+    <aside class="ks-forh" aria-labelledby="ks-forh-h">
+      <div class="ks-forh-h">
+        <h2 id="ks-forh-h">Slik ser deltakerne det</h2>
+        <span class="ks-seg" role="group" aria-label="Visning">
+          <button type="button" class="pa" data-ks="forh-mobil" aria-pressed="true">Mobil</button><button type="button" data-ks="forh-pc" aria-pressed="false">PC</button>
+        </span>
+        <button type="button" class="sekundar liten" data-ks="forh-stor" title="Viser siden i full størrelse, så teksten kan leses">{{ bl.ikon('ekstern') }}Åpne stor visning</button>
+      </div>
+      <div class="ks-forh-dag">
+        <label for="ks-forh-dag">Vis som dag</label>
+        <select id="ks-forh-dag" data-ks="forh-dag"><option value="">I dag (som deltakerne ser det nå)</option>
+          {% for d in data.kursdager %}<option value="{{ d.id }}">Dag {{ loop.index }} · {{ d.dato }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="ks-tlf" data-ks="forh-ramme">
+        <div class="ks-tlf-in"><iframe data-ks="forh" title="Forhåndsvisning av Min side" sandbox="allow-same-origin" src="{{ data.urls.forhandsvis }}?versjon=utkast" loading="lazy"></iframe></div>
+      </div>
+      <p class="ks-forh-live"><span class="ks-prikk ok" aria-hidden="true"></span>Oppdateres etter hver lagring, ruller til blokken du redigerer</p>
+    </aside>
+  </div>
+
+  <div id="ks-live" class="skjul-visuelt" aria-live="polite" role="status"></div>
+  <div id="ks-toasts" class="ks-toasts" data-ks="toast-omrade"></div>
+
+  {% include "_kursside_admin_dialoger.html" %}
+  {% include "_kursside_admin_maler.html" %}
+</div>
+<script type="application/json" id="ks-data" nonce="{{ csp_nonce }}">{{ data|tojson }}</script>
+{% endblock %}

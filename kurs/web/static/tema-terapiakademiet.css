@@ -1,0 +1,371 @@
+/* Terapiakademiet-drakt for deltakersidene: Min side, Mine kurs, innlogging, «lenken virker ikke», innsjekk og den offentlige påmeldingen. Etter terapiakademiet.no
+   (kursavdelingipr.github.io/terapiakademiet/style.css): kremfarget side (#f7e5d0), bånd og kort i #f1dac1 (bare tekst-, fil- og lenkeblokkene på Min side er hvite, lettere å lese), plommefarget tekst (#562a3e),
+   dempet tekst i mauve (#754e5a), bærfarget aksent (#8a334e), lette overskrifter (500), firkantede knapper og kort uten ramme, store
+   bokstaver med luft som etiketter, og en mørk plommestripe for praktisk informasjon.
+   Slik virker det: sidene setter `tema_ta` (se base.html), som gir <body data-tema="ta"> og laster denne filen ETTER sidens egen CSS. ALT
+   står under body[data-tema="ta"] (aldri :root), så adminsidene er uberørt. Fargene overstyrer variablene fra
+   base.html (--bla, --tekst, --dempet …), så knapper, lenker og merker følger med uten egne regler. Utskrift er urørt (alt står i @media screen).
+   Kontrast (kontrolleres i tests/test_tema_terapiakademiet.py): tekst minst 4,5:1, felt- og knappekanter minst 3:1; mørke flater har kremfarget tekst.
+   Fonter: systemfonter som på terapiakademiet.no ("Segoe UI", Arial). Logoen er ikke en del av systemet: legges som static/logo/terapiakademiet.png
+   (eller .svg) og terapiakademiet-lys.png (til den mørke bunnen), se kurs/tema.py. Uten filene står navnet som tekst. */
+@media screen {
+
+body[data-tema="ta"] {
+  --ta-krem:#f7e5d0; --ta-band:#f1dac1; --ta-plomme:#562a3e; --ta-mauve:#754e5a; --ta-baer:#8a334e;
+  --ta-hvit:#ffffff;                          /* bare tekst-, fil- og lenkeblokkene på Min side er hvite (lettest å lese); resten er bånd og kremfarget */
+  --ta-linje:rgba(86,42,62,.22); --ta-glass:rgba(255,255,255,.5); --ta-felt:#85586b; --ta-felt-bg:#fffaf3;
+  --ta-ok:#2d5a27; --ta-ok-bg:#e1ebd0; --ta-gul:#6d4c00; --ta-gul-bg:#f6dcae; --ta-rod:#8a1d15; --ta-rod-bg:#f3cdc6;
+  --ta-etikett-pa-plomme:#ecd3bf; --ta-lenke-pa-plomme:#f1bb89;
+  /* base.html bruker disse overalt (knapper, lenker, merker, kort): her får de terapiakademiets farger */
+  --bla:#562a3e; --bla-mork:#3d1c2b; --bla-lys:#f1dac1; --tekst:#562a3e; --dempet:#754e5a; --linje:rgba(86,42,62,.22); --bg:#f7e5d0;
+  --ok:#2d5a27; --feil:#8a1d15; --gul:#6d4c00;
+  background:var(--ta-krem); color:var(--ta-plomme); font-size:16px; line-height:1.55;
+}
+body[data-tema="ta"] :focus-visible { outline:3px solid var(--ta-plomme); outline-offset:2px; }
+body[data-tema="ta"] .dp-meta :focus-visible, body[data-tema="ta"] .ta-bunn :focus-visible, body[data-tema="ta"] .dp-hero-bilde :focus-visible { outline-color:var(--ta-krem); }     /* på mørk plomme */
+
+/* Toppen: kremfarget, med logoen (eller navnet) til venstre. Luftigere enn før. */
+body[data-tema="ta"] > header { background:var(--ta-krem); border-bottom:1px solid var(--ta-linje); }         /* bare sidens topp, ikke toppfeltet i Min side (også en <header>) */
+body[data-tema="ta"] header .inner { min-height:84px; padding-block:14px; max-width:1080px; }                /* samme bredde som innholdet (og som før drakten), så logoen står rett over det */
+body[data-tema="ta"] header .logo { font-size:21px; font-weight:500; letter-spacing:0; color:var(--ta-plomme); }
+body[data-tema="ta"] header .logo img.ta-logo { display:block; height:46px; width:auto; }
+body[data-tema="ta"] header nav a { color:var(--ta-plomme); font-size:15px; font-weight:500; border-radius:0; }
+body[data-tema="ta"] header nav a:hover { color:var(--ta-baer); text-decoration:underline; text-underline-offset:5px; }
+body[data-tema="ta"] header nav a[aria-current="page"] { color:var(--ta-baer); font-weight:600; box-shadow:inset 0 -2px 0 var(--ta-baer); }
+body[data-tema="ta"] header nav .nav-konto { border-left-color:var(--ta-linje); }
+body[data-tema="ta"] header nav a.logg-inn { background:transparent; color:var(--ta-plomme); border:1px solid var(--ta-plomme); border-radius:0; padding:7px 18px; font-weight:600; }
+body[data-tema="ta"] header nav a.logg-inn:hover { background:var(--ta-band); text-decoration:none; }
+body[data-tema="ta"] header nav a.logg-inn[aria-current="page"] { box-shadow:none; }
+body[data-tema="ta"] .demo-banner { background:var(--ta-gul-bg); color:var(--ta-gul); }
+
+/* Siden */
+body[data-tema="ta"] main { max-width:1080px; }                      /* som før drakten: Camilla likte det midtstilt, ikke helt ut til sidene */
+body[data-tema="ta"] h1, body[data-tema="ta"] h2, body[data-tema="ta"] h3 { font-weight:500; color:var(--ta-plomme); }
+body[data-tema="ta"] h1 { font-size:34px; line-height:1.15; }
+body[data-tema="ta"] .kort h1 { margin-bottom:12px; }
+body[data-tema="ta"] h2 { font-size:26px; line-height:1.2; }
+body[data-tema="ta"] a { color:var(--ta-baer); }
+body[data-tema="ta"] a:hover { color:var(--ta-plomme); }
+body[data-tema="ta"] .sub, body[data-tema="ta"] .dempet { color:var(--ta-mauve); }
+body[data-tema="ta"] .hopp { background:var(--ta-krem); color:var(--ta-plomme); border-radius:0; }
+body[data-tema="ta"] .kort { background:var(--ta-band); border:0; border-radius:0; box-shadow:none; padding:28px 30px; }
+body[data-tema="ta"] .flash { border-radius:0; border-left:4px solid; }
+body[data-tema="ta"] .flash.ok { background:var(--ta-ok-bg); color:var(--ta-ok); border-left-color:var(--ta-ok); }
+body[data-tema="ta"] .flash.feil { background:var(--ta-rod-bg); color:var(--ta-rod); border-left-color:var(--ta-rod); }
+body[data-tema="ta"] .flash.info { background:var(--ta-glass); color:var(--ta-plomme); border-left-color:var(--ta-baer); }
+body[data-tema="ta"] .merke { border-radius:0; font-weight:600; background:rgba(86,42,62,.1); color:var(--ta-plomme); padding:2px 10px; }
+body[data-tema="ta"] .merke.ok { background:var(--ta-ok-bg); color:var(--ta-ok); }
+body[data-tema="ta"] .merke.gul { background:var(--ta-gul-bg); color:var(--ta-gul); }
+body[data-tema="ta"] .merke.feil { background:var(--ta-rod-bg); color:var(--ta-rod); }
+body[data-tema="ta"] .merke.gra { background:rgba(86,42,62,.1); color:var(--ta-mauve); }
+body[data-tema="ta"] .tabellboks { border:0; border-radius:0; }
+body[data-tema="ta"] table { background:transparent; }
+body[data-tema="ta"] th { background:rgba(86,42,62,.08); color:var(--ta-baer); letter-spacing:.08em; }
+body[data-tema="ta"] th, body[data-tema="ta"] td { border-bottom-color:var(--ta-linje); }
+body[data-tema="ta"] tbody tr:hover td, body[data-tema="ta"] table tr:hover td { background:rgba(255,255,255,.4); }
+
+/* Knapper: firkantede og flate, plomme med kremfarget tekst (som «Meld deg på» på terapiakademiet.no) */
+body[data-tema="ta"] .knapp, body[data-tema="ta"] button { background:var(--ta-plomme); color:var(--ta-krem); border:1px solid var(--ta-plomme); border-radius:0; padding:12px 24px; font-size:16px; font-weight:600; box-shadow:none; transition:opacity .15s; }
+body[data-tema="ta"] .knapp:hover, body[data-tema="ta"] button:hover { background:var(--ta-plomme); border-color:var(--ta-plomme); color:var(--ta-krem); box-shadow:none; opacity:.88; }
+body[data-tema="ta"] .knapp.sekundar, body[data-tema="ta"] button.sekundar { background:transparent; color:var(--ta-plomme); border:1px solid var(--ta-plomme); }
+body[data-tema="ta"] .knapp.sekundar:hover, body[data-tema="ta"] button.sekundar:hover { background:var(--ta-band); color:var(--ta-plomme); opacity:1; }
+body[data-tema="ta"] button.liten, body[data-tema="ta"] .knapp.liten { padding:6px 14px; font-size:14px; }
+body[data-tema="ta"] button:disabled, body[data-tema="ta"] button:disabled:hover { opacity:.55; }
+body[data-tema="ta"] button.lenkeknapp { background:none; border:0; padding:0; color:var(--ta-baer); font-weight:400; font-size:inherit; text-decoration:underline; opacity:1; }
+body[data-tema="ta"] button.lenkeknapp:hover { background:none; color:var(--ta-plomme); opacity:1; }
+
+/* Skjemafelt */
+body[data-tema="ta"] label, body[data-tema="ta"] .etikett { color:var(--ta-plomme); }
+body[data-tema="ta"] input, body[data-tema="ta"] select, body[data-tema="ta"] textarea { background:var(--ta-felt-bg); color:var(--ta-plomme); border:1px solid var(--ta-felt); border-radius:10px; min-height:46px; font-size:16px; }       /* runde felt (Camilla), firkantede knapper (terapiakademiet.no) */
+body[data-tema="ta"] input:hover, body[data-tema="ta"] select:hover, body[data-tema="ta"] textarea:hover { border-color:var(--ta-baer); }
+body[data-tema="ta"] input::placeholder { color:var(--ta-mauve); opacity:1; }
+body[data-tema="ta"] input[type=checkbox], body[data-tema="ta"] input[type=radio] { min-height:0; accent-color:var(--ta-plomme); }
+
+/* ====== Min side (kursside_deltaker.html, prefiks dp-) ====== */
+body[data-tema="ta"] .dp-rot { --dp-mork-ok:var(--ta-ok); --dp-mork-gul:var(--ta-gul); --dp-mork-rod:var(--ta-rod); --dp-radius:0; --dp-skygge:none; }
+body[data-tema="ta"] .dp-rot .ik { stroke-width:1.7; }
+body[data-tema="ta"].dp-side main { padding-top:34px; }
+body[data-tema="ta"] .dp-forh { background:var(--ta-gul-bg); color:var(--ta-gul); border:0; border-radius:0; }
+body[data-tema="ta"] .dp-brod { color:var(--ta-baer); font-size:15px; font-weight:500; }
+body[data-tema="ta"] .dp-brod:hover { color:var(--ta-plomme); }
+
+/* Toppfeltet: ingen kort, men tittel og ingress rett på kremfargen. Praktisk informasjon står i en mørk plommestripe. */
+body[data-tema="ta"] .dp-hero { background:none; color:var(--ta-plomme); border:0; border-radius:0; padding:6px 0 0; margin-bottom:34px; overflow:visible; }     /* border:0 fjerner streken fra «header» i base.html */
+body[data-tema="ta"] .dp-hero::before, body[data-tema="ta"] .dp-hero::after { display:none; }
+body[data-tema="ta"] .dp-eyebrow { background:none; border:0; border-radius:0; padding:0; color:var(--ta-baer); font-size:13px; font-weight:600; letter-spacing:.14em; }
+body[data-tema="ta"] .dp-hero h1 { color:var(--ta-plomme); font-size:clamp(33px, 5.4vw, 52px); font-weight:500; line-height:1.08; letter-spacing:0; max-width:21ch; margin:16px 0 18px; }
+body[data-tema="ta"] .dp-ingress { color:var(--ta-mauve); font-size:20px; font-weight:300; line-height:1.5; max-width:62ch; margin:0 0 6px; }
+body[data-tema="ta"] .dp-meta { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:18px 30px; margin:26px 0 0; padding:22px 28px; background:var(--ta-plomme); color:var(--ta-krem); font-size:17px; font-weight:500; }
+body[data-tema="ta"] .dp-meta li { display:flex; flex-direction:column; gap:5px; }
+body[data-tema="ta"] .dp-meta li::before { content:attr(data-etikett); font-size:12px; font-weight:400; letter-spacing:.12em; text-transform:uppercase; color:var(--ta-etikett-pa-plomme); }
+body[data-tema="ta"] .dp-meta .ik { display:none; }
+body[data-tema="ta"] .dp-meta a { color:var(--ta-lenke-pa-plomme); font-weight:600; }
+body[data-tema="ta"] .dp-hero-merker { margin-top:22px; }
+body[data-tema="ta"] .dp-pille { background:var(--ta-glass); color:var(--ta-plomme); border-radius:0; padding:6px 14px; font-size:14px; font-weight:600; }
+body[data-tema="ta"] .dp-pille-ok { background:var(--ta-ok-bg); color:var(--ta-ok); }
+body[data-tema="ta"] .dp-pille-glass { background:transparent; border:1px solid var(--ta-plomme); color:var(--ta-plomme); font-weight:500; }
+/* «Toppbilde bak tittelen»: bildet beholdes, med et plommefarget slør så kremfarget tekst kan leses */
+body[data-tema="ta"] .dp-hero.dp-hero-bilde { background:var(--ta-plomme); color:var(--ta-krem); padding:34px 38px 30px; }
+body[data-tema="ta"] .dp-hero-bilde::after { display:block; background:linear-gradient(180deg, rgba(86,42,62,.84) 0%, rgba(86,42,62,.93) 100%); }
+body[data-tema="ta"] .dp-hero-bilde .dp-eyebrow, body[data-tema="ta"] .dp-hero-bilde h1, body[data-tema="ta"] .dp-hero-bilde .dp-ingress { color:var(--ta-krem); }
+body[data-tema="ta"] .dp-hero-bilde .dp-meta { background:rgba(61,28,43,.82); }
+body[data-tema="ta"] .dp-hero-bilde .dp-pille { background:var(--ta-krem); color:var(--ta-plomme); }
+body[data-tema="ta"] .dp-hero-bilde .dp-pille-ok { background:var(--ta-ok-bg); color:var(--ta-ok); }
+body[data-tema="ta"] .dp-hero-bilde .dp-pille-glass { background:transparent; color:var(--ta-krem); border-color:var(--ta-krem); }
+body[data-tema="ta"] .dp-toppbilde img { border-radius:0; }
+
+body[data-tema="ta"] .dp-melding { background:var(--ta-glass); color:var(--ta-plomme); border:0; border-left:4px solid var(--ta-baer); border-radius:0; }
+body[data-tema="ta"] .dp-melding-viktig { background:var(--ta-gul-bg); color:var(--ta-gul); border-left-color:var(--ta-gul); }
+
+/* Valg av del av siden (bare smal skjerm) */
+body[data-tema="ta"] .dp-chips { background:linear-gradient(var(--ta-krem) 78%, rgba(247,229,208,0)); }
+body[data-tema="ta"] .dp-chips a { background:transparent; border:1px solid var(--ta-plomme); border-radius:0; color:var(--ta-plomme); font-weight:500; }
+body[data-tema="ta"] .dp-chips a:hover { background:var(--ta-band); color:var(--ta-plomme); }
+body[data-tema="ta"] .dp-chips a.dp-aktiv { background:var(--ta-plomme); border-color:var(--ta-plomme); color:var(--ta-krem); }
+
+/* Høyre kolonne: I dag, Kursdager og På denne siden */
+body[data-tema="ta"] .dp-idag, body[data-tema="ta"] .dp-dager, body[data-tema="ta"] .dp-meny { background:var(--ta-band); border:0; border-radius:0; box-shadow:none; }
+body[data-tema="ta"] .dp-idag { border-top:4px solid var(--ta-baer); padding:18px 22px 22px; }
+body[data-tema="ta"] .dp-idag-ok { background:var(--ta-ok-bg); border-top-color:var(--ta-ok); }
+body[data-tema="ta"] .dp-idag:has(.dp-svar-feil) { border-top-color:var(--ta-rod); }
+body[data-tema="ta"] .dp-liten-h { color:var(--ta-baer); font-size:12.5px; font-weight:600; letter-spacing:.14em; }
+body[data-tema="ta"] .dp-dag { font-size:22px; font-weight:500; }
+body[data-tema="ta"] .dp-under, body[data-tema="ta"] .dp-hjelp, body[data-tema="ta"] .dp-konto, body[data-tema="ta"] .dp-fot, body[data-tema="ta"] .dp-sub { color:var(--ta-mauve); }
+body[data-tema="ta"] .dp-kode { border-color:var(--ta-felt); }
+body[data-tema="ta"] .dp-kode::placeholder { color:var(--ta-mauve); }
+body[data-tema="ta"] .dp-svar { border-radius:0; }
+body[data-tema="ta"] .dp-svar-ok { background:var(--ta-ok-bg); color:var(--ta-ok); }
+body[data-tema="ta"] .dp-svar-feil { background:var(--ta-rod-bg); color:var(--ta-rod); border-color:var(--ta-rod); }
+body[data-tema="ta"] .dp-registrert { color:var(--ta-ok); }
+body[data-tema="ta"] .dp-ring { background:var(--ta-ok); }
+body[data-tema="ta"] .dp-kompakt { border-top-color:var(--ta-linje); }
+body[data-tema="ta"] .dp-kompakt .dp-b { background:rgba(86,42,62,.12); color:var(--ta-plomme); }
+body[data-tema="ta"] .dp-kompakt .dp-mott .dp-b { background:var(--ta-ok); color:#fff; }
+body[data-tema="ta"] .dp-kompakt .dp-na .dp-b { background:transparent; border-color:var(--ta-baer); color:var(--ta-baer); }
+body[data-tema="ta"] .dp-kompakt .dp-na { color:var(--ta-baer); }
+body[data-tema="ta"] .dp-dager li { border-radius:0; }
+body[data-tema="ta"] .dp-dager li + li { border-top-color:var(--ta-linje); }
+body[data-tema="ta"] .dp-dager li small { color:var(--ta-mauve); }
+body[data-tema="ta"] .dp-dager .merke { font-size:11.5px; padding:1px 7px; }                         /* smalt kort: «Ikke registrert» skal få plass på samme linje som dag og dato */
+body[data-tema="ta"] .dp-dager li.dp-i-dag { background:rgba(138,51,78,.13); border-radius:0; }
+body[data-tema="ta"] .dp-dager li.dp-i-dag b, body[data-tema="ta"] .dp-dager li.dp-i-dag .dp-idag-tekst { color:var(--ta-baer); }
+body[data-tema="ta"] .dp-samling { background:var(--ta-glass); border-radius:0; border-left:4px solid var(--ta-baer); color:var(--ta-plomme); font-weight:600; }
+body[data-tema="ta"] .dp-samling-periode { color:var(--ta-mauve); }
+body[data-tema="ta"] .dp-meny a { color:var(--ta-plomme); border-radius:0; }
+body[data-tema="ta"] .dp-meny a:hover { background:rgba(255,255,255,.45); color:var(--ta-baer); }
+body[data-tema="ta"] .dp-meny a.dp-aktiv { background:rgba(138,51,78,.13); color:var(--ta-baer); }
+body[data-tema="ta"] .dp-meny .ik { color:var(--ta-baer); }
+
+/* Blokkene: flate bånd i #f1dac1 med lette overskrifter, som seksjonene på terapiakademiet.no. Bare teksten (Velkommen ...), filene
+   (Presentasjoner og dokumenter ...) og lenkene (Litteratur og artikler ...) står på hvitt: det er de Camilla ba om (01.10.2026), og det er der man leser mest. */
+body[data-tema="ta"] .dp-blokk { background:var(--ta-band); border:0; border-radius:0; box-shadow:none; padding:30px 34px 32px; }
+body[data-tema="ta"] .dp-blokk-tekst, body[data-tema="ta"] .dp-blokk-filer, body[data-tema="ta"] .dp-blokk-lenker { background:var(--ta-hvit); }          /* ETTER .dp-blokk: samme spesifisitet, den siste vinner */
+body[data-tema="ta"] .dp-blokk-h { gap:14px; margin-bottom:18px; }
+body[data-tema="ta"] .dp-blokk-h h2 { font-size:28px; font-weight:500; }
+body[data-tema="ta"] .dp-ikon, body[data-tema="ta"] [class*="dp-ikon-"] { width:auto; height:auto; border-radius:0; background:none; color:var(--ta-baer); }
+body[data-tema="ta"] .dp-ikon .ik { width:26px; height:26px; }
+body[data-tema="ta"] .dp-tom p { color:var(--ta-mauve); }
+body[data-tema="ta"] .dp-person .dp-blokk-h { margin-bottom:16px; }
+body[data-tema="ta"] .dp-felt dt { color:var(--ta-baer); font-size:12px; font-weight:600; letter-spacing:.12em; }
+body[data-tema="ta"] .dp-felt dd { color:var(--ta-plomme); font-size:16.5px; }
+body[data-tema="ta"] .dp-bekreft { background:var(--ta-gul-bg); border:0; border-left:4px solid var(--ta-gul); border-radius:0; color:var(--ta-gul); }
+body[data-tema="ta"] .dp-bekreft button { background:transparent; color:var(--ta-plomme); border:1px solid var(--ta-plomme); border-radius:0; padding:8px 16px; }
+body[data-tema="ta"] .dp-bekreft button:hover { background:var(--ta-glass); opacity:1; }
+body[data-tema="ta"] .dp-tekst { font-size:17.5px; line-height:1.6; color:var(--ta-mauve); }
+body[data-tema="ta"] .dp-tekst strong, body[data-tema="ta"] .dp-tekst b { color:var(--ta-plomme); }
+body[data-tema="ta"] .dp-tekst a { color:var(--ta-baer); }
+body[data-tema="ta"] .dp-viktig { border:0; border-left:4px solid; border-radius:0; }
+body[data-tema="ta"] .dp-viktig-info { background:var(--ta-glass); color:var(--ta-plomme); border-left-color:var(--ta-baer); }
+body[data-tema="ta"] .dp-viktig-viktig { background:var(--ta-gul-bg); color:var(--ta-gul); border-left-color:var(--ta-gul); }
+body[data-tema="ta"] .dp-viktig-advarsel { background:var(--ta-rod-bg); color:var(--ta-rod); border-left-color:var(--ta-rod); }
+body[data-tema="ta"] .dp-pr-dag { background:var(--ta-glass); border:0; border-radius:0; }
+body[data-tema="ta"] .dp-pr-dag > summary { background:transparent; }
+body[data-tema="ta"] .dp-pr-dag > summary:hover { background:rgba(255,255,255,.35); }
+body[data-tema="ta"] .dp-pr-dag.dp-i-dag { box-shadow:inset 4px 0 0 var(--ta-baer); }
+body[data-tema="ta"] .dp-pr-dag.dp-i-dag > summary { background:rgba(138,51,78,.12); }
+body[data-tema="ta"] .dp-idag-merke { background:var(--ta-baer); color:var(--ta-krem); border-radius:0; }
+body[data-tema="ta"] .dp-pr-rad { border-top-color:var(--ta-linje); }
+body[data-tema="ta"] .dp-pr-tid { color:var(--ta-baer); }
+body[data-tema="ta"] .dp-pr-sum, body[data-tema="ta"] .dp-pil, body[data-tema="ta"] .dp-pr-info, body[data-tema="ta"] .dp-pause .dp-pr-tittel, body[data-tema="ta"] .dp-pause .dp-pr-tid { color:var(--ta-mauve); }
+body[data-tema="ta"] .dp-gruppe { color:var(--ta-baer); font-weight:600; letter-spacing:.12em; }
+body[data-tema="ta"] .dp-fil, body[data-tema="ta"] .dp-lenke { border-top-color:var(--ta-linje); }
+body[data-tema="ta"] .dp-filtype, body[data-tema="ta"] [class*="dp-filtype-"] { background:var(--ta-plomme); color:var(--ta-krem); border-radius:0; }
+body[data-tema="ta"] .dp-fil-meta, body[data-tema="ta"] .dp-fil.dp-kommer .dp-fil-tittel, body[data-tema="ta"] .dp-lenke-tekst span, body[data-tema="ta"] .dp-domene { color:var(--ta-mauve); }
+body[data-tema="ta"] .dp-ny { background:var(--ta-ok-bg); color:var(--ta-ok); border-radius:0; }
+body[data-tema="ta"] .dp-fil-kommer { background:rgba(86,42,62,.1); color:var(--ta-mauve); border-radius:0; }
+body[data-tema="ta"] .dp-feil-tekst { background:var(--ta-gul-bg); color:var(--ta-gul); border-radius:0; }
+body[data-tema="ta"] .dp-last-ned { padding:8px 16px; }
+body[data-tema="ta"] .dp-lenke { border-radius:0; }
+body[data-tema="ta"] .dp-lenke > .ik, body[data-tema="ta"] .dp-lenke-tekst b { color:var(--ta-baer); }
+body[data-tema="ta"] .dp-tabellboks { border:0; border-radius:0; }
+body[data-tema="ta"] .dp-tabell { background:transparent; }
+body[data-tema="ta"] .dp-tabell th { background:rgba(86,42,62,.08); color:var(--ta-baer); border-bottom-color:var(--ta-linje); }
+body[data-tema="ta"] .dp-tabell td { border-bottom-color:var(--ta-linje); }
+body[data-tema="ta"] .dp-tabell tbody tr:hover td { background:rgba(255,255,255,.4); }
+body[data-tema="ta"] .dp-kk { background:var(--ta-glass); border:0; border-radius:0; }
+body[data-tema="ta"] .dp-avatar { background:var(--ta-plomme); color:var(--ta-krem); }
+body[data-tema="ta"] .dp-kk-navn span { color:var(--ta-mauve); }
+body[data-tema="ta"] .dp-kk-lenker a { border-radius:0; }
+body[data-tema="ta"] .dp-kk-lenker a:hover { background:rgba(255,255,255,.5); }
+body[data-tema="ta"] .dp-kk-lenker .ik { color:var(--ta-baer); }
+body[data-tema="ta"] .dp-bilde img, body[data-tema="ta"] .dp-rot figcaption { border-radius:0; color:var(--ta-mauve); }
+body[data-tema="ta"] .dp-utilgjengelig { max-width:620px; }
+
+/* ====== Mine kurs (min_side.html, prefiks ms-) ====== */
+body[data-tema="ta"] .ms-rot { --ms-radius:0; --ms-skygge:none; --ms-ok:var(--ta-ok); --ms-ok-bg:var(--ta-ok-bg); --ms-gul:var(--ta-gul); --ms-gul-bg:var(--ta-gul-bg); --ms-rod:var(--ta-rod); --ms-rod-bg:var(--ta-rod-bg); }
+body[data-tema="ta"] .ms-rot > h1 { font-size:clamp(32px, 5vw, 46px); line-height:1.1; margin-top:8px; }
+body[data-tema="ta"] .ms-rot .ik { stroke-width:1.7; }
+body[data-tema="ta"] .ms-hoved h2, body[data-tema="ta"] .ms-konto h2 { font-size:26px; }
+body[data-tema="ta"] .ms-kurs { background:var(--ta-band); border:0; border-radius:0; box-shadow:none; padding:26px 30px; }
+body[data-tema="ta"] .ms-kurs h3 { font-size:26px; font-weight:500; line-height:1.25; }
+body[data-tema="ta"] .ms-meta, body[data-tema="ta"] .ms-kursside-tekst, body[data-tema="ta"] .ms-liten, body[data-tema="ta"] .ms-hjelp, body[data-tema="ta"] .ms-dager-tittel { color:var(--ta-mauve); }
+body[data-tema="ta"] .ms-apne { min-height:48px; padding:12px 24px; }
+body[data-tema="ta"] .ms-idag { background:var(--ta-glass); border:0; border-top:4px solid var(--ta-baer); border-radius:0; }
+body[data-tema="ta"] .ms-idag h4 { color:var(--ta-baer); letter-spacing:.14em; font-weight:600; }
+body[data-tema="ta"] .ms-idag-ok { background:var(--ta-ok-bg); border-top-color:var(--ta-ok); }
+body[data-tema="ta"] .ms-kode { border-color:var(--ta-felt); }
+body[data-tema="ta"] .ms-kode::placeholder { color:var(--ta-mauve); }
+body[data-tema="ta"] .ms-registrert { color:var(--ta-ok); }
+body[data-tema="ta"] .ms-ring { background:var(--ta-ok); }
+body[data-tema="ta"] .ms-svar { border-radius:0; }
+body[data-tema="ta"] .ms-svar-ok { background:var(--ta-ok-bg); color:var(--ta-ok); }
+body[data-tema="ta"] .ms-svar-feil { background:var(--ta-rod-bg); color:var(--ta-rod); border-color:var(--ta-rod); }
+body[data-tema="ta"] .ms-kontokort { background:var(--ta-band); border:0; border-radius:0; box-shadow:none; color:var(--ta-plomme); }
+body[data-tema="ta"] .ms-kontokort:hover { background:var(--ta-glass); }
+body[data-tema="ta"] .ms-kontokort strong { font-weight:600; }
+body[data-tema="ta"] .ms-kontokort span { color:var(--ta-mauve); }
+body[data-tema="ta"] .ms-bekreft { background:var(--ta-gul-bg); border:0; border-left:4px solid var(--ta-gul); border-radius:0; color:var(--ta-gul); }
+body[data-tema="ta"] .ms-bekreft button { background:transparent; color:var(--ta-plomme); border:1px solid var(--ta-plomme); border-radius:0; padding:8px 16px; }
+body[data-tema="ta"] .ms-bekreft button:hover { background:var(--ta-glass); opacity:1; }
+
+/* ====== Påmeldingen (kurs.html, kurs_gruppe.html og kvitteringene, prefiks pm-) ======
+   Etter ønske fra Camilla 01.10.2026: den offentlige påmeldingssiden får samme stil. IPR sine egne kurs skal få en annen stil etter hvert. */
+body[data-tema="ta"] .pm-oppsett { --pm-kant:var(--ta-felt); --pm-kant-hover:var(--ta-baer); --pm-ring:rgba(138,51,78,.28); }
+body[data-tema="ta"] .pm-oppsett :focus-visible { outline-color:var(--ta-plomme); }
+body[data-tema="ta"] .pm-admin { background:var(--ta-gul-bg); border:0; border-left:4px solid var(--ta-gul); border-radius:0; color:var(--ta-gul); }
+body[data-tema="ta"] .pm-admin a { color:var(--ta-gul); }
+body[data-tema="ta"] .pm-topp { text-align:center; }          /* Camilla 02.10.2026: påmeldingssiden litt mer midtstilt - kurstittelen og kurstypen midt over innholdet */
+body[data-tema="ta"] .pm-topp h1 { font-size:clamp(28px, 3.8vw, 40px); font-weight:500; line-height:1.15; letter-spacing:0; max-width:30ch; margin-inline:auto; }          /* lange kurstitler brytes i to linjer i stedet for å gå over hele bredden */
+body[data-tema="ta"] .pm-topp .sub { background:transparent; border:1px solid var(--ta-plomme); border-radius:0; color:var(--ta-plomme); font-weight:500; padding:0 14px; }
+body[data-tema="ta"] .pm-intro { border-left:4px solid var(--ta-baer); color:var(--ta-mauve); font-size:18px; font-weight:300; line-height:1.55; }
+body[data-tema="ta"] .pm-skjema > h2 { font-size:26px; font-weight:500; border-bottom-color:var(--ta-linje); text-align:center; }          /* «Påmelding» øverst i skjemaet må i hvert fall være midtstilt (Camilla 02.10.2026) */
+body[data-tema="ta"] .pm-deltittel { color:var(--ta-baer); font-size:13px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; }
+body[data-tema="ta"] .pm-deltittel::after { background:var(--ta-linje); }
+body[data-tema="ta"] .pm-skille { border-top-color:var(--ta-linje); }
+body[data-tema="ta"] .pm-gruppe { background:var(--ta-glass); border:0; border-radius:0; }
+body[data-tema="ta"] .pm-etikett { color:var(--ta-plomme); }
+body[data-tema="ta"] .pm-krav, body[data-tema="ta"] .pm-hjelp { color:var(--ta-mauve); }
+body[data-tema="ta"] .pm-felt > select { appearance:auto; padding-right:12px; background:var(--ta-felt-bg); }       /* egen pil ville krevd en bildefil; nettleserens pil er fin */
+body[data-tema="ta"] .pm-felt input[readonly], body[data-tema="ta"] .pm-felt input.pm-auto { background:rgba(86,42,62,.08); border-color:var(--ta-linje); color:var(--ta-plomme); }
+body[data-tema="ta"] .pm-felt input[readonly]:hover, body[data-tema="ta"] .pm-felt input.pm-auto:hover { border-color:var(--ta-linje); }
+body[data-tema="ta"] .pm-felt > input::placeholder, body[data-tema="ta"] .pm-felt > textarea::placeholder { color:var(--ta-mauve); }
+body[data-tema="ta"] .pm-knapperad button { border-radius:0; box-shadow:none; }
+body[data-tema="ta"] .pm-knapperad button:hover { box-shadow:none; }
+body[data-tema="ta"] .pm-status.advarsel { color:var(--ta-gul); }
+body[data-tema="ta"] .pm-forslag { background:var(--ta-hvit); border-radius:10px; box-shadow:0 8px 20px rgba(86,42,62,.18); }       /* en flytende liste over skjemaet trenger litt skygge for å skille seg ut */
+body[data-tema="ta"] .pm-forslag li + li { border-top-color:var(--ta-linje); }
+body[data-tema="ta"] .pm-forslag li:hover, body[data-tema="ta"] .pm-forslag li[aria-selected="true"] { background:var(--ta-band); }
+/* Informasjonsboksen ved siden av skjemaet */
+body[data-tema="ta"] .pm-info h2 { font-size:12.5px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--ta-baer); }
+body[data-tema="ta"] .pm-ikon { stroke:var(--ta-baer); }
+body[data-tema="ta"] .pm-info-pris p { color:var(--ta-plomme); }
+body[data-tema="ta"] .pm-info-dager:not(:last-child) { border-bottom-color:var(--ta-linje); }
+body[data-tema="ta"] .pm-info ul.pm-avvik { border-left-color:var(--ta-linje); }
+body[data-tema="ta"] .pm-info-fullt p { background:var(--ta-gul-bg); color:var(--ta-gul); border-radius:0; }
+
+/* ====== Påmeldingen midtstilt (Camilla 02.10.2026) ======
+   Skjemaet står midt på siden. På bred skjerm (fra 1140 px) står kursinfoen til høyre for det og følger med når man ruller; på smalere skjerm står den over
+   skjemaet. Feltnavnene står til venstre for de hvite feltene (som før).
+   Raden fyller kortet fra kant til kant: navnet er venstrejustert i venstre kant og feltet går helt ut mot høyre kant, så luften er lik på begge sider og skjemaet SER midtstilt ut
+   (et høyrejustert navn i en smal midtblokk ga en tom og ujevn venstreside). Overskriftene er midtstilt.
+   Bare stil: markupen og gullstandarden er uendret. De brede reglene i paamelding.css (to kolonner, skjemaet til venstre) overstyres her. */
+body[data-tema="ta"] .pm-oppsett { grid-template-columns:minmax(0, 1fr); grid-template-areas:"intro" "info" "skjema"; grid-template-rows:auto; column-gap:0; max-width:660px; margin-inline:auto; }
+body[data-tema="ta"] .pm-intro { grid-area:intro; max-width:none; padding:0; border-left:0; text-align:center; }
+body[data-tema="ta"] .pm-skjema { grid-area:skjema; }          /* også på smal skjerm (paamelding.css gir den bare plassen på bred skjerm): kursinfoen skal ikke havne under skjemaet */
+body[data-tema="ta"] .pm-info { grid-area:info; position:static; max-height:none; overflow:visible; display:flex; flex-wrap:wrap; justify-content:center; align-items:flex-start; gap:14px 38px; margin:0 0 20px; padding:18px 24px; text-align:center; }
+body[data-tema="ta"] .pm-info-del { display:block; grid-column:auto; padding:0; }
+body[data-tema="ta"] .pm-info-dager, body[data-tema="ta"] .pm-info-fullt { flex:1 1 100%; }
+body[data-tema="ta"] .pm-info-sted { flex:0 1 auto; }
+body[data-tema="ta"] .pm-info-dager:not(:last-child) { margin:0; padding:0 0 14px; }
+body[data-tema="ta"] .pm-info h2 { justify-content:center; margin:0 0 4px; }
+body[data-tema="ta"] .pm-info ul { display:flex; flex-direction:column; align-items:center; gap:4px; padding:0; }
+body[data-tema="ta"] .pm-info li { justify-content:center; }
+body[data-tema="ta"] .pm-info li + li { margin-top:0; }
+body[data-tema="ta"] .pm-info ul.pm-avvik { align-items:center; padding-left:0; border-left:0; }
+body[data-tema="ta"] .pm-info-fullt { margin-top:0; }
+body[data-tema="ta"] .pm-info-fullt p { justify-content:center; }
+body[data-tema="ta"] .pm-deltittel { justify-content:center; }
+body[data-tema="ta"] .pm-deltittel::before { content:""; flex:1 1 auto; height:1px; background:var(--ta-linje); }
+@media (min-width: 641px) {
+  body[data-tema="ta"] .pm-skjema .pm-rad { grid-template-columns:150px minmax(0, 1fr); gap:4px 22px; }          /* navnet til venstre, feltet til høyre, og raden fyller kortet fra kant til kant */
+  body[data-tema="ta"] .pm-skjema .pm-etikett { text-align:left; }          /* venstrejustert i kanten: et høyrejustert navn gir en ujevn venstrekant og får alt til å se skjevt ut (Camilla 02.10.2026) */
+}
+@media (min-width: 1140px) {
+  body[data-tema="ta"] main:has(.pm-oppsett) { max-width:1280px; }          /* plass til boksen på siden uten at skjemaet forskyves fra midten */
+  body[data-tema="ta"] .pm-oppsett { max-width:none; grid-template-columns:minmax(0, 1fr) minmax(0, 620px) minmax(0, 1fr); grid-template-areas:". intro ." ". skjema info"; column-gap:28px; align-items:start; }
+  body[data-tema="ta"] .pm-info { position:sticky; top:16px; justify-self:start; width:100%; max-width:300px; margin:0; padding:16px 18px; display:block; max-height:calc(100vh - 32px); overflow-y:auto; text-align:left; }
+  body[data-tema="ta"] .pm-info-del + .pm-info-del { margin-top:14px; }
+  body[data-tema="ta"] .pm-info-dager:not(:last-child) { padding-bottom:14px; border-bottom:1px solid var(--ta-linje); }
+  body[data-tema="ta"] .pm-info h2 { justify-content:flex-start; }
+  body[data-tema="ta"] .pm-info ul { align-items:flex-start; }
+  body[data-tema="ta"] .pm-info li { justify-content:flex-start; }
+}
+/* Kvitteringene og «midlertidig utilgjengelig» */
+body[data-tema="ta"] .varselboks { background:var(--ta-gul-bg); border:0; border-left:4px solid var(--ta-gul); border-radius:0; color:var(--ta-gul); }
+
+/* ====== Innsjekk (innsjekk.html og innsjekk_resultat.html, prefiks inn-) ====== */
+body[data-tema="ta"] .inn-rot { --inn-ok:var(--ta-ok); --inn-ok-bg:var(--ta-ok-bg); --inn-rod:var(--ta-rod); --inn-rod-bg:var(--ta-rod-bg); --inn-info:var(--ta-plomme); --inn-info-bg:var(--ta-glass); --inn-skygge:none; }
+body[data-tema="ta"] .inn-kort { background:var(--ta-band); border:0; border-radius:0; box-shadow:none; }
+body[data-tema="ta"] .inn-eyebrow { color:var(--ta-baer); font-weight:600; letter-spacing:.14em; }
+body[data-tema="ta"] .inn-kort h1 { font-size:30px; font-weight:500; }
+body[data-tema="ta"] .inn-dag, body[data-tema="ta"] .inn-under, body[data-tema="ta"] .inn-hjelp, body[data-tema="ta"] .inn-boks p { color:var(--ta-mauve); }
+body[data-tema="ta"] .inn-seg { background:rgba(86,42,62,.18); border-radius:0; }
+body[data-tema="ta"] .inn-seg-ferdig { background:#b36585; }
+body[data-tema="ta"] .inn-seg-na { background:var(--ta-plomme); }
+body[data-tema="ta"] .inn-kode { border-color:var(--ta-felt); }
+body[data-tema="ta"] .inn-kode::placeholder { color:var(--ta-mauve); }
+body[data-tema="ta"] .inn-knapp { border-radius:0; }
+body[data-tema="ta"] .inn-melding { border-radius:0; }
+body[data-tema="ta"] .inn-ring { background:var(--ta-ok); }
+body[data-tema="ta"] .inn-feil .inn-ring { background:var(--ta-rod); }
+body[data-tema="ta"] .inn-boks { background:var(--ta-glass); border:0; border-radius:0; }
+body[data-tema="ta"] .inn-boks h2 { font-size:20px; }
+
+/* ====== Bunnen: mørk plomme med kontaktopplysninger (base.html, bare på sidene med drakten) ====== */
+body[data-tema="ta"] .ta-bunn { background:var(--ta-plomme); color:var(--ta-krem); padding:44px 0 38px; margin-top:24px; }
+body[data-tema="ta"] .ta-bunn-inner { max-width:1080px; margin:0 auto; padding-inline:20px; display:flex; flex-direction:column; gap:6px; }
+body[data-tema="ta"] .ta-bunn img.ta-logo { display:block; height:44px; width:auto; max-width:100%; align-self:flex-start; margin-bottom:10px; }       /* align-self: ellers strekkes bildet over hele bredden i kolonnen */
+body[data-tema="ta"] .ta-bunn-navn { font-size:20px; font-weight:500; }
+body[data-tema="ta"] .ta-bunn p { margin:0; font-size:16px; }
+body[data-tema="ta"] .ta-bunn a { color:var(--ta-lenke-pa-plomme); }
+body[data-tema="ta"] .ta-bunn a:hover { color:var(--ta-krem); }
+body[data-tema="ta"].dp-forhandsvisning .ta-bunn { display:none; }
+
+@media (min-width: 700px) {
+  body[data-tema="ta"] .ta-bunn-inner { padding-inline:36px; }
+}
+@media (max-width: 600px) {
+  body[data-tema="ta"] .ms-del tr { background:var(--ta-glass); border:0; border-radius:0; }                 /* fakturaer og dokumenter blir ett kort per rad */
+  body[data-tema="ta"] .ms-del td[data-etikett]::before { color:var(--ta-baer); }
+  body[data-tema="ta"] header .inner { min-height:0; }
+  body[data-tema="ta"] header .logo img.ta-logo { height:38px; }
+  body[data-tema="ta"] .kort { padding:22px 20px; }
+  body[data-tema="ta"] .ms-kurs { padding:20px 16px; }
+}
+
+/* Smal beholder (Min side i en ramme eller på telefon): litt tettere */
+@container dp (max-width: 720px) {
+  body[data-tema="ta"] .dp-hero { padding-top:0; margin-bottom:24px; }
+  body[data-tema="ta"] .dp-ingress { font-size:18px; }
+  body[data-tema="ta"] .dp-meta { grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:14px 20px; padding:18px 20px; font-size:16px; }
+  body[data-tema="ta"] .dp-blokk { padding:22px 20px 24px; }
+  body[data-tema="ta"] .dp-blokk-h h2 { font-size:23px; }
+  body[data-tema="ta"] .dp-tabell tr { background:var(--ta-glass); border:0; border-radius:0; }
+  body[data-tema="ta"] .dp-tabell td::before { color:var(--ta-baer); }
+  body[data-tema="ta"] .dp-hero.dp-hero-bilde { padding:24px 20px 22px; }
+}
+@container dp (max-width: 360px) {
+  body[data-tema="ta"] .dp-hero h1 { font-size:29px; }
+}
+
+}

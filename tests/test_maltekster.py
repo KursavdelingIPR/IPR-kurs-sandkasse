@@ -207,7 +207,9 @@ def test_parseren_bruker_ikke_format_eval_exec_eller_jinja():
     assert not [i for i in importert if "jinja" in i.lower() or "epost" in i.lower() or "flask" in i.lower()], importert
     # .format brukes KUN paa Markup (markupsafe escaper argumentene) - aldri paa admintekst
     kilde = inspect.getsource(maltekster)
-    assert kilde.count(".format(") == 2 and 'Markup(\'<a href' in kilde and 'Markup("<strong>{}</strong>").format' in kilde
+    format_kall = [n for n in ast.walk(tre) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "format"]
+    assert len(format_kall) == 3 and all(isinstance(k.func.value, ast.Call) and getattr(k.func.value.func, "id", "") == "Markup" for k in format_kall)
+    assert 'Markup(\'<a href' in kilde and 'Markup("<strong>{}</strong>").format' in kilde
 
 
 # ============================ 14-19: rendring ============================
@@ -257,12 +259,27 @@ def test_uonskede_kontrolltegn_avvises_i_ren_tekst_og_felt(tegn):
     _feil(KONTROLLTEGN, maltekster.valider, "bekreftelse", "innledning", "Hei" + chr(tegn) + "du")
 
 
-def test_min_side_lenke_er_systembygd_og_sporsmal_url_er_ren_tekst():
+def test_min_side_lenke_er_systembygd_og_sporsmal_url_er_ren_tekst(monkeypatch):
+    monkeypatch.setattr(config, "ASSISTENT_AKTIV", True)
     html = maltekster.felttekst_til_html("bekreftelse", "avslutning", maltekster.standard_tekst("bekreftelse", "avslutning"),
                                          VERDIER)
-    assert f'<a href="{BASE}/min-side">Min side</a> med e-postadressen din.' in html
-    avl = maltekster.felttekst_til_html("avlysning", "tekst", maltekster.standard_tekst("avlysning", "tekst"), VERDIER)
-    assert f"bruke «Spør oss» på {BASE}/sporsmal." in avl and "<a href" not in avl
+    assert f'<a href="{BASE}/min-side">Mine kurs</a> med e-postadressen din.' in html           # uten personlig lenke: oversikten «Mine kurs»
+    personlig = f"{BASE}/min/1.1.abcdef0123456789abcdef0123456789"
+    html = maltekster.felttekst_til_html("bekreftelse", "avslutning", maltekster.standard_tekst("bekreftelse", "avslutning"),
+                                         {**VERDIER, "min_side_url": personlig})
+    assert f'<a href="{personlig}">Min side</a> med e-postadressen din.' in html                # med systembygd personlig lenke: hennes egen Min side
+    ond = maltekster.felttekst_til_html("bekreftelse", "avslutning", maltekster.standard_tekst("bekreftelse", "avslutning"),
+                                        {**VERDIER, "min_side_url": "http://ond.no/min/x"})
+    assert "ond.no" not in ond and f'<a href="{BASE}/min-side">Mine kurs</a>' in ond           # en fremmed adresse godtas aldri
+    standard = maltekster.felttekst_til_html("avlysning", "tekst", maltekster.standard_tekst("avlysning", "tekst"), VERDIER)
+    assert "Har du spørsmål, kan du svare på denne e-posten." in standard
+    assert "Spør oss" not in standard and "/sporsmal" not in standard            # standardteksten peker ikke lenger på «Spør oss»
+    # koden {sporsmal_url} finnes fortsatt (lagrede overstyringer kan bruke den) og gir systemets adresse som REN tekst, aldri en lenke
+    avl = maltekster.felttekst_til_html("avlysning", "tekst", "Spør oss: {sporsmal_url}", VERDIER)
+    assert f"Spør oss: {BASE}/sporsmal" in avl and "<a href" not in avl
+    monkeypatch.setattr(config, "ASSISTENT_AKTIV", False)                          # standard: siden finnes ikke, så koden gir forsiden (aldri en død adresse)
+    av = maltekster.felttekst_til_html("avlysning", "tekst", "Spør oss: {sporsmal_url}", VERDIER)
+    assert f"Spør oss: {BASE}" in av and "/sporsmal" not in av and "<a href" not in av
 
 
 def test_verdi_som_mangler_gir_feil_ikke_stille_tom_tekst():

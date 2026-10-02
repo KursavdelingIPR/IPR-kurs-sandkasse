@@ -8,6 +8,7 @@ from datetime import date
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import config, db
 
 
@@ -62,7 +63,7 @@ def test_overstyring_bekrefter_og_loggfoerer_kapasiteten(con):
     assert con.execute("SELECT status FROM paamelding WHERE id=?", (pid,)).fetchone()[0] == "bekreftet"
     assert db.antall_bekreftet(con, kid) == 4
     (detaljer,) = con.execute("SELECT detaljer FROM hendelse WHERE handling='status_endret' ORDER BY id DESC").fetchone()
-    assert json.loads(detaljer) == {"paamelding_id": pid, "fra": "venteliste", "til": "bekreftet", "over_kapasitet": 3}
+    assert json.loads(detaljer) == {"paamelding_id": pid, "fra": "venteliste", "til": "paameldt", "over_kapasitet": 3}
 
 
 def test_vanlig_bekreftelse_med_ledig_plass_loggfoeres_uten_overbooking(con):
@@ -96,17 +97,17 @@ def test_etter_overbooking_rykker_ingen_opp_foer_det_er_ledig_plass_igjen(con):
 
 def test_uten_ja_paa_spoersmaalet_avvises_det_som_foer(con):
     kid, pid = _fullt_kurs(con)
-    r = _admin().post(f"/admin/kurs/{kid}/deltaker/{pid}/status", data={"status": "bekreftet"}, follow_redirects=True)
-    assert "Kurset er fullt – kan ikke bekrefte flere" in r.get_data(as_text=True)
+    r = _admin().post(f"/admin/kurs/{kid}/deltaker/{pid}/status", data={"status": "paameldt"}, follow_redirects=True)
+    assert "Kurset er fullt – kan ikke melde på flere" in r.get_data(as_text=True)
     assert _status(con, pid) == "venteliste"
 
 
 def test_ja_paa_spoersmaalet_melder_paa_og_sender_bekreftelsen(con):
     kid, pid = _fullt_kurs(con)
-    r = _admin().post(f"/admin/kurs/{kid}/deltaker/{pid}/status", data={"status": "bekreftet", "overbooking": "1"},
+    r = _admin().post(f"/admin/kurs/{kid}/deltaker/{pid}/status", data={"status": "paameldt", "overbooking": "1"},
                       follow_redirects=True)
     html = r.get_data(as_text=True)
-    assert "Status endret til «bekreftet». Kurset har nå 4 bekreftede deltakere på 3 plasser." in html
+    assert "Status endret til «påmeldt». Kurset har nå 4 påmeldte deltakere på 3 plasser." in html
     fersk = db.koble(config.DB_STI)
     assert fersk.execute("SELECT status FROM paamelding WHERE id=?", (pid,)).fetchone()[0] == "bekreftet"
     assert fersk.execute("SELECT 1 FROM utsending_logg WHERE mottaker='kari@eksempel.no' AND type='bekreftelse'").fetchone()
@@ -117,13 +118,13 @@ def test_admin_registrert_og_holdt_tilbake_kan_overbookes(con):
     kid, _ = _fullt_kurs(con)
     k = _admin()
     r = k.post(f"/admin/kurs/{kid}/deltaker/ny", data={"fornavn": "Nina", "etternavn": "Ny", "epost": "nina@eksempel.no",
-                                                       "betaler": "person"})
+                                                       "betaler": "person", **ADRESSE})
     assert r.status_code == 302
     pid = db.koble(config.DB_STI).execute(
         "SELECT p.id FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE d.epost='nina@eksempel.no'").fetchone()[0]
     rad = db.koble(config.DB_STI).execute("SELECT status, sveiper_utsatt FROM paamelding WHERE id=?", (pid,)).fetchone()
     assert (rad["status"], rad["sveiper_utsatt"]) == ("venteliste", 1)
-    k.post(f"/admin/kurs/{kid}/deltaker/{pid}/status", data={"status": "bekreftet", "overbooking": "1"})
+    k.post(f"/admin/kurs/{kid}/deltaker/{pid}/status", data={"status": "paameldt", "overbooking": "1"})
     rad = db.koble(config.DB_STI).execute("SELECT status, sveiper_utsatt FROM paamelding WHERE id=?", (pid,)).fetchone()
     assert (rad["status"], rad["sveiper_utsatt"]) == ("bekreftet", 0)
 

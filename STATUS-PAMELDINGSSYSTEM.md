@@ -54,6 +54,26 @@ kurskode med linjeskift slapp gjennom valideringen.
 
 Kjøre selv: `python -m pytest tests` (SQLite) og med `TEST_DATABASE_URL` mot PostgreSQL (`OPERATIONS.md` avsnitt 8).
 
+## 2b. Min side, innsjekk og menyer (arbeidskopi, ikke merget)
+
+Bygget i en egen arbeidskopi (`kursside-basis`, migrering `kursside`, midlertidig nr. 14) og ikke merget ennå. Brukeren ser gjennom og godkjenner først; ingenting er committet.
+
+| Del | Status |
+|---|---|
+| Min side per kurs (admin-editor med blokker, utkast/publisert, filer, forhåndsvisning, versjoner) og deltakerside (PC og mobil) | Bygget og testet i Edge/Chromium |
+| Én innloggingsside `/logg-inn` som terapiakademiet.no kan lenke til; deltakeren havner på riktig Min side | Bygget. Tekst og adresse: `dokumentasjon/lenke-til-terapiakademiet.md` |
+| Innsjekk: QR-plakat per kursdag, én registrering per dag, e-post eller innlogget økt (aldri navn), «Husk meg» fjernet, reserve på nett («Registrer oppmøte i dag») | Bygget og testet (`test_kursside_innsjekk.py`) |
+| Menyer: «Offentlig side» ut av admin; «Spør oss» og Kunnskapsbase av som standard; «Logg inn»/«Mine kurs» i egen gruppe; Mine kurs som inngang | Bygget og testet (`test_kursside_meny.py`) |
+| **Min side per kurs, 01.10.2026 (runde 2):** hver deltaker har en **personlig lenke** (`/min/<lenke>`, signert og aldri lagret, virker til 30 dager etter siste kursdag) som står som knappen «Åpne Min side» i bekreftelsen og påminnelsene. Kortet «Mine opplysninger» viser det deltakeren selv ga (navn, e-post, telefon, arbeidssted, fakturaopplysninger). Lenken gir det meste; **privatadresse, fakturaer og kursbevis** krever bekreftet e-post (knappen «Send meg en lenke på e-post»). Admin kopierer, fornyer og stenger lenken i deltakervinduet (migrering 19, `min_side_lenke`). Fanen og siden heter «Min side», oversikten «Mine kurs». Kodesiden `/innsjekk` er fjernet (QR og «Registrer oppmøte» på Min side består). `{min_side}` i egenskrevne e-poster gir mottakerens egen lenke | Bygget og testet (`test_min_side_kurs.py`, `test_kursside_*`), ikke commitet. Veiledning: `dokumentasjon/Min side - slik gjør du.md` |
+| Omlegging 01.10.2026: startsiden er bare innloggingen til Admin; Aktiviteter er slått sammen med Oversikten (søk, filtre og kursliste); deltakersøk og kurssøk side ved side; Kalender som egen fane; «Siste hendelser» og søkefeltet i toppmenyen er tatt bort; «Kurs» og «Innsjekk» ut av deltakermenyen | Bygget og testet (`test_oversikt_omlegging.py`, `tests/nettleser/sok_scenario.js` i ekte nettleser) |
+| Forklaring av menyene | `dokumentasjon/menyer-forklart.md` |
+| Kritikerrunden (40 funn): HTML-rensing i lineær tid, blokkmenyen, `/dokument`-økt, SharePoint ved nedtaking, testhull (20 mutanter drept, JavaScript-tester i Node), toppbilde bak tittelen, stor forhåndsvisning m.m. | Rettet og testet (`test_kursside_retting.py`, `test_kursside_retting_ui.py`, `tests/js/`) |
+| **Ikke testet:** Firefox, Safari/iOS, PostgreSQL (migrering, filer, innsjekk), ekte SharePoint | Se `OPERATIONS.md` 5c. Kjør mot Azure-testbasen før reell bruk |
+
+**Bekreft før bruk:** at `ASSISTENT_AKTIV=1` ikke står i `.env`/Azure (ellers er «Spør oss» fortsatt på); at fysiske og hybride kurs skal kreve dagens kode ved innsjekk på nett (anbefalt; i dag kan en administrator skru kravet av per kurs under «Innstillinger for siden», og da kan deltakere krysse seg av hjemmefra: skal bryteren fjernes for fysiske og hybride kurs?); om innsjekk skal kreve innlogging først
+(`INNSJEKK_KREVER_INNLOGGING=1`: sikrere mot at noen registrerer en fraværende kollega, men tregere i lokalet; standard er av, se `OPERATIONS.md` 2d); at Min side er åpen til siste kursdag + 180 dager (standard; kan endres per kurs, også «Ingen tidsbegrensning»); adressen til
+innloggingssiden som legges på terapiakademiet.no.
+
 ## 3. Beslutninger (tatt i denne runden)
 
 | Tema | Beslutning | Begrunnelse |
@@ -96,7 +116,8 @@ Kjøre selv: `python -m pytest tests` (SQLite) og med `TEST_DATABASE_URL` mot Po
    med en **tom** testdatabase.
 3. Test hele flyten i sandbox med testpersoner og testpostboks (sjekkliste i `DEPLOYMENT.md` avsnitt 6).
 4. Visma: avklar produkt, bytt ut/juster `kurs/integrasjoner/visma.py`, test mot Visma-sandbox.
-5. Når sandbox er stabil: gjenta i `pameldingssystem-prod-rg`, bytt lenkene på ipr.no.
+5. Når sandbox er stabil: gjenta i `pameldingssystem-prod-rg`, bytt lenkene på ipr.no. **ipr.no-skjemaet/pluginen må sende `adresse`, `postnr` og `poststed`** (påkrevd
+   ved påmelding, siden fakturaen sendes automatisk): se `OPERATIONS.md` 2f (med curl-test) og sjekklisten i `DEPLOYMENT.md` avsnitt 6.
 
 ## 7. Git
 

@@ -2,7 +2,7 @@
 {% block innhold %}
 <p class="liten"><a href="{{ url_for('admin_rapporter') }}">← Rapporter</a></p>
 <h1>Deltakerregister</h1>
-<p class="sub">Alle personer i systemet, på tvers av kurs.</p>
+<p class="sub">Alle personer i systemet, på tvers av kurs. Skal du finne en bestemt person raskt (også på telefon, kursnummer eller påmeldingsnummer) og se kursbevis? Bruk <a href="{{ url_for('admin_sok') }}">Søk deltaker</a>.</p>
 
 <form method="get" class="rad" style="align-items:end; margin-bottom:10px">
   <div><label for="f-sok">Søk (navn/e-post/arbeidssted)</label><input id="f-sok" type="search" name="sok" value="{{ sok }}"></div>
@@ -19,7 +19,7 @@
 </p>
 
 <div class="tabellboks"><table>
-  <tr><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Telefon</th><th scope="col">Arbeidssted</th><th scope="col">Antall kurs (bekreftet)</th></tr>
+  <tr><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Telefon</th><th scope="col">Arbeidssted</th><th scope="col">Antall kurs ({{ STATUS.paameldt|lower }})</th></tr>
   {% for d in rader %}
   <tr>
     <td><a href="{{ url_for('admin_rapport_deltaker', deltaker_id=d.id) }}"><strong>{{ d.navn }}</strong></a></td>

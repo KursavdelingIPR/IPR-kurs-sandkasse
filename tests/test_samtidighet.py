@@ -11,6 +11,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import config, daglig, db, kjoring, kursbevis
 from kurs.integrasjoner import epost
 from kurs.kjoring import Kjoring
@@ -406,7 +407,7 @@ def test_deltaker_og_paamelding_har_samme_vern(con):
     con.execute("UPDATE paamelding SET intern_kommentar='annen admin' WHERE id=?", (pid,))
     con.commit()
     admin.post(f"/admin/kurs/{kid}/deltaker/{pid}/person", data={"fornavn": "Dora", "etternavn": "Test", "epost": "dora@eksempel.no",
-                                                                 "telefon": "", "versjon": v_person})
+                                                                 "telefon": "", "versjon": v_person, **ADRESSE})
     admin.post(f"/admin/kurs/{kid}/deltaker/{pid}/paamelding", data={"betaler": "person", "intern_kommentar": "min",
                                                                      "versjon": v_paamelding})
     assert con.execute("SELECT telefon FROM deltaker WHERE epost='dora@eksempel.no'").fetchone()[0] == "99999999"

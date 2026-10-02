@@ -18,10 +18,15 @@ Sluttsemantikk for sveiper_utsatt (samme for enkelt og bulk):
   uavklart            -> flagg 0 (reservert/ukjent - proves ALDRI automatisk paa nytt; claimen hindrer effekt)
   feilet              -> flagg 0 (ingenting reservert - daglig jobb henter den inn)
   allerede_behandlet / ikke_behandlingsbar -> flagg URORT
-"""
-from dataclasses import dataclass
 
-from . import db, sveiper
+Unntak: EKSTRADELTAKER (ekstradeltaker_ts satt). Daglig jobb hopper alltid over en ekstradeltaker (ingen automatisk bekreftelse
+eller faktura: prisen er ikke standardprisen), saa "daglig jobb henter den inn" stemmer ikke for dem. Flagget nullstilles derfor
+BARE naar behandlingen er fullfort; ved feil eller uavklart utfall staar holdet igjen, slik at "Send bekreftelse nå" kan proves
+paa nytt fra deltakervinduet. Ellers ville en ekstradeltaker staatt igjen uten hold og uten at noe kunne sende bekreftelsen.
+"""
+from dataclasses import dataclass, replace
+
+from . import db, privatadresse, sveiper
 from .kjoring import Kjoring
 
 # Resultatkoder fra behandle_holdt_paamelding()/klassifiser()
@@ -32,6 +37,9 @@ ALLEREDE_BEHANDLET = "allerede_behandlet"
 IKKE_BEHANDLINGSBAR = "ikke_behandlingsbar"
 # Kun brukt av kallere som selv velger aa ikke starte en rad (bulk-stopp) - aldri returnert herfra
 IKKE_FORSOKT = "ikke_forsokt"
+
+# Årsakskode for FULLFORT når bare fakturaen gjenstår fordi privat adresse mangler (se privatadresse.py)
+ARSAK_FAKTURA_VENTER = "faktura_venter_adresse"
 
 # Visningsnavn (rolig norsk, ingen tekniske ord)
 KATEGORI_NAVN = {
@@ -57,6 +65,9 @@ class Behandlingsresultat:
     arsak_kode: str  # maskinlesbar: se klassifiser() og behandle_holdt_paamelding()
     arsak: str       # kort, personvernsikker tekst som kan vises til admin
     forsokt: bool = False  # True = motoren ble faktisk kalt for denne raden (ikke avvist foer forsok)
+    # True = meldingen (bekreftelse/ventelistebeskjed) til denne e-postadressen og dette kurset var ALLEREDE sendt foer behandlingen
+    # startet (f.eks. ved en tidligere paamelding). Motoren dedupliserer da, og ingenting ble sendt naa: ruten maa ikke si at den er sendt.
+    epost_var_sendt: bool = False
 
 
 def _r(kode: str, arsak_kode: str, arsak: str, forsokt: bool = False) -> Behandlingsresultat:
@@ -73,8 +84,8 @@ def _epost_type(rad) -> str:
 def klassifiser(con, kurs, rad) -> Behandlingsresultat | None:
     """Kan denne raden behandles NA? None = ja. Ellers resultatet (ren lesing - ingen skriving).
 
-    `rad` maa ha: status, sveiper_kjort, sveiper_utsatt og epost. Brukes baade av forhandsvisning, bulk-
-    behandling og fase 9-ruten, slik at de aldri kan vurdere en rad ulikt."""
+    `rad` maa ha: status, sveiper_kjort, sveiper_utsatt og epost (og ekstradeltaker_ts, hvis raden kan vaere en ekstradeltaker).
+    Brukes baade av forhandsvisning, bulk-behandling og fase 9-ruten, slik at de aldri kan vurdere en rad ulikt."""
     if kurs["status"] in ("avlyst", "utkast"):
         return _r(IKKE_BEHANDLINGSBAR, f"kurs_{kurs['status']}",
                   f"Kurset har status «{kurs['status']}» og kan ikke behandles")
@@ -87,7 +98,10 @@ def klassifiser(con, kurs, rad) -> Behandlingsresultat | None:
     # venteliste faar aldri sveiper_kjort=1 (den "kjores paa nytt naar de flyttes opp") - se utsendelsesloggen
     if rad["status"] == "venteliste" and db.allerede_sendt(con, f"kurs:{kurs['id']}", rad["epost"], "venteliste"):
         return _r(ALLEREDE_BEHANDLET, "allerede_behandlet", "Allerede behandlet")
-    if not rad["sveiper_utsatt"]:
+    # En ekstradeltaker som ikke er behandlet, er alltid "holdt tilbake": daglig jobb tar den aldri, og bare admin kan sende. (Holdet
+    # staar normalt i sveiper_utsatt; dette er ekstra sikring hvis flagget skulle mangle, slik at knappen aldri blir borte.)
+    holdt = rad["sveiper_utsatt"] or db.er_ekstradeltaker(rad)
+    if not holdt:
         uavklart = db.uavklart_status_for_paamelding(con, kurs["id"], rad["epost"], rad["id"], _epost_type(rad))
         if uavklart:
             arsak_kode = "tidligere_uavklart" if uavklart == "ukjent" else "pagar"
@@ -96,12 +110,27 @@ def klassifiser(con, kurs, rad) -> Behandlingsresultat | None:
     return None
 
 
-def forventet_handling(kurs, rad) -> str:
-    """Hva behandlingen VIL gjore for en behandlingsbar rad (kun tekst til forhandsvisningen)."""
+def forventet_handling(kurs, rad, con=None) -> str:
+    """Hva behandlingen VIL gjore for en behandlingsbar rad (kun tekst til forhandsvisningen). Gis `con`, sier teksten ogsaa fra naar
+    bekreftelsen til denne e-postadressen alt er sendt (en tidligere paamelding): motoren dedupliserer da, og ingen ny e-post gaar ut."""
     if rad["status"] == "venteliste":
         return "Ventelistebeskjed på e-post"
+    sendt_fra_for = con is not None and db.allerede_sendt(con, f"kurs:{kurs['id']}", rad["epost"], "bekreftelse")
+    if db.er_ekstradeltaker(rad):      # ekstradeltaker: bekreftelse med bare deres samlinger, ingen faktura (ikke standardpris)
+        ingen_faktura = f"ingen faktura for {db.PAAMELDINGSSTATUSER_FLERTALL['ekstradeltaker'].lower()}"
+        if sendt_fra_for:
+            return f"Ingen ny e-post (bekreftelsen er sendt fra før), {ingen_faktura}"
+        return f"Bekreftelse på e-post ({ingen_faktura})"
     kunde = {"fakturering": kurs["fakturering"], "pris_nok": kurs["pris_nok"], "status": rad["status"]}
-    return "Bekreftelse på e-post og fakturering" if sveiper.skal_faktureres(kunde) else "Bekreftelse på e-post"
+    faktureres = sveiper.skal_faktureres(kunde)
+    if sendt_fra_for:
+        tekst = ("Fakturering (bekreftelsen er sendt fra før og sendes ikke på nytt)" if faktureres
+                 else "Ingenting å sende (bekreftelsen er sendt fra før)")
+    else:
+        tekst = "Bekreftelse på e-post og fakturering" if faktureres else "Bekreftelse på e-post"
+    # En privat faktura lages aldri uten komplett privat adresse (privatadresse.py): si fra allerede i forhåndsvisningen
+    venter = faktureres and con is not None and "id" in rad.keys() and privatadresse.venter(con, rad["id"])
+    return tekst + (" – fakturaen holdes tilbake fordi privat adresse mangler" if venter else "")
 
 
 def teller_som_feil(res: Behandlingsresultat) -> bool:
@@ -122,6 +151,12 @@ def _utfall(k: Kjoring, kurs_id: int, paamelding_id: int, rad) -> Behandlingsres
         fullfort = db.allerede_sendt(con, f"kurs:{kurs_id}", rad["epost"], "venteliste")
     if fullfort:
         return _r(FULLFORT, "fullfort", "Ferdig behandlet", forsokt=True)
+    if (rad["status"] == "bekreftet" and db.allerede_sendt(con, f"kurs:{kurs_id}", rad["epost"], "bekreftelse")
+            and privatadresse.venter(con, paamelding_id)):
+        # Bekreftelsen er sendt, men en privat faktura lages ikke uten komplett privat adresse (privatadresse.py). Ikke en teknisk
+        # feil: holdet oppheves, og daglig jobb (eller lagring av adressen i deltakervinduet) lager fakturaen når adressen er på plass.
+        return _r(FULLFORT, ARSAK_FAKTURA_VENTER, "Bekreftelsen er sendt. Fakturaen venter på privat adresse (adresse, postnummer "
+                  "og poststed må fylles inn først).", forsokt=True)
     uavklart = db.uavklart_status_for_paamelding(con, kurs_id, rad["epost"], paamelding_id, _epost_type(rad))
     if uavklart:
         return _r(UAVKLART, uavklart, _UAVKLART_TEKST[uavklart], forsokt=True)
@@ -132,11 +167,13 @@ def _utfall(k: Kjoring, kurs_id: int, paamelding_id: int, rad) -> Behandlingsres
     endret = klassifiser(con, ny_kurs, ny_rad) if ny_kurs and ny_rad else None
     if endret and endret.kode == IKKE_BEHANDLINGSBAR:
         return endret
+    if db.er_ekstradeltaker(rad):      # daglig jobb hopper over ekstradeltakere: holdet staar igjen, og admin proever paa nytt selv
+        return _r(FEILET, "teknisk", "Teknisk feil - ikke fullført. Holdet står igjen: prøv igjen fra deltakervinduet.", forsokt=True)
     return _r(FEILET, "teknisk", "Teknisk feil - ikke fullført. Daglig jobb prøver igjen automatisk.", forsokt=True)
 
 
 _SQL_KURS = "SELECT * FROM kurs WHERE id=?"
-_SQL_RAD = """SELECT p.id, p.status, p.sveiper_kjort, p.sveiper_utsatt, d.epost
+_SQL_RAD = """SELECT p.id, p.status, p.sveiper_kjort, p.sveiper_utsatt, p.ekstradeltaker_ts, d.epost
               FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.id=? AND p.kurs_id=?"""
 
 
@@ -155,7 +192,10 @@ def behandle_holdt_paamelding(con, kurs_id: int, paamelding_id: int, idag, *, ak
     if avvist:
         return avvist  # ingenting er rort: hverken flagg, motor eller logg
 
-    k = Kjoring(con, idag=idag)
+    # Var meldingen allerede sendt FOER vi startet (f.eks. en tidligere paamelding med samme e-post)? Da dedupliserer motoren og
+    # sender ingenting, og kalleren maa ikke si at den er sendt naa.
+    var_sendt = db.allerede_sendt(con, f"kurs:{kurs_id}", rad["epost"], _epost_type(rad))
+    k = Kjoring(con, idag=idag, aktor=aktor)
     sveiper.kjor(k, paamelding_id, ignorer_utsatt=True)
     con.commit()
     resultat = _utfall(k, kurs_id, paamelding_id, rad)
@@ -169,9 +209,16 @@ def behandle_holdt_paamelding(con, kurs_id: int, paamelding_id: int, idag, *, ak
         resultat = _utfall(k, kurs_id, paamelding_id, rad)
     if resultat.kode == IKKE_BEHANDLINGSBAR:
         return resultat  # endret underveis (avmeldt/avlyst) - flagget rores ikke
+    resultat = replace(resultat, epost_var_sendt=var_sendt)
 
     # Betinget UPDATE: kun den som faktisk fjerner flagget skriver. Skjer ETTER behandlingen, aldri foer.
-    con.execute("UPDATE paamelding SET sveiper_utsatt=0 WHERE id=? AND sveiper_utsatt=1", (paamelding_id,))
+    if db.er_ekstradeltaker(rad):
+        # Ekstradeltaker: daglig jobb tar dem aldri, saa holdet oppheves BARE naar bekreftelsen er fullfoert (og da er raden ferdig:
+        # sveiper_kjort=1, som etter en vanlig behandling). Feilet eller uavklart: holdet staar igjen, og admin kan proeve paa nytt.
+        if resultat.kode == FULLFORT:
+            con.execute("UPDATE paamelding SET sveiper_utsatt=0, sveiper_kjort=1 WHERE id=? AND sveiper_utsatt=1", (paamelding_id,))
+    else:
+        con.execute("UPDATE paamelding SET sveiper_utsatt=0 WHERE id=? AND sveiper_utsatt=1", (paamelding_id,))
     detaljer = {"paamelding_id": paamelding_id, "kurs_id": kurs_id, "resultat": resultat.kode, "via": via}
     if bulk_id:
         detaljer["bulk_id"] = bulk_id

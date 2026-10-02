@@ -1,0 +1,28 @@
+{% extends "admin_base.html" %}
+{% from "_samlingsvalg.html" import samlingsvalg %}
+{#- Steget for samlingsvalg når noen settes til ekstradeltaker (fra deltakerlisten eller deltakervinduet). Ingenting endres før «Sett til
+    ekstradeltaker» trykkes: skjemaet sender statusendringen til admin_deltaker_status med samlingsvalg=1. -#}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<p class="liten"><a href="{{ tilbake }}">← Tilbake uten å endre</a></p>
+<h2>Sett {{ p.navn }} til ekstradeltaker</h2>
+<p class="sub" style="max-width:720px">{{ tekst }}</p>
+
+{% if admin_rolle != 'lese' %}
+<form method="post" class="kort" style="max-width:720px" action="{{ url_for('admin_deltaker_status', kurs_id=kurs.id, paamelding_id=p.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="status" value="ekstradeltaker">
+  <input type="hidden" name="samlingsvalg" value="1">
+  {# Statusen påmeldingen har nå: er den endret siden (annen fane, annen administrator), gjør ruten ingenting #}
+  <input type="hidden" name="forventet" value="{{ gammel }}">
+  <input type="hidden" name="neste" value="{{ neste }}">
+  {{ samlingsvalg(samlinger, valgte) }}
+  <p style="margin-top:16px"><button>Sett til ekstradeltaker</button>
+    <a class="knapp sekundar liten" href="{{ tilbake }}">Avbryt</a></p>
+</form>
+{% else %}
+<p class="liten dempet">Du har lesetilgang og kan ikke endre statusen.</p>
+{% endif %}
+{% endblock %}

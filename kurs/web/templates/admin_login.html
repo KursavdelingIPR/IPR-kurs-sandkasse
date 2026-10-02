@@ -1,15 +1,20 @@
 {% extends "base.html" %}
+{% block tittel %}Logg inn til Admin – IPR Påmeldingssystem{% endblock %}
+{#- Startsiden (/) og /admin/logg-inn er samme side: innloggingen til Admin og ingenting annet. Ingen deltakermeny her.
+    Skjemaet sendes alltid til /admin/logg-inn, så det virker likt fra begge adressene. -#}
+{% block nav %}{% endblock %}
 {% block innhold %}
-<div class="kort" style="max-width:380px; margin:0 auto">
-  <h1>Logg inn</h1>
+<div class="kort" style="max-width:400px; margin:36px auto 0">
+  <h1>Logg inn til Admin</h1>
+  <p class="sub">Kursadministrasjon for Institutt for Psykologisk Rådgivning.</p>
   {% if entra %}
-  <p class="sub">Logg inn med IPR-kontoen din.</p>
+  <p class="liten dempet">Logg inn med IPR-kontoen din.</p>
   <p><a class="knapp" style="width:100%; text-align:center" href="{{ url_for('admin_entra_start', neste=neste or None) }}">Logg inn med Microsoft</a></p>
   {% endif %}
   {% if lokal %}
   {% if entra %}<p class="liten dempet" style="margin-top:20px">Nødbruker (lokalt passord):</p>{% else %}
-  <p class="sub">Logg inn med din personlige brukerkonto.{% if demo %} Demo: brukernavn <code>admin</code>, passord <code>demo</code>{% endif %}</p>{% endif %}
-  <form method="post">
+  <p class="liten dempet">Logg inn med din personlige brukerkonto.{% if demo %} Demo: brukernavn <code>admin</code>, passord <code>demo</code>{% endif %}</p>{% endif %}
+  <form method="post" action="{{ url_for('admin_login', neste=neste or None) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="brukernavn">Brukernavn</label><input id="brukernavn" name="brukernavn" autofocus autocapitalize="off" autocomplete="username">
     <label for="passord">Passord</label><input id="passord" type="password" name="passord" autocomplete="current-password">

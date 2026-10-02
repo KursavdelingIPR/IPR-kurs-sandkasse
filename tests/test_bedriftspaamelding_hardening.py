@@ -9,6 +9,12 @@ import pytest
 from kurs import config, db
 from kurs.web import app as webapp
 from navnehjelp import gruppeskjema
+from adressehjelp import ADRESSE
+
+
+# HPR-nummer er slått av i skjemaene (skjemafelt.HPR_I_SKJEMA = False, Camilla 02.10.2026). Disse testene gjelder koden som viser, validerer og lagrer det
+# (den finnes fortsatt og kan slås på igjen), så de slår det på. Standarden (av) testes i test_hpr_nummer_samles_ikke_inn.py.
+pytestmark = pytest.mark.usefixtures("hpr_i_skjema")
 
 
 @pytest.fixture
@@ -30,7 +36,7 @@ def _kurs(con, kode="G1", **kw):
 
 
 BASIS = {"kontakt_navn": "Kontakt Person", "kontakt_epost": "kontakt@eksempel.no", "firmanavn": "Eksempel AS",
-         "org_nr": "000000000", "faktura_ref": "REF-1", "faktura_adresse": "Eksempelveien 1", "faktura_postnr": "0000",
+         "org_nr": "999900003", "faktura_ref": "REF-1", "faktura_adresse": "Eksempelveien 1", "faktura_postnr": "0000",
          "faktura_sted": "Eksempelby", "samtykke": "on", "deltaker_navn": "Deltaker En",
          "deltaker_epost": "d1@eksempel.no"}
 
@@ -96,7 +102,8 @@ def test_skjult_hpr_filtreres_foer_meld_paa(con, monkeypatch):
         return ekte(*a, **kw)
     monkeypatch.setattr(db, "meld_paa", spion)
     assert _post("G1", deltaker_hpr="MANIPULERT").status_code == 302
-    assert sett == [{"telefon": None, "arbeidssted": None, "hpr_nr": None}]
+    # HPR er filtrert bort (None); deltakerens adresse er alltid med (påkrevd)
+    assert sett == [{"telefon": None, "arbeidssted": None, "hpr_nr": None, **ADRESSE}]
 
 
 def test_flere_rader_skjult_hpr_ignoreres_for_alle(con):
@@ -167,7 +174,8 @@ def test_administrative_felt_kan_ikke_styres_via_offentlig_post(con):
                                      dict(fakturering="organisasjon"), dict(fakturering="ingen"), dict(pris_nok=0)])
 def test_betaler_og_fakturadata_kommer_kun_fra_firmafeltene(con, oppsett):
     """Bedriftspaamelding: betaler er ALLTID organisasjonen (domeneregel, ikke individregelen). Manipulerte betaler/
-    betaling/faktura_epost/org_navn ignoreres; alle firma-/fakturafelt i skjemaet er alltid synlige og legitime."""
+    betaling/faktura_epost/org_navn ignoreres. Firmanavn og adresse kommer fra registeret (felles regel, 29.09.2026) -
+    det kontaktpersonen skriver av firmanavn og adresse (BASIS), lagres aldri."""
     kid = _kurs(con, **oppsett)
     assert _post("G1", ehf="on", betaler="person", betaling="per_samling", faktura_epost="manip@eksempel.no",
                  org_navn="MANIP ORG").status_code == 302
@@ -175,8 +183,8 @@ def test_betaler_og_fakturadata_kommer_kun_fra_firmafeltene(con, oppsett):
     forventet_betaling = "per_samling" if oppsett.get("betaling") == "per_samling" else "samlet"
     assert (p["betaler"], p["org_navn"], p["org_nr"], p["faktura_epost"], p["faktura_ref"], p["faktura_adresse"],
             p["faktura_postnr"], p["faktura_sted"], p["ehf"], p["betaling"]) == (
-        "organisasjon", "Eksempel AS", "000000000", "kontakt@eksempel.no", "REF-1", "Eksempelveien 1", "0000",
-        "Eksempelby", 1, forventet_betaling)
+        "organisasjon", "EKSEMPEL KOMMUNE", "999900003", "kontakt@eksempel.no", "REF-1", "Postboks 100", "1234",
+        "EKSEMPELBY", 1, forventet_betaling)
 
 
 # ============================ idempotens / gjeninnsending ============================

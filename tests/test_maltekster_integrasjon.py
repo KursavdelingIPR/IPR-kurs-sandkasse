@@ -472,7 +472,8 @@ def test_A_uten_override_er_avlysning_identisk_med_dagens_og_statusendringene_er
     assert "<p>Hei Ola,</p>" in h                                                           # standardhilsenen: fornavn
     assert "Vi må dessverre informere om at <strong>Veiledning i praksis</strong> er avlyst." in h
     assert "Har du allerede mottatt faktura, tar kursadministrasjonen kontakt med deg om det videre." in h
-    assert f"bruke «Spør oss» på {config.BASE_URL}/sporsmal." in h and "Vi beklager ulempen dette medfører." in h
+    assert "Har du spørsmål, kan du svare på denne e-posten." in h and "Vi beklager ulempen dette medfører." in h
+    assert "Spør oss" not in h and "/sporsmal" not in h                                     # «Spør oss» er av som standard
     assert "Vennlig hilsen<br>Kursadministrasjonen, Institutt for Psykologisk Rådgivning<br>" in h
     (vtil, vemne, vhtml), = [m for m in sendt if m[0] == "vera@x.no"]
     assert vemne == STD_AVL_EMNE and "<p>Hei Vera,</p>" in _n(vhtml)                       # egen hilsen til hver mottaker
@@ -574,14 +575,15 @@ def test_G2_standard_uten_override_med_spesialtegn_er_som_i_12a(con, sendt):
     assert "<strong>Kurs A &amp; B &lt;x&gt;</strong> er avlyst." in _n(html)
 
 
-def test_H_sporsmal_url_og_min_side_er_systemets_adresser_aldri_frie_url_fra_admin(con, sendt):
+def test_H_sporsmal_url_og_min_side_er_systemets_adresser_aldri_frie_url_fra_admin(con, sendt, monkeypatch):
+    monkeypatch.setattr(config, "ASSISTENT_AKTIV", True)
     kid, pid, vpid = _avl_flyt(con)
     _lagre_avl(con, "tekst", "Spør oss: {sporsmal_url}" + chr(10) + "Se {min_side}. Ond: http://ond.no/sporsmal og <a href='http://ond.no'>x</a>")
     _avlys(kid)
     (til, emne, html), = _mine(sendt)
     assert f"Spør oss: {config.BASE_URL}/sporsmal" in html                                  # systemets adresse, ren tekst
-    assert f'<a href="{config.BASE_URL}/min-side">Min side</a>' in html                     # systembygd lenke
-    assert html.count("<a href") == 2                                                       # rammens Min side + {min_side} - ingen andre
+    assert f'<a href="{config.BASE_URL}/min-side">Mine kurs</a>' in html                    # systembygd lenke
+    assert html.count("<a href") == 2                                                       # rammens Mine kurs + {min_side} - ingen andre
     assert "http://ond.no/sporsmal" in html and 'href="http://ond.no' not in html           # fri URL er kun tekst, aldri lenke
     assert "&lt;a href=&#39;http://ond.no&#39;&gt;x&lt;/a&gt;" in html
 

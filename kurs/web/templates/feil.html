@@ -5,6 +5,6 @@
 <div class="kort" style="max-width:560px">
   <h1>{{ tittel }}</h1>
   <p>{{ tekst }}</p>
-  <p class="liten dempet"><a href="{{ url_for('forside') }}">Til forsiden</a></p>
+  <p class="liten dempet">{% if session.admin_id %}<a href="{{ url_for('admin') }}">Til Oversikten</a>{% elif session.deltaker_id %}<a href="{{ url_for('min_side') }}">Til Min side</a>{% else %}<a href="{{ url_for('logg_inn') }}">Til innlogging</a>{% endif %}</p>
 </div>
 {% endblock %}

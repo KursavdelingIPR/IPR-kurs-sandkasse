@@ -63,13 +63,13 @@ def _csv(tekst: str) -> list[list[str]]:
 
 def test_les_valg_standard_er_nr_og_navn_og_bekreftede():
     v = deltakerliste.les_valg(MultiDict())
-    assert v.nokler == ["nr", "navn"] and v.status == "bekreftet"
+    assert v.nokler == ["nr", "navn"] and v.status == "plass"                  # alle som har plass (Påmeldt og Ekstradeltaker)
 
 
 def test_les_valg_ignorerer_ukjente_kolonner_og_statuser():
     v = deltakerliste.les_valg(MultiDict([("valgt", "1"), ("kol", "telefon"), ("kol", "allergier"),
                                           ("kol", "finnes-ikke"), ("status", "tull")]))
-    assert v.nokler == ["navn", "telefon"] and v.status == "bekreftet"
+    assert v.nokler == ["navn", "telefon"] and v.status == "plass"
 
 
 def test_les_valg_alt_krysset_bort_gir_bare_navn():
@@ -141,7 +141,7 @@ def test_utskriften_starter_med_kursnavn_kursnr_datoer_og_sted(con):
     utskrift = html.split('<section class="deltakerliste">')[1]
     assert utskrift.index("Listekurs i EFT") < utskrift.index("<table")
     assert f"Kursnr. {kursnr}" in utskrift and "(2 kursdager)" in utskrift and "Oslo" in utskrift
-    assert "Bekreftede: 3" in utskrift
+    assert "Påmeldte og ekstradeltakere: 3" in utskrift               # utskriften åpner med alle som har plass
     kontroller = html.split('<section class="deltakerliste">')[0]
     assert 'class="ikke-utskrift"' in kontroller and "data-skriv-ut" in kontroller   # skjules ved utskrift
 
@@ -218,7 +218,7 @@ def test_csv_eksport_logges_uten_personopplysninger(con):
     kid, _ = _kurs(con)
     _admin().get(f"/admin/kurs/{kid}/deltakerliste.csv?valgt=1&kol=epost&kol=telefon")
     rad = con.execute("SELECT aktor, detaljer FROM hendelse WHERE handling='deltakerliste_eksportert'").fetchone()
-    assert json.loads(rad["detaljer"]) == {"kurs_id": kid, "status": "bekreftet", "kolonner": ["navn", "epost", "telefon"],
+    assert json.loads(rad["detaljer"]) == {"kurs_id": kid, "status": "plass", "kolonner": ["navn", "epost", "telefon"],
                                            "antall": 3}
     assert "@" not in rad["detaljer"] and "9000000" not in rad["detaljer"]
     assert rad["aktor"] == f"admin:{config.ADMIN_BRUKERNAVN}"

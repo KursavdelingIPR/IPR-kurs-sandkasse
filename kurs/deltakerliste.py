@@ -5,6 +5,8 @@ Personvern (CLAUDE.md regel 1):
   * Allergier/tilrettelegging (tabellen `sensitivt`) finnes ikke i katalogen og kan aldri velges - de har egen liste
     med tilgangslogg (admin_allergiliste). Ukjente kolonnenavn i adressen ignoreres.
   * Tomme utfyllingskolonner (signatur, merknad) er bare for papir og tas ikke med i CSV.
+  * Svarene på kursets egne felt i påmeldingsskjemaet kan velges som egne kolonner (katalog()). Egne felt skal aldri
+    brukes til sensitive opplysninger (skjemabyggeren sier fra om det).
 
 PDF lages bevisst i nettleseren (utskrift -> «Lagre som PDF»), samme løsning som for kursbevis: ingen tung
 PDF-avhengighet i drift. Logo vises bare når en godkjent fil er lagt i static/logo/ (se logo_fil()).
@@ -13,11 +15,14 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import db
+from . import db, ekstrafelt, privatadresse
 
-GRUNNLEGGENDE, KONTAKT, ARBEID, FAKTURA, UTFYLLING = (
-    "Grunnleggende", "Kontaktinformasjon", "Arbeid og autorisasjon", "Faktura", "Oppmøte og utfylling")
-GRUPPER = (GRUNNLEGGENDE, KONTAKT, ARBEID, FAKTURA, UTFYLLING)
+GRUNNLEGGENDE, KONTAKT, ARBEID, FAKTURA, SVAR, UTFYLLING = (
+    "Grunnleggende", "Kontaktinformasjon", "Arbeid og autorisasjon", "Faktura", "Svar i påmeldingsskjemaet",
+    "Oppmøte og utfylling")
+GRUPPER = (GRUNNLEGGENDE, KONTAKT, ARBEID, FAKTURA, SVAR, UTFYLLING)
+SVAR_PREFIKS = "svar_"          # kolonnen for svaret på eget felt nr. 5 heter «svar_5»
+FAKTURERES_MANUELT = "Faktureres manuelt"      # fakturastatus for en ekstradeltaker som ikke har faktura i systemet
 
 
 @dataclass(frozen=True)
@@ -35,7 +40,8 @@ KOLONNER = (
     Kolonne("nr", "Nr.", GRUNNLEGGENDE, standard=True),
     Kolonne("navn", "Navn", GRUNNLEGGENDE, laast=True),
     Kolonne("status", "Status", GRUNNLEGGENDE),
-    Kolonne("paameldt", "Påmeldt", GRUNNLEGGENDE),
+    Kolonne("samlinger", "Samlinger", GRUNNLEGGENDE),         # «Hele kurset» eller «Samling 1, 3» (ekstradeltakere kan være på noen)
+    Kolonne("paameldt", "Påmeldingsdato", GRUNNLEGGENDE),    # datoen påmeldingen kom (ikke statusen «Påmeldt»)
     Kolonne("epost", "E-post", KONTAKT, personopplysning=True),
     Kolonne("telefon", "Telefon", KONTAKT, personopplysning=True),
     Kolonne("arbeidssted", "Arbeidssted", ARBEID, personopplysning=True),
@@ -49,8 +55,21 @@ KOLONNER = (
     Kolonne("merknad", "Merknad", UTFYLLING, kun_utskrift=True),
 )
 
-STATUSVALG = {"bekreftet": "Bekreftede", "venteliste": "Venteliste", "avmeldt": "Avmeldte", "avslatt": "Avslåtte",
-              "utgatt": "Utgåtte", "forlatt": "Forlatte", "alle": "Alle"}
+def katalog(egne=()) -> tuple:
+    """Kolonnene som kan velges for kurset: de faste (KOLONNER) og ett svar per eget felt i påmeldingsskjemaet (`egne`,
+    i skjemaets rekkefølge). Svarene regnes som personopplysninger og er aldri valgt som standard. Utfyllingskolonnene
+    står fortsatt sist."""
+    svar = tuple(Kolonne(f"{SVAR_PREFIKS}{e.id}", e.label, SVAR, personopplysning=True) for e in egne)
+    return (*(k for k in KOLONNER if k.gruppe != UTFYLLING), *svar, *(k for k in KOLONNER if k.gruppe == UTFYLLING))
+
+
+# Valgene for utskriften: «Påmeldte og ekstradeltakere» (alle som har plass), statusene i flertall (ordene står bare i
+# db.PAAMELDINGSSTATUSER_FLERTALL) og «Alle». En liste over de som skal være på kurset skal ikke mangle ekstradeltakerne,
+# så utskriften åpner med alle som har plass.
+PLASS = "plass"
+STATUSVALG = {PLASS: f"{db.PAAMELDINGSSTATUSER_FLERTALL['paameldt']} og {db.PAAMELDINGSSTATUSER_FLERTALL['ekstradeltaker'].lower()}",
+              **db.PAAMELDINGSSTATUSER_FLERTALL, "alle": "Alle"}
+STANDARD_STATUS = PLASS
 _BETALER = {"person": "Deltaker", "organisasjon": "Organisasjon"}
 
 LOGO_MAPPE = Path(__file__).resolve().parent / "web" / "static" / "logo"
@@ -78,25 +97,39 @@ class Tabell:
     rader: list
 
 
-def les_valg(args) -> Valg:
+def les_valg(args, katalog_=KOLONNER) -> Valg:
     """Valgene fra adressen. Første besøk (uten `valgt`) gir standardkolonnene; ellers nøyaktig det som er krysset
-    av. Ukjente kolonner og statuser ignoreres."""
-    status = args.get("status", "bekreftet")
+    av. Ukjente kolonner og statuser ignoreres. `katalog_`: kolonnene som finnes for kurset (se katalog())."""
+    status = args.get("status", STANDARD_STATUS)
     if status not in STATUSVALG:
-        status = "bekreftet"
-    valgte = set(args.getlist("kol")) if args.get("valgt") else {k.nokkel for k in KOLONNER if k.standard}
-    return Valg(tuple(k for k in KOLONNER if k.laast or k.nokkel in valgte), status)
+        status = STANDARD_STATUS
+    valgte = set(args.getlist("kol")) if args.get("valgt") else {k.nokkel for k in katalog_ if k.standard}
+    return Valg(tuple(k for k in katalog_ if k.laast or k.nokkel in valgte), status)
+
+
+def _har(p, nokkel: str) -> bool:
+    """Er nøkkelen satt (og sann) på raden? Fungerer for både dict og databaseradene."""
+    try:
+        return bool(p[nokkel])
+    except (KeyError, IndexError):
+        return False
 
 
 def fakturastatus(kurs, p) -> str:
     """Utleder en lesbar fakturastatus fra fakturaradene til paameldingen. Ingen egen kolonne trengs.
 
     NB: "Fakturert" betyr bare at fakturaen er sendt, ikke at den er betalt.
+    En ekstradeltaker uten faktura i systemet er ikke «Ikke fakturert» (det høres ut som noe som mangler): den faktureres aldri
+    automatisk, og administrator lager fakturaen selv, utenfor systemet (Visma).
+    En privat betaler uten komplett privat adresse får «Venter på privat adresse»: fakturaen holdes tilbake til adressen er lagt
+    inn (privatadresse.py). Kalleren som vet det, setter nøkkelen faktura_venter_adresse på raden.
     """
     if kurs["fakturering"] != "person" or not kurs["pris_nok"]:
         return "–"
     if p["faktura_antall"] == 0:
-        return "Ikke fakturert"
+        if db.er_ekstradeltaker(p):
+            return FAKTURERES_MANUELT
+        return privatadresse.FAKTURA_VENTER if _har(p, "faktura_venter_adresse") else "Ikke fakturert"
     if p["faktura_ubetalt"] == 0:
         return "Betalt"
     if p["faktura_ubetalt"] == p["faktura_antall"]:
@@ -113,17 +146,33 @@ def _sortering(navn: str) -> str:
     return "".join(c for c in tekst if unicodedata.category(c) != "Mn")
 
 
+norsk_sortering = _sortering     # brukes også av kurslisten (aktivitetsliste.py)
+
+
 def hent(con, kurs_id: int, status: str) -> list[dict]:
     """Påmeldingene til kurset med valgt status, sortert på navn. Leser aldri tabellen sensitivt."""
-    sql = """SELECT p.id, p.status, p.avslatt_ts, p.utgatt_ts, p.forlatt_ts, p.betaler, p.org_navn, p.opprettet, d.navn,
+    sql = """SELECT p.id, p.status, p.avslatt_ts, p.utgatt_ts, p.forlatt_ts, p.ekstradeltaker_ts, p.betaler, p.org_navn,
+                    p.opprettet, d.navn,
                     d.epost, d.telefon, d.arbeidssted,
                     d.yrkestittel, d.hpr_nr,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id) AS faktura_antall,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id AND status!='betalt') AS faktura_ubetalt
              FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.kurs_id=?"""
-    # Avslått, utgått og forlatt er avmeldte påmeldinger med en dato (db.paameldingsstatus)
+    # Avslått, utgått og forlatt er avmeldte påmeldinger med en dato, og Ekstradeltaker en påmelding med plass og en dato
+    # (db.paameldingsstatus)
     rader = [dict(r) for r in con.execute(sql, (kurs_id,))]
-    valgte = [r for r in rader if status == "alle" or db.paameldingsstatus(r) == status]
+    valgte = [r for r in rader if status == "alle" or db.paameldingsstatus(r) == status
+              or (status == PLASS and db.paameldingsstatus(r) in db.HAR_PLASS)]
+    # Samlingene hver med plass er på: «Hele kurset» eller de valgte (ekstradeltaker). `egne_dager` er id-ene til kursdagene
+    # deltakeren er på, eller None = alle dager (oppmøtekolonnene viser de andre dagene som «–»).
+    alle_dager = db.kursdager(con, kurs_id)
+    utvalg = db.samlingsutvalg_for_kurs(con, kurs_id)
+    titler = {s["id"]: s["tittel"] for s in db.kursets_samlinger(con, kurs_id, alle_dager)}
+    for r in valgte:
+        valgt = utvalg.get(r["id"]) if db.er_ekstradeltaker(r) else None
+        har_plass = db.paameldingsstatus(r) in db.HAR_PLASS
+        r["samlinger"] = (db.samlingstekst([titler[i] for i in valgt if i in titler]) if valgt else "Hele kurset") if har_plass else ""
+        r["egne_dager"] = {d["id"] for d in alle_dager if d["samling_id"] in valgt} if valgt else None
     return sorted(valgte, key=lambda r: (_sortering(r["navn"]), r["id"]))
 
 
@@ -160,6 +209,9 @@ def _verdi(nokkel: str, nr: int, r: dict, kurs) -> str:
         return fakturastatus(kurs, r)
     if nokkel in ("signatur", "merknad"):
         return ""
+    if nokkel.startswith(SVAR_PREFIKS):
+        felt_id = nokkel[len(SVAR_PREFIKS):]
+        return ekstrafelt.vis_svar((r.get("svar") or {}).get(int(felt_id))) if felt_id.isdigit() else ""
     return r.get(nokkel) or ""
 
 
@@ -179,7 +231,9 @@ def tabell(kurs, rader, valg: Valg, dager, oppmott: set, *, csv: bool = False) -
         rad = []
         for k in kolonner:
             if k.nokkel == "oppmote":
-                rad += [("ja" if csv else "✓") if (r["id"], d["id"]) in oppmott else "" for d in dager]
+                egne = r.get("egne_dager")     # ekstradeltaker på noen samlinger: de andre dagene er «–» (teller ikke)
+                rad += [("" if csv else "–") if egne is not None and d["id"] not in egne
+                        else (("ja" if csv else "✓") if (r["id"], d["id"]) in oppmott else "") for d in dager]
             else:
                 rad.append(_verdi(k.nokkel, nr, r, kurs))
         celler.append(rad)

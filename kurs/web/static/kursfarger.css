@@ -1,0 +1,15 @@
+/* Farger per kursserie (kurs/kursfarger.py): samme farge = samme utdanning eller kursserie, i Kalender og Årsplan.
+   --kf er den sterke fargen (kant og blokk, god kontrast mot hvit tekst), --kf-mid mellomsterk (blokkene i årsplanen,
+   med mørk tekst) og --kf-lys den lyse bakgrunnen.
+   Ingen rød eller gul i paletten: rødt betyr rød dag eller kollisjon, gult betyr skoleferie. Samme fil i begge grenene. */
+.kursfarge-0 { --kf:#2f6f8f; --kf-mid:#c1d4dd; --kf-lys:#e4eff5; }
+.kursfarge-1 { --kf:#6c4a9b; --kf-mid:#d3c9e1; --kf-lys:#eee8f6; }
+.kursfarge-2 { --kf:#9c3f86; --kf-mid:#e1c5db; --kf-lys:#f6e6f1; }
+.kursfarge-3 { --kf:#37774f; --kf-mid:#c3d6ca; --kf-lys:#e3f1e8; }
+.kursfarge-4 { --kf:#9c5418; --kf-mid:#e1ccba; --kf-lys:#f8ecdf; }
+.kursfarge-5 { --kf:#56646f; --kf-mid:#ccd1d4; --kf-lys:#eaeef1; }
+.kursfarge-6 { --kf:#1d7274; --kf-mid:#bbd5d5; --kf-lys:#ddf0f0; }
+.kursfarge-7 { --kf:#765538; --kf-mid:#d6ccc3; --kf-lys:#f1e9e1; }
+.kursfarge-8 { --kf:#41509e; --kf-mid:#c6cbe2; --kf-lys:#e6e9f7; }
+.kursfarge-9 { --kf:#5a6b22; --kf-mid:#ced3bd; --kf-lys:#edf1dc; }
+.prove.farge { width:34px; background:linear-gradient(90deg, #2f6f8f 0 25%, #9c3f86 25% 50%, #37774f 50% 75%, #9c5418 75%); }

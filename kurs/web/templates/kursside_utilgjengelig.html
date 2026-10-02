@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css) -#}
+{% block tittel %}Min side – IPR Påmeldingssystem{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='kursside-delt.css') }}">{% endblock %}
+{% block innhold %}
+{#- Samme side for alle avslag der deltakeren ikke har tilgang: den avslører aldri om et kurs finnes. -#}
+<div class="kort dp-utilgjengelig">
+  <h1>Min side</h1>
+  <p>{{ tekst }}</p>
+  <p class="dp-utilgjengelig-knapper"><a class="knapp" href="{{ url_for('min_side') }}">Mine kurs</a>
+    <a class="knapp sekundar" href="{{ url_for('logg_ut') }}">Logg ut</a></p>
+</div>
+{% endblock %}

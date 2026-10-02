@@ -300,7 +300,7 @@ def test_kommunikasjonsvisning_viser_aldri_uavklart_rad(con, monkeypatch):
     klient = webapp.app.test_client()
     klient.post("/admin/logg-inn", data={"brukernavn": config.ADMIN_BRUKERNAVN, "passord": config.ADMIN_PASSORD})
     tekst = klient.get(f"/admin/kurs/{kid}/deltaker/{pid}/kommunikasjon").get_data(as_text=True)
-    assert "Ingen e-post sendt ennå." in tekst  # den ukjente raden vises IKKE som om den var sendt
+    assert ">Uavklart</span>" in tekst and ">Sendt</span>" not in tekst  # vises som uavklart - ALDRI som sendt
 
 
 # Forsidens teller er fra rettelsesrunden en LIVE telling av uavklart tilstand (ikke kumulativ hendelsestelling) -

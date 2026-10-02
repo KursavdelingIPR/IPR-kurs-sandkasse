@@ -11,6 +11,7 @@ import pytest
 from flask import render_template
 from jinja2 import UndefinedError
 
+from adressehjelp import ADRESSE
 from kurs import config, db
 from kurs import paameldingsside as ps
 
@@ -62,10 +63,11 @@ def _offentlig(kode="T1"):
 
 
 def _preview(admin, kid):
-    return admin.get(f"/admin/kurs/{kid}/forhandsvis-paamelding").get_data(as_text=True)
+    """Forhåndsvisningen er den ekte siden (/kurs/<kode>) sett av en innlogget administrator."""
+    return admin.get(f"/admin/kurs/{kid}/forhandsvis-paamelding", follow_redirects=True).get_data(as_text=True)
 
 
-INTRO_P = '<p class="intro" style="white-space:pre-line; max-width:760px; margin:0 0 22px">'
+INTRO_P = '<p class="pm-intro">'
 
 
 # ============================ ren modul ============================
@@ -143,22 +145,24 @@ def test_effektiv_side_standard_og_defensiv():
 def test_standard_ingen_intro_og_meld_meg_paa(con, admin):
     kid = _kurs(con)
     off, pre = _offentlig(), _preview(admin, kid)
-    assert 'class="intro"' not in off and 'class="intro"' not in pre
-    assert "<button>Meld meg på</button>" in off
-    assert '<button type="button">Meld meg på</button>' in pre
+    assert 'class="pm-intro"' not in off and 'class="pm-intro"' not in pre
+    assert "<button>Meld meg på</button>" in off and "<button>Meld meg på</button>" in pre   # offentlig: ekte knapp
+    utkast = _preview(admin, _kurs(con, kode="T2", status="utkast"))
+    assert '<button type="button">Meld meg på</button>' in utkast                        # ikke offentlig: sender ikke
 
 
 def test_egen_intro_offentlig_og_preview_med_linjeskift(con, admin):
     kid = _kurs(con, intro="Velkommen!\nLinje to.")
     for html in (_offentlig(), _preview(admin, kid)):
         assert INTRO_P + "Velkommen!\nLinje to.</p>" in html
-        assert html.index('class="sub"') < html.index('class="intro"') < html.index('class="rad"')
+        assert html.index('class="sub"') < html.index('class="pm-intro"') < html.index('class="pm-rad"')
 
 
 def test_egen_knapp_offentlig_og_preview(con, admin):
     kid = _kurs(con, knapp="Send påmelding")
-    assert "<button>Send påmelding</button>" in _offentlig()
-    assert '<button type="button">Send påmelding</button>' in _preview(admin, kid)
+    assert "<button>Send påmelding</button>" in _offentlig() and "<button>Send påmelding</button>" in _preview(admin, kid)
+    utkast = _kurs(con, kode="T2", status="utkast", knapp="Send påmelding")
+    assert '<button type="button">Send påmelding</button>' in _preview(admin, utkast)
     assert "Meld meg på" not in _offentlig()
 
 
@@ -166,7 +170,7 @@ def test_ugyldig_lagret_verdi_gir_standard_ikke_500(con, admin):
     kid = _kurs(con)
     _sett_raatt(con, kid, paamelding_intro="x" * 1500, paamelding_knappetekst="A\nB")
     for html in (_offentlig(), _preview(admin, kid)):
-        assert 'class="intro"' not in html and "Meld meg på" in html and "xxxxx" not in html
+        assert 'class="pm-intro"' not in html and "Meld meg på" in html and "xxxxx" not in html
 
 
 # ============================ 15-17: escaping ============================
@@ -196,7 +200,8 @@ def test_nettside_viser_redigeringsfelt(con, admin):
     assert 'name="knappetekst" maxlength="40" value="Send" placeholder="Meld meg på"' in html
     assert "Introduksjonstekst" in html and "Tekst på påmeldingsknappen" in html and "Tom = «Meld meg på»" in html
     assert "kommer i en senere fase" not in html and "paamelding_intro" not in html
-    assert f'href="/admin/kurs/{kid}/forhandsvis-paamelding"' in html and 'href="/kurs/T1"' in html
+    assert 'href="/kurs/T1" target="_blank" rel="noopener">Åpne påmeldingssiden ↗</a>' in html
+    assert 'data-kopier="f-lenke"' in html and "/kurs/T1" in html.split('id="f-lenke" value="', 1)[1].split('"', 1)[0]
 
 
 def test_lagring_lagrer_og_normaliserer(con, admin):
@@ -284,7 +289,7 @@ def test_oppsett_lagring_overskriver_ikke_nettsidetekstene(con, admin):
     kid = _kurs(con, intro="Behold intro", knapp="Behold knapp")
     r = admin.post(f"/admin/kurs/{kid}/oppsett", data={
         "navn": "Nytt navn", "type": "fysisk", "fakturering": "person", "betaling": "samlet", "kapasitet": "10",
-        "pris_nok": "4500", "faktura_dager_for": "14", "paameldingsfrist": "", "sted": "", "notat": "",
+        "pris_nok": "4500", "faktura_dager_for": "14", "paameldingsfrist": "", "sted": "Bergen", "notat": "",
         "kursholder_epost": ""})
     assert r.status_code == 302
     rad = _rad(con, kid)
@@ -297,12 +302,13 @@ def test_oppsett_lagring_overskriver_ikke_nettsidetekstene(con, admin):
 def test_offentlig_post_feil_beholder_egen_intro_og_knapp(con):
     kid = _kurs(con, intro="Egen intro", knapp="Send inn")
     k = _klient()
-    r = k.post("/kurs/T1", data={"fornavn": "Test", "etternavn": "Person", "epost": "test@eksempel.no"})       # mangler samtykke
+    r = k.post("/kurs/T1", data={"fornavn": "Test", "etternavn": "Person", "epost": "test@eksempel.no",
+                                    **ADRESSE})       # mangler samtykke
     html = r.get_data(as_text=True)
     assert r.status_code == 400 and INTRO_P + "Egen intro</p>" in html and "<button>Send inn</button>" in html
     db.meld_paa(con, kid, epost="finnes@eksempel.no", fornavn="Finnes", etternavn="Test")
     con.commit()
-    r = k.post("/kurs/T1", data={"fornavn": "Finnes", "etternavn": "Test", "epost": "finnes@eksempel.no", "samtykke": "on"})
+    r = k.post("/kurs/T1", data={"fornavn": "Finnes", "etternavn": "Test", "epost": "finnes@eksempel.no", "samtykke": "on", **ADRESSE})
     html = r.get_data(as_text=True)
     assert r.status_code == 400 and "allerede påmeldt" in html
     assert INTRO_P + "Egen intro</p>" in html and "<button>Send inn</button>" in html
@@ -432,5 +438,6 @@ def test_standard_er_dom_identisk_med_gullstandard_via_egen_fil():
     import pathlib
     snap = json.loads((pathlib.Path(__file__).parent / "gullstandard" / "paamelding_skjema.json").read_text("utf-8"))
     for navn, s in snap.items():
-        assert not any("class" in t and "'intro'" in t for t in s["dom"]), navn
-    assert sum("#Meld meg på" in s["dom"] for s in snap.values()) == 13
+        assert not any("class" in t and ("'intro'" in t or "'pm-intro'" in t) for t in s["dom"]), navn
+    # 14 sider med skjema: alle scenarier unntatt kvitteringen (skjemabyggeren la til forhåndsvisning av et utkast)
+    assert sum("#Meld meg på" in s["dom"] for s in snap.values()) == 14

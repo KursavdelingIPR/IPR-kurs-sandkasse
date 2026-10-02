@@ -6,6 +6,7 @@ from datetime import date
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import assistent, config, db
 
 
@@ -68,7 +69,7 @@ def _klient(con):
 def test_webhook_signert(con):
     db.opprett_kurs(con, kode="WH1", navn="Webhook", datoer=["2027-02-01"], pris_nok=0)
     con.commit()
-    body = json.dumps({"first_name": "Nett", "last_name": "Skjema", "your-email": "nett@x.no", "kurskode": "wh1"}).encode()
+    body = json.dumps({"first_name": "Nett", "last_name": "Skjema", "your-email": "nett@x.no", "kurskode": "wh1", **ADRESSE}).encode()
     sig = hmac.new(config.WEBHOOK_HEMMELIG.encode(), body, hashlib.sha256).hexdigest()
     r = _klient(con).post("/api/paamelding", data=body, content_type="application/json", headers={"X-IPR-Signatur": sig})
     assert r.status_code == 201, r.get_json()

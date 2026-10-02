@@ -1,16 +1,21 @@
 {% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css) -#}
 {% block innhold %}
 <div class="kort" style="max-width:440px; margin:0 auto">
-  <h1>Min side</h1>
+  <h1>Logg inn</h1>
   {% if sendt %}
-  <p>Hvis e-postadressen er registrert hos oss, har vi sendt deg en innloggingslenke. Sjekk innboksen (og søppelpost).</p>
+  <p>Hvis e-postadressen er registrert hos oss, har vi sendt deg en innloggingslenke. Sjekk innboksen (og søppelpost).
+    Lenken virker i 30 minutter og kan bare brukes én gang.</p>
   {% else %}
-  <p class="sub">Ingen passord – vi sender deg en innloggingslenke på e-post.</p>
+  <p class="sub">For deg som er påmeldt. Ingen passord – skriv e-postadressen du meldte deg på med, så sender vi deg en lenke som logger deg inn.</p>
+  <p class="liten dempet">Etter innlogging ser du kursene dine. Har kurset Min side, finner du program, presentasjoner, gruppeinndeling og litteratur der.</p>
   <form method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if neste %}<input type="hidden" name="neste" value="{{ neste }}">{% endif %}
     <label for="f-epost">E-post</label><input id="f-epost" name="epost" type="email" required autocomplete="email">
     <p style="margin-top:16px"><button style="width:100%">Send innloggingslenke</button></p>
   </form>
+  <p class="liten dempet">Får du ikke logget inn? Sjekk at du bruker e-postadressen du meldte deg på med, og se i søppelpost. Hjelper ikke det, kontakt kursadministrasjonen.</p>
   {% endif %}
 </div>
 {% endblock %}

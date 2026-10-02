@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import config, db
 from listehjelp import synlige_rader
 
@@ -73,7 +74,8 @@ def test_samtykkelogikk_er_uendret(con):
     """Selve validering (kreves fortsatt) skal ikke ha endret seg - kun lenkemålet."""
     kid = _kurs(con)
     con.commit()
-    resp = _klient().post("/kurs/T1", data={"fornavn": "Kari", "etternavn": "Test", "epost": "kari@x.no"})  # ingen samtykke
+    resp = _klient().post("/kurs/T1", data={"fornavn": "Kari", "etternavn": "Test", "epost": "kari@x.no",
+                                                 **ADRESSE})  # ingen samtykke
     assert resp.status_code == 400
     assert "godta vilkår" in resp.get_data(as_text=True).lower()
 

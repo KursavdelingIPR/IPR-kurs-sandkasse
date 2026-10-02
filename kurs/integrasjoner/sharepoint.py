@@ -19,12 +19,14 @@ tenant ennå:
   * hent:   GET  .../drive/root:/{sti}:/content          (404 -> FileNotFoundError)
   * last opp: PUT .../drive/root:/{sti}:/content         (enkel opplasting, filer opp til 4 MB i ett kall)
 """
+import logging
 import re
 from urllib.parse import quote
 
 import requests
 
 from .. import config
+from ..feil import sikker_feiltekst
 from . import m365
 
 DEMO_ROT = config.ROT / "data" / "sharepoint_demo"
@@ -71,6 +73,21 @@ def list_filer(mappe: str) -> list[dict]:
         return []
     return [{"navn": i["name"], "sti": f"{mappe}/{i['name']}", "storrelse": i.get("size", 0)}
             for i in d.get("value", []) if "file" in i]
+
+
+def list_filer_med_status(mappe: str) -> tuple[list[dict], bool]:
+    """Som list_filer, men skiller «ingen filer» fra «kunne ikke hente»: (filer, True) ved suksess og ([], False) ved feil.
+    Brukes av kurssiden (kursholders filer). Feilen logges uten personopplysninger. Demo: (list_filer(mappe), True) - ingen
+    nettverkskall (CLAUDE.md regel 3)."""
+    if config.DEMO:
+        return list_filer(mappe), True
+    try:
+        d = m365.graph("GET", f"/sites/{config.SHAREPOINT_SITE_ID}/drive/root:/{quote(mappe)}:/children").json()
+        return [{"navn": i["name"], "sti": f"{mappe}/{i['name']}", "storrelse": i.get("size", 0)}
+                for i in d.get("value", []) if "file" in i], True
+    except Exception as e:  # noqa: BLE001 - kurssiden viser en vennlig tekst i stedet for å feile
+        logging.getLogger("kurs.integrasjoner").warning("Henting av filliste fra SharePoint feilet: %s", sikker_feiltekst(e))
+        return [], False
 
 
 def hent_fil(sti: str) -> bytes:

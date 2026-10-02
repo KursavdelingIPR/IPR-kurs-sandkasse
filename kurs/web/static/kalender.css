@@ -1,0 +1,98 @@
+/* Kalenderen (fanen Kalender): kursoversikten og fargene per kursserie i måned og uke.
+   Lastes etter planlegging.css (felles for Liste, Kalender og Årsplan) og kursfarger.css (paletten). */
+
+/* Måned og uke: blokkene og kortene får kursseriens farge; avlyst og utkast som før (planlegging.css) */
+.hendelse { border-left-color:var(--kf, var(--fysisk)); background:var(--kf-lys, var(--fysisk-lys)); }
+.kalenderkort { border-left-color:var(--kf, var(--fysisk)); }
+.kalenderverktoy .forklaring { margin:0; }
+
+/* Filtrene kan foldes inn på mobil (avkrysningsboksen styrer, uten skript) */
+.filterbryter, .filterknapp { display:none; }
+.maanedsliste { display:none; }         /* måneden som liste: bare på mobil */
+
+/* ---------------- Kursoversikt: kursene kronologisk per måned (standard) ---------------- */
+.nestelinje { display:flex; flex-wrap:wrap; gap:4px 28px; align-items:baseline; margin:0 0 12px; padding:10px 16px;
+              border:1px solid #cfe1ea; border-radius:10px; background:#eef6fa; font-size:15px; }
+.nestelinje p { margin:0; }
+.nestelinje a { font-weight:600; }
+.maanedshopp { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 16px; }
+.maanedshopp a { padding:3px 11px; border:1px solid var(--linje); border-radius:16px; background:#fff; color:var(--tekst);
+                 font-size:13px; text-decoration:none; white-space:nowrap; }
+.maanedshopp a:hover { border-color:var(--bla); color:var(--bla); }
+.maanedshopp a.tom { color:var(--dempet); }
+.maanedshopp .antall { display:inline-block; min-width:1.4em; margin-left:2px; padding:0 5px; border-radius:9px;
+                       background:#eef2f4; color:var(--dempet); font-size:12px; text-align:center; }
+.oversiktsmaaned { margin:0 0 22px; scroll-margin-top:12px; }
+.oversiktsmaaned > h2, .oversiktsmaaned > h3 { display:flex; align-items:baseline; gap:12px; margin:0 0 8px; padding:0 0 6px;
+                                              border-bottom:2px solid var(--linje); font-size:19px; }
+.oversiktsmaaned > h3 { font-size:16px; }
+.oversiktsmaaned > h2 .dempet { font-size:13px; font-weight:400; }
+
+.oversiktsrad { display:grid; grid-template-columns:9.5em minmax(0, 1fr); margin:0 0 7px; overflow:hidden; background:#fff;
+                border:1px solid var(--linje); border-left:6px solid var(--kf, var(--fysisk)); border-radius:8px;
+                scroll-margin-top:12px; }
+.oversiktsrad .odato { display:flex; flex-direction:column; justify-content:center; gap:1px; padding:8px 12px;
+                       background:var(--kf-lys, var(--fysisk-lys)); }
+.oversiktsrad .odag { font-size:17px; font-weight:700; line-height:1.25; color:var(--tekst); white-space:nowrap; }
+.oversiktsrad .oukedag { font-size:12.5px; color:var(--dempet); white-space:nowrap; }
+.oversiktsrad .oinnhold { min-width:0; padding:8px 14px; }
+.oversiktsrad .otittel { display:flex; flex-wrap:wrap; align-items:center; gap:3px 8px; }
+.oversiktsrad .otittel a { font-size:15.5px; font-weight:600; }
+.oversiktsrad .osamling { margin-top:1px; font-size:13.5px; font-weight:600; color:var(--kf, var(--tekst)); }
+.oversiktsrad .ometa { display:flex; flex-wrap:wrap; margin-top:2px; font-size:13.5px; color:var(--dempet); }
+.oversiktsrad .ometa > span { white-space:nowrap; }
+.oversiktsrad .ometa > span:empty { display:none; }
+.oversiktsrad .ometa > span:not(:last-child)::after { content:"·"; margin:0 7px; }
+.oversiktsrad .okollisjon { margin-top:3px; font-size:13px; font-weight:600; color:#8a3b12; }
+.oversiktsrad .okollisjon::before { content:"⚠ "; }
+.oversiktsrad.tidligere { opacity:.6; }
+.oversiktsrad.neste { box-shadow:0 0 0 2px var(--bla); }
+.oversiktsrad.avlyst { border-left-color:var(--avlyst); }
+.oversiktsrad.avlyst .odato { background:var(--avlyst-lys); }
+.oversiktsrad.avlyst .otittel a { color:var(--avlyst); text-decoration:line-through; }
+.oversiktsrad.utkast { border-top-style:dashed; border-right-style:dashed; border-bottom-style:dashed; }
+.merke.neste { background:var(--bla); color:#fff; font-weight:600; }
+.merke.pagar { background:#e3f1e8; color:#256245; font-weight:600; }
+
+/* Brede skjermer: sted, tid, ansvarlig og påmeldte i faste kolonner (som kursplanen i Excel) */
+@media (min-width: 1100px) {
+  .oversiktsrad .oinnhold { display:grid; grid-template-columns:minmax(0, 1fr) 15em 7.5em 10em 8.5em; gap:0 16px;
+                            align-items:center; }
+  .oversiktsrad .ometa { display:contents; }
+  .oversiktsrad .ometa > span { white-space:normal; font-size:13.5px; color:var(--tekst); }
+  .oversiktsrad .ometa > span:empty { display:block; }
+  .oversiktsrad .ometa > span::after { content:none !important; }
+  .oversiktsrad .ometa .otid, .oversiktsrad .ometa .opaameldte { color:var(--dempet); font-variant-numeric:tabular-nums; }
+}
+
+.tommaaned { margin:0; padding:9px 14px; border:1px dashed var(--linje); border-radius:8px; background:#fafbfb;
+             color:var(--dempet); font-size:14px; }
+details.gjennomforte { margin:0 0 7px; }
+details.gjennomforte > summary { display:inline-block; cursor:pointer; padding:2px 0; font-size:13.5px; color:var(--dempet); }
+details.gjennomforte[open] > summary { margin-bottom:6px; }
+details.tidligere { margin:8px 0 0; padding:10px 14px; border:1px solid var(--linje); border-radius:10px; background:#fafbfb; }
+details.tidligere > summary { cursor:pointer; font-weight:600; color:var(--bla); }
+details.tidligere[open] > summary { margin-bottom:12px; }
+
+@media (max-width: 760px) {
+  .filterbryter { display:block; position:absolute; width:1px; height:1px; opacity:0; }
+  .filterknapp { display:inline-flex; align-items:center; gap:6px; margin:0 0 10px; padding:6px 14px; border:1px solid #c7d0d5;
+                 border-radius:8px; background:#fff; color:var(--tekst); font-size:14px; font-weight:600; cursor:pointer; }
+  .filterknapp::before { content:"▸"; color:var(--dempet); }
+  .filterbryter:checked + .filterknapp::before { content:"▾"; }
+  .filterbryter:focus-visible + .filterknapp { outline:2px solid var(--bla); outline-offset:2px; }
+  .filterbryter:not(:checked) ~ .filterlinje { display:none; }
+  .oversiktsrad { grid-template-columns:1fr; }
+  .oversiktsrad .odato { flex-direction:row; flex-wrap:wrap; justify-content:flex-start; align-items:baseline;
+                         gap:2px 10px; padding:6px 12px; }
+  .oversiktsrad .odag { font-size:16px; }
+  .oversiktsrad .oinnhold { padding:8px 12px 10px; }
+  .nestelinje { font-size:14px; }
+  .maanedshopp { flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px; }
+  .maanedsliste { display:block; }       /* månedsrutenettet skjules på mobil (planlegging.css) */
+}
+
+@media print {
+  .filterknapp, .maanedshopp { display:none; }
+  details.tidligere:not([open]) { display:none; }
+}

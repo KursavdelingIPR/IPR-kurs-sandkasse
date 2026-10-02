@@ -1,6 +1,7 @@
 {% extends "admin_base.html" %}
 {% block innhold %}
 <h1>Kunnskapsbase og henvendelser</h1>
+{% if not assistent_aktiv %}<div class="flash info" role="status"><strong>«Spør oss» er slått av.</strong> Svarene du lager her blir liggende, men brukes først når «Spør oss» slås på igjen (innstillingen <code>ASSISTENT_AKTIV=1</code>). Kunnskapsbasen står derfor ikke lenger i menyen.</div>{% endif %}
 <p class="sub">Assistenten viser <strong>kun</strong> godkjente svar herfra, ordrett. Spørsmål den ikke kan svare sikkert på havner under «Til adm».</p>
 
 <h2>Til adm ({{ henvendelser | length }})</h2>

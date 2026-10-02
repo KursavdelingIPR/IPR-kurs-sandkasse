@@ -7,6 +7,7 @@ kobles paa Flask-appen i app.py via installer(app).
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 import threading
 import time
@@ -91,14 +92,26 @@ takbegrenser = Takbegrenser()
 GRENSER = {
     "admin_login": (10, 15 * 60),
     "admin_login_bruker": (20, 15 * 60),
-    "innloggingslenke": (5, 15 * 60),
+    "innloggingslenke": (30, 15 * 60),         # var (5, 15 * 60): kurslokaler og arbeidsplasser deler IP-adresse
     "innloggingslenke_epost": (3, 15 * 60),
     "sporsmal": (10, 10 * 60),
     "paamelding": (20, 10 * 60),
-    "innsjekk": (30, 10 * 60),
+    "enhetsoppslag": (120, 10 * 60),     # firmaoppslag i påmeldingsskjemaet (Enhetsregisteret)
+    "min_side_lenke": (200, 10 * 60),    # den personlige lenken til Min side (/min/<lenke>), per IP: kurslokaler og store arbeidsplasser deler IP
+    "innsjekk_qr": (120, 10 * 60),       # QR-skann: nøkkel = ip + «|» + token
+    "innsjekk_qr_epost": (10, 10 * 60),  # nøkkel = e-post + «|» + ip
+    "oppmote_selv": (10, 10 * 60),       # «Registrer oppmøte i dag» på nett: nøkkel = deltaker-id
+    "kursside_opplasting": (60, 10 * 60),   # filopplasting på kurssiden: nøkkel = admin-id
+    "kursside_fil": (60, 10 * 60),       # nedlasting av dokumenter (kan være 15 MB) fra kurssiden: nøkkel = deltaker-id
+    "kursside_bilde": (600, 10 * 60),    # bilder på kurssiden (hver sidevisning henter dem): nøkkel = deltaker-id
     "webhook": (60, 60),
     "lever": (20, 60 * 60),
+    "admin_sok": (120, 60),        # deltakersøket (rullegardin og resultatside, felles teller): 2 per sekund varig, mer enn tasting
 }
+
+# Endepunkter der adressen kan inneholde søketekst (navn, e-post, telefon) eller en personlig nøkkel (lenken til Min side, /min/<lenke>).
+# Svarene sendes med Referrer-Policy: no-referrer, så ?q=... og lenken aldri følger med som Referer når man klikker seg videre.
+REFERRER_INGEN = frozenset({"admin_sok", "admin_sok_json", "min_side_lenke"})
 
 
 def klient_ip() -> str:
@@ -128,10 +141,17 @@ def _csp(nonce: str) -> str:
             "form-action 'self'; base-uri 'self'; object-src 'none'")
 
 
+def csp_for_egen_ramme(nonce: str) -> str:
+    """Som _csp, men siden kan vises i en ramme (iframe) på SAMME nettsted. Brukes kun av forhåndsvisningen av kurssiden i
+    redigeringsvisningen; alle andre sider har frame-ancestors 'none' (og X-Frame-Options DENY)."""
+    return _csp(nonce).replace("frame-ancestors 'none'", "frame-ancestors 'self'")
+
+
 def _sett_hoder(respons):
     respons.headers.setdefault("X-Content-Type-Options", "nosniff")
     respons.headers.setdefault("X-Frame-Options", "DENY")
-    respons.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    respons.headers.setdefault("Referrer-Policy",
+                               "no-referrer" if request.endpoint in REFERRER_INGEN else "strict-origin-when-cross-origin")
     respons.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     respons.headers.setdefault("Content-Security-Policy", _csp(g.get("csp_nonce", "")))
     if request.is_secure and not config.DEMO:
@@ -146,6 +166,8 @@ def _sett_hoder(respons):
 def trygg_neste(verdi, standard: str) -> str:
     """Kun en relativ sti paa DETTE nettstedet (aldri //annet.sted eller https://...). Ellers standard."""
     if not verdi or not isinstance(verdi, str):
+        return standard
+    if re.search(r"[\x00-\x1f\x7f-\x9f]", verdi):      # linjeskift, tabulator m.m.: urlsplit fjerner dem før kontrollen, og en nettleser tolker dem annerledes
         return standard
     deler = urlsplit(verdi)
     if deler.scheme or deler.netloc or not verdi.startswith("/") or verdi.startswith("//") or "\\" in verdi:

@@ -1,0 +1,42 @@
+{% extends "admin_base.html" %}
+{% from "_signatureditor.html" import signatureditor with context %}
+{% block hode %}{% include "_signatur_hode.html" %}{% endblock %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<h2>Signatur for kurset</h2>
+<p class="liten dempet">Brukes i påminnelsene (uken før og dagen før), kursbeviset, avlysning og avslag for dette kurset.
+  Bekreftelser og ventelistebeskjeder har ingen signatur. Endringen gjelder e-poster som sendes fra nå av.</p>
+
+<form method="post" class="kort signaturskjema" data-skjemanavn="Kursets signatur">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <fieldset class="signaturmodus">
+    <legend class="skjul-visuelt">Hvilken signatur skal kurset bruke?</legend>
+    <label class="valg"><input type="radio" name="modus" value="standard" data-signaturmal-kilde="standard"
+                               {{ 'checked' if valg.modus == 'standard' }}
+                               {{ 'disabled' if admin_rolle == 'lese' }}>
+      Standardsignaturen <span class="dempet">({{ standard.navn }})</span></label>
+    <label class="valg"><input type="radio" name="modus" value="bibliotek" {{ 'checked' if valg.modus == 'bibliotek' }}
+                               {{ 'disabled' if admin_rolle == 'lese' }}>
+      En signatur fra biblioteket:</label>
+    <label for="f-kurssignatur" class="skjul-visuelt">Signatur fra biblioteket</label>
+    <select id="f-kurssignatur" name="signatur_id" class="innrykket" data-velg-signatur="f-signatur"
+            {{ 'disabled' if admin_rolle == 'lese' }}>
+      <option value="">Velg …</option>
+      {% for s in signaturliste %}<option value="{{ s.id }}" {{ 'selected' if s.id == valg.signatur_id }}>{{ s.navn }}{{ ' (standard)' if s.standard }}</option>{% endfor %}
+    </select>
+    <label class="valg"><input type="radio" name="modus" value="egen" {{ 'checked' if valg.modus == 'egen' }}
+                               {{ 'disabled' if admin_rolle == 'lese' }}>
+      Tilpass for dette kurset <span class="dempet">– en egen versjon som bare gjelder dette kurset (biblioteket endres ikke)</span></label>
+  </fieldset>
+  <template data-signaturmal="standard">{{ standard_renset | safe }}</template>
+  {% for s in signaturliste %}<template data-signaturmal="{{ s.id }}">{{ s.innhold_renset | safe }}</template>{% endfor %}
+  {{ signatureditor("innhold", valg.innhold, "f-signatur", "Signaturen slik den blir i e-postene", skrivebeskyttet=admin_rolle == 'lese') }}
+  <p class="liten dempet">Velger du en signatur fra biblioteket, vises den her. Endrer du teksten, lagres den som kursets egen
+    versjon («Tilpass for dette kurset»).</p>
+  {% if admin_rolle != 'lese' %}
+  <p class="knapper"><button>Lagre</button> <a class="knapp sekundar" href="{{ url_for('admin_kurs_kommunikasjon', kurs_id=kurs.id) }}">Avbryt</a></p>
+  {% endif %}
+</form>
+{% endblock %}

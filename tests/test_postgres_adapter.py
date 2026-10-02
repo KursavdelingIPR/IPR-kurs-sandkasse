@@ -100,11 +100,14 @@ def _pg(svar=None):
 
 def _alt_finnes(sql, p):
     """Alt «finnes» allerede - men det er ingen gamle kursbevisfiler aa flytte (migrering 4 leser dokument-rader),
-    og ingen navn som venter paa aa bli delt i fornavn og etternavn (migrering 7 leser navn-rader)."""
+    ingen navn som venter paa aa bli delt i fornavn og etternavn (migrering 7 leser navn-rader), og ingen kurs med
+    kursdager som mangler samling (migrering 9 leser kurs-rader)."""
     if "FROM dokument" in sql:
         return FalskMarkor([], description=[("id",), ("url",)])
     if "AS navn FROM" in sql:
         return FalskMarkor([], description=[("id",), ("navn",)])
+    if "FROM kurs ORDER BY id" in sql:
+        return FalskMarkor([], description=[("id",)])
     return FalskMarkor([_rad(x=1)], description=[("x",)])
 
 

@@ -801,7 +801,7 @@ def test_n8_okonomifelt_kan_endres_naar_ingen_binding(con):
     assert sorted(endret) == ["faktura_dager_for", "pris_nok"]
 
 
-def test_n8_direkte_post_kan_ikke_omga_hold_laasen_og_siden_viser_laast(con, ute):
+def test_n8_direkte_post_uten_bekreftelse_kan_ikke_omga_hold_laasen_og_siden_krever_bekreftelse(con, ute):
     kid, pid = _hold(con, ute)
     from kurs.web import app as webapp
     klient = webapp.app.test_client()
@@ -813,7 +813,10 @@ def test_n8_direkte_post_kan_ikke_omga_hold_laasen_og_siden_viser_laast(con, ute
     r = db.koble(config.DB_STI).execute("SELECT pris_nok, fakturering, betaling, faktura_dager_for, notat FROM kurs WHERE id=?", (kid,)).fetchone()
     assert tuple(r) == (1000, "person", "samlet", 14, "Endret")
     side = klient.get(f"/admin/kurs/{kid}/oppsett").get_data(as_text=True)
-    assert "kan ikke endres" in side and "opprettet, forsøkt eller planlagt" in side
+    # Siden viser feltene som redigerbare (Camilla 01.10.2026), men med advarselen og avkryssingen som kreves for å endre dem
+    # (test_pris_redigerbar.py). Uten avkryssingen står pris og fakturaoppsett urørt, som sjekket over.
+    assert 'name="pris_nok"' in side and 'name="bekreft_okonomi"' in side and "Kurset har allerede" in side
+    assert "kan ikke endres" not in side
 
 
 def test_n9_antall_faktura_for_kurs_beholder_count_semantikk(con, ute):
@@ -856,10 +859,12 @@ def test_venteliste_opprykk_langt_frem_gir_hold_og_faktura_naa_bevares(con, ute)
 
 # ======================= kursdatoendring og statusoverganger (state-integritet) =======================
 
-def test_kursdager_skrives_kun_av_opprett_kurs_dvs_ingen_editor_finnes():
-    """Vakt: i dag skriver KUN db.opprett_kurs til kursdag (ingen rute/funksjon endrer eller sletter kursdager). Legges det til
-    kode som gjoer det, MAA den kalle sveiper.oppdater_faktura_hold_etter_kursdagendring() i samme transaksjon - og denne testen
-    oppdateres bevisst."""
+def test_kursdager_skrives_kun_av_opprett_kurs_og_lagre_samlinger_som_flytter_utsatt_faktura():
+    """Vakt: bare db.opprett_kurs og db.lagre_samlinger (kursdato-redigeringen) skriver kursdager - pluss migrering 9, som
+    bare setter samling_id og aldri endrer en dato. db.lagre_samlinger MAA kalle
+    sveiper.oppdater_faktura_hold_etter_kursdagendring() (i samme transaksjon), ellers kunne en utsatt samlet faktura
+    blitt sendt ut fra den gamle foerste kursdagen. Legges det til annen kode som skriver kursdager, oppdateres testen
+    bevisst."""
     rot = Path(__file__).resolve().parent.parent / "kurs"
     moenster = re.compile(r"\b(insert(\s+or\s+\w+)?\s+into|update|delete\s+from|replace\s+into)\s+kursdag\b", re.I)
     funnet = set()
@@ -869,7 +874,13 @@ def test_kursdager_skrives_kun_av_opprett_kurs_dvs_ingen_editor_finnes():
             for c in (n for n in ast.walk(fn) if isinstance(n, ast.Constant) and isinstance(n.value, str)):
                 if moenster.search(c.value):
                     funnet.add((fil.relative_to(rot).as_posix(), fn.name))
-    assert funnet == {("db.py", "opprett_kurs")}, funnet
+    assert funnet == {("db.py", "opprett_kurs"), ("db.py", "lagre_samlinger"), ("migreringer.py", "_m9_samlinger")}, funnet
+    tre = ast.parse((rot / "db.py").read_text(encoding="utf-8"))
+    lagre = next(n for n in ast.walk(tre) if isinstance(n, ast.FunctionDef) and n.name == "lagre_samlinger")
+    kall = {n.func.attr for n in ast.walk(lagre) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert "oppdater_faktura_hold_etter_kursdagendring" in kall
+    migrering = (rot / "migreringer.py").read_text(encoding="utf-8")
+    assert re.findall(r"UPDATE kursdag SET (\w+)", migrering) == ["samling_id"]      # migrering 9 flytter ingen dato
 
 
 def _flytt_forste_kursdag(con, kid, ny_dato: str, kall_hjelper=True):

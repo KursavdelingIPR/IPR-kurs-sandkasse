@@ -19,6 +19,11 @@ from kurs import skjemafelt as sf
 from kurs.integrasjoner import sharepoint
 
 
+# HPR-nummer er slått av i skjemaene (skjemafelt.HPR_I_SKJEMA = False, Camilla 02.10.2026). Disse testene gjelder koden som viser, validerer og lagrer det
+# (den finnes fortsatt og kan slås på igjen), så de slår det på. Standarden (av) testes i test_hpr_nummer_samles_ikke_inn.py.
+pytestmark = pytest.mark.usefixtures("hpr_i_skjema")
+
+
 @pytest.fixture
 def con(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "UTBOKS", tmp_path / "utboks")
@@ -249,10 +254,15 @@ def test_kilde_og_kopi_er_uavhengige(con, admin):
     _dupliser(admin, kid)
     ny = _nyeste_kurs(con)["id"]
     kilde_foer = _rader(con, kid)
-    admin.post(f"/admin/kurs/{ny}/paameldingsskjema", data={
-        "telefon_synlig": "on", "telefon_label": "Endret på kopien", "telefon_hjelpetekst": "",
-        "arbeidssted_synlig": "on", "arbeidssted_label": "Arbeidssted", "arbeidssted_hjelpetekst": "",
-        "hpr_nr_hjelpetekst": "", "rekkefolge": "telefon_forst"})
+    data = {}
+    for n in (*sf.KONFIGURERBAR_GRUPPE, *sf.FAKTURAFELT, *sf.SENSITIVE_FELT):     # skjemabyggeren, uendret ...
+        data |= {f"{n}_label": sf.REGISTER[n].label, f"{n}_hjelpetekst": sf.REGISTER[n].hjelpetekst or ""}
+        if sf.REGISTER[n].synlig:
+            data[f"{n}_synlig"] = "on"
+    data |= {f"{n}_synlig": "on" for n in sf.INFOFELT}
+    data |= {"hpr_nr_hjelpetekst": "", "rekkefolge_om_deg": "telefon,arbeidssted,yrkestittel", "rekkefolge_til_slutt": "",
+             "telefon_label": "Endret på kopien"}                                  # ... bortsett fra telefon
+    assert admin.post(f"/admin/kurs/{ny}/paameldingsskjema", data=data).status_code == 302
     assert _over(con, ny)["telefon"].label == "Endret på kopien" and _rader(con, kid) == kilde_foer
     admin.post(f"/admin/kurs/{ny}/paameldingsskjema/tilbakestill")
     assert _rader(con, ny) == [] and _rader(con, kid) == kilde_foer

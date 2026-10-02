@@ -1,0 +1,39 @@
+{#- Søkefeltene på Oversikten og søkesiden. `sokefelt` er deltakersøket: vanlig GET-skjema mot /admin/sok som virker uten JavaScript;
+    static/app.js (data-deltakersok) legger på rullegardinen med de beste treffene mens man skriver. Ingen data fra
+    databasen skrives inn i JavaScript - treffene tegnes med textContent. `id` må være ulik for hvert felt på siden.
+    Rullegardinen henter treffene med POST (teksten i kroppen, aldri i adressen) og CSRF-tokenet i data-csrf.
+    Med `etikett` får feltet en synlig tittel og vanlig størrelse (Oversikten); med `stor` er det det store feltet på søkesiden.
+    `kurssokefelt` er kursøket på Oversikten (kursnummer eller kursnavn). Det er ikke et eget skjema: feltet og knappen hører til
+    kurslistens filterskjema (`skjema` = id-en til det) via form-attributtet, så søket og filtrene sendes sammen. -#}
+{% macro sokefelt(id, stor=False, verdi='', autofokus=False, etikett='', plassholder='') -%}
+{% set synlig = stor or etikett -%}
+<form class="sokefelt{{ ' stor' if stor }}" role="search" aria-label="{{ 'Deltakersøk på siden' if synlig else 'Deltakersøk i menyen' }}" action="{{ url_for('admin_sok') }}" method="get" data-deltakersok data-json="{{ url_for('admin_sok_json') }}" data-csrf="{{ csrf_token() }}">
+  <label class="{{ 'sok-etikett' if synlig else 'skjul-visuelt' }}" for="{{ id }}">{{ etikett or ('Søk etter deltaker på tvers av alle kurs' if stor else 'Søk etter deltaker i alle kurs') }}</label>
+  <div class="sok-rad">
+    <div class="sok-boks">
+      <svg class="sok-ikon" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="{{ id }}" name="q" type="search" value="{{ verdi }}" maxlength="{{ SOK_MAKS_TEGN }}" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"
+             role="combobox" aria-expanded="false" aria-controls="{{ id }}-liste" aria-autocomplete="list"
+             placeholder="{{ plassholder or ('Navn, e-post, telefon, kursnummer eller påmeldingsnr. (#12)' if stor else 'Søk deltaker i alle kurs') }}"{{ ' autofocus' if autofokus }}>
+      {% if not stor %}<kbd class="sok-hurtigtast" aria-hidden="true" title="Trykk / for å søke">/</kbd>{% endif %}
+      <div class="sok-liste" tabindex="-1" id="{{ id }}-liste" role="listbox" aria-label="Søketreff" hidden></div>
+    </div>
+    <button type="submit" class="sok-knapp">Søk</button>
+  </div>
+  <span class="skjul-visuelt" role="status" aria-live="polite" data-sok-status></span>
+</form>
+{%- endmacro %}
+
+{% macro kurssokefelt(id, skjema, verdi='') -%}
+<div class="sokefelt" role="search" aria-label="Kurssøk">
+  <label class="sok-etikett" for="{{ id }}">Søk etter kurs</label>
+  <div class="sok-rad">
+    <div class="sok-boks">
+      <svg class="sok-ikon" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="{{ id }}" name="sok" form="{{ skjema }}" type="search" value="{{ verdi }}" maxlength="100" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"
+             placeholder="Kursnummer eller kursnavn">
+    </div>
+    <button type="submit" form="{{ skjema }}" class="sok-knapp">Søk</button>
+  </div>
+</div>
+{%- endmacro %}

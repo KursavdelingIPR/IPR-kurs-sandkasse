@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import config, db, lenker
 from kurs.integrasjoner import epost, visma
 from kurs.web import sikkerhet
@@ -92,7 +93,7 @@ def test_offentlig_paamelding_krever_ogsaa_csrf(con):
     _kurs(con)
     k = _klient()
     k.injiser_csrf = False
-    r = k.post("/kurs/S1", data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "samtykke": "on"})
+    r = k.post("/kurs/S1", data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "samtykke": "on", **ADRESSE})
     assert r.status_code == 400
     assert con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0] == 0
 
@@ -108,7 +109,7 @@ def test_webhook_er_fritatt_fra_csrf_men_krever_signatur(con):
     import hmac
     import json
     kid = _kurs(con, "WH")
-    body = json.dumps({"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH"}).encode()
+    body = json.dumps({"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH", **ADRESSE}).encode()
     sig = hmac.new(config.WEBHOOK_HEMMELIG.encode(), body, hashlib.sha256).hexdigest()
     k = _klient()
     k.injiser_csrf = False
@@ -306,6 +307,7 @@ def test_takbegrenser_glidende_vindu():
 
 
 def test_sporsmal_takbegrenses_og_kan_slaas_av(con, monkeypatch):
+    monkeypatch.setattr(config, "ASSISTENT_AKTIV", True)          # «Spør oss» er av som standard: slås på for takbegrensningen
     k = _klient()
     for _ in range(sikkerhet.GRENSER["sporsmal"][0]):
         assert k.post("/sporsmal", data={"sporsmal": "Når er kurset?"}).status_code == 200
@@ -414,7 +416,7 @@ def test_kursnavn_med_script_escapes_i_admin(con):
     kid = _kurs(con)
     con.execute("UPDATE kurs SET navn=? WHERE id=?", ("<script>alert(1)</script>", kid))
     con.commit()
-    for url in ("/admin", "/admin/aktiviteter", f"/admin/kurs/{kid}/oppsett"):
+    for url in ("/admin", "/admin", f"/admin/kurs/{kid}/oppsett"):
         html = _admin().get(url).get_data(as_text=True)
         assert "<script>alert(1)</script>" not in html and "&lt;script&gt;" in html, url
 
@@ -449,7 +451,7 @@ def test_404_og_405_gir_kontrollert_side(con):
 def test_500_gir_referanse_men_aldri_traceback(con, monkeypatch):
     from kurs.web import app as webapp
     monkeypatch.setattr(webapp.db, "koble", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("hemmelig detalj")))
-    r = _klient().get("/")
+    r = _klient().get("/kurs/X1")                       # en side som slår opp i databasen (startsiden er bare innlogging)
     html = r.get_data(as_text=True)
     assert r.status_code == 500 and "Noe gikk galt" in html and "referansen" in html
     assert "hemmelig detalj" not in html and "Traceback" not in html and "RuntimeError" not in html
@@ -473,13 +475,13 @@ def _webhook(k, data, **kw):
 
 def test_webhook_godtar_ikke_token_i_url(con):
     _kurs(con, "WH")
-    r = _klient().post(f"/api/paamelding?token={config.WEBHOOK_HEMMELIG}", json={"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH"})
+    r = _klient().post(f"/api/paamelding?token={config.WEBHOOK_HEMMELIG}", json={"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH", **ADRESSE})
     assert r.status_code == 401
 
 
 def test_webhook_filtrerer_felt_etter_kursoppsett(con):
     kid = _kurs(con, "WH", type="digital", fakturering="ingen", pris_nok=0)   # ingen HPR, ingen allergi, ingen faktura
-    r = _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH", "hpr_nr": "123", "allergier": "nøtter",
+    r = _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH", **ADRESSE, "hpr_nr": "123", "allergier": "nøtter",
                              "org_nr": "999", "faktura_ref": "REF"})
     assert r.status_code == 201
     p = con.execute("SELECT p.*, d.hpr_nr FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.kurs_id=?",
@@ -490,17 +492,17 @@ def test_webhook_filtrerer_felt_etter_kursoppsett(con):
 
 def test_webhook_gir_409_for_stengt_kurs_og_404_for_utkast(con):
     kid = _kurs(con, "WH", paameldingsfrist="2020-01-01")
-    assert _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH"}).status_code == 409
+    assert _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH", **ADRESSE}).status_code == 409
     con.execute("UPDATE kurs SET status='utkast' WHERE id=?", (kid,))
     con.commit()
-    assert _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH"}).status_code == 404
+    assert _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH", **ADRESSE}).status_code == 404
 
 
 def test_webhook_nekter_i_drift_med_standardhemmelighet(con, monkeypatch):
     _kurs(con, "WH")
     _prod(monkeypatch)
     monkeypatch.setattr(config, "WEBHOOK_HEMMELIG", "demo-webhook-hemmelighet")
-    assert _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH"}).status_code == 503
+    assert _webhook(_klient(), {"fornavn": "N", "etternavn": "Test", "epost": "n@x.no", "kurs": "WH", **ADRESSE}).status_code == 503
 
 
 # ============================ admin-ruter: eierskap og gyldig input ============================

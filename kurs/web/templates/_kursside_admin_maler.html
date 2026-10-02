@@ -1,0 +1,265 @@
+{#- Skjelettene i redigeringsvisningen (kursside_admin.html): blokkortet, hver blokktype og radene i dem. JavaScript-en (kursside-admin*.js) kloner dem
+    og fyller dem via data-felt (aldri med HTML fra tekst). Standardtekster og ledetekster står her, ikke i JavaScript-en.
+    Regler: ingen id/for-par inni <template> (samme id kunne blitt brukt flere ganger) – felt har aria-label eller ligger inni en <label>.
+    data-endrer = knappen endrer siden (skjules for rollen «lese»). Grensene (maxlength) kommer fra sideinnhold.GRENSER. -#}
+{% import "_kursside_blokker.html" as bl %}
+{% set g = data.grenser %}
+
+<template id="ks-mal-blokk">
+  <section class="ks-blokk" role="group" tabindex="0" data-ks="blokk">
+    <div class="ks-bh">
+      <span class="ks-sjekk"><input type="checkbox" data-ks="velg" aria-label="Velg blokken"></span>
+      <button type="button" class="ks-grep" data-ks="grep" data-endrer aria-label="Flytt blokken (dra, eller bruk Alt og piltastene)" title="Dra for å flytte">{{ bl.ikon('grep') }}</button>
+      <span class="ks-type" data-felt="type"><span data-felt="type-ikon"></span><span class="tn" data-felt="type-navn"></span></span>
+      <input class="ks-tittel" type="text" data-ks="tittel" aria-label="Tittel på blokken" maxlength="{{ g.tittel }}" autocomplete="off">
+      <button type="button" class="ks-hodetekst" data-ks="sammendrag" aria-expanded="false"><b data-felt="tittel-tekst"></b><small data-felt="sammendrag"></small></button>
+      <span class="ks-merker" data-felt="merker"></span>
+      <span class="ks-hnapper">
+        <button type="button" class="ks-ib" data-ks="opp" data-endrer aria-label="Flytt blokken opp" title="Flytt opp (Alt+↑)">{{ bl.ikon('pilopp') }}</button>
+        <button type="button" class="ks-ib" data-ks="ned" data-endrer aria-label="Flytt blokken ned" title="Flytt ned (Alt+↓)">{{ bl.ikon('pilned') }}</button>
+        <button type="button" class="ks-ib" data-ks="dupliser" data-endrer aria-label="Dupliser blokken" title="Dupliser">{{ bl.ikon('kopi') }}</button>
+        <button type="button" class="ks-ib" data-ks="meny" data-endrer aria-haspopup="menu" aria-expanded="false" aria-label="Flere valg for blokken" title="Flere valg">{{ bl.ikon('mer') }}</button>
+        <button type="button" class="ks-ib" data-ks="fold" aria-expanded="false" aria-label="Åpne blokken" title="Åpne eller lukk">{{ bl.ikon('ned') }}</button>
+      </span>
+    </div>
+    <div class="ks-bb" data-ks="innhold" hidden></div>
+  </section>
+</template>
+
+<template id="ks-mal-synlighet">
+  <div class="ks-bunn">
+    <span class="ks-bunn-tittel">{{ bl.ikon('oye') }}Synlighet</span>
+    <label class="ks-bunn-felt">Vis for deltakerne fra <input type="date" data-felt="vis_fra"></label>
+    <label class="valg-inline"><input type="checkbox" data-felt="skjult">Skjul foreløpig</label>
+    <label class="valg-inline"><input type="checkbox" data-felt="i_meny">Vis i «På denne siden»</label>
+  </div>
+</template>
+
+<template id="ks-mal-tekst">
+  <div class="ks-rad">
+    <div class="ks-rtb" role="toolbar" aria-label="Tekstformatering">
+      <button type="button" data-kommando="bold" aria-label="Fet" title="Fet (Ctrl+B)" aria-pressed="false"><b>B</b></button>
+      <button type="button" data-kommando="italic" aria-label="Kursiv" title="Kursiv (Ctrl+I)" aria-pressed="false"><i>I</i></button>
+      <span class="skille" aria-hidden="true"></span>
+      <button type="button" data-kommando="insertUnorderedList" aria-label="Punktliste" title="Punktliste" aria-pressed="false">{{ bl.ikon('punkt') }}</button>
+      <button type="button" data-kommando="insertOrderedList" aria-label="Nummerert liste" title="Nummerert liste" aria-pressed="false">{{ bl.ikon('nummer') }}</button>
+      <span class="skille" aria-hidden="true"></span>
+      <button type="button" data-kommando="lenke" aria-label="Sett inn lenke" title="Lenke">{{ bl.ikon('lenke') }}</button>
+      <button type="button" data-kommando="unlink" aria-label="Fjern lenke" title="Fjern lenke">{{ bl.ikon('x') }}</button>
+      <button type="button" data-kommando="removeFormat" aria-label="Fjern formatering" title="Fjern formatering">{{ bl.ikon('fjern') }}</button>
+      <span class="rett">{{ bl.ikon('skjold') }}Lim inn fra Word: formateringen ryddes</span>
+    </div>
+    <div class="ks-rt" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Tekst" data-felt="html" spellcheck="true"></div>
+    <div class="ks-rt-fot"><span>Overskrifter skriver du i tittelfeltet over. Her bruker du vanlig tekst, lister og lenker. Innlimte overskrifter blir fet tekst, og tabeller blir vanlige avsnitt.</span><span data-felt="teller"></span></div>
+  </div>
+</template>
+
+<template id="ks-mal-viktig">
+  <div class="ks-rad">
+    <fieldset class="ks-niva-gruppe"><legend>Type melding</legend>
+      <div class="ks-niva-rad">
+        <label class="ks-niva i"><input type="radio" data-felt="niva" value="info">{{ bl.ikon('info') }}Informasjon</label>
+        <label class="ks-niva v"><input type="radio" data-felt="niva" value="viktig">{{ bl.ikon('varsel') }}Viktig</label>
+        <label class="ks-niva a"><input type="radio" data-felt="niva" value="advarsel">{{ bl.ikon('varsel') }}Advarsel</label>
+      </div>
+    </fieldset>
+    <label>Melding <textarea rows="4" data-felt="tekst" maxlength="{{ g.viktig }}" placeholder="Skriv meldingen her"></textarea></label>
+    <p class="ks-hjelp">Vanlig tekst. Tomme linjer blir nye avsnitt. Tittelen over er den fete overskriften.</p>
+  </div>
+</template>
+
+<template id="ks-mal-program">
+  <div class="ks-rad">
+    <div class="ks-verktoyrad">
+      <button type="button" class="sekundar" data-ks="hent-dager" data-endrer>{{ bl.ikon('kal') }}Hent dager fra kursdatoene</button>
+      <button type="button" class="sekundar" data-ks="ny-dag" data-endrer>{{ bl.ikon('pluss') }}Legg til dag</button>
+    </div>
+    <p class="ks-hjelp">Datoene kobles til kursdagene, så «I dag» markeres automatisk for deltakerne.</p>
+    <div class="ks-dager" data-felt="dager"></div>
+  </div>
+</template>
+
+<template id="ks-mal-program-dag">
+  <div class="ks-dag">
+    <div class="ks-dag-h">
+      <button type="button" class="ks-dag-fold" data-ks="dag-fold" aria-expanded="false">{{ bl.ikon('ned', 'pil') }}<b data-felt="dag-tittel"></b><small data-felt="dag-info"></small></button>
+      <span class="plass">
+        <button type="button" class="ks-ib" data-ks="dag-dupliser" data-endrer aria-label="Dupliser dagen" title="Dupliser dagen">{{ bl.ikon('kopi') }}</button>
+        <button type="button" class="ks-ib fare" data-ks="dag-slett" data-endrer aria-label="Slett dagen" title="Slett dagen">{{ bl.ikon('slett') }}</button>
+      </span>
+    </div>
+    <div class="ks-dag-k" data-felt="dag-innhold" hidden>
+      <div class="ks-dag-felt">
+        <label>Dagens tittel <input type="text" data-felt="tittel" maxlength="{{ g.dagtittel }}" placeholder="F.eks. Dag 1" autocomplete="off"></label>
+        <label data-felt="dato-felt">Dato (ikke koblet til en kursdag) <input type="date" data-felt="dato"></label>
+      </div>
+      <div class="ks-pr hode" aria-hidden="true"><span></span><span>Fra</span><span>Til</span><span>Tema</span><span>Sted</span><span>Hvem</span><span>Pause</span><span></span></div>
+      <div data-felt="rader"></div>
+      <div class="ks-dag-f">
+        <button type="button" class="sekundar liten" data-ks="ny-rad" data-endrer>{{ bl.ikon('pluss') }}Rad</button>
+        <button type="button" class="sekundar liten" data-ks="ny-pause" data-endrer>{{ bl.ikon('pluss') }}Pause</button>
+        <button type="button" class="sekundar liten" data-ks="dag-tekst" data-endrer>{{ bl.ikon('tekst') }}Rediger som tekst</button>
+        <button type="button" class="sekundar liten" data-ks="dag-kopier" data-endrer>{{ bl.ikon('kopi') }}Kopier fra dag 1</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="ks-mal-program-rad">
+  <div class="ks-pr">
+    <button type="button" class="ks-grep" data-ks="rad-grep" data-endrer aria-label="Flytt raden (dra, eller Ctrl og piltastene)" title="Dra for å flytte">{{ bl.ikon('grep') }}</button>
+    <input type="text" data-felt="fra" inputmode="numeric" maxlength="5" placeholder="09:00" aria-label="Fra klokkeslett" autocomplete="off">
+    <input type="text" data-felt="til" inputmode="numeric" maxlength="5" placeholder="10:00" aria-label="Til klokkeslett" autocomplete="off">
+    <input type="text" data-felt="tema" maxlength="{{ g.tema }}" placeholder="Tema" aria-label="Tema" autocomplete="off">
+    <input type="text" data-felt="sted" maxlength="{{ g.sted_hvem }}" placeholder="Sted" aria-label="Sted" autocomplete="off">
+    <input type="text" data-felt="hvem" maxlength="{{ g.sted_hvem }}" placeholder="Hvem" aria-label="Hvem" autocomplete="off">
+    <label class="ks-pause-valg" title="Pause: raden vises dempet og uten sted og hvem"><input type="checkbox" data-felt="pause"><span>Pause</span></label>
+    <button type="button" class="ks-ib fare" data-ks="rad-slett" data-endrer aria-label="Fjern raden" title="Fjern raden">{{ bl.ikon('x') }}</button>
+  </div>
+</template>
+
+<template id="ks-mal-filer">
+  <div class="ks-rad">
+    <div class="ks-slipp" data-ks="filslipp">
+      {{ bl.ikon('last-opp') }}
+      <b>Slipp filene her</b>
+      <span>Du kan slippe mange filer samtidig, og endre dem etterpå. PDF, PowerPoint, Word, Excel, ZIP og lignende, opptil {{ data.grenser.fil_mb }} MB per fil.</span>
+      <button type="button" class="sekundar" data-ks="velg-filer" data-endrer>Velg filer …</button>
+      <input type="file" multiple hidden data-felt="filvalg" aria-label="Velg filer som skal lastes opp">
+    </div>
+    <div class="ks-filliste" data-felt="rader"></div>
+    <div class="ks-filliste ks-opplastinger" data-felt="opplastinger"></div>
+    <div class="ks-eksisterende"><label>Legg til en fil som allerede er lastet opp <select data-felt="eksisterende"><option value="">Velg fil …</option></select></label></div>
+    <div class="ks-kvote"><span data-felt="kvote-tekst"></span><progress max="100" value="0" data-felt="kvote-stolpe" aria-label="Brukt lagringsplass for Min side"></progress>
+      <button type="button" class="lenkeknapp" data-ks="filer-oversikt">Se alle filer</button></div>
+    <label class="valg"><input type="checkbox" data-felt="sharepoint">Vis også filene kursholder har lastet opp i kursmappen (SharePoint)</label>
+    <label class="valg"><input type="checkbox" data-felt="vis_kommende">Vis «Kommer …» for filer som ikke er synlige ennå</label>
+  </div>
+</template>
+
+<template id="ks-mal-fil-rad">
+  <div class="ks-fil" data-ks="filrad">
+    <button type="button" class="ks-grep" data-ks="rad-grep" data-endrer aria-label="Flytt filen (dra, eller Ctrl og piltastene)" title="Dra for å flytte">{{ bl.ikon('grep') }}</button>
+    <span class="ft" data-felt="ft" aria-hidden="true"></span>
+    <div class="mid">
+      <input type="text" data-felt="tittel" maxlength="{{ g.tittel }}" aria-label="Tittel på filen" autocomplete="off">
+      <small data-felt="under"></small>
+      <div class="ks-fil-valg">
+        <label>Dag <select data-felt="gruppe"><option value="">Ingen</option></select></label>
+        <label>Synlig fra <input type="date" data-felt="synlig_fra"></label>
+      </div>
+    </div>
+    <div class="hn">
+      <button type="button" class="ks-ib" data-ks="rad-opp" data-endrer aria-label="Flytt filen opp" title="Flytt opp">{{ bl.ikon('pilopp') }}</button>
+      <button type="button" class="ks-ib" data-ks="rad-ned" data-endrer aria-label="Flytt filen ned" title="Flytt ned">{{ bl.ikon('pilned') }}</button>
+      <button type="button" class="ks-ib" data-ks="fil-bytt" data-endrer aria-label="Bytt fil" title="Bytt fil (last opp en ny)">{{ bl.ikon('bytt') }}</button>
+      <button type="button" class="ks-ib fare" data-ks="fil-fjern" data-endrer aria-label="Fjern filen fra siden" title="Fjern fra siden">{{ bl.ikon('x') }}</button>
+    </div>
+  </div>
+</template>
+
+<template id="ks-mal-fil-opplaster">
+  <div class="ks-fil opplaster" role="status">
+    <span class="ks-grep-tom" aria-hidden="true"></span>
+    <span class="ft" data-felt="ft" aria-hidden="true">…</span>
+    <div class="mid"><b data-felt="navn"></b><small data-felt="under">Laster opp …</small>
+      <progress max="100" value="0" data-felt="prosent" aria-label="Fremdrift for opplastingen"></progress></div>
+    <div class="hn"><span class="ks-pst" data-felt="pst">0 %</span>
+      <button type="button" class="ks-ib" data-ks="avbryt-opplasting" aria-label="Avbryt opplastingen" title="Avbryt">{{ bl.ikon('x') }}</button></div>
+  </div>
+</template>
+
+<template id="ks-mal-lenker">
+  <div class="ks-rad">
+    <div class="ks-lenkeliste" data-felt="rader"></div>
+    <div class="ks-verktoyrad">
+      <button type="button" class="sekundar liten" data-ks="ny-lenke" data-endrer>{{ bl.ikon('pluss') }}Lenke</button>
+      <button type="button" class="sekundar liten" data-ks="lenke-tekst" data-endrer>{{ bl.ikon('tekst') }}Rediger som tekst</button>
+      <button type="button" class="sekundar liten" data-ks="lenke-zoom" data-endrer>{{ bl.ikon('lenke') }}Sett inn kursets Zoom-lenke</button>
+    </div>
+    <p class="ks-hjelp">Bare vanlige nettadresser (https), e-post og telefon godtas. Lenkene åpnes i ny fane. Lim inn flere linjer i et tittelfelt for å lage flere lenker på én gang.</p>
+  </div>
+</template>
+
+<template id="ks-mal-lenke-rad">
+  <div class="ks-lrad">
+    <button type="button" class="ks-grep" data-ks="rad-grep" data-endrer aria-label="Flytt lenken (dra, eller Ctrl og piltastene)" title="Dra for å flytte">{{ bl.ikon('grep') }}</button>
+    <div class="to">
+      <div class="to2 ks-lenke-topp">
+        <select data-felt="nivaa" aria-label="Nivå (grupperer litteratur)"><option value="">Ingen gruppe</option><option value="obligatorisk">Obligatorisk</option><option value="anbefalt">Anbefalt</option></select>
+        <input type="text" data-felt="tittel" maxlength="{{ g.tittel }}" placeholder="Tittel" aria-label="Tittel på lenken" autocomplete="off">
+      </div>
+      <div class="to2">
+        <input type="text" data-felt="url" inputmode="url" maxlength="{{ g.url }}" placeholder="https://…" aria-label="Adresse" autocomplete="off" spellcheck="false">
+        <input type="text" data-felt="tekst" maxlength="{{ g.lenke_tekst }}" placeholder="Beskrivelse (valgfri)" aria-label="Beskrivelse" autocomplete="off">
+      </div>
+      <p class="ks-zoomtekst" data-felt="zoomtekst" hidden>{{ bl.ikon('lenke') }}Kursets Zoom-lenke (hentes fra Oppsett når siden vises)</p>
+      <p class="ks-feiltekst" data-felt="feil" hidden>Lenken vises ikke – adressen må starte med https://</p>
+    </div>
+    <button type="button" class="ks-ib fare" data-ks="rad-slett" data-endrer aria-label="Fjern lenken" title="Fjern lenken">{{ bl.ikon('x') }}</button>
+  </div>
+</template>
+
+<template id="ks-mal-tabell">
+  <div class="ks-rad">
+    <div class="ks-verktoyrad">
+      <button type="button" class="sekundar liten" data-ks="tabell-excel" data-endrer>{{ bl.ikon('innhold') }}Lim inn fra Excel</button>
+      <button type="button" class="sekundar liten" data-ks="tabell-navn" data-endrer>{{ bl.ikon('gruppe') }}Legg til deltakere fra påmeldingslisten</button>
+      <button type="button" class="sekundar liten" data-ks="ny-kolonne" data-endrer>{{ bl.ikon('pluss') }}Kolonne</button>
+    </div>
+    <div class="ks-tabellflate" data-felt="tabell"></div>
+    <div class="ks-verktoyrad"><button type="button" class="sekundar liten" data-ks="ny-tabellrad" data-endrer>{{ bl.ikon('pluss') }}Rad</button></div>
+    <p class="ks-advarsel-tekst">{{ bl.ikon('las') }}<span>Navn vises for alle som er påmeldt kurset. Bruk fornavn og forbokstav. Ikke e-post eller telefon. Tabellen tømmes automatisk {{ tom_dager }} dager etter kurset.</span></p>
+  </div>
+</template>
+
+<template id="ks-mal-kontakt">
+  <div class="ks-rad">
+    <div data-felt="personer"></div>
+    <div class="ks-verktoyrad">
+      <button type="button" class="sekundar liten" data-ks="ny-person" data-endrer>{{ bl.ikon('pluss') }}Person</button>
+      <button type="button" class="sekundar liten" data-ks="hent-ansvarlig" data-endrer>{{ bl.ikon('bruker') }}Hent kursansvarlig fra Oppsett</button>
+    </div>
+    <p class="ks-hjelp">{{ bl.ikon('las') }} Bare arbeidsopplysninger (arbeids-e-post og -telefon), aldri private opplysninger.</p>
+  </div>
+</template>
+
+<template id="ks-mal-person">
+  <div class="ks-kontakt">
+    <span class="av" data-felt="initialer" aria-hidden="true"></span>
+    <div class="ks-kontakt-felt">
+      <label>Navn <input type="text" data-felt="navn" maxlength="{{ g.navn_rolle }}" autocomplete="off"></label>
+      <label>Rolle <input type="text" data-felt="rolle" maxlength="{{ g.navn_rolle }}" autocomplete="off"></label>
+    </div>
+    <div class="ks-kontakt-felt">
+      <label>Telefon <input type="text" data-felt="telefon" inputmode="tel" maxlength="20" autocomplete="off"></label>
+      <label>E-post <input type="text" data-felt="epost" inputmode="email" maxlength="200" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <button type="button" class="ks-ib fare" data-ks="rad-slett" data-endrer aria-label="Fjern personen" title="Fjern personen">{{ bl.ikon('x') }}</button>
+  </div>
+</template>
+
+<template id="ks-mal-bilde">
+  <div class="ks-rad">
+    <div class="ks-bildeboks">
+      <div class="ks-bildeflate" data-ks="filslipp"><img alt="" data-felt="bilde" hidden><span data-felt="ingen">{{ bl.ikon('bilde') }}Slipp et bilde her</span></div>
+      <div>
+        <div class="ks-verktoyrad">
+          <button type="button" class="sekundar" data-ks="velg-bilde" data-endrer>{{ bl.ikon('last-opp') }}<span data-felt="velg-tekst">Velg bilde …</span></button>
+          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden data-felt="filvalg" aria-label="Velg bildefil">
+        </div>
+        <p class="ks-hjelp" data-felt="bildeinfo"></p>
+        <label>Alternativ tekst <small>(påkrevd – leses opp for blinde)</small><input type="text" data-felt="alt" maxlength="{{ g.alt }}" autocomplete="off"></label>
+        <label>Bildetekst <small>(valgfri)</small><input type="text" data-felt="tekst" maxlength="{{ g.bildetekst }}" placeholder="F.eks. Foto: Anne Berg" autocomplete="off"></label>
+        <fieldset class="ks-niva-gruppe"><legend>Plassering</legend>
+          <div class="ks-niva-rad">
+            <label class="ks-niva i"><input type="radio" data-felt="plassering" value="topp">Toppbilde bak tittelen</label>
+            <label class="ks-niva i"><input type="radio" data-felt="plassering" value="bred">Bredt bilde i siden</label>
+            <label class="ks-niva i"><input type="radio" data-felt="plassering" value="liten">Lite bilde</label>
+          </div>
+        </fieldset>
+      </div>
+    </div>
+    <p class="ks-hjelp">Store bilder minskes automatisk i nettleseren før opplasting (maks 1600 piksler brede). JPG, PNG, GIF eller WebP, opptil {{ data.grenser.bilde_mb }} MB.</p>
+  </div>
+</template>

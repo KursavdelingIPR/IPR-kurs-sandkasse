@@ -16,7 +16,7 @@
   <tr>
     <td>{{ r.navn }}</td>
     <td class="liten">{{ r.epost }}</td>
-    <td><span class="merke {{ {'bekreftet':'ok','venteliste':'gul','avmeldt':'gra'}.get(r.status, 'gra') }}">{{ r.status }}</span></td>
+    <td><span class="merke {{ STATUSMERKE.get(r.status, 'gra') }}">{{ r.status|statusetikett }}</span></td>
     <td>{% if r.behandlingsbar %}<span class="merke ok">Ja</span>{% else %}<span class="merke gra">Nei</span>{% endif %}</td>
     <td class="liten">{{ r.hva_skjer or '–' }}</td>
     <td class="liten dempet">{{ r.arsak }}</td>
@@ -25,10 +25,13 @@
 </table></div>
 
 {% if antall_behandlingsbare %}
+{% set ekstra_rader = resultater | selectattr('behandlingsbar') | selectattr('status', 'equalto', 'ekstradeltaker') | list %}
+{% set med_faktura = resultater | selectattr('behandlingsbar') | rejectattr('status', 'equalto', 'ekstradeltaker') | list %}
 <div class="flash info" style="margin-top:16px">
   <strong>Når du bekrefter:</strong>
   <ul style="margin:6px 0 0 18px">
-    <li>Bekreftede deltakere får bekreftelse på e-post, og fakturering behandles etter kursets faktureringsoppsett.</li>
+    <li>{{ STATUS_FLERTALL.paameldt }} deltakere får bekreftelse på e-post, og fakturering behandles etter kursets faktureringsoppsett.</li>
+    {% if ekstra_rader %}<li>{{ STATUS_FLERTALL.ekstradeltaker }} ({{ ekstra_rader|length }}) får bekreftelse på e-post med bare samlingene de deltar på. De faktureres ikke: prisen er ikke kursets standardpris, så faktura sendes manuelt ved behov.</li>{% endif %}
     <li>Deltakere på venteliste får ventelistebeskjed.</li>
     <li>E-post og faktura kan ikke trekkes tilbake når de først er sendt.</li>
     <li>Deltakerne behandles én om gangen. Hvis noe går galt flere ganger på rad, stopper behandlingen av resten,
@@ -38,7 +41,7 @@
 
 {# Kun rader som var behandlingsbare her sendes videre. Serveren sjekker hver enkelt på nytt før den behandles. #}
 <form method="post" action="{{ url_for('admin_bulk_behandle', kurs_id=kurs.id) }}" style="margin-top:16px" data-en-gang
-      data-bekreft="Behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }} nå? E-post sendes og faktura opprettes. Dette kan ikke angres.">
+      data-bekreft="Behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }} nå? {{ 'E-post sendes og faktura opprettes.' if med_faktura else 'E-post sendes (ingen faktura opprettes).' }} Dette kan ikke angres.">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% for r in resultater if r.behandlingsbar %}<input type="hidden" name="paamelding_id" value="{{ r.paamelding_id }}">{% endfor %}
   <button data-venter="Behandler … vent litt">Send og behandle {{ antall_behandlingsbare }} {{ 'deltaker' if antall_behandlingsbare == 1 else 'deltakere' }}</button>

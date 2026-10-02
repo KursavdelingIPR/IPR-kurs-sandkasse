@@ -9,6 +9,7 @@ import re
 
 import pytest
 
+from adressehjelp import ADRESSE, csv_med_adresse
 from kurs import config, db, import_deltakere as imp
 
 RUTE = "/admin/kurs/{kid}/deltakere/importer"
@@ -46,8 +47,8 @@ def _admin_id(con):
     return con.execute("SELECT id FROM admin_bruker WHERE brukernavn=?", (config.ADMIN_BRUKERNAVN,)).fetchone()[0]
 
 
-def _csv(*rader: str, header: str = CSV_HEADER) -> bytes:
-    return "\n".join([header, *rader]).encode("utf-8-sig")
+def _csv(*rader: str, header: str = CSV_HEADER, adresse: bool = True) -> bytes:
+    return csv_med_adresse(header, rader, adresse)
 
 
 def _last_opp(klient, kid, innhold: bytes, filnavn="import.csv"):
@@ -115,7 +116,7 @@ def test_gyldig_csv_gir_preview(con):
     assert "Kari Nordmann" in tekst
     assert "kari@x.no" in tekst
     assert "Ny påmelding" in tekst
-    assert "Bekreftet" in tekst
+    assert '<span class="merke ok">Påmeldt</span>' in tekst and "Bekreftet" not in tekst
 
 
 def test_preview_skriver_ingenting_til_databasen(con):

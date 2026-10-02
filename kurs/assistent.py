@@ -87,9 +87,10 @@ def _fakta(con, deltaker_id, idag) -> list[str]:
             """SELECT p.id, p.status, k.id AS kid, k.navn, k.type, k.sted, k.start_kl, k.slutt_kl, k.zoom_url, k.status AS ks
                FROM paamelding p JOIN kurs k ON k.id=p.kurs_id
                WHERE p.deltaker_id=? AND p.status!='avmeldt' AND k.status NOT IN ('avsluttet','avlyst')""", (deltaker_id,)):
-        dager = [d["dato"] for d in db.kursdager(con, p["kid"])]
+        dager = [d["dato"] for d in db.paameldingens_kursdager(con, p["id"])]     # deltakerens egne dager (ekstradeltaker: valgte samlinger)
         kommende = [d for d in dager if d >= idag.isoformat()]
-        fakta.append(f"Din påmelding til «{p['navn']}» har status: {p['status']}.")
+        # Navnet deltakeren ser overalt ellers (Min side): databaseverdien «bekreftet» heter «påmeldt»
+        fakta.append(f"Din påmelding til «{p['navn']}» har status: {db.statusnavn(p['status']).lower()}.")
         if kommende:
             fakta.append(f"«{p['navn']}» har kursdager {', '.join(dager)}, kl. {p['start_kl']}–{p['slutt_kl']}. "
                          f"Neste kursdag er {kommende[0]}.")

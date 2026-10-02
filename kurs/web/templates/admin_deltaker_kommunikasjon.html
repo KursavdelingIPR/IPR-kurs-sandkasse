@@ -1,14 +1,27 @@
 {% extends "admin_deltaker_ramme.html" %}
 {% block deltakerinnhold %}
 <div class="seksjonstopp">
-  <p class="liten dempet">E-post sendt til {{ p.navn }} for dette kurset – automatisk og manuelt.</p>
-  <a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, paamelding_id=p.id) }}">Send e-post til {{ p.navn }}</a>
+  <p class="liten dempet">E-poster som er sendt for denne påmeldingen, nyeste først. Klikk på emnet for å se når den ble sendt, til hvem, hva som sto i den og eventuelle vedlegg.</p>
+  {% if admin_rolle != 'lese' %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, paamelding_id=p.id) }}">Send e-post til {{ p.navn }}</a>{% endif %}
 </div>
-<div class="tabellboks"><table>
-  <tr><th scope="col">Type/emne</th><th scope="col">Sendt</th></tr>
-  {% for m in meldinger %}
-  <tr><td>{% if m.utsending_id %}<a href="{{ url_for('admin_epost_detalj', kurs_id=kurs.id, utsending_id=m.utsending_id) }}">{{ m.emne }}</a>{% else %}{{ m.type }}{% endif %}</td>
-      <td class="liten dempet">{{ m.sendt_ts }}</td></tr>
-  {% else %}<tr><td colspan="2" class="dempet">Ingen e-post sendt ennå.</td></tr>{% endfor %}
+<div class="tabellboks"><table class="eposttabell">
+  <thead><tr><th scope="col">Emne</th><th scope="col">Dato</th><th scope="col">Kl.</th><th scope="col">Til</th>
+    <th scope="col">Fra</th><th scope="col">Sendt av</th><th scope="col">Status</th></tr></thead>
+  <tbody>
+  {% for e in eposter %}
+  <tr>
+    <td>{% if e.id %}<a href="{{ url_for('admin_deltaker_epost', kurs_id=kurs.id, paamelding_id=p.id, epost_id=e.id) }}" data-i-vindu>{{ e.emne }}</a>
+          {%- if e.antall_vedlegg %} <span class="liten dempet">({{ e.antall_vedlegg }} vedlegg)</span>{% endif %}
+        {% else %}<a href="{{ url_for('admin_deltaker_epost_eldre', kurs_id=kurs.id, paamelding_id=p.id, nokkel=e.nokkel, type=e.type) }}" data-i-vindu>{{ e.emne }}</a>
+          <div class="liten dempet">{{ ikke_lagret }}</div>{% endif %}</td>
+    <td class="ikke-brudd">{{ e.dato }}</td>
+    <td>{{ e.klokkeslett }}</td>
+    <td class="adresse">{{ e.til | epostadresse }}</td>
+    <td class="adresse">{{ (e.fra | epostadresse) if e.fra else '–' }}</td>
+    <td>{{ e.sendt_av or '–' }}</td>
+    <td><span class="merke {{ {'sendt': 'ok', 'feilet': 'feil', 'uavklart': 'gul', 'sender': 'gra'}.get(e.status, 'gul') }}">{{ e.status_tekst }}</span></td>
+  </tr>
+  {% else %}<tr><td colspan="7" class="dempet">Ingen e-poster er sendt for denne påmeldingen ennå.</td></tr>{% endfor %}
+  </tbody>
 </table></div>
 {% endblock %}

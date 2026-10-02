@@ -1,0 +1,24 @@
+{% extends "admin_base.html" %}
+{% from "_signatureditor.html" import signatureditor with context %}
+{% block hode %}{% include "_signatur_hode.html" %}{% endblock %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_signaturer') }}">← Signaturer</a></p>
+<h1>{{ 'Rediger signatur' if signatur else 'Ny signatur' }}</h1>
+{% if signatur and signatur.standard %}<p class="sub">Dette er standardsignaturen. Den brukes i alle kurs uten egen signatur og
+  av brukere som ikke har valgt hovedsignatur.</p>{% endif %}
+{% if i_bruk %}<p class="liten dempet">I bruk: {{ i_bruk | join('; ') }}. Endringer gjelder e-poster som sendes fra nå av –
+  e-poster som alt er sendt, endres aldri.</p>{% endif %}
+
+<form method="post" class="kort signaturskjema" data-skjemanavn="Signaturen"
+      action="{{ url_for('admin_signatur_rediger', signatur_id=signatur.id) if signatur else url_for('admin_signatur_ny') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if signatur %}<input type="hidden" name="versjon" value="{{ signatur.versjon }}">{% endif %}
+  <label for="f-navn">Navn *</label>
+  <input id="f-navn" name="navn" required maxlength="80" value="{{ navn }}" placeholder="For eksempel «Camilla» eller «Kursadministrasjonen»"
+         {{ 'readonly' if admin_rolle == 'lese' }}>
+  {{ signatureditor("innhold", innhold, "f-signatur", "Signatur", skrivebeskyttet=admin_rolle == 'lese') }}
+  {% if admin_rolle != 'lese' %}
+  <p class="knapper"><button>Lagre signaturen</button> <a class="knapp sekundar" href="{{ url_for('admin_signaturer') }}">Avbryt</a></p>
+  {% endif %}
+</form>
+{% endblock %}

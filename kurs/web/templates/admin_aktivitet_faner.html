@@ -1,5 +1,5 @@
+{#- Fanene på kalendersidene (Kalender i toppmenyen): selve kalenderen og årsplanen. Kurslisten ligger på Oversikten. -#}
 <nav class="faner">
-  <a class="{{ 'aktiv' if visning == 'liste' }}" href="{{ url_for('admin_aktiviteter') }}">Liste</a>
   <a class="{{ 'aktiv' if visning == 'kalender' }}" href="{{ url_for('admin_kalender') }}">Kalender</a>
   <a class="{{ 'aktiv' if visning == 'aarsplan' }}" href="{{ url_for('admin_aarsplan') }}">Årsplan</a>
 </nav>

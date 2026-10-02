@@ -77,8 +77,8 @@ def test_avmelding_og_automatisk_opprykk_i_lesbar_tekst(con):
 
     db.sett_paamelding_status(con, kari, "avmeldt", aktor=ADMIN)
     con.commit()
-    assert _hva(con, kari) == ["Avmeldt", "Påmeldt – bekreftet"]      # «avmelding» + statusendring = én rad
-    assert _rad(con, kari, "Avmeldt").detaljer == ["Status før: Bekreftet", "Ny status: Avmeldt"]
+    assert _hva(con, kari) == ["Avmeldt", "Påmeldt"]      # «avmelding» + statusendring = én rad
+    assert _rad(con, kari, "Avmeldt").detaljer == ["Status før: Påmeldt", "Ny status: Avmeldt"]
     assert _rad(con, kari, "Avmeldt").hvem == "Standardbruker"
 
     opprykk = _rad(con, nina, "Flyttet opp fra venteliste")
@@ -92,13 +92,13 @@ def test_bekreftet_over_kapasitet_og_status_fra_venteliste_til_bekreftet(con):
     ola = _meld_paa(con, kid, epost="ola@eksempel.no", fornavn="Ola")
     db.sett_paamelding_status(con, nina, "bekreftet", aktor=ADMIN, tillat_overbooking=True)
     con.commit()
-    over = _rad(con, nina, "Bekreftet over kapasitet")
-    assert over.detaljer == ["Kurset hadde 1 plass.", "Status før: Venteliste", "Ny status: Bekreftet"]
+    over = _rad(con, nina, "Påmeldt over kapasitet")
+    assert over.detaljer == ["Kurset hadde 1 plass.", "Status før: Venteliste", "Ny status: Påmeldt"]
 
     con.execute("UPDATE kurs SET kapasitet=10 WHERE id=?", (kid,))           # ledig plass, uten automatisk opprykk
     db.sett_paamelding_status(con, ola, "bekreftet", aktor=ADMIN)
     con.commit()
-    assert _hva(con, ola)[0] == "Status endret fra venteliste til bekreftet"
+    assert _hva(con, ola)[0] == "Status endret fra venteliste til påmeldt"
 
 
 def test_avslag_vises_som_en_rad(con):
@@ -106,8 +106,8 @@ def test_avslag_vises_som_en_rad(con):
     pid = _meld_paa(con, kid)
     db.avsla_paamelding(con, pid, aktor=ADMIN)
     con.commit()
-    assert _hva(con, pid) == ["Avslått", "Påmeldt – bekreftet"]
-    assert _rad(con, pid, "Avslått").detaljer == ["Status før: Bekreftet", "Ny status: Avslått"]
+    assert _hva(con, pid) == ["Avslått", "Påmeldt"]
+    assert _rad(con, pid, "Avslått").detaljer == ["Status før: Påmeldt", "Ny status: Avslått"]
 
 
 def test_satt_paa_venteliste_og_paameldt_paa_nytt(con):
@@ -119,11 +119,11 @@ def test_satt_paa_venteliste_og_paameldt_paa_nytt(con):
     db.sett_paamelding_status(con, pid, "avmeldt", aktor=ADMIN)
     db.sett_paamelding_status(con, pid, "venteliste", aktor=ADMIN)
     con.commit()
-    assert _hva(con, pid) == ["Satt på venteliste", "Avmeldt", "Påmeldt på nytt – bekreftet", "Avmeldt",
-                              "Påmeldt – bekreftet"]
+    assert _hva(con, pid) == ["Satt på venteliste", "Avmeldt", "Påmeldt på nytt", "Avmeldt",
+                              "Påmeldt"]
     assert _rad(con, pid, "Satt på venteliste").detaljer == ["Status før: Avmeldt", "Ny status: Venteliste"]
-    assert _rad(con, pid, "Påmeldt på nytt – bekreftet").detaljer == ["Kilde: Påmeldingsskjemaet"]
-    assert _rad(con, pid, "Påmeldt – bekreftet").detaljer == []               # kilden gjelder den siste påmeldingen
+    assert _rad(con, pid, "Påmeldt på nytt").detaljer == ["Kilde: Påmeldingsskjemaet"]
+    assert _rad(con, pid, "Påmeldt").detaljer == []               # kilden gjelder den siste påmeldingen
 
 
 def test_opprykk_naar_kurset_faar_flere_plasser(con):
@@ -151,10 +151,10 @@ def test_manuell_behandling_viser_resultatet(con):
 def test_hvem_viser_navn_systemet_deltakeren_selv_og_bedriftens_kontaktperson(con):
     kid = _kurs(con, kapasitet=10)
     kari = _meld_paa(con, kid)
-    assert _rad(con, kari, "Påmeldt – bekreftet").hvem == "Deltakeren selv"
+    assert _rad(con, kari, "Påmeldt").hvem == "Deltakeren selv"
     firma = _meld_paa(con, kid, epost="per@eksempel.no", fornavn="Per", paamelding={"kilde": "gruppe"})
-    assert _rad(con, firma, "Påmeldt – bekreftet").hvem == "Bedriftens kontaktperson"
-    assert _rad(con, firma, "Påmeldt – bekreftet").detaljer == ["Kilde: Bedriftspåmelding"]
+    assert _rad(con, firma, "Påmeldt").hvem == "Bedriftens kontaktperson"
+    assert _rad(con, firma, "Påmeldt").detaljer == ["Kilde: Bedriftspåmelding"]
 
     _hendelse(con, "sensitivt_endret", {"paamelding_id": kari}, aktor="admin:sluttet.ansatt")
     _hendelse(con, "sensitivt_endret", {"paamelding_id": kari}, aktor="admin")
@@ -167,7 +167,7 @@ def test_admin_registrering_viser_navnet_paa_den_som_registrerte(con):
     pid, _ = db.meld_paa(con, kid, epost="kari@eksempel.no", fornavn="Kari", etternavn="Test", aktor=ADMIN,
                          paamelding={"kilde": "admin"})
     con.commit()
-    rad = _rad(con, pid, "Påmeldt – bekreftet")
+    rad = _rad(con, pid, "Påmeldt")
     assert (rad.hvem, rad.detaljer) == ("Standardbruker", ["Kilde: Manuelt av administrator"])
 
 
@@ -265,7 +265,7 @@ def test_eposter_vises_ikke_i_logger(con):
     pid = _meld_paa(con, kid)
     _hendelse(con, "admin_epost_sendt", {"paamelding_id": pid, "kurs_id": kid}, aktor=ADMIN)
     _hendelse(con, "epost_ukjent", {"nokkel": f"kurs:{kid}", "type": "bekreftelse", "feil": "x", "paamelding_id": pid})
-    assert _hva(con, pid) == ["Påmeldt – bekreftet"]
+    assert _hva(con, pid) == ["Påmeldt"]
 
 
 def test_ukjent_hendelse_faar_generell_tekst_og_tekniske_data_bare_for_systemadministrator(con):
@@ -287,7 +287,7 @@ def test_innsyn_bare_for_systemadministrator(con):
     _hendelse(con, "sensitivt_vist", {"kurs_id": kid + 1}, aktor=ADMIN)                         # et annet kurs
 
     assert _logg(con, pid).innsyn is None
-    assert _hva(con, pid) == ["Påmeldt – bekreftet"]                          # innsyn er aldri med i hovedlisten
+    assert _hva(con, pid) == ["Påmeldt"]                          # innsyn er aldri med i hovedlisten
     innsyn = _logg(con, pid, systemadmin=True).innsyn
     assert [(r.hva, r.hvem) for r in innsyn] == [("Åpnet allergilisten for kurset", "Standardbruker"),
                                                  ("Åpnet deltakeren", "Standardbruker")]
@@ -323,8 +323,8 @@ def test_fanen_for_kursadmin_og_lesetilgang_er_lesbar_uten_json_og_innsyn(con):
     con.commit()
     for rolle in ("kursadmin", "lese"):
         html = _klient(con, rolle).get(f"/admin/kurs/{kid}/deltaker/{pid}/logger").get_data(as_text=True)
-        for tekst in ("Hva som skjedde", "Hvem", "Dato", "Klokkeslett", "Påmeldt – bekreftet", "Avmeldt",
-                      "Status før: Bekreftet", "Standardbruker", "Deltakeren selv"):
+        for tekst in ("Hva som skjedde", "Hvem", "Dato", "Klokkeslett", "Påmeldt", "Avmeldt",
+                      "Status før: Påmeldt", "Standardbruker", "Deltakeren selv"):
             assert tekst in html, (rolle, tekst)
         for tekst in ('"paamelding_id"', "status_endret", "sensitivt_vist", "Innsyn", "Tekniske data",
                       "Åpnet deltakeren"):

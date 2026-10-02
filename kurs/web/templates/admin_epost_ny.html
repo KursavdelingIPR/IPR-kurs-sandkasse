@@ -1,12 +1,14 @@
 {% extends "admin_base.html" %}
 {% from "_kodeknapper.html" import kodeknapper %}
+{% from "_signatureditor.html" import signatureditor with context %}
+{% block hode %}{% include "_signatur_hode.html" %}{% endblock %}
 {% block innhold %}
 <p class="liten"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">← {{ kurs.navn }}</a></p>
 <h1>Send e-post</h1>
 <p class="sub">{{ mottakere|length }} mottaker{{ 'e' if mottakere|length != 1 }}: {{ mottakere|map(attribute='navn')|join(', ') }}</p>
 <p class="liten dempet">Sendes som {{ mottakere|length }} separate e-poster – ingen mottaker ser hvem andre som fikk den.</p>
 
-<form method="post" action="{{ url_for('admin_epost_forhandsvis', kurs_id=kurs.id) }}" class="kort" style="max-width:640px">
+<form method="post" action="{{ url_for('admin_epost_forhandsvis', kurs_id=kurs.id) }}" class="kort" style="max-width:720px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% for m in mottakere %}<input type="hidden" name="paamelding_id" value="{{ m.id }}">{% endfor %}
   <label for="f-emne">Emne * <span class="liten dempet">(maks {{ emne_maks }} tegn)</span></label>
@@ -14,8 +16,19 @@
   <label for="f-tekst">Melding * <span class="liten dempet">(maks {{ tekst_maks }} tegn)</span></label>
   <textarea id="f-tekst" name="tekst" rows="8" required maxlength="{{ tekst_maks }}" aria-describedby="hjelp-tekst">{{ tekst }}</textarea>
   <p id="hjelp-tekst" class="liten dempet" style="margin:8px 0 4px">Det legges ikke til noen hilsen automatisk. Skriv for eksempel
-    «Hei {fornavn},» der du vil ha den – hver mottaker får sitt eget navn. Klikk på et flettefelt for å sette det inn der markøren står:</p>
+    «Hei {fornavn},» der du vil ha den – hver mottaker får sitt eget navn. Flettefeltet {min_side} gir hver mottaker sin egen lenke til Min side.
+    Klikk på et flettefelt for å sette det inn der markøren står:</p>
   {{ kodeknapper("f-tekst", manuelle_koder, koder) }}
+  <div class="signaturvelger">
+    <label for="f-signaturvalg">Signatur</label>
+    <select id="f-signaturvalg" name="signatur_valg" data-velg-signatur="f-signatur" aria-describedby="hjelp-signatur">
+      {% for s in signaturliste %}<option value="{{ s.id }}" {{ 'selected' if s.id == signatur_valgt }}>{{ s.navn }}{{ ' (standard)' if s.standard }}</option>{% endfor %}
+    </select>
+    <p id="hjelp-signatur" class="liten dempet">Din hovedsignatur er valgt på forhånd. Du kan velge en annen, eller endre teksten
+      under – endringen gjelder bare denne e-posten, og signaturen i biblioteket endres ikke.</p>
+    {% for s in signaturliste %}<template data-signaturmal="{{ s.id }}">{{ s.innhold_renset | safe }}</template>{% endfor %}
+    {{ signatureditor("signatur_html", signatur_html, "f-signatur", "Signaturen i denne e-posten") }}
+  </div>
   <p style="margin-top:16px"><button class="liten sekundar">{{ 'Oppdater forhåndsvisning' if forhandsvisning else 'Forhåndsvis' }}</button></p>
 </form>
 
@@ -28,6 +41,8 @@
   {% for m in mottakere %}<input type="hidden" name="paamelding_id" value="{{ m.id }}">{% endfor %}
   <input type="hidden" name="emne" value="{{ emne }}">
   <input type="hidden" name="tekst" value="{{ tekst }}">
+  <input type="hidden" name="signatur_html" value="{{ signatur_html }}">
+  <input type="hidden" name="signatur_valg" value="{{ signatur_valgt or '' }}">
   <label for="f-eksempel" style="display:inline; margin-right:8px">Vis eksempel for:</label>
   <select id="f-eksempel" name="eksempel_paamelding_id" data-send-ved-endring style="width:auto; display:inline-block">
     {% for m in mottakere %}<option value="{{ m.id }}" {{ 'selected' if m.id == forhandsvisning.eksempel_id }}>{{ m.navn }}</option>{% endfor %}

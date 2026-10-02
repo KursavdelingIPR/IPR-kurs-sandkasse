@@ -1,0 +1,97 @@
+{% extends "admin_base.html" %}
+{% block hode %}{% include "_signatur_hode.html" %}{% endblock %}
+{% block innhold %}
+<h1>Signaturer</h1>
+<p class="sub">Signaturer med formatering, lenker og logo – som i Outlook. Manuelle e-poster får avsenderens hovedsignatur.
+  Påminnelser, kursbevis, avlysning og avslag får kursets signatur, ellers standardsignaturen.</p>
+{% set epostfane = 'signaturer' %}
+{% include "_epost_faner.html" %}
+
+<section class="kort signaturvalg" aria-labelledby="min-hovedsignatur">
+  <h2 id="min-hovedsignatur">Min hovedsignatur</h2>
+  <p class="liten dempet">Fylles inn automatisk når du sender e-post til deltakere. Du kan bytte eller endre den i hver e-post.</p>
+  {% if admin_rolle != 'lese' %}
+  <form method="post" action="{{ url_for('admin_signatur_hovedsignatur') }}" class="linjeskjema">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="f-hovedsignatur" class="skjul-visuelt">Min hovedsignatur</label>
+    <select id="f-hovedsignatur" name="signatur_id">
+      <option value="" {{ 'selected' if not min_hovedsignatur }}>Standardsignaturen ({{ standard.navn }})</option>
+      {% for s in signaturliste %}<option value="{{ s.id }}" {{ 'selected' if s.id == min_hovedsignatur }}>{{ s.navn }}</option>{% endfor %}
+    </select>
+    <button class="liten">Lagre</button>
+  </form>
+  {% endif %}
+</section>
+
+<div class="seksjonstopp">
+  <h2>Biblioteket ({{ signaturliste|length }})</h2>
+  {% if admin_rolle != 'lese' %}<a class="knapp liten" href="{{ url_for('admin_signatur_ny') }}">Ny signatur +</a>{% endif %}
+</div>
+<div class="signaturliste">
+  {% for s in signaturliste %}
+  <article class="kort signaturkort" aria-labelledby="signatur-{{ s.id }}">
+    <header>
+      <h3 id="signatur-{{ s.id }}">{{ s.navn }}</h3>
+      {% if s.standard %}<span class="merke ok" title="Brukes når ingenting annet er valgt">Standard (reserve)</span>{% endif %}
+    </header>
+    <div class="epostsignatur signaturvisning">{{ s.innhold_renset | safe }}</div>
+    <p class="liten dempet bruk">
+      {%- set bruk = [] %}
+      {%- if s.hovedsignatur_for %}{% set _ = bruk.append('hovedsignatur for ' ~ s.hovedsignatur_for|join(', ')) %}{% endif %}
+      {%- if s.antall_kurs %}{% set _ = bruk.append(s.antall_kurs ~ ' kurs') %}{% endif %}
+      {{ ('Brukes av: ' ~ bruk|join(' · ')) if bruk else ('Ikke i bruk' if not s.standard else 'Brukes når ingenting annet er valgt') }}
+    </p>
+    {% if admin_rolle != 'lese' %}
+    <div class="knapper">
+      <a class="knapp liten" href="{{ url_for('admin_signatur_rediger', signatur_id=s.id) }}">Rediger</a>
+      {% if not s.standard %}
+      <form method="post" action="{{ url_for('admin_signatur_standard', signatur_id=s.id) }}"
+            data-bekreft="Gjøre «{{ s.navn }}» til standardsignatur? Den brukes da i alle kurs uten egen signatur.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Gjør til standard</button>
+      </form>
+      <form method="post" action="{{ url_for('admin_signatur_slett', signatur_id=s.id) }}" data-bekreft="Slette signaturen «{{ s.navn }}»?">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar fare">Slett</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>
+
+<h2 id="bilder">Bilder</h2>
+<p class="liten dempet">Logoer og bannere til signaturene. Bare PNG, JPEG og GIF, maks 1 MB og {{ bilde_maks_bredde }} piksler bredt.
+  Bildene sendes inne i selve e-posten – mottakeren trenger ikke å laste ned bilder, og det brukes ingen sporing.</p>
+{% if admin_rolle != 'lese' %}
+<form method="post" action="{{ url_for('admin_signatur_bilde_last_opp') }}" enctype="multipart/form-data" class="kort bildeopplasting">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div>
+    <label for="f-bilde">Bildefil</label>
+    <input id="f-bilde" type="file" name="bilde" accept="image/png,image/jpeg,image/gif" required>
+  </div>
+  <div>
+    <label for="f-alt">Alternativ tekst *</label>
+    <input id="f-alt" name="alt" maxlength="200" required placeholder="For eksempel «IPR-logo»" aria-describedby="hjelp-alt">
+    <span id="hjelp-alt" class="liten dempet">Vises hvis bildet ikke lastes, og leses opp av skjermlesere.</span>
+  </div>
+  <div class="handlinger"><button class="liten">Last opp</button></div>
+</form>
+{% endif %}
+<div class="bildeliste">
+  {% for b in bilder %}
+  <figure class="kort bildekort">
+    <img src="{{ url_for('admin_signatur_bilde', bilde_id=b.id) }}" alt="{{ b.alt }}">
+    <figcaption>
+      <strong>{{ b.alt }}</strong>
+      <span class="liten dempet">{{ b.filnavn }} · {{ b.bredde }}×{{ b.hoyde }} px · {{ b.storrelse | filstorrelse }}</span>
+      <span class="liten dempet">{{ ('Brukes i ' ~ b.brukt_i|join(', ')) if b.brukt_i else 'Ikke i bruk' }}</span>
+      {% if admin_rolle != 'lese' and not b.brukt_i %}
+      <form method="post" action="{{ url_for('admin_signatur_bilde_slett', bilde_id=b.id) }}" data-bekreft="Slette bildet «{{ b.alt }}»?">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar fare">Slett bildet</button>
+      </form>
+      {% endif %}
+    </figcaption>
+  </figure>
+  {% else %}<p class="dempet">Ingen bilder ennå.</p>{% endfor %}
+</div>
+{% endblock %}

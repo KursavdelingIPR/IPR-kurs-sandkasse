@@ -3,11 +3,18 @@
 {% include "admin_kurs_header.html" %}
 {% include "admin_kurs_faner.html" %}
 
+{% set idag_dag = dager | selectattr('dato', 'equalto', idag) | first %}
+{% if idag_dag %}
+<div class="varselboks" style="margin-bottom:14px; display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px">
+  <span><strong>Kurset har kursdag i dag.</strong> Får noen ikke skannet QR-koden, åpner du oppmøtelisten på mobilen og trykker på navnene.</span>
+  <a class="knapp" href="{{ url_for('admin_kurs_oppmote', kurs_id=kurs.id, dag_id=idag_dag.id) }}">{{ 'Se oppmøteliste i dag' if admin_rolle == 'lese' else 'Ta opp oppmøte i dag' }}</a>
+</div>
+{% endif %}
+
 <div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); margin-bottom:18px">
-  <div class="kort"><div class="liten dempet">Bekreftet</div><div class="stat">{{ tellere.bekreftet or 0 }}</div></div>
-  <div class="kort"><div class="liten dempet">Venteliste</div><div class="stat">{{ tellere.venteliste or 0 }}</div></div>
-  <div class="kort"><div class="liten dempet">Avmeldt</div><div class="stat">{{ tellere.avmeldt or 0 }}</div></div>
-  {% for s in ('avslatt', 'utgatt', 'forlatt') if tellere[s] %}<div class="kort"><div class="liten dempet">{{ statusvalg[s] }}</div><div class="stat">{{ tellere[s] }}</div></div>{% endfor %}
+  {# Alle syv statusene i samme rekkefølge som filteret. Påmeldt, Venteliste og Avmeldt vises alltid; de andre bare når noen har dem. #}
+  {% for s in statusvalg if s in ('paameldt', 'venteliste', 'avmeldt') or tellere[s] %}<div class="kort"><div class="liten dempet">{{ statusvalg[s] }}</div><div class="stat">{{ tellere[s] or 0 }}</div></div>
+  {% endfor %}
   <div class="kort"><div class="liten dempet">Totalt registrert</div><div class="stat">{{ totalt }}</div></div>
 </div>
 
@@ -18,9 +25,30 @@
   <a class="knapp sekundar liten" id="eksporter-treff" data-grunnadresse="{{ url_for('admin_csv', kurs_id=kurs.id) }}"
      href="{{ url_for('admin_csv', kurs_id=kurs.id, sok=sok or None, status=statuser or None) }}">Eksporter {{ 'treff (Excel)' if (sok or statuser) else 'deltakerliste (Excel)' }}</a>
   {% if kurs.type != 'digital' %}<a class="knapp sekundar liten" href="{{ url_for('admin_allergiliste', kurs_id=kurs.id) }}">Allergi-/tilretteleggingsliste</a>{% endif %}
-  {% if tellere.bekreftet %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='bekreftet') }}">Send e-post til alle bekreftede</a>{% endif %}
+  {% if antall_med_plass %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='bekreftet') }}">Send e-post til alle {{ STATUS_FLERTALL.paameldt|lower }}{% if tellere.ekstradeltaker %} og {{ STATUS_FLERTALL.ekstradeltaker|lower }}{% endif %}</a>{% endif %}
   {% if tellere.venteliste %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='venteliste') }}">Send e-post til venteliste</a>{% endif %}
 </div>
+
+{% if antall_adresse_venter %}
+<div class="varselboks" id="adressekontroll-liste" style="margin-bottom:14px">
+  <strong>{{ FAKTURA_HOLDT_ADRESSE }}</strong>
+  <p class="liten dempet" style="margin:6px 0 0">{{ antall_adresse_venter }} {{ 'påmelding' if antall_adresse_venter == 1 else 'påmeldinger' }} på dette kurset betaler selv, men har ikke komplett privat adresse (adresse, postnummer og poststed; en delvis adresse er tatt vare på, men gjelder ikke). Fakturaen holdes tilbake og lages først når alle tre er lagt inn. Åpne deltakeren og fyll inn adresse, postnummer og poststed under Personopplysninger.</p>
+</div>
+{% endif %}
+
+{% if antall_firma_mangler %}
+<div class="varselboks" id="firmakontroll" style="margin-bottom:14px">
+  <strong>{{ FIRMA_MERKE }}</strong>
+  <p class="liten dempet" style="margin:6px 0 10px">{{ antall_firma_mangler }} {{ 'påmelding' if antall_firma_mangler == 1 else 'påmeldinger' }} på dette kurset har ikke fått firmanavn og fakturaadresse fra Enhetsregisteret ennå (for eksempel fordi registeret ikke svarte da påmeldingen ble registrert). Fakturaen lages først når opplysningene er på plass. Systemet prøver på nytt hver morgen{% if admin_rolle != 'lese' %}, eller du kan prøve nå{% endif %}.</p>
+  {% if admin_rolle != 'lese' %}
+  <form method="post" action="{{ url_for('admin_firmaopplysninger') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="kurs_id" value="{{ kurs.id }}">
+    <button>Hent manglende firmaopplysninger</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
 
 <!-- Egen (tom) form som avkrysningsboksene i tabellen peker paa via HTML5 "form"-attributtet,
      slik at den ikke kolliderer med per-rad-skjemaene inni tabellen (skjema kan ikke nestes).
@@ -56,14 +84,29 @@
 <div class="tabellboks"><table>
   <tr><th scope="col"></th><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Telefon</th><th scope="col">Arbeidssted</th><th scope="col">Fakturastatus</th><th scope="col">Påmeldingsstatus</th><th scope="col">Sist oppdatert</th><th scope="col"></th></tr>
   {% for p in deltakere %}
-  <tr data-filtrer="deltaker" data-status="{{ p.statusnokkel }}" data-sok="{{ p.sokbar }}" {{ 'hidden' if not p.synlig }} style="{{ 'opacity:.5' if p.status == 'avmeldt' }}">
+  <tr data-filtrer="deltaker" data-status="{{ p.statusnokkel }}" data-sok="{{ p.sokbar }}" {{ 'hidden' if not p.synlig }}{% if p.status == 'avmeldt' %} class="inaktiv"{% endif %} id="rad-{{ p.id }}">
     <td><input type="checkbox" class="valgt-deltaker" name="paamelding_id" value="{{ p.id }}" form="valgte-deltakere" aria-label="Velg {{ p.navn }}"></td>
-    <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}" data-deltaker-vindu><strong>{{ p.navn }}</strong></a></td>
+    <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}" data-deltaker-vindu><strong>{{ p.navn }}</strong></a>{% if p.firma_mangler %}<div><span class="merke gul">{{ FIRMA_MERKE }}</span></div>{% endif %}{% if p.adresse_merke %}<div><span class="merke gul" title="{{ 'Bare en del av den private adressen er lagt inn. Åpne deltakeren og fyll inn det som mangler under Personopplysninger.' if p.adresse_merke == ADRESSE_UFULLSTENDIG_MERKE else 'Privat adresse er ikke lagt inn. Åpne deltakeren og fyll den inn under Personopplysninger.' }}{% if p.faktura_venter_adresse %} Fakturaen holdes tilbake til alle tre feltene er lagt inn.{% endif %}">{{ p.adresse_merke }}</span></div>{% endif %}</td>
     <td class="liten">{{ p.epost }}</td>
     <td class="liten">{{ p.telefon or '' }}</td>
     <td class="liten">{{ p.arbeidssted or '' }}</td>
-    <td><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul'}.get(p.fakturastatus, 'gra') }}">{{ p.fakturastatus }}</span></td>
-    <td><span class="merke {{ p|statusmerke }}">{{ p|paameldingsstatus }}</span></td>
+    <td><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul','Venter på privat adresse':'gul'}.get(p.fakturastatus, 'gra') }}">{{ p.fakturastatus }}</span></td>
+    <td class="statuscelle">{% if p.status_tekster is defined %}
+      {# Endrer status med den vanlige statusruten. `neste` (listen med søk og filter) gjør at admin kommer tilbake hit. #}
+      <form class="radstatus" method="post" action="{{ url_for('admin_deltaker_status', kurs_id=kurs.id, paamelding_id=p.id) }}"
+            data-status-bekreft data-radstatus data-naa="{{ p.statusnokkel }}"{% if p.full_tekst %} data-full-bekreft="{{ p.full_tekst }}"{% endif %}{% if flere_samlinger %} data-ekstra-steg{% endif %}>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="neste" value="{{ neste }}">
+        {# Statusen raden hadde da listen ble lastet: er den endret siden, gjør ruten ingenting (dialogen beskrev noe annet). #}
+        <input type="hidden" name="forventet" value="{{ p.statusnokkel }}">
+        {% if p.full_tekst %}<input type="hidden" name="overbooking" value="">{% endif %}
+        <select name="status" class="statusvelger {{ p|statusmerke }}" aria-label="Påmeldingsstatus for {{ p.navn }}" title="Velg en annen status og trykk Endre">
+          {% for verdi, navn in statusvalg.items() %}<option value="{{ verdi }}"{% if verdi == p.statusnokkel %} selected{% else %} data-bekreft="{{ p.status_tekster[verdi] }}"{% endif %}>{{ navn }}</option>{% endfor %}
+        </select>
+        <button class="liten sekundar" aria-label="Endre status for {{ p.navn }}">Endre</button>
+      </form>
+      {%- else %}<span class="merke {{ p|statusmerke }}">{{ p|paameldingsstatus }}</span>{% endif %}
+      {%- if p.utvalg_tekst %}<div class="liten dempet utvalg-tekst" title="Samlingene {{ STATUS.ekstradeltaker|lower }}en deltar på">{{ p.utvalg_tekst }}</div>{% endif %}</td>
     <td class="liten dempet">{{ p.oppdatert[:16].replace('T', ' ') }}</td>
     <td>{% if p.status != 'avmeldt' and kurs.status != 'avsluttet' %}<form method="post" action="{{ url_for('admin_meld_av', pid=p.id) }}" data-bekreft="Melde av {{ p.navn }}?" style="margin:0">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Meld av</button></form>{% endif %}</td>
@@ -80,26 +123,29 @@
 {% endif %}
 
 <h2 id="oppmote">Oppmøteregistrering</h2>
-<p class="liten dempet">Klikk på en dag for å registrere/fjerne oppmøte manuelt. Q = QR, K = kode, Z = Zoom, M = manuell.</p>
+<p class="liten dempet">Klikk på en dag for å registrere/fjerne oppmøte manuelt. Q = QR, K = kode, Z = Zoom, M = manuell.
+  {% if dager %}På mobilen er <a href="{{ url_for('admin_kurs_oppmote_standard', kurs_id=kurs.id) }}">oppmøtelisten</a> enklere: én stor rad per person.{% endif %}
+  {% if deltakere | selectattr('egne_dager') | list %}Nedtonede dager er samlinger en ekstradeltaker ikke er satt opp på: de teller ikke, men du kan fortsatt registrere manuelt.{% endif %}</p>
 <div class="tabellboks"><table>
   <tr><th scope="col">Navn</th>{% for d in dager %}<th scope="col" style="text-align:center">{{ d.dato[5:] }}</th>{% endfor %}</tr>
-  {% set bekreftede = deltakere | selectattr('status', 'equalto', 'bekreftet') | list %}
-  {% for p in bekreftede %}
+  {% set paameldte = deltakere | selectattr('status', 'equalto', 'bekreftet') | list %}
+  {% for p in paameldte %}
   <tr data-filtrer="oppmote" data-status="{{ p.statusnokkel }}" data-sok="{{ p.sokbar }}" {{ 'hidden' if not p.synlig }}>
-    <td>{{ p.navn }}</td>
-    {% for d in dager %}{% set k = oppmote.get((p.id, d.id)) %}
-    <td style="text-align:center">
+    <td>{{ p.navn }}{% if p.utvalg_tekst and p.egne_dager is not none %}<div class="liten dempet">{{ p.utvalg_tekst }}</div>{% endif %}</td>
+    {% for d in dager %}{% set k = oppmote.get((p.id, d.id)) %}{% set utenfor = p.egne_dager is not none and d.id not in p.egne_dager %}
+    <td style="text-align:center"{% if utenfor %} class="dempet-dag" title="Ikke satt opp på denne samlingen – teller ikke"{% endif %}>
       <form method="post" action="{{ url_for('admin_oppmote', kurs_id=kurs.id) }}" style="margin:0">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="paamelding_id" value="{{ p.id }}"><input type="hidden" name="kursdag_id" value="{{ d.id }}">
-        <button class="liten {{ '' if k else 'sekundar' }}" style="min-width:34px" title="{{ k or 'ikke registrert' }}">{{ {'qr':'Q','kode':'K','zoom':'Z','manuell':'M'}.get(k, '–') }}</button>
+        {# Utenfor utvalget sies også i teksten på knappen (skjult for øyet): skjermleser og tastatur får samme beskjed som skravuren gir #}
+        <button class="liten {{ '' if k else 'sekundar' }}" style="min-width:34px" title="{{ k or 'ikke registrert' }}">{{ {'qr':'Q','kode':'K','zoom':'Z','manuell':'M'}.get(k, '–') }}{% if utenfor %}<span class="skjul-visuelt"> {{ 'registrert' if k else 'ikke registrert' }}, utenfor utvalget – teller ikke</span>{% endif %}</button>
       </form>
     </td>
     {% endfor %}
   </tr>
-  {% else %}<tr><td colspan="{{ dager|length + 1 }}" class="dempet">Ingen bekreftede deltakere.</td></tr>{% endfor %}
-  {% if bekreftede %}<tr data-ingen-treff="oppmote" {{ 'hidden' if bekreftede | selectattr('synlig') | list }}>
-    <td colspan="{{ dager|length + 1 }}" class="dempet">Ingen bekreftede deltakere matcher søket.</td></tr>{% endif %}
+  {% else %}<tr><td colspan="{{ dager|length + 1 }}" class="dempet">Ingen {{ STATUS_FLERTALL.paameldt|lower }} deltakere.</td></tr>{% endfor %}
+  {% if paameldte %}<tr data-ingen-treff="oppmote" {{ 'hidden' if paameldte | selectattr('synlig') | list }}>
+    <td colspan="{{ dager|length + 1 }}" class="dempet">Ingen {{ STATUS_FLERTALL.paameldt|lower }} deltakere matcher søket.</td></tr>{% endif %}
 </table></div>
 
 <!-- Vinduet som åpnes når man klikker på et navn i listen. Innholdet hentes fra deltakersiden (se static/app.js). -->

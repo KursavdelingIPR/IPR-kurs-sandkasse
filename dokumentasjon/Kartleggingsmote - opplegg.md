@@ -112,7 +112,7 @@ Kort demo-manus. Admin-passord i demo er `demo`.
 
 1. **Forside → et kurs → meld på en testperson** med arbeidsgiver som betaler. Vis kvitteringen.
 2. **Admin → Utboks:** bekreftelses-e-posten er "sendt". Tilbake til kurset: fakturanummer er satt.
-3. **Admin → Parterapi-kurset → "Vis QR på skjerm"** for dagens kursdag. Skann med mobilen, eller gå til `/innsjekk` og tast koden. Oppmøtet dukker opp i matrisen.
+3. **Admin → Parterapi-kurset → "Vis QR på skjerm"** for dagens kursdag. Skann med mobilen, eller åpne Min side (lenken i e-posten), trykk «Registrer oppmøte» og tast koden. Oppmøtet dukker opp i matrisen.
 4. **Veiledning i gruppe:** kurset er fullt. **Meld av** én deltaker og vis at første på ventelisten får plass og e-post automatisk.
 5. **Min side:** logg inn som `kari.nordmann@example.no` (lenken vises direkte i demo). Vis kurs, oppmøte, materiell, kontrakt, kursbevis og EFT-timer.
 6. **Admin → Daglig kjøring:** velg en dato om 5 dager og kjør tørt. Vis hvilke e-poster og påminnelser som ville gått ut.

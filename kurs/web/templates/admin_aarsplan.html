@@ -1,113 +1,197 @@
 {% extends "admin_base.html" %}
 {% block tittel %}Årsplan {{ aar }}{% endblock %}
-{% block hode %}<style>
-  table.aar { table-layout:fixed; font-size:12px; }
-  table.aar th, table.aar td { padding:3px 0; text-align:center; border:1px solid var(--linje); }
-  table.aar th { font-size:11px; letter-spacing:0; }
-  table.aar th.mnd { width:88px; text-align:left; padding-left:8px; text-transform:none; font-size:12px; }
-  table.aar td { height:26px; font-weight:600; }
-  table.aar td.helg { background:#f1f3f4; }
-  table.aar td.utenfor { background:repeating-linear-gradient(45deg, #eceff1, #eceff1 3px, #fff 3px, #fff 6px); }
-  table.aar td.kurs { background:var(--bla); color:#fff; }
-  table.aar td.plan { background:#fbf1d9; color:var(--gul); box-shadow:inset 0 0 0 1px var(--gul); }
-  table.aar td.notat { color:var(--dempet); }
-  table.aar td.overlapp { background:var(--feil); color:#fff; }
-  table.aar td.idag { box-shadow:inset 0 0 0 3px #f3a53d; }
-  .forklaring span { display:inline-block; min-width:22px; text-align:center; border-radius:4px; padding:0 5px; margin:0 4px 0 10px; font-weight:600; }
-  .forklaring .kurs { background:var(--bla); color:#fff; } .forklaring .plan { background:#fbf1d9; color:var(--gul); }
-  .forklaring .notat { border:1px solid var(--linje); color:var(--dempet); } .forklaring .overlapp { background:var(--feil); color:#fff; }
-  .maaneder { grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); }
-  .maaneder h3 { margin:0 0 8px; font-size:16px; }
-  .maaneder p { margin:0 0 6px; }
-  .plan-rad { margin:0 0 8px; }
-  .plan-rad .notattekst { white-space:pre-line; }
-  details > summary { cursor:pointer; font-weight:600; color:var(--bla); }
-  .valg { display:inline-flex; align-items:center; font-weight:normal; font-size:14px; margin:4px 18px 4px 0; }
-</style>{% endblock %}
+{% block sideklasse %} class="bred"{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kursfarger.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='aarsplan.css') }}">{% endblock %}
+{% from "_periodefelt.html" import periodefelt with context %}
 {% block innhold %}
 <h1>Årsplan {{ aar }}</h1>
-<p class="sub">Alle kurs kommer med automatisk (unntatt avlyste). Legg til planlagte aktiviteter og notater for å se hele
-  året samlet, oppdage overlapp og finne ledige perioder.</p>
+<p class="sub">Hele året måned for måned: kurs og samlinger, røde dager, skoleferier og egne perioder. Ledige perioder, kollisjoner
+  og konflikter står under kalenderen. Ingenting her hindrer at kurs opprettes.</p>
+{% set visning = 'aarsplan' %}
 {% include "admin_aktivitet_faner.html" %}
 
-<div class="verktoylinje ikke-utskrift">
-  <a class="knapp sekundar liten" href="{{ url_for('admin_aarsplan', aar=aar - 1) }}">« {{ aar - 1 }}</a>
-  <a class="knapp sekundar liten" href="{{ url_for('admin_aarsplan', aar=aar + 1) }}">{{ aar + 1 }} »</a>
-  {% if aar != idag.year %}<a class="liten" href="{{ url_for('admin_aarsplan') }}">I år</a>{% endif %}
+<div class="kalenderverktoy ikke-utskrift">
+  <a class="knapp sekundar liten" href="{{ url_for('admin_aarsplan', aar=aar - 1, vis=aarsvisning if aarsvisning != 'aar' else None, omraade=omraade or None) }}">« {{ aar - 1 }}</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_aarsplan', aar=aar + 1, vis=aarsvisning if aarsvisning != 'aar' else None, omraade=omraade or None) }}">{{ aar + 1 }} »</a>
+  {% if aar != idag.year %}<a class="liten" href="{{ url_for('admin_aarsplan', vis=aarsvisning if aarsvisning != 'aar' else None, omraade=omraade or None) }}">I år</a>{% endif %}
   <span class="liten dempet">{{ antall_kurs }} kurs · {{ antall_kursdager }} kursdag{{ 'er' if antall_kursdager != 1 }} · {{ antall_planer }} {{ 'planlagt aktivitet' if antall_planer == 1 else 'planlagte aktiviteter' }}</span>
-  <button type="button" class="sekundar liten plass" data-skriv-ut>Skriv ut</button>
+  <form method="get" class="omraadevalg">
+    <input type="hidden" name="aar" value="{{ aar }}">{% if aarsvisning != 'aar' %}<input type="hidden" name="vis" value="{{ aarsvisning }}">{% endif %}
+    <label for="f-omraade" class="liten">Skoleferier:</label>
+    <select id="f-omraade" name="omraade" data-send-ved-endring>
+      <option value="">Alle områder</option>
+      {% for o in omraader %}<option value="{{ o }}"{{ ' selected' if o == omraade }}>{{ o }}</option>{% endfor %}
+    </select>
+    <noscript><button class="liten sekundar">Vis</button></noscript>
+  </form>
+  <nav class="visningsvalg" aria-label="Visning">
+    <a href="{{ url_for('admin_aarsplan', aar=aar, omraade=omraade or None) }}"{{ ' aria-current="page"'|safe if aarsvisning == 'aar' }}>Året</a>
+    <a href="{{ url_for('admin_aarsplan', aar=aar, vis='uker', omraade=omraade or None) }}"{{ ' aria-current="page"'|safe if aarsvisning == 'uker' }}>Uke for uke</a>
+  </nav>
+  <button type="button" class="sekundar liten" data-skriv-ut>Skriv ut</button>
 </div>
 
-{% if admin_rolle != 'lese' %}
-<details id="ny" class="kort ikke-utskrift"{% if skjema %} open{% endif %}>
-<summary>＋ Legg inn planlagt aktivitet eller notat</summary>
-<form method="post" action="{{ url_for('admin_aarsplan_ny') }}" style="margin-top:8px">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <input type="hidden" name="aar" value="{{ aar }}">
-  <fieldset><legend class="etikett">Hva slags?</legend>
-    <label class="valg"><input type="radio" name="type" value="plan" {{ 'checked' if skjema.get('type', 'plan') != 'notat' }}> Planlagt aktivitet (opptar datoene)</label>
-    <label class="valg"><input type="radio" name="type" value="notat" {{ 'checked' if skjema.get('type') == 'notat' }}> Notat (bare en påminnelse)</label>
-  </fieldset>
-  <div class="rad">
-    <div><label for="f-tittel">Tittel *</label><input id="f-tittel" name="tittel" required maxlength="120" value="{{ skjema.get('tittel', '') }}"></div>
-    <div><label for="f-fra">Fra *</label><input id="f-fra" name="fra_dato" type="date" required value="{{ skjema.get('fra_dato', '') }}"></div>
-    <div><label for="f-til">Til (tom = én dag)</label><input id="f-til" name="til_dato" type="date" value="{{ skjema.get('til_dato', '') }}"></div>
-    <div><label for="f-sted">Sted</label><input id="f-sted" name="sted" maxlength="80" value="{{ skjema.get('sted', '') }}"></div>
-  </div>
-  <label for="f-notat">Notat (kun internt)</label><textarea id="f-notat" name="notat" rows="2" maxlength="1000">{{ skjema.get('notat', '') }}</textarea>
-  <p style="margin:12px 0 0"><button>Legg inn</button></p>
-</form>
-</details>
+<p class="aarsoppsummering ikke-utskrift">
+  <a href="#overlapp">{{ overlapp|length }} {{ 'kollisjon' if overlapp|length == 1 else 'kollisjoner' }}</a> ·
+  <a href="#ledige">{{ ledige|length }} {{ 'ledig periode' if ledige|length == 1 else 'ledige perioder' }}</a> på minst {{ min_dager }} dager ·
+  <a href="#konflikter">{{ konflikter|length }} {{ 'konflikt eller merknad' if konflikter|length == 1 else 'konflikter og merknader' }}</a>
+  <span class="dempet">– listene står under kalenderen</span>
+</p>
+<p class="forklaring">
+  <span><span class="prove farge">&nbsp;</span> kurs (farge = kursserie)</span>
+  <span><span class="prove plan">&nbsp;</span> planlagt</span>
+  <span><span class="prove kollisjon">5</span> kollisjon: flere samme dag</span>
+  <span><span class="prove rod">17</span> rød dag</span>
+  <span><span class="prove skoleferie">&nbsp;</span> skoleferie</span>
+  <span><span class="prove sperre">&nbsp;</span> sperret</span>
+  <span><span class="prove advarsel">&nbsp;</span> advarsel</span>
+  <span><span class="prove helg">L</span> helg</span>
+  <span><span class="prove idag">{{ idag.day }}</span> i dag</span>
+</p>
+
+{% if aarsvisning == 'aar' %}
+<div class="aarskalender">
+  {% for m in maaneder %}
+  <section class="minimaaned" id="{{ m.anker }}" aria-labelledby="{{ m.anker }}-tittel">
+    <h2 id="{{ m.anker }}-tittel">{{ m.navn }}</h2>
+    <div class="minigrid">
+      <div class="minihode" aria-hidden="true"><span>Uke</span>{% for n in ukedagnavn %}<span>{{ n[:2] }}</span>{% endfor %}</div>
+      {% for u in m.uker %}
+      <div class="miniuke" style="grid-template-rows:18px {% if u.baner %}repeat({{ u.baner|length }}, 17px) {% endif %}3px">
+        <span class="miniukenr">{{ u.nr }}</span>
+        {% for d in u.dager %}<span class="minidag {{ d.klasser }}" style="grid-column:{{ loop.index + 1 }}"{% if d.tittel %} title="{{ d.tittel }}"{% endif %}>{% if d.i_maaneden %}<span class="dnr">{{ d.dato.day }}</span>{% endif %}</span>{% endfor %}
+        {% for bane in u.baner %}{% set rad = loop.index + 1 %}{% for b in bane %}
+        {% if b.type == 'kurs' %}<a class="miniblokk kursfarge-{{ b.farge }} {{ b.status }}{{ ' fra-forrige' if b.fra_forrige }}{{ ' til-neste' if b.til_neste }}" href="{{ url_for('admin_kurs_deltakere', kurs_id=b.kurs_id) }}"
+        {%- else %}<span class="miniblokk planblokk{{ ' fra-forrige' if b.fra_forrige }}{{ ' til-neste' if b.til_neste }}"{% endif %}
+           style="grid-column:{{ b.kolonne + 2 }} / span {{ b.spenn }}; grid-row:{{ rad }}; --andel:{{ b.andel }}" title="{{ b.tittel }}">{{ b.tekst }}{% if b.type == 'kurs' %}</a>{% else %}</span>{% endif %}
+        {% endfor %}{% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    <p class="opptatt">{{ m.opptatt_tekst }}</p>
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<div class="ukeliste" role="list">
+  {% for u in uker %}
+  {% set blokker = u.baner|sum(start=[]) %}
+  <section class="ukerad{{ ' ledig' if u.ledig }}" role="listitem" aria-label="Uke {{ u.nr }}, {{ u.tekst }}">
+    <div class="ukehode"><strong>Uke {{ u.nr }}{% if u.iso_aar != aar %} ({{ u.iso_aar }}){% endif %}</strong><span>{{ u.tekst }}</span></div>
+    <ul class="ukeaktiviteter">
+      {% for b in blokker|sort(attribute='fra') %}<li class="{{ ('kursfarge-' ~ b.farge) if b.type == 'kurs' else 'plan' }}{{ ' ' ~ b.status if b.status in ('utkast',) }}">
+        {%- if b.type == 'kurs' %}<a href="{{ url_for('admin_kurs_deltakere', kurs_id=b.kurs_id) }}">{{ b.tittel }}</a>{% if b.samling_tekst %}, {{ b.samling_tekst }}{% endif %}
+        {%- else %}<span class="merke gul">Planlagt</span> {{ b.tittel }}{% endif %}
+        <span class="dempet">· {{ b.periode }}{% if b.sted %} · {{ b.sted }}{% endif %}{% if b.status == 'utkast' %} · utkast{% endif %}</span></li>
+      {%- else %}<li class="ledig">Ingen kurs</li>{% endfor %}
+    </ul>
+    <ul class="ukemerknader">
+      {% for klasse, tekst in u.merknader %}<li class="{{ klasse }}">{{ tekst }}</li>{% endfor %}
+    </ul>
+  </section>
+  {% endfor %}
+</div>
 {% endif %}
 
-<p class="liten forklaring">Forklaring: <span class="kurs">K</span>kursdag <span class="plan">P</span>planlagt
-  <span class="notat">N</span>notat <span class="overlapp">2</span>flere samtidig (overlapp) · grå bakgrunn = helg.
-  Hold musen over en dag for å se hva som skjer.</p>
-
-<div class="tabellboks"><table class="aar">
-  <thead><tr><th scope="col" class="mnd">Måned</th>{% for d in range(1, 32) %}<th scope="col">{{ d }}</th>{% endfor %}</tr></thead>
-  <tbody>
-  {% for navn, celler in rutenett %}<tr><th scope="row" class="mnd">{{ navn }}</th>{% for c in celler %}<td class="{{ c.klasse }}"{% if c.tittel %} title="{{ c.tittel }}"{% endif %}>{{ c.tekst }}</td>{% endfor %}</tr>
-  {% endfor %}
-  </tbody>
-</table></div>
-
-<div class="rutenett" style="grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); margin-top:18px">
-  <div class="kort">
-    <h2>Overlapp</h2>
-    {% if overlapp %}<ul class="liten" style="margin:0; padding-left:18px">
-      {% for dato, aktiviteter in overlapp %}<li><strong>{{ dato }}</strong>: {{ aktiviteter|map(attribute='visning')|join(' · ') }}</li>{% endfor %}
-    </ul>{% else %}<p class="liten dempet">Ingen dager med mer enn ett kurs eller én planlagt aktivitet.</p>{% endif %}
-  </div>
-  <div class="kort">
+<div class="aarsplankort">
+  <section class="kort" id="ledige">
     <h2>Ledige perioder</h2>
-    <p class="liten dempet">Uker uten kursdager og uten planlagte aktiviteter (notater teller ikke).</p>
-    {% if ledige %}<ul class="liten" style="margin:0; padding-left:18px">
-      {% for p in ledige %}<li{% if p.til < idag %} class="dempet"{% endif %}>Uke {{ p.fra_uke }}{% if p.til_uke != p.fra_uke %}–{{ p.til_uke }}{% endif %}
-        ({{ p.tekst }}) · {{ p.antall_uker }} uke{{ 'r' if p.antall_uker != 1 }}{% if p.til < idag %} · passert{% endif %}</li>{% endfor %}
-    </ul>{% else %}<p class="liten dempet">Ingen helt ledige uker.</p>{% endif %}
-  </div>
+    <form method="get" class="linjevalg ikke-utskrift">
+      <input type="hidden" name="aar" value="{{ aar }}">{% if aarsvisning != 'aar' %}<input type="hidden" name="vis" value="{{ aarsvisning }}">{% endif %}
+      {% if omraade %}<input type="hidden" name="omraade" value="{{ omraade }}">{% endif %}
+      <label for="f-ledig" class="liten">Dager uten kurs, planer og sperrer – minst</label>
+      <select id="f-ledig" name="ledig" data-send-ved-endring>{% for n in (3, 5, 7, 14) %}<option value="{{ n }}" {{ 'selected' if n == min_dager }}>{{ n }} dager</option>{% endfor %}</select>
+    </form>
+    {% if ledige %}<ul class="ledigliste">
+      {% for p in ledige %}<li><strong>{{ p.tekst }}</strong> · {{ p.dager }} dager ledig <span class="dempet">({{ p.uker }})</span>
+        {% if p.oppsummering %}<div class="liten dempet">{{ p.oppsummering }}</div>{% endif %}</li>{% endfor %}
+    </ul>{% else %}<p class="liten dempet">Ingen {{ 'flere ' if ledige_passert }}ledige perioder på minst {{ min_dager }} dager.</p>{% endif %}
+    {% if ledige_passert %}<p class="liten dempet">{{ ledige_passert }} {{ 'periode' if ledige_passert == 1 else 'perioder' }} tidligere i år vises ikke.</p>{% endif %}
+    <p class="liten dempet">Helt ledige uker: {% if ledige_uker %}{% for p in ledige_uker %}uke {{ p.fra_uke }}{% if p.til_uke != p.fra_uke %}–{{ p.til_uke }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}{% else %}ingen{% endif %}.</p>
+  </section>
+  <section class="kort" id="overlapp">
+    <h2>Kollisjoner</h2>
+    <p class="liten dempet">Dager med to eller flere kurs eller planlagte aktiviteter. Rød ramme i kalenderen.</p>
+    {% if overlapp %}<ul class="kollisjonsliste">
+      {% for o in overlapp %}<li><strong>{{ o.tekst }}</strong>: {{ o.navn }}</li>{% endfor %}
+    </ul>{% else %}<p class="liten dempet">Ingen dager med mer enn ett kurs eller én planlagt aktivitet.</p>{% endif %}
+  </section>
+  <section class="kort" id="konflikter">
+    <h2>Konflikter og merknader</h2>
+    <p class="liten dempet">Kurs i sperrede perioder og perioder med advarsel, og kurs på røde dager. Bare til orientering – ingenting er stoppet.</p>
+    {% if konflikter %}<ul class="konfliktliste">
+      {% for k in konflikter %}<li class="{{ k.alvor }}"><span class="merke {{ {'sperre': 'feil', 'advarsel': 'gul', 'rod': 'gra'}[k.alvor] }}">{{ {'sperre': 'Sperret', 'advarsel': 'Advarsel', 'rod': 'Rød dag'}[k.alvor] }}</span>
+        <strong>{{ k.datotekst }}</strong> · <a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.kurs.id) }}">{{ k.kurs.navn }}</a>{% if k.kurs.status == 'utkast' %} <span class="merke gra">utkast</span>{% endif %}
+        <span class="dempet">– {{ k.hva }}</span></li>{% endfor %}
+    </ul>{% else %}<p class="liten dempet">Ingen kurs i sperrede perioder, perioder med advarsel eller på røde dager.</p>{% endif %}
+  </section>
 </div>
 
-<h2>Måned for måned</h2>
-<div class="rutenett maaneder">
-{% for m in maaneder %}
-  <div class="kort">
-    <h3>{{ m.navn }}</h3>
-    {% if not m.kurs and not m.planer %}<p class="liten dempet">Ingen kurs eller planer.</p>{% endif %}
-    {% for k in m.kurs %}<p class="liten"><strong>{{ k.datotekst }}</strong> ·
-      <a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}">{{ k.kursnr }} {{ k.navn }}</a>{% if k.sted %} · {{ k.sted }}{% endif %}{% if k.status == 'utkast' %} <span class="merke gra">utkast</span>{% endif %}</p>
-    {% endfor %}
-    {% for p in m.planer %}<div class="liten plan-rad">
-      <span class="merke {{ 'gul' if p.type == 'plan' else 'gra' }}">{{ 'Planlagt' if p.type == 'plan' else 'Notat' }}</span>
-      <strong>{{ p.periodetekst }}</strong> {{ p.tittel }}{% if p.sted %} · {{ p.sted }}{% endif %}
-      {% if p.notat %}<div class="dempet notattekst">{{ p.notat }}</div>{% endif %}
-      {% if admin_rolle != 'lese' %}<form method="post" action="{{ url_for('admin_aarsplan_slett', plan_id=p.id) }}" class="ikke-utskrift" style="margin:4px 0 0"
+<section id="perioder">
+  <h2>Skoleferier og egne perioder</h2>
+  {% if perioder %}<div class="tabellboks"><table class="periodetabell">
+    <thead><tr><th scope="col">Periode</th><th scope="col">Hva</th><th scope="col">Område / gjelder</th><th scope="col">Notat</th>{% if admin_rolle != 'lese' %}<th scope="col"><span class="skjul-visuelt">Handlinger</span></th>{% endif %}</tr></thead>
+    <tbody>{% for p in perioder %}<tr>
+      <td class="ikke-brudd"><strong>{{ p.tekst }}</strong></td>
+      <td><span class="merke {{ {'skoleferie': 'gul', 'sperre': 'feil', 'advarsel': 'gra'}[p.type] }}">{{ periodetyper[p.type] }}</span> {{ p.navn }}</td>
+      <td>{{ p.omraade if p.type == 'skoleferie' else gjelder[p.gjelder]|capitalize }}</td>
+      <td class="liten dempet notattekst">{{ p.notat or '' }}</td>
+      {% if admin_rolle != 'lese' %}<td class="handling"><a class="knapp liten sekundar" href="{{ url_for('admin_aarsplan_periode', periode_id=p.id) }}">Endre</a>
+        <form method="post" action="{{ url_for('admin_aarsplan_periode_slett', periode_id=p.id) }}" data-bekreft="Fjerne «{{ p.navn }}» fra årsplanen?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Fjern</button></form></td>{% endif %}
+    </tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="liten dempet">Ingen skoleferier eller egne perioder lagt inn for {{ aar }}. Skoleferiene er ulike for
+    Oslo og Vestland – legg dem inn per område.</p>{% endif %}
+  {% if admin_rolle != 'lese' %}
+  <details id="ny-periode" class="kort ikke-utskrift"{% if periodeskjema %} open{% endif %}>
+    <summary>＋ Legg inn skoleferie eller egen periode</summary>
+    <form method="post" action="{{ url_for('admin_aarsplan_periode_ny') }}" style="margin-top:8px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="aar" value="{{ aar }}">
+      {{ periodefelt(periodeskjema, 'p') }}
+      <p style="margin:12px 0 0"><button>Legg inn</button></p>
+    </form>
+  </details>
+  {% endif %}
+</section>
+
+<section id="planer">
+  <h2>Planlagte aktiviteter og notater</h2>
+  {% if planer %}<div class="tabellboks"><table class="periodetabell">
+    <thead><tr><th scope="col">Periode</th><th scope="col">Hva</th><th scope="col">Sted</th><th scope="col">Notat</th>{% if admin_rolle != 'lese' %}<th scope="col"><span class="skjul-visuelt">Handlinger</span></th>{% endif %}</tr></thead>
+    <tbody>{% for p in planer %}<tr>
+      <td class="ikke-brudd"><strong>{{ p.periodetekst }}</strong></td>
+      <td><span class="merke {{ 'gul' if p.type == 'plan' else 'gra' }}">{{ 'Planlagt' if p.type == 'plan' else 'Notat' }}</span> {{ p.tittel }}</td>
+      <td>{{ p.sted or '' }}</td>
+      <td class="liten dempet notattekst">{{ p.notat or '' }}</td>
+      {% if admin_rolle != 'lese' %}<td class="handling"><form method="post" action="{{ url_for('admin_aarsplan_slett', plan_id=p.id) }}"
             data-bekreft="Fjerne «{{ p.tittel }}» fra årsplanen?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="liten sekundar">Fjern</button></form>{% endif %}
-    </div>{% endfor %}
-  </div>
-{% endfor %}
-</div>
+        <button class="liten sekundar">Fjern</button></form></td>{% endif %}
+    </tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="liten dempet">Ingen planlagte aktiviteter eller notater i {{ aar }}.</p>{% endif %}
+  {% if admin_rolle != 'lese' %}
+  <details id="ny" class="kort ikke-utskrift"{% if skjema %} open{% endif %}>
+  <summary>＋ Legg inn planlagt aktivitet eller notat</summary>
+  <form method="post" action="{{ url_for('admin_aarsplan_ny') }}" style="margin-top:8px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="aar" value="{{ aar }}">
+    <fieldset><legend class="etikett">Hva slags?</legend>
+      <label class="valg"><input type="radio" name="type" value="plan" {{ 'checked' if skjema.get('type', 'plan') != 'notat' }}> Planlagt aktivitet (opptar datoene)</label>
+      <label class="valg"><input type="radio" name="type" value="notat" {{ 'checked' if skjema.get('type') == 'notat' }}> Notat (bare en påminnelse)</label>
+    </fieldset>
+    <div class="rad">
+      <div><label for="f-tittel">Tittel *</label><input id="f-tittel" name="tittel" required maxlength="120" value="{{ skjema.get('tittel', '') }}"></div>
+      <div><label for="f-fra">Fra *</label><input id="f-fra" name="fra_dato" type="date" required value="{{ skjema.get('fra_dato', '') }}"></div>
+      <div><label for="f-til">Til (tom = én dag)</label><input id="f-til" name="til_dato" type="date" value="{{ skjema.get('til_dato', '') }}"></div>
+      <div><label for="f-sted">Sted</label><input id="f-sted" name="sted" maxlength="80" value="{{ skjema.get('sted', '') }}"></div>
+    </div>
+    <label for="f-notat">Notat (kun internt)</label><textarea id="f-notat" name="notat" rows="2" maxlength="1000">{{ skjema.get('notat', '') }}</textarea>
+    <p style="margin:12px 0 0"><button>Legg inn</button></p>
+  </form>
+  </details>
+  {% endif %}
+</section>
 
 {% endblock %}

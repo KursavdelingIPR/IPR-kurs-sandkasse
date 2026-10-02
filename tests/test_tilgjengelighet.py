@@ -2,10 +2,11 @@
 
   * hvert skjemafelt (input/select/textarea, unntatt hidden) har en ledetekst: <label for=id>, er inni en <label>,
     eller har aria-label
-  * tabeller har <th scope="col"> (eller scope="row" for radoverskrifter)
+  * tabeller har <th scope="col"> (eller scope="row"/"rowgroup" for rad- og gruppeoverskrifter)
   * hopp-til-innhold-lenke og <main id="innhold">
   * flash-meldinger har role=alert/status
-  * «Nytt kurs +» finnes paa Aktiviteter og Oversikt, men ikke i toppmenyen (ingen duplisert navigasjon)
+  * «Nytt kurs +» finnes paa Oversikten, men ikke i toppmenyen (ingen duplisert navigasjon)
+  * deltakersoeket i adminmenyen: etikett, role=search, combobox/listbox-attributter og opplesing av antall treff
 """
 import re
 from datetime import date, timedelta
@@ -40,7 +41,7 @@ def test_alle_skjemafelt_har_ledetekst(fil):
 @pytest.mark.parametrize("fil", sorted(p.name for p in MALER.glob("admin*.html")))
 def test_tabelloverskrifter_har_scope(fil):
     html = (MALER / fil).read_text(encoding="utf-8")
-    uten_scope = html.replace('<th scope="col"', "").replace('<th scope="row"', "")
+    uten_scope = html.replace('<th scope="col"', "").replace('<th scope="rowgroup"', "").replace('<th scope="row"', "")
     assert not re.search(r"<th(\s[^>]*)?>", uten_scope), fil
 
 
@@ -79,13 +80,21 @@ def test_hopp_lenke_main_og_flash_roller(con):
     assert 'role="alert"' in r.get_data(as_text=True)
 
 
-def test_nytt_kurs_knapp_paa_aktiviteter_og_oversikt_men_ikke_i_toppmenyen(con):
-    admin = _admin()
-    for url in ("/admin", "/admin/aktiviteter"):
-        html = admin.get(url).get_data(as_text=True)
-        nav = html.split("<nav>")[1].split("</nav>")[0]
-        assert "Nytt kurs" not in nav, url
-        assert 'class="knapp plass" href="/admin/kurs/ny">Nytt kurs +</a>' in html, url
+def test_nytt_kurs_knapp_paa_oversikten_men_ikke_i_toppmenyen(con):
+    html = _admin().get("/admin").get_data(as_text=True)
+    nav = html.split("<nav>")[1].split("</nav>")[0]
+    assert "Nytt kurs" not in nav
+    assert 'class="knapp plass" href="/admin/kurs/ny">Nytt kurs +</a>' in html
+
+
+def test_nytt_kurs_knappen_staar_i_overskriftsraden_til_kurslisten_under_soekekortene(con):
+    """Camilla (02.10.2026): «kan du flytte nytt kurs-knappen ned» - fra toppen av siden til høyre i raden med overskriften «Kurs»."""
+    html = _admin().get("/admin").get_data(as_text=True)
+    topp, soek, kurs, knapp, filter_ = (html.index(x) for x in ('<h1>Oversikt</h1>', 'class="sokepanel"', '<h2 id="kurs">Kurs</h2>',
+                                                                 'class="knapp plass" href="/admin/kurs/ny">Nytt kurs +</a>', 'id="kursfilter"'))
+    assert topp < soek < kurs < knapp < filter_
+    rad = html[html.rindex("<div", 0, kurs):knapp]                                           # raden som inneholder overskriften og knappen
+    assert 'class="verktoylinje kursrad"' in rad and "<h1>" not in rad
 
 
 def test_lesetilgang_ser_ikke_nytt_kurs_knappen(con):
@@ -94,21 +103,42 @@ def test_lesetilgang_ser_ikke_nytt_kurs_knappen(con):
     con.commit()
     k = webapp.app.test_client()
     k.post("/admin/logg-inn", data={"brukernavn": "lese", "passord": "passord-som-holder"})
-    assert "Nytt kurs +" not in k.get("/admin/aktiviteter").get_data(as_text=True)
+    assert "Nytt kurs +" not in k.get("/admin").get_data(as_text=True)
 
 
-def test_oversikten_viser_kurs_foerst_og_skjuler_avsluttede(con):
+def test_oversikten_viser_kurslisten_foer_statuskortene_og_skjuler_avsluttede(con):
     start = date.today() + timedelta(days=10)
     db.opprett_kurs(con, kode="K1", navn="Kommende kurs", datoer=[start.isoformat()], sharepoint_mappe="K/1")
     db.opprett_kurs(con, kode="K2", navn="Gammelt kurs", datoer=["2020-01-01"], sharepoint_mappe="K/2", status="avsluttet")
     con.commit()
     html = _admin().get("/admin").get_data(as_text=True)
     assert "Kommende kurs" in html and "Gammelt kurs" not in html
-    assert html.index("<h2 style=\"margin-top:14px\">Kurs</h2>") < html.index("<h2>Status</h2>")   # kurs foer statusbokser
-    assert html.index("<h2>Status</h2>") < html.index("Siste hendelser")
+    assert html.index('<h2 id="kurs">Kurs</h2>') < html.index("<h2>Status</h2>")      # kurslisten først, så statuskortene
+    assert "Siste hendelser" not in html
 
 
 def test_aktiv_side_er_markert_i_menyen(con):
-    html = _admin().get("/admin/aktiviteter").get_data(as_text=True)
-    assert 'aria-current="page">Aktiviteter</a>' in html
-    assert 'aria-current="page">Oversikt</a>' not in html
+    admin = _admin()
+    html = admin.get("/admin").get_data(as_text=True)
+    assert 'aria-current="page">Oversikt</a>' in html and 'aria-current="page">Kalender</a>' not in html
+    assert "Aktiviteter</a>" not in html                                               # Aktiviteter er slått sammen med Oversikten
+    kalender = admin.get("/admin/aktiviteter/kalender").get_data(as_text=True)
+    assert 'aria-current="page">Kalender</a>' in kalender and 'aria-current="page">Oversikt</a>' not in kalender
+
+
+def test_deltakersoek_paa_oversikten_har_etikett_rolle_og_tastaturstoette(con):
+    html = _admin().get("/admin").get_data(as_text=True)
+    hode, innhold = html.split("</header>")[0], html.split("</header>")[1]
+    assert "data-deltakersok" not in hode                                           # ikke lenger i toppmenyen: ett søkefelt i bildet
+    assert '<form class="sokefelt" role="search" aria-label="Deltakersøk på siden"' in innhold
+    assert '<label class="sok-etikett" for="sok-deltaker">Søk etter deltaker</label>' in innhold
+    assert 'role="combobox" aria-expanded="false" aria-controls="sok-deltaker-liste" aria-autocomplete="list"' in innhold
+    assert 'id="sok-deltaker-liste" role="listbox"' in innhold and 'role="status" aria-live="polite" data-sok-status' in innhold
+    assert '<nav class="bruker" aria-label="Bruker">' in hode                       # to menyer: den ene har navn
+    assert hode.index('class="hopp"') < hode.index("<nav")                          # hopp-lenken er fortsatt først
+    assert 'aria-hidden="true"' in innhold.split('<kbd class="sok-hurtigtast"')[1].split(">")[0]   # hurtigtast-merket leses ikke opp
+    assert 'data-sok-adresse="/admin#sok-deltaker"' in hode                         # «/» fra andre sider tar deg hit
+    # kurssøket ved siden av: eget felt med etikett som hører til filterskjemaet under
+    assert '<label class="sok-etikett" for="sok-kurs">Søk etter kurs</label>' in innhold
+    assert 'role="search" aria-label="Kurssøk"' in innhold and 'name="sok" form="kursfilter"' in innhold
+    assert html.count('for="sok-deltaker"') == 1 and html.count('for="sok-kurs"') == 1

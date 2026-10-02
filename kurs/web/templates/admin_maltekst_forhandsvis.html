@@ -3,6 +3,8 @@
 <p class="liten"><a href="{{ url_for('admin_maltekst_rediger', mal=mal) }}">← {{ mal_navn }}</a></p>
 <h1>Forhåndsvisning: {{ mal_navn }}</h1>
 <p class="sub">Med fiktive eksempeldata – ingen ekte deltaker-, kurs- eller firmaopplysninger. Ingen e-post sendes.</p>
+{% if med_signatur %}<p class="liten dempet">Signaturen nederst er kursets signatur når kurset har valgt en – ellers
+  standardsignaturen («{{ standardsignatur }}»), som vises her. Se <a href="{{ url_for('admin_signaturer') }}">Signaturer</a>.</p>{% endif %}
 
 {% if feil %}
 <div class="flash feil">{{ feil }}</div>

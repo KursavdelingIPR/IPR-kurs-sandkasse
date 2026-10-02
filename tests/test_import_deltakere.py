@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE, csv_med_adresse
 from kurs import config, db, import_deltakere as imp
 
 CSV_HEADER = "Fornavn;Etternavn;E-post;Telefon;Yrkestittel;Arbeidssted;HPR-nummer;Betaler;Firmanavn;Org.nr;" \
@@ -40,12 +41,12 @@ def _admin_id(con):
     return con.execute("SELECT id FROM admin_bruker WHERE brukernavn=?", (config.ADMIN_BRUKERNAVN,)).fetchone()[0]
 
 
-def _csv(*rader: str, header: str = CSV_HEADER) -> bytes:
-    return "\n".join([header, *rader]).encode("utf-8-sig")
+def _csv(*rader: str, header: str = CSV_HEADER, adresse: bool = True) -> bytes:
+    return csv_med_adresse(header, rader, adresse)
 
 
 def _rad(fornavn="Kari", etternavn="Nordmann", epost="kari@x.no", **over):
-    r = {"fornavn": fornavn, "etternavn": etternavn, "epost": epost}
+    r = {"fornavn": fornavn, "etternavn": etternavn, "epost": epost, **ADRESSE}
     r.update(over)
     return r
 
@@ -83,7 +84,7 @@ def test_parse_csv_gyldig_fil_med_alle_kolonner():
 
 def test_parse_csv_kun_minimumskolonner():
     rader = imp.parse_csv(_csv("Kari;Nordmann;kari@x.no", header=MIN_HEADER))
-    assert rader == [{"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no"}]
+    assert rader == [{"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no", **ADRESSE}]
 
 
 def test_parse_csv_mangler_epost_kolonne():
@@ -136,19 +137,20 @@ def test_parse_csv_for_stor_fil():
 
 
 def test_parse_csv_komma_skilletegn_sniffes():
-    rader = imp.parse_csv("Fornavn,Etternavn,E-post\nKari,Nordmann,kari@x.no".encode("utf-8-sig"))
-    assert rader == [{"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no"}]
+    rader = imp.parse_csv("Fornavn,Etternavn,E-post,Adresse,Postnr,Poststed\nKari,Nordmann,kari@x.no,Eksempelveien 1,0150,Oslo"
+                          .encode("utf-8-sig"))
+    assert rader == [{"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no", **ADRESSE}]
 
 
 def test_parse_csv_cp1252_fallback():
-    tekst = "Fornavn;Etternavn;E-post;Arbeidssted\nKari;Nordmann;kari@x.no;Blåbær AS"
+    tekst = "Fornavn;Etternavn;E-post;Adresse;Postnr;Poststed;Arbeidssted\nKari;Nordmann;kari@x.no;Eksempelveien 1;0150;Oslo;Blåbær AS"
     rader = imp.parse_csv(tekst.encode("cp1252"))
     assert rader[0]["arbeidssted"] == "Blåbær AS"
 
 
 def test_parse_csv_ukjent_kolonne_ignoreres_stille():
     rader = imp.parse_csv(_csv("Kari;Nordmann;kari@x.no;noe", header="Fornavn;Etternavn;E-post;Ukjent kolonne"))
-    assert rader == [{"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no"}]
+    assert rader == [{"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no", **ADRESSE}]
 
 
 # ==================== forhaandsvis(): resultatmodell (B/punkt 2) ====================
@@ -159,7 +161,7 @@ def test_resultatmodell_ny_rad_har_alle_forventede_felt(con):
     res = imp.forhaandsvis(con, kid, [_rad()], aktor="admin:test")
     r = res[0]
     assert set(r) == {"rad_nr", "navn", "epost", "handling", "resultatstatus",
-                      "person_finnes_fra_for", "melding", "paamelding_id"}
+                      "person_finnes_fra_for", "melding", "paamelding_id", "adresse_avviker", "adresse_mangler"}
     assert r["handling"] == imp.NY
     assert r["resultatstatus"] == imp.BEKREFTET
     assert r["person_finnes_fra_for"] is False

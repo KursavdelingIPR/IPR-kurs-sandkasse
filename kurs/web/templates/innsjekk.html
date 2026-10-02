@@ -1,15 +1,84 @@
 {% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css) -#}
+{% import "_kursside_blokker.html" as bl %}
+{#- Innsjekk: siden deltakeren kommer til når hun skanner QR-koden i kurslokalet (k er kursdagen). Har hun ikke skannet, registrerer hun seg på
+    Min side («I dag»-kortet, med dagens kode). GET skriver aldri noe: oppmøtet registreres først når hun trykker knappen (POST). Identifisering:
+    innlogget økt (ett trykk) eller e-post. Aldri navn, og e-post gir aldri innlogging. Malen får aldri innsjekk-kode eller -token. -#}
 {% block tittel %}Innsjekk – IPR Påmeldingssystem{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='innsjekk.css') }}">{% endblock %}
 {% block innhold %}
-<div class="kort" style="max-width:440px; margin:0 auto">
-  <h1>Registrer oppmøte</h1>
-  {% if kd %}<p class="sub">{{ kd.navn }} · {{ kd.dato }}</p>{% else %}<p class="sub">Skriv inn koden som vises på skjermen i kurslokalet.</p>{% endif %}
-  <form method="post">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {% if med_kode %}<label for="f-kode">Innsjekkkode</label><input id="f-kode" name="kode" required autocomplete="off" autocapitalize="characters" maxlength="8" style="font-size:24px; letter-spacing:.2em; text-transform:uppercase">{% endif %}
-    <label for="f-epost">E-posten du meldte deg på med</label><input id="f-epost" name="epost" type="email" required autocomplete="email">
-    {% if not med_kode %}<label style="font-weight:normal"><input type="checkbox" name="husk" checked>Husk meg på denne telefonen (neste gang holder det å skanne)</label>{% endif %}
-    <p style="margin-top:16px"><button style="width:100%; padding:12px">Sjekk inn</button></p>
+{% include "_kursside_ikoner.html" %}
+{% macro fremdrift(k) %}{% if k.dag_nr and k.dag_av %}
+<div class="inn-fremdrift" role="img" aria-label="{{ k.dag_tekst }}">{% for i in range(1, k.dag_av + 1) %}<span class="inn-seg{{ ' inn-seg-na' if i == k.dag_nr else (' inn-seg-ferdig' if i < k.dag_nr) }}"></span>{% endfor %}</div>
+{% endif %}{% endmacro %}
+<div class="inn-rot">
+<div class="inn-kort">
+  {% if krever_innlogging and k.apen_i_dag %}
+  {#- INNSJEKK_KREVER_INNLOGGING=1: ingen registrering på en e-postadresse alene. Engangslenke på e-post (/logg-inn) med denne siden som `neste`,
+      så deltakeren kommer hit igjen innlogget og trykker én knapp. Samme svar uansett om adressen finnes (logg_inn). «Innlogget» er også en deltaker som kom
+      inn med den personlige lenken til Min side (nivå «lenke»). -#}
+  <p class="inn-eyebrow">Innsjekk</p>
+  <h1>{{ k.navn }}</h1>
+  <p class="inn-dag">{{ k.dag_tekst }} · {{ k.dato_lang }}</p>{{ fremdrift(k) }}
+  <div class="inn-melding inn-melding-info" role="status">{{ bl.ikon('info') }}<p>Logg inn først, så registreres oppmøtet ditt med ett trykk.</p></div>
+  <form method="post" action="{{ url_for('logg_inn') }}" data-en-gang>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="neste" value="{{ neste }}">
+    <label for="f-epost">E-postadressen du meldte deg på med</label>
+    <input id="f-epost" name="epost" type="email" required autocomplete="email" inputmode="email">
+    <button type="submit" class="inn-knapp">{{ bl.ikon('post') }}Send meg innloggingslenke</button>
   </form>
+  <p class="inn-hjelp">Vi sender en engangslenke til e-postadressen din. Når du har klikket på den, kommer du tilbake hit og trykker på «Registrer oppmøte».</p>
+
+  {% elif not k.apen_i_dag %}
+  <p class="inn-eyebrow">Innsjekk</p>
+  <h1>{{ k.navn }}</h1>
+  <p class="inn-dag">{{ k.dag_tekst }} · {{ k.dato_lang }}</p>
+  <div class="inn-melding inn-melding-info" role="status">{{ bl.ikon('info') }}<p>Innsjekk for denne kursdagen er ikke åpen i dag.</p></div>
+  <p class="inn-hjelp">QR-koden gjelder bare på selve kursdagen. Er du i lokalet på en annen kursdag, skanner du koden som henger der.</p>
+
+  {% elif deltaker and tid %}
+  <p class="inn-eyebrow">Hei, {{ deltaker.fornavn }}</p>
+  <h1>{{ k.navn }}</h1>
+  <p class="inn-dag">{{ k.dag_tekst }} · {{ k.dato_lang }}</p>
+  {{ fremdrift(k) }}
+  <div class="inn-melding inn-melding-ok" role="status">{{ bl.ikon('hake') }}<p><strong>Du er allerede registrert i dag</strong> (kl. {{ tid }}). Du kan bare registreres én gang per kursdag, så her er alt i orden.</p></div>
+  <p class="inn-handling">{% if har_side %}<a class="knapp inn-knapp" href="{{ url_for('deltakerside', kode=k.kode) }}">Til Min side</a>{% endif %}
+    <a class="knapp sekundar inn-knapp" href="{{ url_for('min_side') }}">Mine kurs</a></p>
+
+  {% elif deltaker and k.ikke_paa_samlingen %}
+  {#- En som bare er satt opp på noen samlinger (ekstradeltaker), og dagen er ikke en av dem: beskjeden kommer med en gang, uten knapp. Bare innlogget
+      deltaker ser dette (uinnloggede får aldri vite hvem som er på kurset). -#}
+  <p class="inn-eyebrow">Hei, {{ deltaker.fornavn }}</p>
+  <h1>{{ k.navn }}</h1>
+  <p class="inn-dag">{{ k.dato_lang }}</p>
+  <div class="inn-melding inn-melding-info" role="status">{{ bl.ikon('info') }}<p>{{ ikke_paa_tekst }}</p></div>
+  <p class="inn-handling"><a class="knapp sekundar inn-knapp" href="{{ url_for('min_side') }}">Mine kurs</a></p>
+
+  {% elif deltaker %}
+  <p class="inn-eyebrow">Hei, {{ deltaker.fornavn }}</p>
+  <h1>{{ k.navn }}</h1>
+  <p class="inn-dag">{{ k.dag_tekst }} · {{ k.dato_lang }}</p>
+  {{ fremdrift(k) }}
+  <form method="post" data-en-gang>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="inn-knapp">{{ bl.ikon('hake') }}Registrer oppmøte</button>
+  </form>
+  <p class="inn-hjelp">Du er logget inn som {{ maskert }}. Ett trykk, så er du registrert for i dag. Ikke deg? <a href="{{ url_for('logg_ut') }}">Logg ut</a>.</p>
+
+  {% else %}
+  <p class="inn-eyebrow">Innsjekk</p>
+  <h1>{{ k.navn }}</h1>
+  <p class="inn-dag">{{ k.dag_tekst }} · {{ k.dato_lang }}</p>
+  {{ fremdrift(k) }}
+  <form method="post" data-en-gang>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="f-epost">E-postadressen du meldte deg på med</label>
+    <input id="f-epost" name="epost" type="email" required autocomplete="email" inputmode="email">
+    <button type="submit" class="inn-knapp">{{ bl.ikon('hake') }}Registrer oppmøte</button>
+  </form>
+  <p class="inn-hjelp">Vi bruker bare e-posten til å finne påmeldingen din. Du blir ikke logget inn på nettsiden av dette. Du kan bare registreres én gang per kursdag.</p>
+  {% endif %}
+</div>
 </div>
 {% endblock %}

@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import date
 
-from . import behandling, norsk_tid
+from . import behandling, db, norsk_tid
 from .sveiper import PLAN_MANGLER_KURSDAG
 
 # Vises ikke i Logger: e-post har egen fane, og innsyn har egen liste (bare for systemadministrator)
@@ -25,14 +25,14 @@ _SAMME_HANDLING_SEK = 5
 # Samme ord som i Deltaker-fanen (admin_deltaker.html)
 KILDER = {"skjema": "Påmeldingsskjemaet", "nettside": "Skjemaet på nettsiden", "gruppe": "Bedriftspåmelding",
           "admin": "Manuelt av administrator", "admin_import": "Import fra fil"}
-_STATUS = {"bekreftet": "bekreftet", "venteliste": "venteliste", "avmeldt": "avmeldt", "avslatt": "avslått",
-           "utgatt": "utgått", "forlatt": "forlatt"}
-# Overskriften når admin setter en status (til bekreftet: «Status endret fra … til bekreftet» eller over kapasitet)
+# Overskriften når admin setter en status (til påmeldt eller ekstradeltaker: «Status endret fra … til påmeldt» eller over
+# kapasitet). Eldre hendelser har databaseverdien «bekreftet» i stedet for «paameldt» (db.statusnavn tar begge)
 _SATT_TIL = {"venteliste": "Satt på venteliste", "avmeldt": "Avmeldt", "avslatt": "Avslått", "utgatt": "Satt til utgått",
              "forlatt": "Satt til forlatt"}
 _AVSLUTTET = {"avmeldt", "avslatt", "utgatt", "forlatt"}      # db.meld_av logger «avmelding» som del av disse
 _PERSONFELT = {"fornavn": "Fornavn", "etternavn": "Etternavn", "navn": "Navn", "epost": "E-post", "telefon": "Telefon",
                "yrkestittel": "Yrkestittel", "arbeidssted": "Arbeidssted", "hpr_nr": "HPR-nummer",
+               "adresse": "Adresse", "postnr": "Postnummer", "poststed": "Poststed",
                "visma_kunde_id": "Kundenummer i Visma"}
 _PAAMELDINGSFELT = {"betaler": "Hvem betaler", "betaling": "Betaling", "org_nr": "Organisasjonsnummer",
                     "org_navn": "Firma-/avdelingsnavn", "faktura_epost": "E-post for faktura", "ehf": "EHF",
@@ -89,7 +89,7 @@ def _hendelser(con, p) -> list:
 
 
 def _allergilister(con, p) -> list:
-    """Visninger av kursets allergiliste etter at påmeldingen ble registrert (den viser alle bekreftede deltakere)."""
+    """Visninger av kursets allergiliste etter at påmeldingen ble registrert (den viser alle påmeldte deltakere)."""
     return con.execute(
         "SELECT id, ts, aktor, handling, detaljer FROM hendelse WHERE handling=? AND detaljer=? AND ts >= ?",
         (_INNSYN, json.dumps({"kurs_id": p["kurs_id"]}), str(p["opprettet"]).replace("T", " "))).fetchall()
@@ -163,7 +163,9 @@ def _tekster(h, o: _Oppslag) -> list[tuple[str, list[str]]]:
 
 
 def _status(verdi) -> str:
-    return _STATUS.get(verdi, str(verdi))
+    """Statusnavnet med små bokstaver midt i en setning. Ordene står bare i db.PAAMELDINGSSTATUSER. `verdi` er en
+    visningsstatus (paameldt, ekstradeltaker ...) eller, i hendelser fra før migrering 16, databaseverdien bekreftet."""
+    return str(db.statusnavn(verdi)).lower()
 
 
 def _status_for_og_ny(d, ny: str | None = None) -> list[str]:
@@ -185,21 +187,36 @@ def _samling(d, o) -> list[str]:
     return [f"Gjelder samlingen {o.kursdag(d['kursdag_id'])}"] if d.get("kursdag_id") else []
 
 
+def _deltar_paa(d) -> list[str]:
+    """«Deltar på: hele kurset» / «Deltar på: 2 samlinger» (bare antallet: hendelsen har aldri navn, bare id-er og tall)."""
+    if "hele_kurset" not in d:
+        return []
+    antall = int(d.get("antall_samlinger", d.get("antall", 0)) or 0)
+    return ["Deltar på: hele kurset" if d["hele_kurset"] else f"Deltar på: {antall} {'samling' if antall == 1 else 'samlinger'}"]
+
+
 def _paamelding(d, o, h):
-    start = "Påmeldt på nytt" if h["id"] != o.forste_paamelding else "Påmeldt"
-    hva = {"bekreftet": f"{start} – bekreftet",
-           "venteliste": f"{start} – satt på venteliste"}.get(d.get("status"), start)
+    nytt = h["id"] != o.forste_paamelding
+    if d.get("ekstradeltaker"):        # «Legg til deltaker» med avkrysning: på kurset uten å ta plass, med utvalget av samlinger
+        hva = "Registrert som ekstradeltaker" + (" på nytt" if nytt else "")
+    else:
+        start = "Påmeldt på nytt" if nytt else "Påmeldt"
+        hva = {"venteliste": f"{start} – satt på venteliste"}.get(d.get("status"), start)   # «Påmeldt» = har plass
     kilde = KILDER.get(o.p["kilde"]) if h["id"] == o.siste_paamelding else None
-    return [(hva, [f"Kilde: {kilde}"] if kilde else [])]
+    return [(hva, _deltar_paa(d) + ([f"Kilde: {kilde}"] if kilde else []))]
+
+
+def _utvalg_endret(d, o, h):
+    return [("Samlingsutvalget endret", _deltar_paa(d))]
 
 
 def _status_endret(d, o, h):
     til = d.get("til")
-    detaljer = _status_for_og_ny(d)
-    if til == "bekreftet" and "over_kapasitet" in d:
+    detaljer = _status_for_og_ny(d) + (_deltar_paa(d) if til == "ekstradeltaker" else [])
+    if til in (*db.HAR_PLASS, db.DATABASEVERDI_PLASS) and "over_kapasitet" in d:
         plasser = d["over_kapasitet"]
-        return [("Bekreftet over kapasitet", [f"Kurset hadde {plasser} {'plass' if plasser == 1 else 'plasser'}.",
-                                              *detaljer])]
+        return [(f"{db.statusnavn(til)} over kapasitet",
+                 [f"Kurset hadde {plasser} {'plass' if plasser == 1 else 'plasser'}.", *detaljer])]
     if til in _SATT_TIL:
         return [(_SATT_TIL[til], detaljer)]
     fra = f"fra {_status(d['fra'])} " if d.get("fra") else ""
@@ -244,12 +261,25 @@ def _oppmote(d, o, h):
     return [(f"Oppmøte {endring} for kursdagen {o.kursdag(d.get('kursdag_id'))}", [])]
 
 
+def _oppmote_selv(d, o, h):
+    """Deltakeren registrerte selv oppmøtet (QR-koden i lokalet, innsjekk med kode, eller «Registrer oppmøte i dag» på nett). Aktøren er
+    deltakeren selv, så «Hvem» blir «Deltakeren selv». Detaljene sier hvordan (kilde i hendelsen: qr eller kode)."""
+    hvordan = {"qr": "Registrert med QR-koden i kurslokalet", "kode": "Registrert med dagens innsjekk-kode"}.get(d.get("kilde"))
+    return [(f"Oppmøte registrert av deltakeren selv for kursdagen {o.kursdag(d.get('kursdag_id'))}", [hvordan] if hvordan else [])]
+
+
 def _deltaker_endret(d, o, h):
     felt = list(d.get("felt") or [])
     if "navn" in felt and ("fornavn" in felt or "etternavn" in felt):
         felt.remove("navn")                  # fullt navn følger automatisk av fornavn og etternavn
     detaljer = [f"Endret: {_felt(felt, _PERSONFELT)}"] if felt else []
     return [("Personopplysninger endret", detaljer + ["Gjelder personen, ikke bare denne påmeldingen."])]
+
+
+def _plan_endret(d, o, h):
+    plan = {"samlet": "Samlet – hele beløpet i én faktura", "per_samling": "Per samling – én faktura før hver samling"}
+    return [("Fakturaplan endret (unntak fra kursets plan)",
+             [f"Før: {plan.get(d.get('fra'), d.get('fra') or 'ukjent')}", f"Ny: {plan.get(d.get('til'), d.get('til') or 'ukjent')}"])]
 
 
 def _paamelding_endret(d, o, h):
@@ -267,6 +297,7 @@ def _paamelding_endret(d, o, h):
 _TEKSTER = {
     "paamelding": _paamelding,
     "status_endret": _status_endret,
+    "ekstradeltaker_utvalg": _utvalg_endret,
     "avmelding": lambda d, o, h: [("Avmeldt", [])],
     "paamelding_avslatt": lambda d, o, h: [("Avslått", _status_for_og_ny(d, "avslatt"))],
     "flyttet_fra_venteliste": _flyttet_opp,
@@ -278,10 +309,20 @@ _TEKSTER = {
     "faktura_reservert_gammel": lambda d, o, h: [("Fakturering uavklart – må kontrolleres i Visma", _samling(d, o))],
     "uavklart_faktura_avklart": _faktura_avklart,
     "oppmote_manuell": _oppmote,
+    "oppmote_selv": _oppmote_selv,
     "deltaker_endret": _deltaker_endret,
     "paamelding_endret": _paamelding_endret,
+    "faktura_plan_endret": _plan_endret,
     "sensitivt_endret": lambda d, o, h: [("Allergier/tilrettelegging endret", [])],
     "deltaker_anonymisert": lambda d, o, h: [("Personopplysninger slettet (retten til sletting)", [])],
     "sveip_feil": lambda d, o, h: [("Automatisk behandling feilet", [])],
+    "min_side_lenke_stengt": lambda d, o, h: [("Lenken til Min side ble stengt", ["Ingen lenke virker før en ny lages."])],
+    "min_side_lenke_fornyet": lambda d, o, h: [(
+        "Ny lenke til Min side ble laget",
+        ["Lenken som var sendt før, virker ikke lenger." + (" E-postadressen ble rettet." if d.get("grunn") == "epost_endret" else "")])],
+    "enhetsoppslag_utilgjengelig": lambda d, o, h: [(
+        "Firmaopplysningene kunne ikke hentes fra Enhetsregisteret ved påmeldingen",
+        ["Organisasjonsnummeret er lagret slik det ble oppgitt. Firmaopplysninger må kontrolleres."])],
+    "firmaopplysninger_hentet": lambda d, o, h: [("Firmaopplysninger hentet fra Enhetsregisteret", [])],
     "kursbevis_mal_feil": lambda d, o, h: [("Kursbevis ble ikke laget – feil i e-postmalen for kursbevis", [])],
 }

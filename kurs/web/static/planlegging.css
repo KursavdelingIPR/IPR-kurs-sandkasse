@@ -1,0 +1,279 @@
+/* Felles utseende for kurslisten på Oversikten, Kalender og Årsplan (samme fil på alle tre).
+   Rolige farger, brukt likt på alle sidene: format (fysisk / online / hybrid) er den eneste fargekodingen av kurs.
+   Røde dager, ferier og blokkeringer har egne, dempede markeringer i kalenderen og årsplanen. */
+:root {
+  --fysisk: #1f5c73; --fysisk-lys: #e2eef2;
+  --online: #62478f; --online-lys: #eee8f6;
+  --hybrid: #9a5a00; --hybrid-lys: #fbefdc;
+  --avlyst: #7a858c; --avlyst-lys: #eef0f1;
+  --rod-dag: #b3261e; --rod-dag-lys: #fbe9e7;
+  --helg: #f1f3f4;
+  --ferie: #fff3c4; --ferie-kant: #d9b940;
+  --blokk: #f6e2d3; --blokk-kant: #b5682f;
+  --merknad-lys: #eef4f7;
+}
+
+/* Skjult tekst (skjul-visuelt) i en tabell som ruller sideveis skal klippes av tabellboksen, ikke gjøre selve siden bredere */
+.tabellboks { position:relative; }
+
+/* Formatmerke: «● Fysisk», «● Online», «● Hybrid» */
+.format { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; line-height:1.6;
+          padding:0 8px; border-radius:20px; white-space:nowrap; }
+.format::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
+.format.fysisk { color:var(--fysisk); background:var(--fysisk-lys); }
+.format.digital { color:var(--online); background:var(--online-lys); }
+.format.hybrid { color:var(--hybrid); background:var(--hybrid-lys); }
+
+/* Verktøylinje over listene: søk, filtre og sortering på én rad når det er plass */
+.filterlinje { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:0 14px; align-items:end;
+               margin-bottom:16px; }
+.filterlinje .handlinger { display:flex; gap:10px; align-items:center; padding-bottom:6px; flex-wrap:wrap; }
+.filterlinje label.avkrysning { display:flex; align-items:center; gap:6px; font-weight:400; margin:0; }
+
+/* Kurslisten */
+table.aktivitetstabell td { vertical-align:middle; }
+table.aktivitetstabell td.dato { white-space:nowrap; }
+table.aktivitetstabell td.tittel { min-width:16em; }
+table.aktivitetstabell td.tittel a { font-weight:600; text-decoration:none; }
+table.aktivitetstabell td.tittel a:hover { text-decoration:underline; }
+table.aktivitetstabell td.sted .stedsnavn { display:block; font-size:13px; color:var(--tekst); margin-top:2px; }
+table.aktivitetstabell .tall { white-space:nowrap; }
+table.aktivitetstabell .delinje { display:block; }
+table.aktivitetstabell .oppmote-idag { margin-top:6px; }
+table.aktivitetstabell td.ansvarlig { min-width:8.5em; }
+table.aktivitetstabell .knapper { display:flex; justify-content:flex-end; gap:8px; white-space:nowrap; }
+table.aktivitetstabell tr.avlyst td.tittel a { color:var(--avlyst); text-decoration:line-through; }
+
+/* Oversikten: søkepanelet (deltakersøk og kurssøk side ved side), statuskortene og kurslisten under */
+.sokepanel { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:20px; max-width:1040px; margin:18px 0 4px; }
+.sokepanel > div { padding:16px 20px 14px; min-width:0; background:#fff; border:1px solid var(--linje); border-radius:12px; }
+/* Overskriftsraden til kurslisten: «Kurs» til venstre og «Nytt kurs +» til høyre, like bred som søkekortene over (Camilla 02.10.2026) */
+.verktoylinje.kursrad { max-width:1040px; margin:32px 0 10px; }
+.verktoylinje.kursrad h2 { margin:0; }
+.sokepanel .sokefelt { flex:none; max-width:none; margin:0; }
+.sokepanel .sokefelt input[type=search] { padding:10px 36px 10px 36px; font-size:15px; }
+.sokepanel .sokefelt button.sok-knapp { padding:0 18px; }
+.sok-hjelp { margin:8px 0 0; font-size:13px; color:var(--dempet); }
+.statkort { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:12px; max-width:1040px; }
+.statkort + .statgruppe { margin:18px 0 8px; font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--dempet); }
+.statkort .kort { margin:0; padding:12px 16px; }
+.statkort .kort.krever { border-left:4px solid var(--gul); padding-left:13px; }
+.statkort .kort.krever.feil { border-left-color:var(--feil); }
+.statkort .stat { font-size:26px; line-height:1.25; }
+/* Filterlinjen over kurslisten: feltene i ulik bredde på én rad når det er plass (Status har den lengste teksten) */
+#kursfilter { display:flex; flex-wrap:wrap; align-items:flex-end; gap:0 14px; }
+#kursfilter > div { flex:1 1 150px; min-width:140px; max-width:240px; }
+#kursfilter > .f-bred { flex-basis:235px; max-width:290px; }
+#kursfilter > .f-middels { flex-basis:195px; }
+#kursfilter > .f-minst { flex-basis:100px; min-width:100px; max-width:130px; }
+#kursfilter > .handlinger { flex:0 0 auto; max-width:none; }
+@media (max-width: 1100px) {
+  .statkort { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .sokepanel { grid-template-columns:1fr; gap:14px; }
+}
+@media (max-width: 520px) {
+  .statkort { grid-template-columns:1fr; }
+}
+
+/* Smalere skjermer: tittelen kan brytes og knappene ligger i to rader, så tabellen slipper å rulle sideveis */
+@media (max-width: 1280px) {
+  table.aktivitetstabell td.tittel { min-width:11em; }
+  table.aktivitetstabell td.ansvarlig { min-width:0; }
+  table.aktivitetstabell .knapper { flex-wrap:wrap; justify-content:flex-start; max-width:11em; }
+}
+
+/* Mobil og nettbrett på høyt format: hvert kurs som et kort, med etiketter foran verdiene */
+@media (max-width: 900px) {
+  .tabellboks.kortliste { border:0; overflow:visible; }
+  table.aktivitetstabell, table.aktivitetstabell tbody { display:block; background:none; }
+  table.aktivitetstabell thead { display:none; }
+  table.aktivitetstabell tr { display:flex; flex-direction:column; padding:12px 14px; margin-bottom:10px;
+                              background:#fff; border:1px solid var(--linje); border-radius:10px; }
+  table.aktivitetstabell td { display:flex; gap:12px; padding:3px 0; border:0; }
+  table.aktivitetstabell td::before { content:attr(data-etikett); flex:0 0 7.5em; color:var(--dempet); font-size:13px; }
+  table.aktivitetstabell td.tittel { display:block; order:-1; min-width:0; font-size:16px; padding-bottom:6px; }
+  table.aktivitetstabell td.tittel::before, table.aktivitetstabell td.handling::before { content:none; }
+  table.aktivitetstabell td.handling { display:block; margin-top:8px; }
+  table.aktivitetstabell .knapper { justify-content:flex-start; }
+  table.aktivitetstabell tr:hover td { background:none; }
+}
+
+/* ---------------- Kalender ---------------- */
+.kalenderverktoy { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; margin:4px 0 10px; }
+.kalenderverktoy h2 { margin:0; min-width:11em; text-align:center; font-size:20px; }
+.visningsvalg { display:inline-flex; margin-left:auto; border:1px solid #c7d0d5; border-radius:8px; overflow:hidden; background:#fff; }
+.visningsvalg a { padding:6px 14px; font-size:14px; color:var(--tekst); text-decoration:none; }
+.visningsvalg a + a { border-left:1px solid #c7d0d5; }
+.visningsvalg a[aria-current] { background:var(--bla); color:#fff; font-weight:600; }
+.forklaring { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin:0 0 12px; font-size:13px; color:var(--dempet); }
+.prove { display:inline-block; min-width:22px; padding:0 6px; border-radius:4px; font-size:12px; text-align:center; }
+.prove.avlyst { color:var(--avlyst); background:var(--avlyst-lys); text-decoration:line-through; }
+.prove.utkast { border:1px dashed var(--dempet); }
+.prove.rod { color:var(--rod-dag); background:var(--rod-dag-lys); font-weight:600; }
+.prove.helg { background:var(--helg); }
+
+/* Måned: én rad per uke; blokkene legges i baner under datoene og kan strekke seg over flere dager */
+.maanedsgrid { border:1px solid var(--linje); border-radius:10px; overflow:hidden; background:#fff; }
+.maanedsgrid .ukedager { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); background:#fafbfb;
+                         border-bottom:1px solid var(--linje); }
+.maanedsgrid .ukedager div { padding:6px 8px; font-size:12px; font-weight:600; letter-spacing:.04em; color:var(--dempet);
+                             text-transform:uppercase; }
+.kalenderuke { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); column-gap:0; min-height:112px;
+               border-bottom:1px solid var(--linje); }
+.kalenderuke:last-child { border-bottom:0; }
+.dagcelle { grid-row:1 / -1; border-right:1px solid var(--linje); padding:4px 6px; min-width:0; }
+.dagcelle:nth-child(7) { border-right:0; }
+.dagcelle.helg { background:var(--helg); }
+.dagcelle.rod { background:var(--rod-dag-lys); }
+.dagcelle.utenfor { background:repeating-linear-gradient(135deg, #fbfbfb 0 6px, #f4f5f6 6px 12px); }
+.dagcelle.utenfor .dagnr { color:#a5afb5; }
+.dagcelle .dagtopp { display:flex; align-items:baseline; gap:6px; min-width:0; white-space:nowrap; }
+.dagcelle .dagnr { font-size:13px; font-weight:600; color:var(--tekst); }
+.dagcelle.rod .dagnr { color:var(--rod-dag); }
+.dagcelle.idag .dagnr { display:inline-block; min-width:24px; padding:0 6px; border-radius:12px; background:var(--bla); color:#fff; }
+.dagcelle .ukenr { font-weight:400; font-size:11px; color:var(--dempet); }
+.dagcelle .rodnavn { flex:1 1 auto; min-width:0; margin:0; font-size:11px; font-weight:600; color:var(--rod-dag);
+                     overflow:hidden; text-overflow:ellipsis; }
+.hendelse { position:relative; z-index:1; display:block; margin:1px 4px; padding:1px 7px; min-width:0; border-radius:5px;
+            border-left:4px solid var(--fysisk); background:var(--fysisk-lys); color:var(--tekst); font-size:12.5px;
+            line-height:22px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; }
+.hendelse:hover { filter:brightness(.96); text-decoration:underline; }
+.hendelse.digital { border-left-color:var(--online); background:var(--online-lys); }
+.hendelse.hybrid { border-left-color:var(--hybrid); background:var(--hybrid-lys); }
+.hendelse.avlyst { border-left-color:var(--avlyst); background:var(--avlyst-lys); color:var(--avlyst); text-decoration:line-through; }
+.hendelse.utkast { background:#fff; border-top:1px dashed var(--dempet); border-bottom:1px dashed var(--dempet); border-right:1px dashed var(--dempet); }
+.hendelse.fra-forrige { margin-left:0; border-top-left-radius:0; border-bottom-left-radius:0; }
+.hendelse.til-neste { margin-right:0; border-top-right-radius:0; border-bottom-right-radius:0; }
+.hendelse .klokke { color:var(--dempet); font-variant-numeric:tabular-nums; }
+.hendelse .samling { color:var(--dempet); }
+
+/* Kort (uke og agenda) */
+.kalenderkort { display:block; margin:6px 0; padding:8px 10px; border-radius:8px; border-left:4px solid var(--fysisk);
+                background:#fff; box-shadow:0 0 0 1px var(--linje) inset; color:var(--tekst); text-decoration:none; }
+.kalenderkort:hover { background:#fafcfd; }
+.kalenderkort.digital { border-left-color:var(--online); }
+.kalenderkort.hybrid { border-left-color:var(--hybrid); }
+.kalenderkort.avlyst { border-left-color:var(--avlyst); color:var(--avlyst); }
+.kalenderkort.avlyst .kortnavn { text-decoration:line-through; }
+.kalenderkort.utkast { border-style:dashed; }
+.kalenderkort .kortnavn { display:block; font-weight:600; color:var(--bla); }
+.kalenderkort .kortdetaljer { display:flex; flex-wrap:wrap; gap:2px 10px; margin-top:3px; font-size:13px; }
+
+/* Uke: sju kolonner */
+.ukevisning { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:8px; }
+.ukedagkolonne { min-width:0; padding:8px; border:1px solid var(--linje); border-radius:10px; background:#fff; }
+.ukedagkolonne.helg { background:var(--helg); }
+.ukedagkolonne.rod { background:var(--rod-dag-lys); }
+.ukedagkolonne.idag { box-shadow:0 0 0 2px var(--bla) inset; }
+.ukedagkolonne h3 { margin:0 0 4px; font-size:14px; }
+.ukedagkolonne h3 span { font-weight:400; color:var(--dempet); }
+.rodnavn { margin:2px 0; font-size:12px; color:var(--rod-dag); font-weight:600; }
+.tomdag { margin:6px 0; font-size:13px; color:var(--dempet); }
+
+/* Agenda: uke for uke */
+.agenda { display:grid; gap:10px; }
+.agendauke { padding:10px 14px; border:1px solid var(--linje); border-radius:10px; background:#fff; }
+.agendauke h3 { margin:0 0 4px; font-size:15px; }
+.agenda.bare-smal { display:none; }
+
+@media (max-width: 1100px) {
+  .ukevisning { grid-template-columns:repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .kalenderverktoy h2 { min-width:0; flex:1 1 100%; order:-1; text-align:left; font-size:18px; }
+  .visningsvalg { margin-left:0; }
+  .maanedsgrid { display:none; }          /* månedsrutenettet er for smalt på mobil: samme måned vises som agenda */
+  .agenda.bare-smal { display:grid; }
+  .ukevisning { grid-template-columns:1fr; }
+}
+
+/* ---------------- Årsplan ---------------- */
+.omraadevalg, .linjevalg { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0; }
+.omraadevalg label, .linjevalg label { margin:0; font-weight:400; }
+.omraadevalg select, .linjevalg select { width:auto; margin:0; padding:4px 8px; font-size:14px; }
+.linjevalg { margin:0 0 10px; }
+.prove.kurs { background:var(--fysisk); color:#fff; font-weight:600; }
+.prove.plan { background:#e3f1e8; color:#256245; box-shadow:inset 0 0 0 1px #7fb898; font-weight:600; }
+.prove.notat { border:1px solid var(--linje); color:var(--dempet); font-weight:600; }
+.prove.overlapp { background:var(--rod-dag); color:#fff; font-weight:600; }
+.prove.skoleferie { background:var(--ferie); box-shadow:inset 0 -3px 0 var(--ferie-kant); }
+.prove.sperre { background:repeating-linear-gradient(135deg, rgba(181,104,47,.35) 0 3px, #fff 3px 7px); }
+.prove.advarsel { outline:2px dashed var(--blokk-kant); outline-offset:-2px; }
+
+/* Året: én rad per måned, 31 dager. Bokstaven (K/P/N/antall) bærer betydningen - fargen er bare en hjelp. */
+table.aar { table-layout:fixed; font-size:12px; min-width:960px; }
+table.aar th, table.aar td { padding:3px 0; text-align:center; border:1px solid var(--linje); }
+table.aar th { font-size:11px; letter-spacing:0; }
+table.aar th.mnd { width:88px; text-align:left; padding-left:8px; text-transform:none; font-size:12px; }
+table.aar td { height:26px; font-weight:600; }
+table.aar td.helg { background-color:var(--helg); }
+table.aar td.utenfor { background:repeating-linear-gradient(45deg, #eceff1, #eceff1 3px, #fff 3px, #fff 6px); }
+table.aar td.skoleferie { background-color:var(--ferie); border-bottom:3px solid var(--ferie-kant); }
+table.aar td.rod { background-color:var(--rod-dag-lys); color:var(--rod-dag); }
+table.aar td.sperre { background-image:repeating-linear-gradient(135deg, rgba(181,104,47,.28) 0 3px, transparent 3px 7px); }
+table.aar td.advarsel { outline:2px dashed var(--blokk-kant); outline-offset:-3px; }
+table.aar td.kurs { background-color:var(--fysisk); color:#fff; }
+table.aar td.kurs.digital { background-color:var(--online); }
+table.aar td.kurs.hybrid { background-color:var(--hybrid); }
+table.aar td.plan { background-color:#e3f1e8; color:#256245; box-shadow:inset 0 0 0 1px #7fb898; }
+table.aar td.notat { color:var(--dempet); }
+table.aar td.overlapp { background-color:var(--rod-dag); color:#fff; }
+table.aar td.rod.kurs, table.aar td.rod.plan, table.aar td.rod.overlapp { border-top:3px solid var(--rod-dag); }
+table.aar td.idag { box-shadow:inset 0 0 0 3px #f3a53d; }
+
+/* Uke for uke: kursene som blokker over dagene de varer (samme blokker som i kalenderen) */
+.ukeliste { display:grid; gap:6px; }
+.ukerad { display:grid; grid-template-columns:130px minmax(0, 1fr) minmax(200px, 320px); gap:0 14px; align-items:start;
+          padding:8px 12px; border:1px solid var(--linje); border-radius:10px; background:#fff; }
+.ukerad.ledig { background:#fbfcfc; }
+.ukehode { display:flex; flex-direction:column; gap:2px; font-size:13px; }
+.ukehode strong { font-size:15px; }
+.ukehode span { color:var(--dempet); }
+.ukehode .merke { align-self:flex-start; }
+.ukedager { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); row-gap:3px; }
+.ukedag { grid-row:1; font-size:11px; color:var(--dempet); padding:0 4px 2px; border-left:1px solid var(--linje); }
+.ukedag.helg { background:var(--helg); }
+.ukedag.rod { color:var(--rod-dag); font-weight:700; background:var(--rod-dag-lys); }
+.ukedag.utenfor { opacity:.55; }
+.ukedag.idag { color:var(--bla); font-weight:700; }
+.blokk.planblokk { border-left-color:#2e7d4f; background:#e3f1e8; color:var(--tekst); }
+.ukekurs { display:none; margin:0; padding:0; list-style:none; gap:4px; font-size:13px; }
+.ukekurs li { display:flex; flex-wrap:wrap; align-items:center; gap:2px 6px; }
+.ukemerknader { margin:0; padding:0; list-style:none; display:grid; gap:3px; font-size:12px; }
+.ukemerknader li { padding:1px 6px; border-radius:4px; }
+.ukemerknader .rod { color:var(--rod-dag); font-weight:600; }
+.ukemerknader .skoleferie { background:var(--ferie); }
+.ukemerknader .sperre { background:var(--blokk); }
+.ukemerknader .advarsel { outline:1px dashed var(--blokk-kant); outline-offset:-1px; }
+.ukemerknader .notat { color:var(--dempet); }
+
+.aarsplankort { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin:18px 0; }
+.aarsplankort .kort { margin:0; }
+.konfliktliste, .ledigliste { margin:0; padding:0; list-style:none; display:grid; gap:8px; font-size:14px; }
+.konfliktliste .merke { margin-right:4px; }
+.periodetabell td.handling { white-space:nowrap; text-align:right; }
+.periodetabell td.handling form { display:inline; margin:0 0 0 6px; }
+.notattekst { white-space:pre-line; }
+.maaneder { grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); }
+.maaneder h3 { margin:0 0 8px; font-size:16px; }
+.maaneder p { margin:0 0 6px; }
+.plan-rad { margin:0 0 8px; }
+#perioder details > summary, details#ny > summary { cursor:pointer; font-weight:600; color:var(--bla); }
+label.valg { display:inline-flex; align-items:center; gap:6px; font-weight:normal; font-size:14px; margin:4px 18px 4px 0; }
+label.valg input { width:auto; margin:0; }
+
+@media (max-width: 1100px) {
+  .ukerad { grid-template-columns:110px minmax(0, 1fr); }
+  .ukemerknader { grid-column:2; margin-top:6px; }
+}
+@media (max-width: 760px) {
+  .ukerad { grid-template-columns:1fr; gap:6px; padding:8px 10px; }
+  .ukehode { flex-direction:row; flex-wrap:wrap; align-items:baseline; gap:4px 8px; }
+  .ukemerknader { grid-column:1; margin-top:2px; }
+  .ukekurs { display:grid; }
+  .ukedag { padding:0 2px 2px; font-size:10px; }
+  .aarsplankort { grid-template-columns:1fr; }
+  .periodetabell td.handling { text-align:left; }
+}

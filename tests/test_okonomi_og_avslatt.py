@@ -10,6 +10,7 @@ from datetime import date, timedelta
 import pytest
 from werkzeug.datastructures import MultiDict
 
+from adressehjelp import ADRESSE
 from kurs import config, db, migreringer, okonomi
 from kurs.integrasjoner import epost
 from listehjelp import synlige_rader
@@ -193,7 +194,7 @@ def test_avmeldt_kan_ikke_avslaas(con, sendt):
     con.commit()
     k = _admin()
     r = k.post(f"/admin/kurs/{kid}/deltaker/{pid}/avsla", data={"send_epost": "1"})
-    assert "Bare bekreftede påmeldinger og påmeldinger på venteliste kan avslås." in k.get(r.headers["Location"]).get_data(as_text=True)
+    assert "Bare påmeldte og de som står på venteliste kan avslås." in k.get(r.headers["Location"]).get_data(as_text=True)
     assert sendt == [] and con.execute("SELECT avslatt_ts FROM paamelding WHERE id=?", (pid,)).fetchone()[0] is None
 
 
@@ -207,7 +208,7 @@ def test_avslaatt_deltaker_kan_ikke_melde_seg_paa_igjen_selv(con, sendt):
     con.rollback()
     from kurs.web import app as webapp
     r = webapp.app.test_client().post(f"/kurs/AR", data={"fornavn": "Dag", "etternavn": "Test", "epost": "dag@eksempel.no",
-                                                          "samtykke": "1"})
+                                                          "samtykke": "1", **ADRESSE})
     assert r.status_code == 400 and "ikke godkjent" in r.get_data(as_text=True)
 
 
@@ -216,7 +217,7 @@ def test_admin_kan_gjenopprette_et_avslag(con, sendt):
     pid = _paamelding(con, kid, "eva@eksempel.no")
     db.avsla_paamelding(con, pid, aktor="admin:test")
     con.commit()
-    _admin().post(f"/admin/kurs/{kid}/deltaker/{pid}/status", data={"status": "bekreftet"})
+    _admin().post(f"/admin/kurs/{kid}/deltaker/{pid}/status", data={"status": "paameldt"})
     rad = con.execute("SELECT status, avslatt_ts FROM paamelding WHERE id=?", (pid,)).fetchone()
     assert (rad["status"], rad["avslatt_ts"]) == ("bekreftet", None)
 
@@ -240,7 +241,7 @@ def test_avslaatt_vises_telles_og_kan_filtreres(con, sendt):
     liste = k.get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&kol=status&status=alle").get_data(as_text=True)
     assert "<td class=\"\">Avslått</td>" in liste and "<td class=\"\">Avmeldt</td>" in liste
     tekst = k.get(f"/admin/kurs/{kid}/deltakere.csv").get_data(as_text=True)
-    assert "Frida;Avslått;frida@eksempel.no;;;avslått" in tekst                  # fornavn og etternavn i hver sin kolonne
+    assert "Frida;Avslått;frida@eksempel.no;;;Avslått" in tekst                  # fornavn og etternavn i hver sin kolonne
 
 
 def test_lesetilgang_kan_ikke_avslaa(con, sendt):

@@ -29,7 +29,7 @@
           {% for verdi, tekst in statusvalg.items() %}<option value="{{ verdi }}" {{ 'selected' if valg.status == verdi }}>{{ tekst }}</option>{% endfor %}
         </select></div>
     </div>
-    {% for gruppe in grupper %}
+    {% for gruppe in grupper if katalog|selectattr('gruppe', 'equalto', gruppe)|list %}
     <fieldset>
       <legend class="etikett">{{ gruppe }}</legend>
       {% for k in katalog if k.gruppe == gruppe %}<label class="valg"><input type="checkbox" name="kol" value="{{ k.nokkel }}"
@@ -54,7 +54,7 @@
     <div>
       <h2>{{ kurs.navn }}</h2>
       <p class="liten">Kursnr. {{ kurs.kursnr }}{% if datoer %} · {{ datoer }}{% endif %}{% if kurs.sted %} · {{ kurs.sted }}{% endif %}</p>
-      <p class="liten dempet">{{ statusvalg[valg.status] }}: {{ tabell.rader|length }} · Utskrevet {{ utskrevet }}</p>
+      <p class="liten dempet">{% if valg.status == 'plass' and antall_ekstra %}{{ antall_paameldte }} {{ (STATUS.paameldt if antall_paameldte == 1 else STATUS_FLERTALL.paameldt)|lower }} + {{ antall_ekstra }} {{ (STATUS.ekstradeltaker if antall_ekstra == 1 else STATUS_FLERTALL.ekstradeltaker)|lower }}{% else %}{{ statusvalg[valg.status] }}: {{ tabell.rader|length }}{% endif %} · Utskrevet {{ utskrevet }}</p>
     </div>
   </div>
   <div class="tabellboks"><table class="liste">

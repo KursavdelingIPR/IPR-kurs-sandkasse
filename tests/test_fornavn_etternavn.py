@@ -14,6 +14,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE, gruppeadresse
 from kurs import config, db, import_deltakere, maltekster, migreringer, migrer
 
 
@@ -182,9 +183,9 @@ def test_offentlig_skjema_har_egne_felt_og_krever_begge(con):
     k = _klient()
     html = k.get("/kurs/FN1").get_data(as_text=True)
     assert 'name="fornavn"' in html and 'name="etternavn"' in html and 'name="navn"' not in html
-    r = k.post("/kurs/FN1", data={"fornavn": "Kari", "etternavn": "", "epost": "k@x.no", "samtykke": "on"})
+    r = k.post("/kurs/FN1", data={"fornavn": "Kari", "etternavn": "", "epost": "k@x.no", "samtykke": "on", **ADRESSE})
     assert r.status_code == 400 and "Fyll inn fornavn, etternavn og gyldig e-post." in r.get_data(as_text=True)
-    r = k.post("/kurs/FN1", data={"fornavn": "Kari", "etternavn": "Nordmann", "epost": "k@x.no", "samtykke": "on"})
+    r = k.post("/kurs/FN1", data={"fornavn": "Kari", "etternavn": "Nordmann", "epost": "k@x.no", "samtykke": "on", **ADRESSE})
     assert r.status_code == 200 and "Takk, Kari." in r.get_data(as_text=True)
     d = _fersk().execute("SELECT navn, fornavn, etternavn FROM deltaker WHERE epost='k@x.no'").fetchone()
     assert tuple(d) == ("Kari Nordmann", "Kari", "Nordmann")
@@ -200,7 +201,7 @@ def _webhook(data: dict):
 def test_nettsidemottak_tar_imot_fornavn_og_etternavn(con):
     _kurs(con)
     con.commit()
-    r = _webhook({"first_name": "Kari", "last_name": "Nordmann", "email": "k@x.no", "kurs": "FN1"})
+    r = _webhook({"first_name": "Kari", "last_name": "Nordmann", "email": "k@x.no", "kurs": "FN1", **ADRESSE})
     assert r.status_code == 201
     d = _fersk().execute("SELECT navn, fornavn, etternavn FROM deltaker WHERE epost='k@x.no'").fetchone()
     assert tuple(d) == ("Kari Nordmann", "Kari", "Nordmann")
@@ -209,29 +210,31 @@ def test_nettsidemottak_tar_imot_fornavn_og_etternavn(con):
 def test_nettsidemottak_avviser_fullt_navn_i_ett_felt_uten_aa_gjette(con):
     _kurs(con)
     con.commit()
-    r = _webhook({"navn": "Kari Nordmann", "epost": "k@x.no", "kurs": "FN1"})
+    r = _webhook({"navn": "Kari Nordmann", "epost": "k@x.no", "kurs": "FN1", **ADRESSE})
     assert r.status_code == 400 and "fornavn og etternavn hver for seg" in r.get_json()["melding"]
     assert not _fersk().execute("SELECT 1 FROM deltaker").fetchone()
 
 
 def test_import_krever_egne_kolonner_og_avviser_gammel_navnekolonne():
-    rader = import_deltakere.parse_csv("Fornavn;Etternavn;E-post\nAnne Marie;Eksempelsen;r@x.no\n".encode())
-    assert rader == [{"fornavn": "Anne Marie", "etternavn": "Eksempelsen", "epost": "r@x.no"}]
+    rader = import_deltakere.parse_csv(
+        "Fornavn;Etternavn;E-post;Adresse;Postnr;Poststed\nAnne Marie;Eksempelsen;r@x.no;Eksempelveien 1;0150;Oslo\n".encode())
+    assert rader == [{"fornavn": "Anne Marie", "etternavn": "Eksempelsen", "epost": "r@x.no", **ADRESSE}]
     with pytest.raises(import_deltakere.ImportFeil, match="hver sin kolonne"):
         import_deltakere.parse_csv("Navn;E-post\nKari Nordmann;k@x.no\n".encode())
     with pytest.raises(import_deltakere.ImportFeil, match="Etternavn"):
         import_deltakere.parse_csv("Fornavn;E-post\nKari;k@x.no\n".encode())
     assert import_deltakere.MALFIL_HEADER[:3] == ["Fornavn", "Etternavn", "E-post"]
-    assert import_deltakere._valider_rad({"fornavn": "Kari", "etternavn": "", "epost": "k@x.no"}) == ["Etternavn mangler"]
+    assert import_deltakere._valider_rad({"fornavn": "Kari", "etternavn": "", "epost": "k@x.no", **ADRESSE}) == [
+        "Etternavn mangler"]
 
 
 def test_bedriftspaamelding_lagrer_kontaktperson_og_deltakere_med_egne_felt(con):
     _kurs(con)
     con.commit()
     data = {"kontakt_fornavn": "Kari", "kontakt_etternavn": "Hansen", "kontakt_epost": "kari@firma.no",
-            "kontakt_telefon": "", "firmanavn": "Firma AS", "org_nr": "999888777", "faktura_ref": "",
+            "kontakt_telefon": "", "firmanavn": "Firma AS", "org_nr": "999900003", "faktura_ref": "",
             "deltaker_fornavn": ["Ola Johan"], "deltaker_etternavn": ["Nordmann"], "deltaker_epost": ["ola@firma.no"],
-            "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on"}
+            "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on", **gruppeadresse()}
     assert _klient().post("/kurs/FN1/gruppe", data=data, follow_redirects=True).status_code == 200
     fersk = _fersk()
     kontakt = fersk.execute("SELECT kontakt_navn, kontakt_fornavn, kontakt_etternavn FROM firmapaamelding").fetchone()
@@ -247,8 +250,9 @@ def test_bedriftspaamelding_krever_fornavn_og_etternavn_paa_hver_deltaker(con):
     _kurs(con)
     con.commit()
     data = {"kontakt_fornavn": "Kari", "kontakt_etternavn": "Hansen", "kontakt_epost": "kari@firma.no",
-            "firmanavn": "Firma AS", "org_nr": "999888777", "deltaker_fornavn": ["Ola"], "deltaker_etternavn": [""],
-            "deltaker_epost": ["ola@firma.no"], "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on"}
+            "firmanavn": "Firma AS", "org_nr": "999900003", "deltaker_fornavn": ["Ola"], "deltaker_etternavn": [""],
+            "deltaker_epost": ["ola@firma.no"], "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on",
+            **gruppeadresse()}
     r = _klient().post("/kurs/FN1/gruppe", data=data)
     assert r.status_code == 400 and "Deltaker 1: fyll inn fornavn, etternavn" in r.get_data(as_text=True)
     assert not _fersk().execute("SELECT 1 FROM deltaker").fetchone()
@@ -259,7 +263,8 @@ def test_manuell_registrering_i_admin_har_egne_felt(con):
     con.commit()
     admin = _admin()
     assert 'name="fornavn"' in admin.get(f"/admin/kurs/{kid}/deltaker/ny").get_data(as_text=True)
-    r = admin.post(f"/admin/kurs/{kid}/deltaker/ny", data={"fornavn": "Per", "etternavn": "Hansen", "epost": "per@x.no"})
+    r = admin.post(f"/admin/kurs/{kid}/deltaker/ny", data={"fornavn": "Per", "etternavn": "Hansen", "epost": "per@x.no",
+                                                           **ADRESSE})
     assert r.status_code == 302
     assert tuple(_fersk().execute("SELECT navn, fornavn, etternavn FROM deltaker").fetchone()) == ("Per Hansen", "Per", "Hansen")
 
@@ -272,7 +277,7 @@ def test_deltakervinduet_har_egne_felt_og_lagring_oppdaterer_fullt_navn(con):
     assert 'id="f-etternavn" name="etternavn" required value="Nordmann"' in side
     versjon = side.split('name="versjon" value="')[1].split('"')[0]
     r = admin.post(f"/admin/kurs/{kid}/deltaker/{p1}/person",
-                   data={"fornavn": "Kari Anne", "etternavn": "Nordmann", "epost": "kari@x.no", "versjon": versjon})
+                   data={"fornavn": "Kari Anne", "etternavn": "Nordmann", "epost": "kari@x.no", "versjon": versjon, **ADRESSE})
     assert r.status_code == 302
     d = _fersk().execute("SELECT navn, fornavn FROM deltaker WHERE epost='kari@x.no'").fetchone()
     assert tuple(d) == ("Kari Anne Nordmann", "Kari Anne")
@@ -281,7 +286,7 @@ def test_deltakervinduet_har_egne_felt_og_lagring_oppdaterer_fullt_navn(con):
 def test_deltakervinduet_avviser_tomt_etternavn(con):
     kid, (p1, _) = _paameldte(con)
     admin = _admin()
-    r = admin.post(f"/admin/kurs/{kid}/deltaker/{p1}/person", data={"fornavn": "Kari", "etternavn": "", "epost": "kari@x.no"},
+    r = admin.post(f"/admin/kurs/{kid}/deltaker/{p1}/person", data={"fornavn": "Kari", "etternavn": "", "epost": "kari@x.no", **ADRESSE},
                    follow_redirects=True)
     assert "Fyll inn fornavn, etternavn og en gyldig e-postadresse." in r.get_data(as_text=True)
     assert _fersk().execute("SELECT etternavn FROM deltaker WHERE epost='kari@x.no'").fetchone()[0] == "Nordmann"
@@ -335,7 +340,7 @@ def test_egen_epost_fletter_inn_hver_mottakers_navn_uten_automatisk_hilsen(con):
 
 @pytest.mark.parametrize("tekst, forklaring", [("Hei {fornamn},", "Koden {fornamn} kan ikke brukes her"),
                                                ("Hei {fornavn,", "uten avsluttende"),
-                                               ("Hei {kursnavn},", "Gyldige koder: {fornavn}, {navn}")])
+                                               ("Hei {kursnavn},", "Gyldige koder: {fornavn}, {min_side}, {navn}")])
 def test_egen_epost_med_ukjent_kode_eller_loes_klamme_stoppes_foer_noe_lagres(con, tekst, forklaring):
     kid, pider = _paameldte(con)
     r = _admin().post(f"/admin/kurs/{kid}/epost/forhandsvis", data={"emne": "Info", "tekst": tekst, "paamelding_id": pider})

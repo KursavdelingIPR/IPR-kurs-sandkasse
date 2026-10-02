@@ -28,7 +28,13 @@ Region: **Norway East**. Hvilke innstillinger appen leser: `DEPLOYMENT.md`, avsn
 - **Health check path:** `/helse` (svarer 200 når databasen svarer og har riktig versjon, ellers 503).
 - Systemtildelt **managed identity** = på (brukes mot Key Vault).
 - App Settings: se `DEPLOYMENT.md` avsnitt 2. Hemmeligheter som Key Vault-referanser.
-- Logging: App Service logs → Log Analytics. Varsling på HTTP 5xx og på helsesjekken.
+- Logging: **Application logging** (appens egen logg til stdout/stderr, som bare har rutemønster, status og referanse) →
+  Log Analytics. **Web server logging / HTTP-logg (`AppServiceHTTPLogs`) skal stå av**, eller utelates i diagnostikkinnstillingen:
+  den lagrer hele adressen med spørrestreng og `Referer`, og deltakersøket (`/admin/sok?q=…`) og deltakerregisteret
+  (`?sok=…`) har navn, e-post og telefon der (se GDPR.md, avsnittet om deltakersøket). Den personlige lenken til Min side (`/min/<lenke>`) står også i adressen,
+  og er en nøkkel til deltakerens side. Gunicorn startes uten `--access-logfile`.
+  Må HTTP-loggen likevel være på: kort ned oppbevaringen og begrens hvem som kan lese loggen.
+  Varsling på HTTP 5xx lages fra metrikken `Http5xx`, og på helsesjekken - ikke fra HTTP-loggen.
 
 ## 3. Key Vault
 
@@ -112,8 +118,8 @@ For eAccounting:
 ## 8. Utgående nettverk
 
 Appen og morgenjobben må nå: `login.microsoftonline.com`, `graph.microsoft.com`, `zoom.us`, `api.zoom.us`,
-`identity.vismaonline.com`, `eaccountingapi.vismaonline.com` (eller API-et for valgt Visma-produkt), og – bare hvis KI
-er på – `api.anthropic.com`.
+`identity.vismaonline.com`, `eaccountingapi.vismaonline.com` (eller API-et for valgt Visma-produkt), `data.brreg.no`
+(firmaoppslag i påmeldingsskjemaet), og – bare hvis KI er på – `api.anthropic.com`.
 
 ## 9. Hva er testet, og hva er ikke
 
@@ -121,6 +127,7 @@ er på – `api.anthropic.com`.
 |---|---|---|
 | PostgreSQL | Hele testsuiten mot ekte PostgreSQL 16 lokalt (samme skjema og migreringer) | Azure Flexible Server (nettverk, TLS, citext-tillatelse) |
 | Web-app | Røyktest i Chromium mot demoserver; alle sider og hovedflyter | App Service (gunicorn, ProxyFix bak Azure front end) |
+| Brønnøysundregistrene | Driftsgrenen med etterlignet register (oppslag, underenheter, søk, feil og tidsavbrudd). Ekte oppslag kontrollert med `python -m kurs.brreg_sjekk` 28.09.2026 | Fra App Service (utgående nettverk) |
 | Entra-innlogging | Hele flyten med etterlignet token-endepunkt (state, nonce, PKCE, claims, roller) | Mot ekte tenant |
 | Graph e-post/SharePoint | Driftsgrenen med etterlignet Graph (kallene, 409/404-håndtering) | Mot ekte tenant, postboksbegrensning, Sites.Selected |
 | Zoom | Demo-gren og lagring/idempotens | Mot ekte Zoom-konto |

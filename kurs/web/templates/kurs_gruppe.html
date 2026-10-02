@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css). Kurs for IPR.no skal få en annen stil etter hvert. -#}
 {% block tittel %}Bedriftspåmelding – {{ kurs.navn }}{% endblock %}
 {% block innhold %}
 <h1>Bedriftspåmelding – {{ kurs.navn }}</h1>
@@ -15,15 +16,10 @@
     <div><label for="f-kontakt_telefon">Kontaktperson – telefon</label><input id="f-kontakt_telefon" name="kontakt_telefon" value="{{ f.kontakt_telefon or '' }}"></div>
   </div>
   <div class="rad">
-    <div><label for="f-firmanavn">Firmanavn *</label><input id="f-firmanavn" name="firmanavn" required value="{{ f.firmanavn or '' }}"></div>
-    <div><label for="f-org_nr">Org.nr. *</label><input id="f-org_nr" name="org_nr" required value="{{ f.org_nr or '' }}"></div>
+    <div><label for="f-org_nr">Org.nr. *</label><input id="f-org_nr" name="org_nr" required inputmode="numeric" autocomplete="off" aria-describedby="hjelp-org_nr" value="{{ f.org_nr or '' }}"></div>
     <div><label for="f-faktura_ref">Fakturareferanse / bestillernr.</label><input id="f-faktura_ref" name="faktura_ref" value="{{ f.faktura_ref or '' }}"></div>
   </div>
-  <div class="rad">
-    <div><label for="f-faktura_adresse">Fakturaadresse</label><input id="f-faktura_adresse" name="faktura_adresse" value="{{ f.faktura_adresse or '' }}"></div>
-    <div><label for="f-faktura_postnr">Postnr.</label><input id="f-faktura_postnr" name="faktura_postnr" value="{{ f.faktura_postnr or '' }}"></div>
-    <div><label for="f-faktura_sted">Sted</label><input id="f-faktura_sted" name="faktura_sted" value="{{ f.faktura_sted or '' }}"></div>
-  </div>
+  <p id="hjelp-org_nr" class="liten dempet">Firmanavn og fakturaadresse hentes automatisk fra Brønnøysundregistrene ut fra organisasjonsnummeret – dere skriver dem ikke selv.</p>
   <label style="font-weight:normal"><input type="checkbox" name="ehf" {{ 'checked' if f.ehf }}> Send som EHF (elektronisk faktura)</label>
 
   <p class="liten dempet" style="margin-top:14px">
@@ -33,6 +29,7 @@
   </p>
 
   <strong style="display:block; margin-top:22px">Deltakere</strong>
+  <p id="hjelp-adresse" class="liten dempet" style="margin:4px 0 0">Oppgi hver deltakers <strong>private adresse</strong> (ikke arbeidsgivers). Den kreves for alle deltakere, også når dere betaler. Postnummer: 4 siffer i Norge.</p>
   <div id="deltaker-rader">
     {% for d in deltakere %}
     <div class="deltaker-rad rad" style="border-top:1px solid var(--linje); padding-top:12px; margin-top:12px">
@@ -41,7 +38,12 @@
       <div><label>E-post * <input name="deltaker_epost" type="email" value="{{ d.epost or '' }}"></label></div>
       <div><label>Telefon <input name="deltaker_telefon" value="{{ d.telefon or '' }}"></label></div>
       <div><label>Arbeidssted <input name="deltaker_arbeidssted" value="{{ d.arbeidssted or '' }}"></label></div>
-      {% if kurs.spesialistlop %}<div><label>HPR-nummer <input name="deltaker_hpr" value="{{ d.hpr_nr or '' }}"></label></div>{% endif %}
+      {% if kurs_viser_hpr(kurs) %}<div><label>HPR-nummer <input name="deltaker_hpr" value="{{ d.hpr_nr or '' }}"></label></div>{% endif %}
+      <div class="deltaker-adresse" style="grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:0 14px">
+        <div style="flex:2 1 220px; min-width:0"><label>Adresse * <input name="deltaker_adresse" autocomplete="off" value="{{ d.adresse or '' }}"></label></div>
+        <div style="flex:0 1 120px; min-width:0"><label>Postnr. * <input name="deltaker_postnr" inputmode="numeric" autocomplete="off" aria-describedby="hjelp-adresse" value="{{ d.postnr or '' }}"></label></div>
+        <div style="flex:1 1 140px; min-width:0"><label>Poststed * <input name="deltaker_poststed" autocomplete="off" value="{{ d.poststed or '' }}"></label></div>
+      </div>
       <div style="align-self:end"><button type="button" class="sekundar liten fjern-rad" {{ 'hidden' if deltakere|length <= 1 }}>Fjern</button></div>
     </div>
     {% endfor %}
@@ -55,7 +57,12 @@
       <div><label>E-post * <input name="deltaker_epost" type="email"></label></div>
       <div><label>Telefon <input name="deltaker_telefon"></label></div>
       <div><label>Arbeidssted <input name="deltaker_arbeidssted"></label></div>
-      {% if kurs.spesialistlop %}<div><label>HPR-nummer <input name="deltaker_hpr"></label></div>{% endif %}
+      {% if kurs_viser_hpr(kurs) %}<div><label>HPR-nummer <input name="deltaker_hpr"></label></div>{% endif %}
+      <div class="deltaker-adresse" style="grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:0 14px">
+        <div style="flex:2 1 220px; min-width:0"><label>Adresse * <input name="deltaker_adresse" autocomplete="off"></label></div>
+        <div style="flex:0 1 120px; min-width:0"><label>Postnr. * <input name="deltaker_postnr" inputmode="numeric" autocomplete="off" aria-describedby="hjelp-adresse"></label></div>
+        <div style="flex:1 1 140px; min-width:0"><label>Poststed * <input name="deltaker_poststed" autocomplete="off"></label></div>
+      </div>
       <div style="align-self:end"><button type="button" class="sekundar liten fjern-rad" hidden>Fjern</button></div>
     </div>
   </template>

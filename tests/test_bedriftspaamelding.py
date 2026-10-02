@@ -35,7 +35,7 @@ def _fersk(con):
 def _grunnlag(**over):
     data = {
         "kontakt_navn": "Kari HR", "kontakt_epost": "kari.hr@firma.no", "kontakt_telefon": "90000000",
-        "firmanavn": "Firma AS", "org_nr": "999888777", "faktura_ref": "BEST-1",
+        "org_nr": "999900003", "faktura_ref": "BEST-1",
         "deltaker_navn": ["Ola Nordmann"], "deltaker_epost": ["ola@firma.no"],
         "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on",
     }
@@ -57,7 +57,7 @@ def test_gruppe_faar_plass_naar_kapasitet_holder(con):
              deltaker_telefon=["", ""], deltaker_arbeidssted=["", ""])
     assert r.status_code == 200
     tekst = r.get_data(as_text=True)
-    assert tekst.count("Bekreftet") == 2
+    assert tekst.count('<span class="merke ok">Påmeldt</span>') == 2 and "Bekreftet" not in tekst
     fersk = _fersk(con)
     assert fersk.execute("SELECT COUNT(*) FROM paamelding WHERE status='bekreftet'").fetchone()[0] == 2
 
@@ -94,12 +94,15 @@ def test_billettinfo_kopieres_til_hver_paamelding(con):
     kid = _kurs(con, kapasitet=5)
     con.commit()
     klient = _klient()
-    _post(klient, "T1")
+    _post(klient, "T1", firmanavn="MANIP AS", faktura_adresse="Manipveien 1", faktura_postnr="9999", faktura_sted="Manipby")
     rad = _fersk(con).execute(
-        "SELECT betaler, org_navn, org_nr, faktura_ref, faktura_epost FROM paamelding").fetchone()
+        "SELECT betaler, org_navn, org_nr, faktura_ref, faktura_epost, faktura_adresse, faktura_postnr, faktura_sted "
+        "FROM paamelding").fetchone()
     assert rad["betaler"] == "organisasjon"
-    assert rad["org_navn"] == "Firma AS"
-    assert rad["org_nr"] == "999888777"
+    # Felles regel: firmanavn og adresse kommer fra registeret, aldri fra det kontaktpersonen skriver
+    assert (rad["org_navn"], rad["faktura_adresse"], rad["faktura_postnr"], rad["faktura_sted"]) == (
+        "EKSEMPEL KOMMUNE", "Postboks 100", "1234", "EKSEMPELBY")
+    assert rad["org_nr"] == "999900003"
     assert rad["faktura_ref"] == "BEST-1"
     assert rad["faktura_epost"] == "kari.hr@firma.no"
 
@@ -148,7 +151,7 @@ def test_en_allerede_paameldt_stopper_ikke_resten_av_gruppa(con):
     r = _post(klient, "T1", deltaker_navn=["Ola Nordmann", "Ny Person"],
              deltaker_epost=["ola@firma.no", "ny@firma.no"], deltaker_telefon=["", ""], deltaker_arbeidssted=["", ""])
     tekst = r.get_data(as_text=True)
-    assert "Bekreftet" in tekst  # Ny Person gikk gjennom
+    assert '<span class="merke ok">Påmeldt</span>' in tekst  # Ny Person gikk gjennom
     assert "Ikke registrert" in tekst  # Ola feilet paent
     fersk = _fersk(con)
     assert fersk.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0] == 2  # Ola sin gamle + Ny Person
@@ -178,7 +181,7 @@ def test_kvitteringen_gjenspeiler_faktisk_sluttresultat(con):
     r = _post(klient, "T1", deltaker_navn=["Først", "Sist"], deltaker_epost=["forst@firma.no", "sist@firma.no"],
              deltaker_telefon=["", ""], deltaker_arbeidssted=["", ""])
     tekst = r.get_data(as_text=True)
-    assert tekst.count("Bekreftet") == 1
+    assert tekst.count('<span class="merke ok">Påmeldt</span>') == 1 and "Bekreftet" not in tekst
     assert tekst.count("Venteliste") == 1
 
 

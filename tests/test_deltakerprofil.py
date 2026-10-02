@@ -1,4 +1,5 @@
 """Fase 2: deltakerprofil (Deltaker/Kommunikasjon/Logger), kun visning."""
+import re
 from datetime import date
 
 import pytest
@@ -45,7 +46,7 @@ def test_deltakerprofil_viser_person_og_paameldingsfelt(con):
     _logg_inn(klient)
     tekst = klient.get(f"/admin/kurs/{kid}/deltaker/{pid}").get_data(as_text=True)
     for felt in ("A Test", "Psykolog", "Sted AS", "Firma AS", "123456789", "REF-1",
-                 "Betaler i to omganger", "Nøtter", "Kjenner familien", "bekreftet"):
+                 "Betaler i to omganger", "Nøtter", "Kjenner familien", '<span class="merke ok">Påmeldt</span>'):
         assert felt in tekst
 
 
@@ -115,7 +116,7 @@ def test_loggerfanen_viser_hendelser_for_riktig_paamelding_ikke_andre(con):
     klient = _klient()
     _logg_inn(klient)
     tekst_a = klient.get(f"/admin/kurs/{kid}/deltaker/{pid_a}/logger").get_data(as_text=True)
-    assert "Påmeldt – bekreftet" in tekst_a
+    assert re.search(r"<td>Påmeldt\s", tekst_a)                 # A sin påmelding: «Påmeldt» (har plass)
     assert "Påmeldt – satt på venteliste" not in tekst_a      # B sin påmelding (på venteliste) hører ikke til A
 
 
@@ -128,4 +129,4 @@ def test_loggerfanen_skiller_paamelding_1_fra_10_og_11(con):
     klient = _klient()
     _logg_inn(klient)
     tekst = klient.get(f"/admin/kurs/{kid}/deltaker/{pid_1}/logger").get_data(as_text=True)
-    assert tekst.count("Påmeldt – bekreftet") == 1            # bare påmelding 1 sin egen, ikke 10 og 11 sine
+    assert len(re.findall(r"<td>Påmeldt\s", tekst)) == 1     # bare påmelding 1 sin egen, ikke 10 og 11 sine

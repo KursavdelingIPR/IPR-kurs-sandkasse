@@ -3,6 +3,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import config, daglig, db
 from kurs.kjoring import Kjoring
 
@@ -170,16 +171,16 @@ def test_deltakerens_valg_gjelder_bare_naar_kurset_tillater_det(con):
     assert hent(p2) == "samlet"  # kurset styrer – skjemaet kan ikke overstyre
 
 
-def test_webflyt_paamelding_og_kodeinnsjekk(con, tmp_path, monkeypatch):
+def test_webflyt_paamelding_og_qr_innsjekk(con, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_STI", tmp_path / "test.db")
     from kurs.web import app as webapp
     kid = _kurs(con, date.today(), kode="WEB1", status="aapen")
     con.commit()
     klient = webapp.app.test_client()
-    r = klient.post("/kurs/WEB1", data={"fornavn": "Web", "etternavn": "Test", "epost": "web@x.no", "samtykke": "on", "betaler": "person"})
+    r = klient.post("/kurs/WEB1", data={"fornavn": "Web", "etternavn": "Test", "epost": "web@x.no", "samtykke": "on", **ADRESSE, "betaler": "person"})
     assert r.status_code == 200 and "påmeldt" in r.get_data(as_text=True)
-    kode = db.kursdager(con, kid)[0]["innsjekk_kode"]
-    r = klient.post("/innsjekk", data={"kode": kode.lower(), "epost": "web@x.no"})
+    token = db.kursdager(con, kid)[0]["innsjekk_token"]
+    r = klient.post(f"/innsjekk/{token}", data={"epost": "web@x.no"})          # QR-koden i lokalet (kodesiden /innsjekk er fjernet)
     assert "Oppmøte er registrert" in r.get_data(as_text=True)
 
 

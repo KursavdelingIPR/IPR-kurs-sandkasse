@@ -1,13 +1,22 @@
-"""Fase 12C4A: adminflate for paameldingsskjemaet (/admin/kurs/<id>/paameldingsskjema).
+"""Fase 12C4A: adminflate for paameldingsskjemaet (/admin/kurs/<id>/paameldingsskjema) - naa skjemabyggeren.
 
-Web-laget oversetter KUN det faste admin-skjemaet til komplette overstyringer for telefon, arbeidssted og HPR-hjelpetekst;
-all validering skjer i 12C2-laget. Lagring er atomisk (alle felt i en transaksjon). Fiktive testdata."""
+Web-laget oversetter KUN det faste admin-skjemaet til komplette overstyringer for standardfeltene (telefon, arbeidssted,
+yrkestittel, fakturafeltene, allergier/tilrettelegging, informasjonsboksen) og HPR-hjelpeteksten; all validering skjer
+i 12C2-laget. Lagring er atomisk (alle felt i en transaksjon). Kursets egne felt testes i test_paameldingsskjema_bygger.py.
+Fiktive testdata."""
 import json
+import re
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import config, db
 from kurs import skjemafelt as sf
+
+
+# HPR-nummer er slått av i skjemaene (skjemafelt.HPR_I_SKJEMA = False, Camilla 02.10.2026). Disse testene gjelder koden som viser, validerer og lagrer det
+# (den finnes fortsatt og kan slås på igjen), så de slår det på. Standarden (av) testes i test_hpr_nummer_samles_ikke_inn.py.
+pytestmark = pytest.mark.usefixtures("hpr_i_skjema")
 
 
 @pytest.fixture
@@ -44,12 +53,29 @@ def _url(kid, ekstra=""):
     return f"/admin/kurs/{kid}/paameldingsskjema{ekstra}"
 
 
+_REKKEFOLGE = {"telefon_forst": "telefon,arbeidssted,yrkestittel", "arbeidssted_forst": "arbeidssted,telefon,yrkestittel"}
+
+
 def _skjema(**over):
-    """Komplett admin-skjema med standardverdier (slik siden sender det uendret). None fjerner en nokkel (avkrysning av)."""
-    data = {"telefon_synlig": "on", "telefon_label": "Telefon", "telefon_hjelpetekst": "",
-            "arbeidssted_synlig": "on", "arbeidssted_label": "Arbeidssted", "arbeidssted_hjelpetekst": "",
-            "hpr_nr_hjelpetekst": "", "rekkefolge": "telefon_forst", **over}
+    """Komplett skjemabygger-innsending med standardverdier (slik siden sender det uendret for et kurs uten egne felt).
+    None fjerner en nokkel (avkrysning av). `rekkefolge` (telefon_forst/arbeidssted_forst) er en snarvei for rekkefolgen
+    i «Om deg»; en annen verdi sendes som den er (ugyldig)."""
+    data = {}
+    for n in (*sf.KONFIGURERBAR_GRUPPE, *sf.FAKTURAFELT, *sf.SENSITIVE_FELT):
+        f = sf.REGISTER[n]
+        data |= {f"{n}_label": f.label, f"{n}_hjelpetekst": f.hjelpetekst or ""}
+        if f.synlig:
+            data[f"{n}_synlig"] = "on"
+    data |= {f"{n}_synlig": "on" for n in sf.INFOFELT}
+    data |= {"hpr_nr_hjelpetekst": "", "rekkefolge_til_slutt": ""}
+    rekkefolge = over.pop("rekkefolge", "telefon_forst")
+    data["rekkefolge_om_deg"] = _REKKEFOLGE.get(rekkefolge, rekkefolge)
+    data |= over
     return {k: v for k, v in data.items() if v is not None}
+
+
+def _avkrysset(html: str, navn: str) -> bool:
+    return " checked" in re.search(rf'<input[^>]*name="{navn}"[^>]*>', html).group(0)
 
 
 def _rader(con, kid=None):
@@ -95,14 +121,15 @@ def test_standardverdier_vises(con, admin):
     html = admin.get(_url(kid)).get_data(as_text=True)
     assert "Påmeldingsskjema" in html and "Eksempelkurs" in html
     assert 'name="telefon_synlig" checked' in html and 'name="arbeidssted_synlig" checked' in html
-    assert 'name="telefon_obligatorisk" >' in html and 'name="arbeidssted_obligatorisk" >' in html
+    assert not _avkrysset(html, "telefon_obligatorisk") and not _avkrysset(html, "arbeidssted_obligatorisk")
+    assert not _avkrysset(html, "yrkestittel_synlig")                 # yrkestittel er skjult som standard
     assert 'name="telefon_label" maxlength="80" value="Telefon"' in html
     assert 'name="arbeidssted_label" maxlength="80" value="Arbeidssted"' in html
-    assert 'value="telefon_forst" checked' in html
-    assert html.index('name="telefon_label"') < html.index('name="arbeidssted_label"')
-    for fast in ("Fornavn", "Etternavn", "E-post", "Samtykke", "HPR-nummer"):
-        assert f"<strong>{fast}</strong>" in html
-    assert "Dette kurset har ikke spesialistløp" in html
+    assert 'name="rekkefolge_om_deg" value="telefon,arbeidssted,yrkestittel"' in html
+    assert html.index('name="telefon_label"') < html.index('name="arbeidssted_label"') < html.index('name="yrkestittel_label"')
+    for fast in ("Fornavn", "Etternavn", "E-post", "Samtykke", "HPR-nummer", "Betale privat / firma", "Organisasjonsnummer"):
+        assert f'<span class="sb-fast">{fast}</span>' in html
+    assert "Vises bare på kurs i et spesialistløp – ikke på dette kurset" in html
     assert 'name="hpr_nr_synlig"' not in html and 'name="hpr_nr_label"' not in html
     assert 'name="fornavn_label"' not in html and 'name="etternavn_label"' not in html
     for internt in ("override", "NULL", "rekkefolge</", "kurs_skjemafelt"):
@@ -117,19 +144,21 @@ def test_eksisterende_overstyringer_vises(con, admin):
     db.lagre_skjemafelt(con, kid, "hpr_nr", {"hjelpetekst": "HPR-hjelp"})
     con.commit()
     html = admin.get(_url(kid)).get_data(as_text=True)
-    assert 'name="telefon_synlig" >' in html and 'name="telefon_obligatorisk" checked' in html
+    assert not _avkrysset(html, "telefon_synlig") and _avkrysset(html, "telefon_obligatorisk")
     assert 'value="Mobil"' in html and ">Linje 1\nLinje 2</textarea>" in html and ">HPR-hjelp</textarea>" in html
-    assert 'value="arbeidssted_forst" checked' in html
+    assert 'name="rekkefolge_om_deg" value="arbeidssted,telefon,yrkestittel"' in html
     assert html.index('name="arbeidssted_label"') < html.index('name="telefon_label"')   # vist i effektiv rekkefolge
-    assert "spesialistløpet «EFT», så feltet vises" in html
-    assert html.count('<span class="merke gul">Tilpasset</span>') == 3
+    assert "Vises: kurset er i spesialistløpet «EFT»" in html
+    # «Tilpasset» for felt med endret innhold (telefon og HPR). Rekkefølgen alene vises av plasseringen i tabellen.
+    assert html.count('<span class="merke gul">Tilpasset</span>') == 2
 
 
-def test_forhaandsvisningslenken_peker_til_eksisterende_preview(con, admin):
+def test_forhaandsvisningslenken_peker_til_den_ekte_siden(con, admin):
     kid = _kurs(con)
     html = admin.get(_url(kid)).get_data(as_text=True)
-    assert f'href="/admin/kurs/{kid}/forhandsvis-paamelding"' in html and "Forhåndsvis påmeldingsskjema" in html
-    assert admin.get(f"/admin/kurs/{kid}/forhandsvis-paamelding").status_code == 200
+    assert 'href="/kurs/A1" target="_blank" rel="noopener">Forhåndsvis påmeldingsskjema' in html
+    r = admin.get(f"/admin/kurs/{kid}/forhandsvis-paamelding")                  # gamle lenker virker fortsatt
+    assert r.status_code == 302 and r.headers["Location"].endswith("/kurs/A1")
 
 
 def test_fanen_finnes_paa_kurssidene(con, admin):
@@ -148,9 +177,9 @@ def test_alle_kursfaner_rendres_og_fanelenkene_peker_til_registrerte_ruter(con, 
     kid = _kurs(con)
     adapter = webapp.app.url_map.bind("localhost")
     forventet = {"Oppsett": "admin_kurs_oppsett", "Nettside": "admin_kurs_nettside",
-                 "Påmeldingsskjema": "admin_kurs_paameldingsskjema", "Deltakere": "admin_kurs_deltakere",
-                 "Kommunikasjon": "admin_kurs_kommunikasjon"}
-    for side in ("oppsett", "nettside", "paameldingsskjema", "deltakere", "kommunikasjon"):
+                 "Påmeldingsskjema": "admin_kurs_paameldingsskjema", "Min side": "admin_kursside",
+                 "Deltakere": "admin_kurs_deltakere", "Kommunikasjon": "admin_kurs_kommunikasjon"}
+    for side in ("oppsett", "nettside", "paameldingsskjema", "kursside", "deltakere", "kommunikasjon"):
         r = admin.get(f"/admin/kurs/{kid}/{side}")
         assert r.status_code == 200, side
         faner = r.get_data(as_text=True).split('<nav class="faner">')[1].split("</nav>")[0]
@@ -203,7 +232,7 @@ def test_skjult_og_obligatorisk_bevares(con, admin):
     _lagre(admin, kid, telefon_synlig=None, telefon_obligatorisk="on")
     assert _over(con, kid)["telefon"] == sf.Overstyring(synlig=False, obligatorisk=True)
     html = admin.get(_url(kid)).get_data(as_text=True)
-    assert 'name="telefon_synlig" >' in html and 'name="telefon_obligatorisk" checked' in html
+    assert not _avkrysset(html, "telefon_synlig") and _avkrysset(html, "telefon_obligatorisk")
 
 
 # ============================ 10, 11: rekkefolge ============================
@@ -231,12 +260,14 @@ def test_rekkefolgebytte_mister_ingen_andre_innstillinger(con, admin):
         "hpr_nr": sf.Overstyring(hjelpetekst="H-hjelp")}
 
 
-@pytest.mark.parametrize("rekkefolge", [None, "", "hpr_forst", "1", "telefon_forst "])
+@pytest.mark.parametrize("rekkefolge", [None, "", "hpr_forst", "1", "telefon_forst ", "telefon,arbeidssted",
+                                        "telefon,arbeidssted,yrkestittel,hpr_nr",
+                                        "telefon,telefon,arbeidssted,yrkestittel", "telefon, arbeidssted,yrkestittel"])
 def test_ugyldig_eller_manglende_rekkefolge_avvises_uten_lagring(con, admin, rekkefolge):
     kid = _kurs(con)
     foer = _db_tilstand(con)
     r = _lagre(admin, kid, rekkefolge=rekkefolge, telefon_label="Mobil")
-    assert r.status_code == 400 and "Velg rekkefølge" in r.get_data(as_text=True)
+    assert r.status_code == 400 and "Skjemaet er endret et annet sted" in r.get_data(as_text=True)
     assert _db_tilstand(con) == foer
 
 
@@ -266,13 +297,18 @@ def test_hpr_laasene_kan_ikke_omgaas_med_manipulert_post(con, admin):
 
 def test_laaste_felt_systemblokker_og_ukjent_kan_ikke_injiseres(con, admin):
     kid = _kurs(con)
-    manip = {f"{felt}_{e}": v for felt in ("navn", "fornavn", "etternavn", "epost", "samtykke", "allergier",
-                                           "tilrettelegging", "betaler", "faktura", "eget_felt")
+    manip = {f"{felt}_{e}": v for felt in ("navn", "fornavn", "etternavn", "epost", "samtykke", "betaler", "faktura",
+                                           "org_nr", "org_navn", "org_adresse", "betaling", "eget_felt", "ekstra_1")
              for e, v in (("synlig", ""), ("obligatorisk", "on"), ("label", "HACK"), ("hjelpetekst", "HACK"))}
+    # Egenskaper som ikke kan endres for felt som ellers kan tilpasses: allergier/tilrettelegging/EHF er aldri krav,
+    # informasjonsboksen er bare vis/skjul, og plassen i fakturablokken er fast.
+    manip |= {"allergier_obligatorisk": "on", "tilrettelegging_obligatorisk": "on", "ehf_obligatorisk": "on",
+              "vis_pris_label": "HACK", "vis_pris_obligatorisk": "on", "faktura_ref_rekkefolge": "0",
+              "rekkefolge_faktura": "faktura_ref"}
     manip |= {"felt": "navn", "egenskap": "label", "telefon_placeholder": "HACK", "telefon_type": "email",
               "kurs_id": "1", "oppdatert_av": "HACK"}
     assert _lagre(admin, kid, **manip).status_code == 302
-    assert _rader(con, kid) == []
+    assert _rader(con, kid) == [] and db.hent_ekstrafelt(con, kid).felt == ()
     assert "HACK" not in json.dumps([dict(r) for r in con.execute("SELECT * FROM hendelse")])
 
 
@@ -334,8 +370,8 @@ def test_korrupt_overstyring_gir_trygg_advarsel(con, admin):
     assert r.status_code == 200
     assert "Noen lagrede skjemainnstillinger kunne ikke brukes" in html
     for linje in ("<li>Ukjent felt: ukjent felt</li>", "<li>HPR-nummer – vis feltet: kan ikke endres for dette feltet</li>",
-                  "<li>HPR-nummer – ledetekst: kan ikke endres for dette feltet</li>",
-                  "<li>Telefon – ledetekst: for lang tekst</li>"):
+                  "<li>HPR-nummer – feltnavn: kan ikke endres for dette feltet</li>",
+                  "<li>Telefon – feltnavn: for lang tekst</li>"):
         assert linje in html
     assert "HEMMELIG" not in html
     assert 'name="telefon_obligatorisk" checked' in html and 'value="Telefon"' in html   # gyldig del + standard
@@ -416,7 +452,7 @@ def test_ugyldig_verdi_gir_ingen_delvis_lagring(con, admin, ugyldig):
     html = r.get_data(as_text=True)
     assert r.status_code == 400 and "Ingen endringer er lagret." in html
     assert _db_tilstand(con) == foer                                              # telefon er IKKE lagret
-    assert 'value="Ny"' in html and 'name="telefon_synlig" >' in html              # innsendte verdier vises igjen
+    assert 'value="Ny"' in html and not _avkrysset(html, "telefon_synlig")         # innsendte verdier vises igjen
 
 
 # ============================ 22: HTML/Jinja ============================
@@ -427,7 +463,7 @@ def test_html_og_jinja_lagres_som_tekst_og_escapes_overalt(con, admin):
     _lagre(admin, kid, telefon_label=farlig[:80], telefon_hjelpetekst=farlig, hpr_nr_hjelpetekst=farlig)
     assert _over(con, kid)["telefon"].hjelpetekst == farlig
     escapet = "&lt;script&gt;alert(1)&lt;/script&gt; {{ 7*7 }} &lt;b&gt;tekst&lt;/b&gt;"
-    sider = [admin.get(_url(kid)), admin.get(f"/admin/kurs/{kid}/forhandsvis-paamelding"), _klient().get("/kurs/A1")]
+    sider = [admin.get(_url(kid)), admin.get("/kurs/A1"), _klient().get("/kurs/A1")]
     for r in sider:
         html = r.get_data(as_text=True)
         assert escapet in html and "<script>alert(1)</script>" not in html and "<b>tekst</b>" not in html
@@ -441,9 +477,10 @@ def test_admin_til_offentlig_skjema_til_post(con, admin):
                   telefon_hjelpetekst="Nummer vi kan nå deg på", arbeidssted_synlig=None).status_code == 302
     k = _klient()
     html = k.get("/kurs/A1").get_data(as_text=True)
-    assert '<label for="f-telefon">Mobilnummer *</label>' in html and "Nummer vi kan nå deg på" in html
+    assert ('<label class="pm-etikett" for="f-telefon">Mobilnummer <span class="pm-krav">(krav)</span></label>'
+            in html and "Nummer vi kan nå deg på" in html)
     assert 'name="arbeidssted"' not in html
-    basis = {"fornavn": "Test", "etternavn": "Person", "epost": "test@eksempel.no", "samtykke": "on",
+    basis = {"fornavn": "Test", "etternavn": "Person", "epost": "test@eksempel.no", "samtykke": "on", **ADRESSE,
              "arbeidssted": "MANIPULERT"}
     r = k.post("/kurs/A1", data=basis)
     assert r.status_code == 400 and "Fyll inn «Mobilnummer»." in r.get_data(as_text=True)

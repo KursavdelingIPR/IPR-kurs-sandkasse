@@ -5,6 +5,7 @@
     python -m kurs.daglig --dato 2027-01-11 --tor   # lat som det er en annen dag (testing)
 
 Rekkefolge:
+  0. Nytt oppslag i Enhetsregisteret for paameldinger der firmaopplysningene mangler (FOER fakturaene i steg 1)
   1. Sveiper for nye paameldinger som ikke er ferdigbehandlet
      (1b: delfakturaer som forfaller, 1c: utsatte samlede fakturaer som har naadd tidligst-datoen)
   2. Opprett Zoom-mote ~8 dager for start (digitale/hybride kurs)
@@ -14,11 +15,13 @@ Rekkefolge:
   6. Purring paa materiell fra kursholdere
   7. Sletting av sensitive opplysninger
   8. Rydding av utlopte import-forhaandsvisninger (fase 10)
+  9. Min side: gruppelister (tabeller med navn) tommes KURSSIDE_TOM_TABELLER_ETTER_DAGER dager etter siste kursdag
 """
 import argparse
 from datetime import date, timedelta
 
-from . import config, db, import_deltakere, kursbevis, lenker, maltekster, sveiper
+from . import (config, db, firmaopplysninger, import_deltakere, kursbevis, lenker, maltekster, privatadresse, sidelager,
+               sveiper)
 from .integrasjoner import zoom
 from .feil import sikker_feiltekst
 from .kjoring import Kjoring
@@ -44,6 +47,30 @@ def _steg(k: Kjoring, navn: str, funksjon, *args, **logg) -> None:
         k.con.commit()
 
 
+def _firmaopplysninger(k: Kjoring) -> None:
+    """Nytt oppslag i Enhetsregisteret for påmeldinger der registeret ikke svarte da deltakeren meldte seg på
+    («Firmaopplysninger må kontrolleres»). Kjøres FØR fakturaene, så en faktura som ventet på firmanavnet lages samme dag.
+    Idempotent: en påmelding som har fått opplysningene, er ikke med neste gang. Svarer registeret fortsatt ikke, endres
+    ingenting (og resten prøves ikke). Tørrkjøring gjør ingen oppslag og skriver ingenting."""
+    antall = len(firmaopplysninger.liste(k.con))
+    if not antall:
+        return
+    if k.tor:
+        k.si(f"  [TØRR] ville forsøkt å hente firmaopplysninger for {antall} påmelding(er)")
+        return
+    utfall = firmaopplysninger.prov_alle(k.con, "system")
+    k.si(f"  firmaopplysninger hentet for {utfall[firmaopplysninger.HENTET]} av {antall} påmelding(er)"
+         + (" – registeret svarer ikke, prøver igjen neste kjøring" if utfall[firmaopplysninger.UTILGJENGELIG] else ""))
+
+
+def _venter_paa_adresse(k: Kjoring) -> None:
+    """Rapporterer fakturaer som holdes tilbake fordi privat adresse mangler (privatadresse.py). Ren lesing: ingenting skrives og
+    ingenting sendes, så jobben er idempotent. Selve holdet ligger i sveiper._opprett; fakturaen lages av seg selv når adressen er inn."""
+    antall = len(privatadresse.liste(k.con, uten_avsluttede=True))
+    if antall:
+        k.si(f"  {antall} faktura(er) holdes tilbake: {privatadresse.VENTER_TEKST} (fylles inn i deltakervinduet)")
+
+
 def _kurs(k: Kjoring, kurs) -> None:
     dager = db.kursdager(k.con, kurs["id"])
     if not dager:
@@ -53,19 +80,22 @@ def _kurs(k: Kjoring, kurs) -> None:
     # 1. Preflight (ren lesing): er malteksten for dagens innkallinger gyldig? FOER en evt. NY ekstern Zoom-opprettelse.
     deltakere = _deltakere(k, kurs["id"])
     blokkert = _forhandsvalider_innkallinger(k, kurs, dager, forste, deltakere)
-    kurs = _zoom(k, kurs, forste, utsett=_skal_utsette_zoom(k, kurs, dager, forste, blokkert))
+    kurs = _zoom(k, kurs, forste, utsett=_skal_utsette_zoom(k, kurs, dager, forste, blokkert, deltakere))
     _innkallinger(k, kurs, dager, forste, deltakere=deltakere, blokkert=blokkert)
     _status_og_oppmote(k, kurs, dager, forste, siste)
 
 
 def kjor(k: Kjoring) -> None:
     k.si(f"== Daglig kjøring for {k.idag}  (modus={config.MODUS}{', TØRR' if k.tor else ''}) ==")
+    k.si("0. Firmaopplysninger")
+    _steg(k, "firmaopplysninger", _firmaopplysninger, k)
     k.si("1. Nye påmeldinger")
     _steg(k, "nye påmeldinger", sveiper.kjor, k)
     k.si("1b. Delfakturaer som forfaller")
     _steg(k, "delfakturaer", sveiper.forfalte_delfakturaer, k)
     k.si("1c. Utsatte samlede fakturaer")
     _steg(k, "utsatte fakturaer", sveiper.utsatte_fakturaer, k)
+    _steg(k, "fakturaer som venter på adresse", _venter_paa_adresse, k)
 
     kursliste = k.con.execute(
         "SELECT * FROM kurs WHERE status IN ('aapen','full','aktiv') ORDER BY id"
@@ -81,6 +111,8 @@ def kjor(k: Kjoring) -> None:
     _steg(k, "personvern", _slett_sensitivt, k)
     k.si("8. Import-forhåndsvisninger")
     _steg(k, "importrydding", _rydd_import_forhaandsvisninger, k)
+    k.si("9. Min side")
+    _steg(k, "kursside", _kursside, k)
     if k.sending_stanset:
         k.si("OBS: e-posttjenesten feilet flere ganger på rad - resten av dagens e-poster sendes ved neste kjøring.")
     if k.feil:
@@ -89,9 +121,17 @@ def kjor(k: Kjoring) -> None:
 
 
 def _deltakere(k, kurs_id):
+    """Alle med plass på kurset: påmeldte og ekstradeltakere (ekstradeltakere får påminnelser for sine egne dager)."""
     return k.con.execute(
-        """SELECT p.id, d.navn, d.fornavn, d.epost FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
+        """SELECT p.id, p.kurs_id, p.ekstradeltaker_ts, d.navn, d.fornavn, d.epost
+           FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
            WHERE p.kurs_id=? AND p.status='bekreftet'""", (kurs_id,)).fetchall()
+
+
+def _mottakere(k, deltakere, dager) -> list[tuple]:
+    """[(deltaker, dagene deltakeren er på)]: påmeldte er på alle kursdagene, en ekstradeltaker med samlingsutvalg bare på sine
+    (db.paameldingens_kursdager). Påminnelsene regnes fra DERES dager. Har en deltaker ingen dager, får den ingen påminnelser."""
+    return [(d, db.paameldingens_kursdager(k.con, d, dager)) for d in deltakere]
 
 
 def _trenger_zoom(k, kurs, forste) -> bool:
@@ -99,14 +139,16 @@ def _trenger_zoom(k, kurs, forste) -> bool:
     return not (kurs["type"] == "fysisk" or kurs["zoom_url"] or (forste - k.idag).days > 8)
 
 
-def _skal_utsette_zoom(k, kurs, dager, forste, blokkert) -> bool:
+def _skal_utsette_zoom(k, kurs, dager, forste, blokkert, deltakere=None) -> bool:
     """Maltype-spesifikk beslutning. Ugyldig maltekst for en innkalling som skal sendes i dag utsetter NY Zoom-opprettelse
     (ingen ny ekstern sideeffekt foer malen er rettet) - MED MINDRE en GYLDIG dagfor er aktuell i dag: dagfor er den eneste
     innkallingen som trenger Zoom-lenken, og en korrupt ukefor (som ikke inneholder lenken) skal aldri hindre den.
     Korrupt dagfor (eneste som trenger lenken) eller korrupt ukefor uten dagfor i dag utsetter altsaa Zoom."""
     if not blokkert or not _trenger_zoom(k, kurs, forste):
         return False
-    gyldig_dagfor_i_dag = "dagfor" not in blokkert and any(mal == "dagfor" for mal, _t, _d in _dagens_innkallinger(k, dager, forste))
+    gyldig_dagfor_i_dag = "dagfor" not in blokkert and any(
+        mal == "dagfor" for _d, egne in (_mottakere(k, deltakere, dager) if deltakere is not None else [(None, dager)])
+        for mal, _t, _f in _innkallinger_for_dager(k, egne))
     return not gyldig_dagfor_i_dag
 
 
@@ -134,9 +176,14 @@ def _zoom(k, kurs, forste, utsett: bool = False):
     return k.con.execute("SELECT * FROM kurs WHERE id=?", (kurs["id"],)).fetchone()
 
 
-def _dagens_innkallinger(k, dager, forste) -> list:
-    """Hvilke innkallinger som skal sendes i dag - UENDRET tidsvindu og utvalg. [(mal, type_, data_for(kurs, deltaker))]."""
+def _innkallinger_for_dager(k, dager) -> list:
+    """Hvilke innkallinger som skal sendes i dag til en som er på `dager` (kursets dager for de fleste, bare egne samlinger for en
+    ekstradeltaker) - UENDRET tidsvindu og utvalg, bare regnet fra DERES dager: uka før mot deres første dag, og dagen før for hver av
+    deres dager, med «dag nr av antall» blant deres dager. [(mal, type_, data_for(kurs, deltaker))]. Ingen dager: ingen innkallinger."""
     ut = []
+    if not dager:
+        return ut
+    forste = date.fromisoformat(dager[0]["dato"])
     # Uka for: sendes fra 7 dager for og fram til start – sene paameldte faar den ogsaa
     if 0 < (forste - k.idag).days <= 7:
         ut.append(("ukefor", "ukefor", lambda kurs, d: dict(d=d, kurs=kurs, dager=dager)))
@@ -148,6 +195,11 @@ def _dagens_innkallinger(k, dager, forste) -> list:
     return ut
 
 
+def _dagens_innkallinger(k, dager, forste=None) -> list:
+    """Innkallingene som skal sendes i dag til en som er på alle kursets dager (`forste` er der bare for gamle kallere)."""
+    return _innkallinger_for_dager(k, dager)
+
+
 def _forhandsvalider_innkallinger(k, kurs, dager, forste, deltakere) -> dict:
     """Ren lesing (ingen skriving, ingen ekstern sideeffekt): rendrer dagens innkallinger for foerste mottaker og returnerer
     {mal: MalFeil} for maltyper med ugyldig MALTEKST (korrupt override, ukjent felt, DB-lesefeil). Data som mangler for en
@@ -155,14 +207,17 @@ def _forhandsvalider_innkallinger(k, kurs, dager, forste, deltakere) -> dict:
     blokkert = {}
     if not deltakere:
         return blokkert
-    for mal, _type, data_for in _dagens_innkallinger(k, dager, forste):
-        if mal in blokkert:
-            continue
-        try:
-            k.render_for_sending(mal, **data_for(kurs, deltakere[0]))
-        except maltekster.MalFeil as e:
-            if e.grunn != maltekster.MANGLER_VERDI:
-                blokkert[mal] = e
+    proevd = set()
+    for d, egne in _mottakere(k, deltakere, dager):          # eksempelmottaker per mal: den første som faktisk får den i dag
+        for mal, _type, data_for in _innkallinger_for_dager(k, egne):
+            if mal in blokkert or mal in proevd:
+                continue
+            proevd.add(mal)
+            try:
+                k.render_for_sending(mal, **data_for(kurs, d))
+            except maltekster.MalFeil as e:
+                if e.grunn != maltekster.MANGLER_VERDI:
+                    blokkert[mal] = e
     return blokkert
 
 
@@ -185,12 +240,18 @@ def _innkallinger(k, kurs, dager, forste, deltakere=None, blokkert=None):
     nokkel = f"kurs:{kurs['id']}"
     deltakere = _deltakere(k, kurs["id"]) if deltakere is None else deltakere
     blokkert = _forhandsvalider_innkallinger(k, kurs, dager, forste, deltakere) if blokkert is None else blokkert
-    for mal, type_, data_for in _dagens_innkallinger(k, dager, forste):
+    # Hver mottaker får innkallingene for SINE dager (ekstradeltaker: bare valgte samlinger). Gruppert per mal, så feil og
+    # ugyldig maltekst rapporteres én gang per (kurs, mal) som før. Dedupliseringen (nøkkel, mottaker, type) er uendret.
+    per_mal: dict[str, list] = {}
+    for d, egne in _mottakere(k, deltakere, dager):
+        for mal, type_, data_for in _innkallinger_for_dager(k, egne):
+            per_mal.setdefault(mal, []).append((d, type_, data_for))
+    for mal, sendinger in per_mal.items():
         if mal in blokkert:   # ugyldig maltekst: ingen render/claim/sending for noen mottaker
-            _logg_innkalling_feil(k, kurs, mal, blokkert[mal], len(deltakere))
+            _logg_innkalling_feil(k, kurs, mal, blokkert[mal], len(sendinger))
             continue
         feil, antall = None, 0
-        for d in deltakere:
+        for d, type_, data_for in sendinger:
             try:
                 _send(k, nokkel, d, mal, type_, data_for(kurs, d))
             except maltekster.MalFeil as e:
@@ -218,8 +279,12 @@ def _importer_zoom(k, kurs, dag, min_minutter: int = 30):
         k.si(f"  [TØRR] importerer Zoom-oppmøte for {dag['dato']}")
         return
     liste = zoom.deltakere_for_dato(kurs["zoom_id"], dag["dato"])
-    deltakere = {d["epost"].lower(): d["id"] for d in _deltakere(k, kurs["id"])}
-    navn = {d["navn"].lower(): d["id"] for d in _deltakere(k, kurs["id"])}
+    # Bare de som er satt opp på denne dagen: en ekstradeltaker som logger på en dag utenfor sitt utvalg, får ikke oppmøte der
+    alle = db.kursdager(k.con, kurs["id"])
+    paameldte = [d for d in _deltakere(k, kurs["id"])
+                 if any(x["id"] == dag["id"] for x in db.paameldingens_kursdager(k.con, d, alle))]
+    deltakere = {d["epost"].lower(): d["id"] for d in paameldte}
+    navn = {d["navn"].lower(): d["id"] for d in paameldte}
     treff = 0
     for z in liste:
         pid = deltakere.get((z.get("epost") or "").lower()) or navn.get((z.get("navn") or "").lower())
@@ -254,13 +319,15 @@ def _purring(k):
             type_ = "purring-7" if igjen > 2 else ("purring-2" if igjen > 0 else "purring-0")
             if not db.allerede_sendt(k.con, nokkel, m["ansvarlig_epost"], type_):
                 try:
-                    k.send_en_gang(nokkel, m["ansvarlig_epost"], type_, "purring", m=m, igjen=igjen,
+                    # Personlig opplastingslenke (token): ingen kopi i e-posthistorikken
+                    k.send_en_gang(nokkel, m["ansvarlig_epost"], type_, "purring", kurs_id=m["kurs_id"],
+                                   lagre_kopi=False, m=m, igjen=igjen,
                                    lever_lenke=lenker.lever_lenke(m["id"]))
                 except maltekster.MalFeil as e:
                     db.logg(k.con, "purring_mal_feil", {"kurs_id": m["kurs_id"], "materiell_id": m["id"], **e.detaljer()})
                     k.si(f"  FEIL purring ({type_}): {e} - materiellkrav {m['id']} fikk ikke påminnelsen")
         elif igjen < 0:
-            k.send_en_gang(nokkel, config.ADMIN_EPOST, "eskalering", "eskalering", m=m, igjen=igjen)
+            k.send_en_gang(nokkel, config.ADMIN_EPOST, "eskalering", "eskalering", kurs_id=m["kurs_id"], m=m, igjen=igjen)
 
 
 def _slett_sensitivt(k):
@@ -282,6 +349,17 @@ def _rydd_import_forhaandsvisninger(k):
     antall = import_deltakere.rydd_utlopte_forhaandsvisninger(k.con)
     if antall:
         k.si(f"  ryddet {antall} utløpt(e) import-forhåndsvisning(er)")
+
+
+def _kursside(k):
+    """Tømmer tabell-blokkenes rader (gruppelister med navn) KURSSIDE_TOM_TABELLER_ETTER_DAGER dager etter siste kursdag: i utkastet, i
+    den publiserte siden og i alle lagrede versjoner. Idempotent: en tabell uten rader røres ikke, så andre kjøring samme dag gjør
+    ingenting. Tørrkjøring teller bare."""
+    antall = sidelager.tom_gamle_tabeller(k.con, k.idag, config.KURSSIDE_TOM_TABELLER_ETTER_DAGER, torr=k.tor)
+    if antall:
+        k.si(f"  {'[TØRR] ville tømt' if k.tor else 'tømte'} gruppetabeller på Min side for {antall} kurs")
+        if not k.tor:
+            db.logg(k.con, "kursside_tabeller_tomt", {"antall_kurs": antall})
 
 
 def main(argv=None):

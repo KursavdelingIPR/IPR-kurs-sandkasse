@@ -23,12 +23,14 @@
     <td>
       <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
         {% if r.person_finnes_fra_for %}<span class="merke gra">Eksisterende person</span>{% endif %}
+        {% if r.adresse_avviker %}<span class="merke gul">Adressen avviker fra den registrerte</span>{% endif %}
+        {% if r.adresse_mangler and r.handling in ('ny', 'reaktiver') %}<span class="merke gul">{{ ADRESSE_MANGLER_MERKE }}</span>{% endif %}
         {% if r.handling == 'ny' %}<span class="merke">Ny påmelding</span>
         {% elif r.handling == 'reaktiver' %}<span class="merke">Reaktiveres</span>
         {% elif r.handling == 'hopp_over' %}<span class="merke gra">Allerede påmeldt – hoppes over</span>
         {% elif r.handling == 'blokkert' %}<span class="merke feil">Blokkert</span>
         {% endif %}
-        {% if r.resultatstatus == 'bekreftet' %}<span class="merke ok">Bekreftet</span>
+        {% if r.resultatstatus == 'bekreftet' %}<span class="merke ok">{{ STATUS.paameldt }}</span>
         {% elif r.resultatstatus == 'venteliste' %}<span class="merke gul">Venteliste</span>
         {% endif %}
       </div>
@@ -37,6 +39,17 @@
   </tr>
   {% endfor %}
 </table></div>
+{% if resultater|selectattr('adresse_avviker')|list %}
+<p class="liten" style="margin-top:10px">Adressen i filen er en annen enn den som allerede er registrert for personene merket
+  «Adressen avviker». <strong>Den registrerte adressen beholdes</strong> (filen kan være eldre enn det som er registrert).
+  Kontroller adressen i deltakervinduet etter importen – rettes den der, følger fakturaadressen med så lenge fakturaen ikke er sendt.</p>
+{% endif %}
+
+{% if resultater|selectattr('adresse_mangler')|selectattr('handling', 'in', ['ny', 'reaktiver'])|list %}
+<p class="liten" style="margin-top:10px">Personene merket «{{ ADRESSE_MANGLER_MERKE }}» får ikke noen privat adresse av denne importen. De importeres likevel,
+  og står merket i deltakerlisten til du har lagt inn adressen i deltakervinduet (Personopplysninger). Legg inn adressen før du behandler
+  de importerte påmeldingene: en faktura til en privat betaler som lages uten adresse, sendes uten adresse.</p>
+{% endif %}
 
 {% if not har_blokkerende %}
 <form method="post" action="{{ url_for('admin_import_deltakere_bekreft', kurs_id=kurs.id) }}" style="margin-top:16px"

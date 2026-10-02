@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import config, db
 
 RUTE = "/admin/kurs/{kid}/deltaker/ny"
@@ -44,7 +45,7 @@ def _antall_mail(con):
 def _skjema(**over):
     return {"fornavn": "Kari", "etternavn": "Nordmann", "epost": "kari@x.no", "telefon": "99999999",
             "yrkestittel": "Psykolog", "arbeidssted": "Klinikk AS", "hpr_nr": "1234567",
-            "betaler": "person", **over}
+            "betaler": "person", **ADRESSE, **over}
 
 
 # ---------------- tilgang ----------------
@@ -74,9 +75,15 @@ def test_skjema_vises_korrekt(con):
     klient = _klient()
     _logg_inn(klient)
     tekst = klient.get(RUTE.format(kid=kid)).get_data(as_text=True)
-    for felt in ("navn", "epost", "telefon", "yrkestittel", "arbeidssted", "hpr_nr",
-                 "org_navn", "org_nr", "faktura_adresse", "faktura_ref", "faktura_kommentar"):
+    for felt in ("navn", "epost", "adresse", "postnr", "poststed", "telefon", "yrkestittel", "arbeidssted", "hpr_nr",
+                 "org_nr", "faktura_ref", "faktura_kommentar"):
         assert felt in tekst
+    # Deltakerens private adresse er krav (også når arbeidsgiver betaler) og er fakturaadressen for en privat betaler:
+    # skjemaet har ingen egne fakturaadressefelt lenger
+    for felt in ("adresse", "postnr", "poststed"):
+        assert f'name="{felt}" required' in tekst
+    assert "faktura_adresse" not in tekst and "faktura_postnr" not in tekst and "faktura_sted" not in tekst
+    assert 'name="org_navn"' not in tekst            # felles regel: firmanavnet hentes fra registeret, skrives ikke
 
 
 def test_utkast_viser_tydelig_advarsel_i_skjemaet(con):
@@ -131,7 +138,8 @@ def test_redirect_gaar_til_deltakerprofilen_og_viser_status(con):
     pid = con.execute("SELECT id FROM paamelding").fetchone()[0]
     assert resp.headers["Location"].endswith(f"/admin/kurs/{kid}/deltaker/{pid}")
     tekst = klient.get(resp.headers["Location"]).get_data(as_text=True)
-    assert "ekreftet" in tekst  # "Bekreftet"-status vises et sted paa profilsiden
+    assert '<span class="merke ok">Påmeldt</span>' in tekst  # statusen «Påmeldt» vises paa profilsiden (databaseverdien er fortsatt «bekreftet»)
+    assert "Bekreftet" not in tekst
 
 
 # ---------------- dubletter / reaktivering / eksisterende person ----------------
@@ -250,13 +258,26 @@ def test_organisasjon_betaler_uten_nodvendige_felt_avvises(con):
 
 
 def test_pris_og_betalingsvalg_lagres_korrekt(con):
-    kid = _kurs(con, betaling="deltaker_velger", pris_nok=3000)
+    start = date.today() + timedelta(days=30)
+    kid = db.opprett_kurs(con, kode="T1", navn="Testkurs", datoer=[start.isoformat(), (start + timedelta(days=30)).isoformat()],
+                          sharepoint_mappe="Kurs/T1", pris_nok=3000, betaling="deltaker_velger")      # to samlinger
     con.commit()
     klient = _klient()
     _logg_inn(klient)
+    assert 'value="per_samling"' in klient.get(RUTE.format(kid=kid)).get_data(as_text=True)
     klient.post(RUTE.format(kid=kid), data=_skjema(betaling="per_samling"))
     rad = con.execute("SELECT betaling FROM paamelding").fetchone()
     assert rad["betaling"] == "per_samling"
+
+
+def test_bare_en_samling_gir_ingen_betalingsvalg_og_en_vanlig_faktura(con):
+    kid = _kurs(con, betaling="deltaker_velger", pris_nok=3000)                        # bare én samling
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    assert 'name="betaling"' not in klient.get(RUTE.format(kid=kid)).get_data(as_text=True)
+    klient.post(RUTE.format(kid=kid), data=_skjema(betaling="per_samling"))              # sendt inn likevel
+    assert con.execute("SELECT betaling FROM paamelding").fetchone()["betaling"] == "samlet"
 
 
 # ---------------- personvern ----------------

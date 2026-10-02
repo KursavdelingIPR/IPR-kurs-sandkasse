@@ -26,6 +26,8 @@ PG_TEST_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
 def pytest_configure(config):
     config.addinivalue_line("markers", "kun_sqlite: SQLite-spesifikk test (hoppes over i PostgreSQL-modus)")
     config.addinivalue_line("markers", "kun_postgres: kjores kun naar TEST_DATABASE_URL peker paa en PostgreSQL-testdatabase")
+    config.addinivalue_line("markers", "uten_standardadresse: testen handler om privat adresse og registrerer bevisst UTEN adresse "
+                                       "(se _standardadresse_ved_registrering under)")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -34,6 +36,14 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.skip(reason="SQLite-spesifikk test (PostgreSQL-modus)"))
         if not PG_TEST_URL and "kun_postgres" in item.keywords:
             item.add_marker(pytest.mark.skip(reason="krever TEST_DATABASE_URL (PostgreSQL-testdatabase)"))
+
+
+@pytest.fixture
+def hpr_i_skjema(monkeypatch):
+    """HPR-nummer samles ikke inn lenger i skjemaene (skjemafelt.HPR_I_SKJEMA = False, Camilla 02.10.2026). Koden som viser, validerer og lagrer HPR finnes
+    fortsatt og kan slås på igjen; testene av den slår den på med denne (se test_hpr_nummer_samles_ikke_inn.py for standarden: av)."""
+    from kurs import skjemafelt
+    monkeypatch.setattr(skjemafelt, "HPR_I_SKJEMA", True)
 
 
 class _PgTestskjemaer:
@@ -128,6 +138,36 @@ def _database_i_tester(monkeypatch, request):
     finally:
         _AKTIV = None
         skjemaer.rydd()
+
+
+# ============================ standard privat adresse i tester ============================
+# Alle nye, reelle deltakere har privat adresse (adresse, postnr, poststed), og en privat faktura lages ALDRI uten (kurs/privatadresse.py,
+# brukerens beslutning 01.10.2026). Testene som handler om påmelding, e-post, status, oppmøte og selve fakturamotoren registrerer ofte
+# med db.meld_paa uten adresse, fordi adressen ikke er poenget. Da får de en standardadresse (som en ekte registrering har), slik at fakturaen
+# lages som de forventer. Tester som handler om selve adressen (merket «Privat adresse mangler», holdet, nødbremsen, fakturaadressen) og
+# registrerer bevisst uten adresse, merker seg med `pytestmark = pytest.mark.uten_standardadresse` (hele filen) eller @pytest.mark.uten_standardadresse.
+# Gir testen selv en adresse (helt eller delvis), røres ingenting.
+
+STANDARD_PRIVATADRESSE = {"adresse": "Standardveien 1", "postnr": "0150", "poststed": "Oslo"}
+
+
+@pytest.fixture(autouse=True)
+def _standardadresse_ved_registrering(monkeypatch, request):
+    if request.node.get_closest_marker("uten_standardadresse"):
+        yield
+        return
+    from kurs import db
+    opprinnelig = db.meld_paa
+
+    def meld_paa(con, kurs_id, *args, deltaker=None, **kw):
+        d = dict(deltaker or {})
+        if not any(d.get(k) for k in STANDARD_PRIVATADRESSE):
+            d.update(STANDARD_PRIVATADRESSE)
+        return opprinnelig(con, kurs_id, *args, deltaker=d, **kw)
+
+    meld_paa.__wrapped__ = opprinnelig
+    monkeypatch.setattr(db, "meld_paa", meld_paa)
+    yield
 
 
 # ============================ CSRF i tester ============================

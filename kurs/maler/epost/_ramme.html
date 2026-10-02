@@ -1,7 +1,17 @@
 <div style="font-family:Segoe UI,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1d2a33;max-width:600px">
 {% block innhold %}{% endblock %}
+{#- Signaturen (kurs/signaturer.py, allerede renset) står der den faste hilsenen står. E-poster uten signatur (bekreftelse,
+    venteliste, innlogging ...) har den faste hilsenen som før. En signatur uten avsnitt/lister står i samme <p> som
+    hilsenen: standardsignaturen gir dermed nøyaktig samme e-post som før. Med avsnitt/lister brukes en <div>. -#}
+{% if signatur is defined and signatur is not none %}
+{% if signatur.blokk %}<div{% else %}<p{% endif %} style="margin-top:28px;color:#667;font-size:13px;border-top:1px solid #dde;padding-top:12px">
+{% if signatur %}{{ signatur }}<br>
+{% endif %}<a href="{{ base_url }}/min-side">Mine kurs</a> – her finner du kursene dine, faktura og kursbevis.
+{% if signatur.blokk %}</div>{% else %}</p>{% endif %}
+{% else %}
 <p style="margin-top:28px;color:#667;font-size:13px;border-top:1px solid #dde;padding-top:12px">
 Vennlig hilsen<br>Kursadministrasjonen, Institutt for Psykologisk Rådgivning<br>
-<a href="{{ base_url }}/min-side">Min side</a> – her finner du kursmateriell, oppmøte og faktura.
+<a href="{{ base_url }}/min-side">Mine kurs</a> – her finner du kursene dine, faktura og kursbevis.
 </p>
+{% endif %}
 </div>

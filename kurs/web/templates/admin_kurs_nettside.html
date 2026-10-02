@@ -1,16 +1,22 @@
 {% extends "admin_base.html" %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='paamelding.css') }}">{% endblock %}
 {% block innhold %}
 {% include "admin_kurs_header.html" %}
 {% include "admin_kurs_faner.html" %}
 
-<div class="kort" style="max-width:720px">
-  <p>Dette er den offentlige påmeldingssiden deltakerne ser for dette kurset.</p>
-  <div style="display:flex; gap:10px; flex-wrap:wrap">
-    <a class="knapp" href="{{ url_for('kursside', kode=kurs.kode) }}" target="_blank">Åpne offentlig side ↗</a>
-    <span class="liten dempet">Nettadresse: {{ url_for('kursside', kode=kurs.kode, _external=True) }}</span>
-    <a class="knapp sekundar" href="{{ url_for('admin_forhandsvis_paamelding', kurs_id=kurs.id) }}" target="_blank" rel="noopener">Forhåndsvis påmeldingsskjema</a>
+<div class="kort sb-lenke" style="max-width:720px">
+  <strong>Lenke til påmeldingssiden</strong>
+  <p class="liten dempet">Dette er den offentlige påmeldingssiden deltakerne ser for dette kurset. Send lenken til deltakerne, eller legg den på ipr.no.</p>
+  <div class="sb-lenkerad">
+    <input id="f-lenke" value="{{ offentlig_lenke }}" readonly aria-label="Lenke til påmeldingssiden">
+    <button type="button" class="sekundar" data-kopier="f-lenke">Kopier lenke</button>
+    <a class="knapp" href="{{ url_for('kursside', kode=kurs.kode) }}" target="_blank" rel="noopener">Åpne påmeldingssiden ↗</a>
   </div>
-  <p class="liten dempet" style="margin-top:16px">Forhåndsvisningen viser skjemaet slik det faktisk er satt opp for dette kurset (felter, pris, betalingsvalg og tekstene under) - ingen påmelding kan sendes derfra. Lagre først for å se endringene.</p>
+  {%- if not offentlig %}
+  <p class="liten" style="margin:10px 0 0">{% if kurs.status == 'utkast' %}Kurset er et utkast. Lenken virker for deltakerne når kurset er åpnet for påmelding{% else %}Kurset er {{ kurs.status }}, så siden er stengt for deltakerne{% endif %} – nå er det bare innloggede administratorer som ser den.</p>
+  {%- endif %}
+  <p class="liten dempet" style="margin:6px 0 0">Siden viser skjemaet slik det er satt opp under Påmeldingsskjema, med tekstene under. Lagre først for å se endringene.</p>
+  <p class="liten dempet sb-kursside-hint">Siden deltakerne ser etter innlogging (program, presentasjoner, grupper, litteratur) finner du under <a href="{{ url_for('admin_kursside', kurs_id=kurs.id) }}">Min side</a>.</p>
 </div>
 
 {# Fase 12C5. All tekst fra admin er ren tekst og escapes av Jinja - aldri |safe. #}

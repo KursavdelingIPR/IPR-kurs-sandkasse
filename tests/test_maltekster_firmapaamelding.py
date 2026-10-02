@@ -56,7 +56,7 @@ def _fersk(con):
 def _grunnlag(**over):
     data = {
         "kontakt_navn": "Kari HR", "kontakt_epost": "kari.hr@firma.no", "kontakt_telefon": "90000000",
-        "firmanavn": "Firma AS", "org_nr": "999888777", "faktura_ref": "BEST-1",
+        "firmanavn": "Firma AS", "org_nr": "999900003", "faktura_ref": "BEST-1",       # firmanavnet fra registeret brukes
         "deltaker_navn": ["Ola Nordmann"], "deltaker_epost": ["ola@firma.no"],
         "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on",
     }
@@ -135,10 +135,10 @@ def test_A_uten_override_er_identisk_med_dagens_standardtekst(con):
     assert emne == STD_EMNE
     token = _fersk(con).execute("SELECT kvittering_token FROM firmapaamelding").fetchone()[0]
     url = f"/kurs/T1/gruppe/kvittering/{token}"
-    assert _n(html) == _n(epost.render("firmapaamelding_kvittering", **_direkte_data(kvittering_url=url))[1])
+    assert _n(html) == _n(epost.render("firmapaamelding_kvittering", **_direkte_data(kvittering_url=url, firmanavn="EKSEMPEL KOMMUNE"))[1])
     h = _n(html)
     assert "<p>Hei Kari,</p>" in h                                   # standardhilsenen bruker kontaktpersonens fornavn
-    assert "Takk for påmeldingen av 1 deltaker fra Firma AS til <strong>Testkurs</strong>." in h
+    assert "Takk for påmeldingen av 1 deltaker fra EKSEMPEL KOMMUNE til <strong>Testkurs</strong>." in h
     assert "<li>1 fikk bekreftet plass</li>" in h
     assert "Full oversikt:" in h
     assert "Vennlig hilsen<br>Kursadministrasjonen, Institutt for Psykologisk Rådgivning<br>" in h
@@ -154,7 +154,7 @@ def test_B_override_kun_emne_gir_nytt_emne_og_standard_body(con):
     assert emne == "Kvittering: påmelding til Testkurs"
     token = _fersk(con).execute("SELECT kvittering_token FROM firmapaamelding").fetchone()[0]
     url = f"/kurs/T1/gruppe/kvittering/{token}"
-    standard = _n(epost.render("firmapaamelding_kvittering", **_direkte_data(kvittering_url=url))[1])
+    standard = _n(epost.render("firmapaamelding_kvittering", **_direkte_data(kvittering_url=url, firmanavn="EKSEMPEL KOMMUNE"))[1])
     assert _n(html) == standard
 
 
@@ -168,7 +168,7 @@ def test_C_override_kun_innledning_gir_standard_emne_og_ny_body(con):
     assert emne == STD_EMNE
     h = _n(html)
     assert "<p>Hei Kari HR!</p>" in h
-    assert "Firma AS er paameldt 1 deltaker til <strong>Testkurs</strong>." in h
+    assert "EKSEMPEL KOMMUNE er paameldt 1 deltaker til <strong>Testkurs</strong>." in h
     assert "Takk for påmeldingen" not in h
     assert "<li>1 fikk bekreftet plass</li>" in h                          # laast blokk uendret
     assert "Vennlig hilsen" in h
@@ -209,16 +209,20 @@ def test_min_side_kan_brukes_og_er_systemets_lenke(con):
     klient = _klient()
     _post(klient, "T1")
     (til, emne, html), = _kvittering(config)
-    assert f'<a href="{config.BASE_URL}/min-side">Min side</a>' in html
+    assert f'<a href="{config.BASE_URL}/min-side">Mine kurs</a>' in html
 
 
-def test_placeholderverdi_med_spesialtegn_escapes_i_html_og_er_ren_tekst_i_emne(con):
+def test_placeholderverdi_med_spesialtegn_escapes_i_html_og_er_ren_tekst_i_emne(con, monkeypatch):
+    from kurs.integrasjoner import brreg
+    # Firmanavnet kommer fra registeret (felles regel): et registernavn med spesialtegn skal escapes på samme måte
+    monkeypatch.setitem(brreg._DEMO_PER_NR, "999900003",
+                        brreg.Enhet("999900003", "Firma <x> & Co", "Postboks 100", "1234", "EKSEMPELBY"))
     kid = _kurs(con, kapasitet=5, navn="Kurs A & B <x>")
     con.commit()
     _lagre(con, "emne", "Kvittering: {kursnavn} for {firmanavn}")
     _lagre(con, "innledning", "Hei {navn}, {kursnavn}")
     klient = _klient()
-    _post(klient, "T1", firmanavn="Firma <x> & Co")
+    _post(klient, "T1")
     (til, emne, html), = _kvittering(config)
     assert emne == "Kvittering: Kurs A & B <x> for Firma <x> & Co"
     h = _n(html)
@@ -342,7 +346,7 @@ def test_retry_etter_retting_registrerer_og_sender_normalt(con, rett):
     assert fersk.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0] == 1
     (til, emne, html), = _kvittering(config)
     if rett == "erstatt_med_gyldig":
-        assert "Rettet tekst: Firma AS har meldt paa 1 deltaker" in _n(html)
+        assert "Rettet tekst: EKSEMPEL KOMMUNE har meldt paa 1 deltaker" in _n(html)
     assert len(_epost_utboks(config)) == 2                                   # 1 deltakerbekreftelse + 1 kvittering
     fersk.close()
 
@@ -379,7 +383,7 @@ def test_toctou_malendring_mellom_preflight_og_send_paavirker_ikke_allerede_rend
     assert len(kall) == 1                                                    # kun ETT DB-avhengig oppslag i det hele tatt
     assert r.status_code == 200
     (til, emne, html), = _kvittering(config)
-    assert "Tekst A: Firma AS har 1 deltaker" in _n(html)                    # det FOERSTE (gyldige) resultatet ble brukt
+    assert "Tekst A: EKSEMPEL KOMMUNE har 1 deltaker" in _n(html)                    # det FOERSTE (gyldige) resultatet ble brukt
     fersk = _fersk(con)
     assert fersk.execute("SELECT COUNT(*) FROM firmapaamelding").fetchone()[0] == 1
     assert fersk.execute("SELECT COUNT(*) FROM hendelse WHERE handling='firmapaamelding_mal_feil'").fetchone()[0] == 0

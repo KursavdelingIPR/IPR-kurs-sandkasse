@@ -13,6 +13,24 @@ I tillegg er det egne, lesbare semantiske tester (feltrekkefolge, required, gjen
 av oyeblikksbildet.
 
 Oyeblikksbildet genereres KUN med _generer() - aldri automatisk fra en test.
+
+Skjemabyggeren (migrering 9) endret siden med hensikt (feltnavn til venstre, «(krav)», informasjonsboks, fakturadelen
+med organisasjonsnummer fra Enhetsregisteret, forhåndsvisning = den ekte siden). Bildet ble derfor laget på nytt med
+_generer() 28.09.2026, og de semantiske testene under beskriver den nye siden.
+
+Omleggingen 01.10.2026 tok «Kurs» og «Innsjekk» ut av menyen på deltakersidene og gjorde logoen til vanlig tekst (startsiden er
+nå innloggingen til Admin). Bildet ble laget på nytt med _generer() samme dag; de eneste forskjellene mot forrige bilde var disse
+linjene, i alle 15 scenarier, og ingenting i selve påmeldingsskjemaet.
+
+Terapiakademiet-drakten kom på påmeldingssiden samme kveld (Camilla: «Påmeldingssiden kan få samme stil som terapiakademiet»). Bildet ble laget på
+nytt med _generer() KJØRT INNE I PYTEST (en vanlig python-kjøring mangler testklientens CSRF-nøkkel og standardadressen fra conftest.py, og gir da et
+helt annet bilde av POST-scenariene). De eneste forskjellene mot forrige bilde, i alle 15 scenarier: `<body data-tema='ta'>`, lenken til
+tema-terapiakademiet.css, logoen (to bilder) i stedet for teksten «IPR Påmeldingssystem» i toppen, og bunnen (`footer.ta-bunn`). Ingenting i selve
+skjemaet og ingen statuskoder er endret.
+
+Senere samme kveld ba Camilla om at administratorbanneret «Dette er det ekte påmeldingsskjemaet» (lenke, «Kopier lenke», «Rediger skjemaet») skulle bort
+fra påmeldingssiden. Bildet ble laget på nytt (igjen inne i pytest); eneste forskjell er at banneret er borte i scenarioet «forhandsvisning» (en administrator
+som ser et åpent kurs). Banneret for et kurs som ikke er åpent («forhandsvisning_utkast») står fortsatt.
 """
 import json
 from datetime import date
@@ -37,11 +55,17 @@ SKJULT_FAKTURABLOKK = "post_skjult_fakturablokk_ignorerer_manipulerte_felt"
 
 # ============================ DOM-uttrekk ============================
 
+# HPR-nummer er slått av i skjemaene (skjemafelt.HPR_I_SKJEMA = False, Camilla 02.10.2026). Disse testene gjelder koden som viser, validerer og lagrer det
+# (den finnes fortsatt og kan slås på igjen), så de slår det på. Standarden (av) testes i test_hpr_nummer_samles_ikke_inn.py.
+pytestmark = pytest.mark.usefixtures("hpr_i_skjema")
+
+
 class _Dom(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.tokens: list[str] = []
         self.inputs: list[tuple[str, dict]] = []
+        self._tekstfelt: dict | None = None
 
     def handle_starttag(self, tag, attrs):
         # Tilfeldige sikkerhetsverdier (CSRF-token, CSP-nonce) er ulike per request og maskeres - alt annet tas med.
@@ -52,8 +76,11 @@ class _Dom(HTMLParser):
             attrs = [(k, "<nonce>" if k == "nonce" else v) for k, v in attrs]
         if tag == "style":
             self._i_stil = True
-        if tag == "input":
+        if tag in ("input", "textarea", "select"):         # alle skjemafelt (textarea: verdien er innholdet)
             self.inputs.append((a.get("name"), dict(attrs)))
+            if tag == "textarea":
+                self._tekstfelt = self.inputs[-1][1]
+                self._tekstfelt["value"] = ""
         self.tokens.append("<" + " ".join([tag, *(f"{k}={v!r}" if v is not None else k for k, v in attrs)]) + ">")
 
     def handle_startendtag(self, tag, attrs):
@@ -64,11 +91,15 @@ class _Dom(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "style":
             self._i_stil = False
+        if tag == "textarea":
+            self._tekstfelt = None
         self.tokens.append(f"</{tag}>")
 
     def handle_data(self, data):
         if self._i_stil:           # felles CSS i base.html er ikke en del av skjemaets gullstandard
             return
+        if self._tekstfelt is not None:
+            self._tekstfelt["value"] += data
         tekst = " ".join(data.split())
         if tekst:
             self.tokens.append("#" + tekst)
@@ -86,9 +117,9 @@ def dom(html: str) -> list[str]:
 
 
 def skjemafelt_i_rekkefolge(html: str) -> list[tuple[str, dict]]:
-    """(name, attributter) for alle input paa siden (kun paameldingsskjemaet har input), i dokumentrekkefolge -
-    uten CSRF-feltet, som ikke er et skjemafelt deltakeren ser."""
-    return [(n, a) for n, a in _parse(html).inputs if n != "csrf_token"]
+    """(name, attributter) for alle skjemafelt (input, textarea, select) paa siden, i dokumentrekkefolge - uten
+    CSRF-feltet og felt uten name (lenkefeltet i adminlinjen), som ikke er skjemafelt deltakeren fyller ut."""
+    return [(n, a) for n, a in _parse(html).inputs if n and n != "csrf_token"]
 
 
 # ============================ scenarier ============================
@@ -104,9 +135,10 @@ INNSENDT = {
     "fornavn": 'Test "Person" <Eksempel>', "etternavn": "Eksempelsen", "epost": "test.person@eksempel.no",
     "telefon": "+47 000 00 000",
     "arbeidssted": "Eksempel & Co AS", "hpr_nr": "0000000", "betaler": "organisasjon",
-    "org_navn": "Eksempel Org", "org_nr": "000000000", "faktura_ref": "REF-1", "faktura_epost": "faktura@eksempel.no",
-    "ehf": "on", "betaling": "per_samling", "faktura_adresse": "Eksempelveien 1", "faktura_postnr": "0000",
-    "faktura_sted": "Eksempelby", "allergier": "Eksempelallergi", "tilrettelegging": "Eksempelbehov",
+    # 999999999: oppdiktet demovirksomhet (kurs/integrasjoner/brreg.py) - gyldig kontrollsiffer, ingen nettverkskall
+    "org_navn": "Eksempel Org", "org_nr": "999999999", "faktura_ref": "REF-1", "faktura_epost": "faktura@eksempel.no",
+    "ehf": "on", "betaling": "per_samling", "adresse": "Eksempelveien 1", "postnr": "0000",
+    "poststed": "Eksempelby", "allergier": "Eksempelallergi", "tilrettelegging": "Eksempelbehov",
 }
 
 GET_SCENARIER = {
@@ -141,6 +173,7 @@ def lag_sider(con) -> dict[str, tuple[int, str]]:
     for i, (navn, oppsett) in enumerate(GET_SCENARIER.items()):
         _kurs(con, f"G{i}", **oppsett)
     kid_preview = _kurs(con, "PV", spesialistlop="EFT", betaling="deltaker_velger")
+    kid_utkast = _kurs(con, "PU", spesialistlop="EFT", betaling="deltaker_velger", status="utkast")
     _kurs(con, "PF1", spesialistlop="EFT", betaling="deltaker_velger")
     kid_pf2 = _kurs(con, "PF2", spesialistlop="EFT")
     _kurs(con, "PF3", type="digital", sted=None, fakturering="organisasjon")
@@ -152,8 +185,12 @@ def lag_sider(con) -> dict[str, tuple[int, str]]:
         r = k.get(f"/kurs/G{i}")
         sider[navn] = (r.status_code, r.get_data(as_text=True))
 
-    r = _innlogget().get(f"/admin/kurs/{kid_preview}/forhandsvis-paamelding")
+    # Forhåndsvisningen er den ekte siden: et offentlig kurs sett av admin, og et utkast (bare admin, uten innsending)
+    admin = _innlogget()
+    r = admin.get(f"/admin/kurs/{kid_preview}/forhandsvis-paamelding", follow_redirects=True)
     sider["forhandsvisning"] = (r.status_code, r.get_data(as_text=True))
+    r = admin.get(f"/admin/kurs/{kid_utkast}/forhandsvis-paamelding", follow_redirects=True)
+    sider["forhandsvisning_utkast"] = (r.status_code, r.get_data(as_text=True))
 
     # POST-feil 1: valideringsfeil (mangler samtykke) - alle felt fylt ut, verdiene skal vises igjen
     r = _klient().post("/kurs/PF1", data=INNSENDT)
@@ -212,12 +249,14 @@ def _generer(sti: Path = SNAPSHOT) -> None:
 
 def test_oyeblikksbildet_dekker_alle_scenarier():
     lagret = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
-    assert set(lagret) == set(GET_SCENARIER) | {"forhandsvisning", "post_feil_mangler_samtykke",
-                                                "post_feil_allerede_paameldt", SKJULT_FAKTURABLOKK}
+    assert set(lagret) == set(GET_SCENARIER) | {"forhandsvisning", "forhandsvisning_utkast",
+                                                "post_feil_mangler_samtykke", "post_feil_allerede_paameldt",
+                                                SKJULT_FAKTURABLOKK}
 
 
-@pytest.mark.parametrize("scenario", [*GET_SCENARIER, "forhandsvisning", "post_feil_mangler_samtykke",
-                                      "post_feil_allerede_paameldt", SKJULT_FAKTURABLOKK])
+@pytest.mark.parametrize("scenario", [*GET_SCENARIER, "forhandsvisning", "forhandsvisning_utkast",
+                                      "post_feil_mangler_samtykke", "post_feil_allerede_paameldt",
+                                      SKJULT_FAKTURABLOKK])
 def test_siden_er_dom_identisk_med_gullstandard(sider, scenario):
     lagret = json.loads(SNAPSHOT.read_text(encoding="utf-8"))[scenario]
     status, html = sider[scenario]
@@ -248,42 +287,51 @@ def test_gullstandarden_fanger_endret_blokkbetingelse(con, monkeypatch):
 
 # ============================ semantiske regresjonstester ============================
 
-FAKTURA = ["betaler", "betaler", "org_navn", "org_nr", "faktura_ref", "faktura_epost", "ehf",
-           "faktura_adresse", "faktura_postnr", "faktura_sted"]
-FAKTURA_VELGER = FAKTURA[:7] + ["betaling", "betaling"] + FAKTURA[7:]
+# Fakturadelen: hvem betaler, organisasjonsnummer og firmaopplysningene (fra Enhetsregisteret) og fakturafeltene når
+# firma betaler - deretter ev. valg av betalingsmåte. Betaler deltakeren selv, er fakturaadressen hans egen adresse
+# (ADRESSE under «Om deg»), så den har ingen egne felt her.
+FAKTURA = ["betaler", "betaler", "org_nr", "org_navn",
+           "org_adresse", "org_postnr", "org_sted", "faktura_ref", "faktura_epost", "faktura_kommentar", "ehf"]
+FAKTURA_VELGER = FAKTURA + ["betaling", "betaling"]
 SENSITIVT = ["allergier", "tilrettelegging"]
 
 
 NAVN = ["fornavn", "etternavn"]       # egne felt (migrering 7) - tidligere ett "navn"-felt
+ADRESSE = ["adresse", "postnr", "poststed"]     # deltakerens private adresse: alltid med, rett etter e-post
 
 
 @pytest.mark.parametrize("scenario,forventet", [
-    ("fysisk_uten_spesialistlop", [*NAVN, "epost", "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
-    ("fysisk_med_spesialistlop", [*NAVN, "epost", "telefon", "arbeidssted", "hpr_nr", *FAKTURA, *SENSITIVT,
+    ("fysisk_uten_spesialistlop", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
+    ("fysisk_med_spesialistlop", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", "hpr_nr", *FAKTURA, *SENSITIVT,
                                   "samtykke"]),
-    ("digitalt", [*NAVN, "epost", "telefon", "arbeidssted", *FAKTURA, "samtykke"]),
-    ("hybrid", [*NAVN, "epost", "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
-    ("person_pris_deltaker_velger", [*NAVN, "epost", "telefon", "arbeidssted", *FAKTURA_VELGER, *SENSITIVT,
+    ("digitalt", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *FAKTURA, "samtykke"]),
+    ("hybrid", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
+    ("person_pris_deltaker_velger", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *FAKTURA_VELGER, *SENSITIVT,
                                      "samtykke"]),
-    ("person_pris_per_samling", [*NAVN, "epost", "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
-    ("uten_fakturablokk_organisasjon", [*NAVN, "epost", "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
-    ("uten_fakturablokk_ingen", [*NAVN, "epost", "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
-    ("uten_fakturablokk_gratis", [*NAVN, "epost", "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
-    ("forhandsvisning", [*NAVN, "epost", "telefon", "arbeidssted", "hpr_nr", *FAKTURA_VELGER, *SENSITIVT,
+    ("person_pris_per_samling", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
+    ("uten_fakturablokk_organisasjon", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
+    ("uten_fakturablokk_ingen", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
+    ("uten_fakturablokk_gratis", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
+    ("forhandsvisning", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", "hpr_nr", *FAKTURA_VELGER, *SENSITIVT,
                          "samtykke"]),
+    ("forhandsvisning_utkast", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", "hpr_nr", *FAKTURA_VELGER, *SENSITIVT,
+                                "samtykke"]),
 ])
 def test_feltrekkefolge_per_kursoppsett(sider, scenario, forventet):
     assert [n for n, _ in skjemafelt_i_rekkefolge(sider[scenario][1])] == forventet
 
 
-def test_kun_navn_epost_og_samtykke_er_required(sider):
-    """Paa ALLE sider som viser paameldingsskjemaet (alle scenarier unntatt suksessflyten) er fornavn, etternavn, epost og
-    samtykke de eneste required-feltene naar det ikke finnes overstyringer."""
+def test_kun_navn_epost_adresse_betaler_og_samtykke_er_required(sider):
+    """Paa ALLE sider som viser paameldingsskjemaet (alle scenarier unntatt suksessflyten) er fornavn, etternavn, epost,
+    adresse, postnummer, poststed og samtykke - og «Betale privat / firma» naar fakturadelen vises - de eneste
+    required-feltene naar det ikke finnes overstyringer. Felt i deler som er skjult (f.eks. firmadelen foer «Firma betaler» er valgt), kreves aldri."""
     skjemasider = {s for s, (_, html) in sider.items() if any(n == "fornavn" for n, _ in skjemafelt_i_rekkefolge(html))}
     assert skjemasider == set(sider) - {SKJULT_FAKTURABLOKK}      # testen svekkes ikke: kun kvitteringen er unntatt
     for scenario in skjemasider:
-        required = [n for n, a in skjemafelt_i_rekkefolge(sider[scenario][1]) if "required" in a]
-        assert required == [*NAVN, "epost", "samtykke"], scenario
+        felt = skjemafelt_i_rekkefolge(sider[scenario][1])
+        betaler = ["betaler", "betaler"] if any(n == "betaler" for n, _ in felt) else []
+        required = [n for n, a in felt if "required" in a]
+        assert required == [*NAVN, "epost", *ADRESSE, *betaler, "samtykke"], scenario
 
 
 def test_skjult_fakturablokk_ignorerer_manipulerte_felt_og_gir_normal_kvittering(sider):
@@ -295,13 +343,16 @@ def test_skjult_fakturablokk_ignorerer_manipulerte_felt_og_gir_normal_kvittering
     assert "Fyll inn organisasjon" not in html and skjemafelt_i_rekkefolge(html) == []
 
 
-def test_deltakerfeltene_har_uendrede_labels_og_ingen_type(sider):
+def test_deltakerfeltene_har_feltnavn_til_venstre_og_riktig_felttype(sider):
     html = sider["fysisk_med_spesialistlop"][1]
     t = dom(html)
-    for label, navn in [("Telefon", "telefon"), ("Arbeidssted", "arbeidssted"), ("HPR-nummer", "hpr_nr")]:
+    for label, navn, ekstra in [("Telefon", "telefon", " type='tel' autocomplete='tel'"),
+                                ("Arbeidssted", "arbeidssted", " autocomplete='organization'"),
+                                ("HPR-nummer", "hpr_nr", "")]:
         i = t.index("#" + label)
-        assert t[i - 2:i + 4] == ["<div>", f"<label for='f-{navn}'>", "#" + label, "</label>",
-                                  f"<input id='f-{navn}' name={navn!r} value=''>", "</div>"]
+        assert t[i - 2:i + 6] == ["<div class='pm-rad'>", f"<label class='pm-etikett' for='f-{navn}'>", "#" + label,
+                                  "</label>", "<div class='pm-felt'>", f"<input id='f-{navn}' name={navn!r}{ekstra} value=''>",
+                                  "</div>", "</div>"]
 
 
 def test_post_feil_viser_innsendte_verdier_igjen_escaped(sider):
@@ -309,7 +360,7 @@ def test_post_feil_viser_innsendte_verdier_igjen_escaped(sider):
     assert status == 400
     verdier = {n: a.get("value") for n, a in skjemafelt_i_rekkefolge(html) if a.get("type") not in ("radio", "checkbox")}
     for felt in ("fornavn", "etternavn", "epost", "telefon", "arbeidssted", "hpr_nr", "org_navn", "org_nr", "faktura_ref",
-                 "faktura_epost", "faktura_adresse", "faktura_postnr", "faktura_sted", "allergier", "tilrettelegging"):
+                 "faktura_epost", "adresse", "postnr", "poststed", "allergier", "tilrettelegging"):
         assert verdier[felt] == INNSENDT[felt], felt
     assert "Eksempel &amp; Co AS" in html and "&lt;Eksempel&gt;" in html and "<Eksempel>" not in html
     assert "Du må godta vilkår og personvernerklæring." in html

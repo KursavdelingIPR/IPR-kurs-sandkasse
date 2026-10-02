@@ -1,0 +1,165 @@
+{#- Dialogene i redigeringsvisningen (kursside_admin.html). Ferdig skrevet her, så ledetekster og knapper kan skannes av testene; JavaScript-en
+    (kursside-admin-dialoger.js) fyller dem med data (aldri med HTML fra tekst) og åpner dem med showModal(). Alle har aria-labelledby. -#}
+{% import "_kursside_blokker.html" as bl %}
+
+<dialog id="ks-dialog-publiser" class="ks-dialog ks-dialog-stor" aria-labelledby="ks-publiser-h">
+  <div class="ks-dialog-h"><h2 id="ks-publiser-h">Publisere Min side?</h2><p data-felt="ingress"></p></div>
+  <div class="ks-dialog-k">
+    <h3 class="ks-h3">Dette endres</h3>
+    <ul class="ks-endr" data-felt="diff"></ul>
+    <h3 class="ks-h3">Kontroll</h3>
+    <ul class="ks-kontroll" data-felt="kontroll"></ul>
+    <p class="ks-hjelp">Deltakerne varsles ikke automatisk. Vil du gi beskjed, bruk fanen Kommunikasjon.</p>
+  </div>
+  <div class="ks-dialog-f">
+    <button type="button" class="sekundar" data-lukk>Avbryt</button>
+    <a class="knapp sekundar" data-felt="se-som-deltaker" href="{{ data.urls.forhandsvis }}?versjon=utkast" target="_blank" rel="noopener">{{ bl.ikon('ekstern') }}Se som deltaker</a>
+    <button type="button" data-ks="publiser-nå">{{ bl.ikon('last-opp') }}Publiser nå</button>
+  </div>
+</dialog>
+
+<dialog id="ks-dialog-konflikt" class="ks-dialog" aria-labelledby="ks-konflikt-h">
+  <div class="ks-dialog-h"><h2 id="ks-konflikt-h" data-felt="tittel">Siden er lagret av noen andre</h2>
+    <p>Noen andre har lagret Min side mens du redigerte. Ingenting av det du har skrevet er kastet. Velg hva som skal skje.</p></div>
+  <div class="ks-dialog-k">
+    <h3 class="ks-h3">Dette har den andre endret</h3>
+    <ul class="ks-endr" data-felt="diff"></ul>
+  </div>
+  <div class="ks-dialog-f ks-dialog-f-kolonne">
+    <button type="button" data-ks="konflikt-behold">Behold mine endringer</button>
+    <button type="button" class="sekundar" data-ks="konflikt-deres">Hent deres versjon (min versjon lagres i nettleseren)</button>
+    <button type="button" class="sekundar" data-ks="konflikt-last-ned">{{ bl.ikon('last-ned') }}Last ned min kopi</button>
+    <button type="button" class="sekundar" data-lukk>Avbryt</button>
+  </div>
+</dialog>
+
+<dialog id="ks-dialog-lenke" class="ks-dialog ks-dialog-liten" aria-labelledby="ks-lenke-h">
+  <div class="ks-dialog-h"><h2 id="ks-lenke-h">Sett inn lenke</h2></div>
+  <div class="ks-dialog-k">
+    <label for="ks-lenke-adresse">Adresse</label>
+    <input id="ks-lenke-adresse" type="text" data-felt="adresse" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…" maxlength="{{ data.grenser.url }}">
+    <div data-felt="tekstfelt"><label for="ks-lenke-tekst">Tekst som vises</label>
+      <input id="ks-lenke-tekst" type="text" data-felt="tekst" autocomplete="off" maxlength="200"></div>
+    <p class="ks-hjelp">Bare vanlige nettadresser (https), e-post og telefon godtas.</p>
+    <p class="ks-feiltekst" data-felt="feil" role="alert" hidden></p>
+  </div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-lukk>Avbryt</button><button type="button" data-ks="lenke-ok">Sett inn lenke</button></div>
+</dialog>
+
+<dialog id="ks-dialog-tekst" class="ks-dialog ks-dialog-stor" aria-labelledby="ks-tekst-h">
+  <div class="ks-dialog-h"><h2 id="ks-tekst-h" data-felt="tittel">Rediger som tekst</h2><p data-felt="hjelp"></p></div>
+  <div class="ks-dialog-k">
+    <label for="ks-tekst-felt" data-felt="ledetekst">Tekst</label>
+    <textarea id="ks-tekst-felt" class="ks-tekstmodus" rows="12" spellcheck="false" data-felt="tekst"></textarea>
+    <ul class="ks-linjefeil" data-felt="feil" role="alert"></ul>
+  </div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-lukk>Avbryt</button><button type="button" data-ks="tekst-ok">Bruk teksten</button></div>
+</dialog>
+
+<dialog id="ks-dialog-excel" class="ks-dialog ks-dialog-stor" aria-labelledby="ks-excel-h">
+  <div class="ks-dialog-h"><h2 id="ks-excel-h">Lim inn fra Excel</h2>
+    <p>Marker cellene i Excel, kopier (Ctrl+C) og lim inn her (Ctrl+V). Tabellen får like mange kolonner og rader som du limer inn.</p></div>
+  <div class="ks-dialog-k">
+    <label for="ks-excel-felt">Innlimt tekst</label>
+    <textarea id="ks-excel-felt" class="ks-tekstmodus" rows="10" spellcheck="false" data-felt="tekst"></textarea>
+    <label class="valg"><input type="checkbox" data-felt="overskrifter" checked>Første linje er kolonneoverskrifter</label>
+    <p class="ks-hjelp">Navn vises for alle som er påmeldt kurset. Bruk fornavn og forbokstav.</p>
+    <p class="ks-feiltekst" data-felt="feil" role="alert" hidden></p>
+  </div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-lukk>Avbryt</button><button type="button" data-ks="excel-ok">Erstatt tabellen</button></div>
+</dialog>
+
+<dialog id="ks-dialog-navn" class="ks-dialog" aria-labelledby="ks-navn-h">
+  <div class="ks-dialog-h"><h2 id="ks-navn-h">Legg til deltakere fra påmeldingslisten</h2>
+    <p>Bare fornavn og forbokstav i etternavn. De valgte navnene settes inn som «Kari N., Ola H.» i cellen du sist klikket i.</p></div>
+  <div class="ks-dialog-k">
+    <p class="ks-hjelp" data-felt="status">Henter navn …</p>
+    <div class="ks-navneliste" data-felt="liste" role="group" aria-label="Deltakere med bekreftet påmelding"></div>
+  </div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-lukk>Lukk</button><button type="button" data-ks="navn-ok" disabled>Sett inn</button></div>
+</dialog>
+
+<dialog id="ks-dialog-mal" class="ks-dialog" aria-labelledby="ks-mal-h">
+  <div class="ks-dialog-h"><h2 id="ks-mal-h">Start fra mal</h2><p>Velg en ferdig oppsetning å begynne med.</p></div>
+  <div class="ks-dialog-k">
+    <fieldset class="ks-valgliste"><legend class="skjul-visuelt">Mal</legend>
+      <label class="ks-valg"><input type="radio" name="ks-mal-valg" value="standard" checked><span><b>Standardside</b><small>Program fra kursdatoene, Presentasjoner og dokumenter, Litteratur og lenker, Kontakt.</small></span></label>
+      <label class="ks-valg"><input type="radio" name="ks-mal-valg" value="program"><span><b>Bare program fra kursdatoene</b><small>Én programdag per kursdag, klar til å fylles ut.</small></span></label>
+      <label class="ks-valg"><input type="radio" name="ks-mal-valg" value="tom"><span><b>Tom side</b><small>Ingen blokker.</small></span></label>
+    </fieldset>
+    <p class="ks-advarsel-tekst">{{ bl.ikon('varsel') }}<span>Utkastet ditt erstattes. Vi tar en sikkerhetskopi først, du finner den under Tidligere versjoner.</span></p>
+  </div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-lukk>Avbryt</button><button type="button" data-ks="mal-ok">Erstatt utkastet</button></div>
+</dialog>
+
+<dialog id="ks-dialog-hent" class="ks-dialog" aria-labelledby="ks-hent-h">
+  <div class="ks-dialog-h"><h2 id="ks-hent-h">Hent fra annet kurs</h2>
+    <p>Filer kopieres. Tabeller kommer uten navn. Programdager kobles til dette kursets kursdager i rekkefølge. Blokkene legges sist.</p>
+    <p>Har det andre kurset flere dager enn dette, blir de ekstra programdagene stående uten dato. Du får en advarsel om dem når du publiserer.</p></div>
+  <div class="ks-dialog-k">
+    <label for="ks-hent-kurs">Kurs</label>
+    <select id="ks-hent-kurs" data-felt="kurs"><option value="">Velg kurs …</option></select>
+    <p class="ks-hjelp" data-felt="status"></p>
+    <fieldset class="ks-avkrysning" data-felt="blokker" hidden><legend>Blokker som skal hentes</legend>
+      <p class="ks-hjelp"><button type="button" class="lenkeknapp" data-ks="hent-alle">Velg alle</button> · <button type="button" class="lenkeknapp" data-ks="hent-ingen">Fjern alle</button></p>
+      <div data-felt="liste"></div></fieldset>
+  </div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-lukk>Avbryt</button><button type="button" data-ks="hent-ok" disabled>Hent valgte</button></div>
+</dialog>
+
+<dialog id="ks-dialog-forh-stor" class="ks-dialog ks-dialog-forh" aria-labelledby="ks-forh-stor-h">
+  <div class="ks-dialog-h"><h2 id="ks-forh-stor-h">Slik ser deltakerne siden på PC</h2>
+    <p>Full størrelse, slik en deltaker ser den. Trykk «Last på nytt» etter at du har endret noe.</p></div>
+  <div class="ks-dialog-k ks-forh-stor-k"><iframe data-felt="ramme" title="Forhåndsvisning av Min side på PC, full størrelse" sandbox="allow-same-origin"></iframe></div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-ks="forh-stor-last">Last på nytt</button><button type="button" data-lukk>Lukk</button></div>
+</dialog>
+
+<dialog id="ks-dialog-versjoner" class="ks-dialog ks-dialog-stor" aria-labelledby="ks-versjoner-h">
+  <div class="ks-dialog-h"><h2 id="ks-versjoner-h">Tidligere versjoner</h2>
+    <p>Publiserte versjoner og sikkerhetskopier som tas før noe erstattes. «Gjenopprett» legger versjonen inn som utkast – den publiseres ikke.</p></div>
+  <div class="ks-dialog-k"><ul class="ks-versjonsliste" data-felt="liste"></ul></div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-lukk>Lukk</button></div>
+</dialog>
+
+<dialog id="ks-dialog-filer" class="ks-dialog ks-dialog-stor" aria-labelledby="ks-filer-h">
+  <div class="ks-dialog-h"><h2 id="ks-filer-h">Filer for Min side</h2>
+    <p data-felt="kvote-tekst">Alle filer og bilder som er lastet opp til dette kurset. En fil som brukes på siden kan ikke slettes før den er fjernet derfra.</p></div>
+  <div class="ks-dialog-k"><ul class="ks-filoversikt" data-felt="liste"></ul></div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-lukk>Lukk</button></div>
+</dialog>
+
+<dialog id="ks-dialog-innstillinger" class="ks-dialog" aria-labelledby="ks-innst-h">
+  <div class="ks-dialog-h"><h2 id="ks-innst-h">Innstillinger for siden</h2><p>Gjelder med en gang og er ikke en del av utkastet.</p></div>
+  <div class="ks-dialog-k">
+    <label class="valg"><input type="checkbox" data-felt="aktiv">Siden er åpen for deltakerne</label>
+    <p class="ks-hjelp">Fjern haken for å ta siden ned midlertidig. Publiseringen beholdes.</p>
+    <fieldset class="ks-avkrysning ks-apning">
+      <legend>Hvor lenge er siden åpen etter siste kursdag?</legend>
+      <label><input type="radio" name="ks-apning" value="standard" data-felt="apning-standard"><span data-felt="apning-standard-tekst">Standard: 180 dager</span></label>
+      <label><input type="radio" name="ks-apning" value="dager" data-felt="apning-dager">Antall dager:
+        <input type="number" class="kort-felt" data-felt="apen-dager" min="1" max="3650" step="1" inputmode="numeric" aria-label="Antall dager etter siste kursdag"></label>
+      <label><input type="radio" name="ks-apning" value="ingen" data-felt="apning-ingen">Ingen tidsbegrensning</label>
+      <label><input type="radio" name="ks-apning" value="dato" data-felt="apning-dato">Til en bestemt dato:
+        <input type="date" class="datofelt" data-felt="stenges" aria-label="Siden er åpen til denne datoen"></label>
+    </fieldset>
+    <p class="ks-hjelp ks-apning-hjelp" data-felt="apning-hjelp" role="status" aria-live="polite"></p>
+    <p class="ks-hjelp">Etter at siden er stengt, ser deltakerne «Min side er stengt». Lister med navn på siden tømmes uansett {{ tom_dager }} dager etter kurset.</p>
+    <label class="valg"><input type="checkbox" data-felt="krever-kode">Innsjekk på nett krever dagens kode</label>
+    <p class="ks-hjelp" data-felt="kode-hjelp"></p>
+    <p class="ks-feiltekst" data-felt="feil" role="alert" hidden></p>
+  </div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-lukk>Avbryt</button><button type="button" data-ks="innst-ok">Lagre innstillingene</button></div>
+</dialog>
+
+<dialog id="ks-dialog-finn" class="ks-dialog ks-finn" aria-labelledby="ks-finn-h">
+  <div class="ks-dialog-h"><h2 id="ks-finn-h">Finn og erstatt</h2></div>
+  <div class="ks-dialog-k">
+    <label for="ks-finn-sok">Finn</label>
+    <input id="ks-finn-sok" type="text" data-felt="sok" autocomplete="off" spellcheck="false">
+    <label for="ks-finn-ny">Erstatt med</label>
+    <input id="ks-finn-ny" type="text" data-felt="ny" autocomplete="off" spellcheck="false">
+    <label class="valg"><input type="checkbox" data-felt="ikke-skill" checked>Ikke skill store og små bokstaver</label>
+    <p class="ks-hjelp" data-felt="teller" role="status">Skriv det du vil finne.</p>
+  </div>
+  <div class="ks-dialog-f"><button type="button" class="sekundar" data-lukk>Lukk</button><button type="button" class="sekundar" data-ks="finn-neste">Neste</button><button type="button" data-ks="finn-erstatt">Erstatt alle</button></div>
+</dialog>

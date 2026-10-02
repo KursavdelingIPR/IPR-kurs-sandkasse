@@ -12,6 +12,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE
 from kurs import config, db, migreringer, migrer
 
 
@@ -237,26 +238,26 @@ def test_kursnummer_vises_i_admin_og_offentlig_lenke_virker_som_foer(con):
     kid = _kurs(con, "EFT-2027", "EFT samling")
     con.commit()
     admin = _admin(con)
-    for url in ("/admin", "/admin/aktiviteter", f"/admin/kurs/{kid}/oppsett", "/admin/rapporter/kurs"):
+    for url in ("/admin", "/admin", f"/admin/kurs/{kid}/oppsett", "/admin/rapporter/kurs"):
         html = admin.get(url).get_data(as_text=True)
         assert "1001" in html, url
     assert admin.get("/admin/rapporter/kurs.csv").get_data(as_text=True).startswith("﻿Kursnr;")
     assert admin.get("/kurs/EFT-2027").status_code == 200                            # offentlig lenke uendret
 
 
-def test_kursnummer_er_soekbart_i_aktiviteter(con):
+def test_kursnummer_er_soekbart_i_kurslisten(con):
     a = _kurs(con, "A", "Parterapi")
     b = _kurs(con, "B", "Veiledning")
     _kurs(con, "C", "Stressmestring")
     con.commit()
     admin = _admin(con)
-    html = admin.get(f"/admin/aktiviteter?sok={_kursnr(con, b)}").get_data(as_text=True)
+    html = admin.get(f"/admin?sok={_kursnr(con, b)}").get_data(as_text=True)
     assert "Veiledning" in html and "Parterapi" not in html and "Stressmestring" not in html
-    html = admin.get("/admin/aktiviteter?sok=100").get_data(as_text=True)             # prefiks: alle 1001-1003
+    html = admin.get("/admin?sok=100").get_data(as_text=True)             # prefiks: alle 1001-1003
     assert "Veiledning" in html and "Parterapi" in html and "Stressmestring" in html
-    html = admin.get("/admin/aktiviteter?sok=parterapi").get_data(as_text=True)       # navn virker fortsatt
+    html = admin.get("/admin?sok=parterapi").get_data(as_text=True)       # navn virker fortsatt
     assert "Parterapi" in html and "Veiledning" not in html
-    html = admin.get("/admin/aktiviteter?sorter=kursnr&retning=desc").get_data(as_text=True)
+    html = admin.get("/admin?sorter=kursnr&retning=desc").get_data(as_text=True)
     assert html.index("Stressmestring") < html.index("Veiledning") < html.index("Parterapi")
 
 
@@ -267,7 +268,7 @@ def test_webhook_godtar_kursnummer(con, monkeypatch):
     from kurs.web import app as webapp
     kid = _kurs(con, "A")
     con.commit()
-    body = json.dumps({"fornavn": "Test", "etternavn": "Person", "epost": "test@example.no", "kurs": str(_kursnr(con, kid))}).encode()
+    body = json.dumps({"fornavn": "Test", "etternavn": "Person", "epost": "test@example.no", "kurs": str(_kursnr(con, kid)), **ADRESSE}).encode()
     sig = hmac.new(config.WEBHOOK_HEMMELIG.encode(), body, hashlib.sha256).hexdigest()
     r = webapp.app.test_client().post("/api/paamelding", data=body, content_type="application/json",
                                       headers={"X-IPR-Signatur": sig})

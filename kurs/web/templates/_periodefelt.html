@@ -1,0 +1,31 @@
+{#- Skjemafeltene for en periode i årsplanen (skoleferie, sperret periode, advarsel). Importeres «with context»:
+    trenger periodetyper, gjelder og omraader. -#}
+{% macro periodefelt(s, prefiks) %}
+  <fieldset><legend class="etikett">Hva slags periode?</legend>
+    {% for verdi, navn in periodetyper.items() %}
+    <label class="valg"><input type="radio" name="type" value="{{ verdi }}" {{ 'checked' if s.get('type', 'skoleferie') == verdi }}
+      data-vis="{{ prefiks }}-{{ 'omraade' if verdi == 'skoleferie' else 'gjelder' }}" data-skjul="{{ prefiks }}-{{ 'gjelder' if verdi == 'skoleferie' else 'omraade' }}"> {{ navn }}</label>
+    {% endfor %}
+  </fieldset>
+  <p class="liten dempet" style="margin:0 0 4px">Skoleferie: for ett område (legg inn datoene fra kommunen/fylket). Sperret periode:
+    kurs i perioden vises som konflikt. Advarsel: kurs i perioden vises med en merknad. Ingen av dem hindrer at kurs opprettes.</p>
+  <div class="rad">
+    <div><label for="{{ prefiks }}-navn">Navn *</label><input id="{{ prefiks }}-navn" name="navn" required maxlength="80"
+         value="{{ s.get('navn', '') }}" placeholder="For eksempel «Høstferie» eller «Ikke webinarer i juli»"></div>
+    <div id="{{ prefiks }}-omraade"{% if s.get('type', 'skoleferie') != 'skoleferie' %} class="skjul"{% endif %}>
+      <label for="{{ prefiks }}-omraade-felt">Område *</label>
+      <input id="{{ prefiks }}-omraade-felt" name="omraade" maxlength="40" list="{{ prefiks }}-omraader" value="{{ s.get('omraade') or '' }}"
+             placeholder="Oslo eller Vestland">
+      <datalist id="{{ prefiks }}-omraader">{% for o in omraader %}<option value="{{ o }}">{% endfor %}</datalist>
+    </div>
+    <div id="{{ prefiks }}-gjelder"{% if s.get('type', 'skoleferie') == 'skoleferie' %} class="skjul"{% endif %}>
+      <label for="{{ prefiks }}-gjelder-felt">Gjelder</label>
+      <select id="{{ prefiks }}-gjelder-felt" name="gjelder">
+        {% for verdi, navn in gjelder.items() %}<option value="{{ verdi }}" {{ 'selected' if s.get('gjelder', 'alle') == verdi }}>{{ navn|capitalize }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><label for="{{ prefiks }}-fra">Fra *</label><input id="{{ prefiks }}-fra" name="fra_dato" type="date" required value="{{ s.get('fra_dato', '') }}"></div>
+    <div><label for="{{ prefiks }}-til">Til (tom = én dag)</label><input id="{{ prefiks }}-til" name="til_dato" type="date" value="{{ s.get('til_dato', '') }}"></div>
+  </div>
+  <label for="{{ prefiks }}-notat">Notat (kun internt)</label><textarea id="{{ prefiks }}-notat" name="notat" rows="2" maxlength="1000">{{ s.get('notat') or '' }}</textarea>
+{% endmacro %}

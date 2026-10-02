@@ -1,0 +1,44 @@
+{% extends "admin_deltaker_ramme.html" %}
+{% block deltakerinnhold %}
+{#- Toppen er komprimert (Camilla 02.10.2026, etter Pindenas «Melding» med ID, sendt, type, emne, avsender og mottakere under hverandre): emnet og utfallet på én linje, og sendt,
+    til, fra, sendt av og vedlegg som én linje med fakta. Under står innholdet slik e-posten ble sendt, og vedleggene. En eldre e-post uten kopi har ikke noe innhold å vise. -#}
+{% set r = e.rad %}
+<p class="liten"><a href="{{ url_for('admin_deltaker_kommunikasjon', kurs_id=kurs.id, paamelding_id=p.id) }}" data-i-vindu>← Alle e-poster</a></p>
+<div class="epostoverskrift">
+  <h2 class="epostemne">{{ r.emne }}</h2>
+  <span class="merke {{ {'sendt': 'ok', 'feilet': 'feil', 'uavklart': 'gul', 'sender': 'gra'}.get(r.status, 'gul') }}">{{ r.status_tekst }}</span>
+</div>
+<p class="epostmeta">
+  <span><b>Sendt</b> {{ r.dato }} kl. {{ e.klokkeslett_sekunder }} <span class="dempet">(norsk tid)</span></span>
+  <span><b>Til</b> {{ r.til }}</span>
+  {% if r.fra %}<span><b>Fra</b> {{ r.fra }}</span>{% endif %}
+  {% if r.sendt_av %}<span><b>Sendt av</b> {{ r.sendt_av }}</span>{% endif %}
+  {% if e.kopi %}<span><b>Kopi til</b> {{ e.kopi }}</span>{% endif %}
+  {% if r.id %}<span><b>Vedlegg</b> {% if e.vedlegg %}<a href="#vedlegg">{{ e.vedlegg | length }}</a>{% else %}ingen{% endif %}</span>{% endif %}
+  {% if r.utsending_id %}<span><b>Utsendelse</b> Manuell e-post til flere · <a href="{{ url_for('admin_epost_detalj', kurs_id=kurs.id, utsending_id=r.utsending_id) }}">Se utsendelsen med alle mottakere</a></span>{% endif %}
+  {% if e.feilmelding %}<span><b>Feil</b> {{ e.feilmelding }}</span>{% endif %}
+</p>
+{% if r.status == 'uavklart' %}
+<div class="flash info" role="status">Utfallet er uavklart: systemet vet ikke om e-posten kom frem. Kontroller «Sendte elementer» i kurspostkassen, og avklar den under «Uavklarte operasjoner» på oversikten.</div>
+{% elif r.status == 'feilet' %}
+<div class="flash info" role="status">E-posten ble ikke sendt. Den prøves igjen neste gang samme utsending kjøres.</div>
+{% endif %}
+{% if r.id %}
+<h3 class="epostinnhold">Innhold</h3>
+<iframe class="epostramme" sandbox srcdoc="{{ e.html }}" title="E-posten «{{ r.emne }}» slik den ble sendt"></iframe>
+{% if e.vedlegg %}
+<h3 class="skjemadel" id="vedlegg">Vedlegg</h3>
+<ul class="vedleggsliste">
+  {% for v in e.vedlegg %}
+  <li>{{ v.filnavn }} <span class="liten dempet">({{ v.storrelse | filstorrelse }})</span> ·
+    {% if v.mimetype in kan_aapnes %}<a href="{{ url_for('admin_deltaker_epost_vedlegg', kurs_id=kurs.id, paamelding_id=p.id, epost_id=r.id, nr=v.nr) }}" target="_blank" rel="noopener">Åpne</a> ·{% endif %}
+    <a href="{{ url_for('admin_deltaker_epost_vedlegg', kurs_id=kurs.id, paamelding_id=p.id, epost_id=r.id, nr=v.nr, last_ned=1) }}">Last ned</a></li>
+  {% endfor %}
+</ul>
+{% endif %}
+<p class="liten dempet">Kopien ble lagret da e-posten ble sendt, og endres aldri – heller ikke om malen eller signaturen endres senere.</p>
+{% else %}
+<div class="flash info" role="status">{{ ikke_lagret }} Den ble sendt før systemet begynte å lagre en kopi av hver e-post, og innholdet blir aldri gjettet eller bygget opp igjen fra dagens mal.
+  Det samme gjelder eventuelle vedlegg. Nye e-poster lagres alltid, og kan åpnes her med innhold og vedlegg.</div>
+{% endif %}
+{% endblock %}

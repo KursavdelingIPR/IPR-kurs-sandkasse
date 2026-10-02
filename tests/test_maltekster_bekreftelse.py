@@ -236,8 +236,8 @@ def test_1_standardtekst_brukes_uten_override_og_er_lik_direkte_render(con, ut):
     assert emne == "Bekreftelse: Veiledning i praksis"
     assert "<p>Hei Ola,</p>" in html                                                                # standardhilsenen: fornavn
     assert "Takk for påmeldingen! Du har fått plass på <strong>Veiledning i praksis</strong>." in html
-    assert f'Du kan når som helst logge inn på <a href="{config.BASE_URL}/min-side">Min side</a> med e-postadressen din.' in html
-    assert "<li>2027-09-20 kl. 09:00–16:00</li>" in html and "Sted: Oslo." in html                   # laaste systemblokker uendret
+    assert f'Du kan når som helst logge inn på <a href="{config.BASE_URL}/min-side">Mine kurs</a> med e-postadressen din.' in html
+    assert "<li>20.09.2027 kl. 09:00–16:00</li>" in html and "Sted: Oslo." in html                   # laaste systemblokker uendret
     p = con.execute(sveiper.SQL_DELTAKER + " WHERE p.id=?", (pid,)).fetchone()
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
     direkte = epost.render("bekreftelse", p=p, kurs=kurs, dager=db.kursdager(con, kid), faktura_plan=FakturaPlan(PLAN_UTSATT, GRENSE))[1]
@@ -255,9 +255,9 @@ def test_2_gyldig_global_override_brukes_men_fakturablokken_er_uendret(con, ut):
     assert emne == "Velkommen til Veiledning i praksis"
     assert "<p>Hei Ola Nordmann!</p>" in html
     assert "Vi gleder oss til <strong>Veiledning i praksis</strong>, som starter 2027-09-20." in html
-    assert f'Se <a href="{config.BASE_URL}/min-side">Min side</a> for mer.' in html
+    assert f'Se <a href="{config.BASE_URL}/min-side">Mine kurs</a> for mer.' in html
     assert "Takk for påmeldingen!" not in html
-    assert SAMLET_UTSATT in html and "<li>2027-09-20 kl. 09:00–16:00</li>" in html                  # systemblokkene er uendret
+    assert SAMLET_UTSATT in html and "<li>20.09.2027 kl. 09:00–16:00</li>" in html                  # systemblokkene er uendret
 
 
 def test_3_tilbakestilling_gir_standardtekst_igjen(con, ut):
@@ -352,7 +352,7 @@ def test_7_laast_fakturablokk_kan_ikke_fjernes_med_tom_eller_minimal_redigerbar_
     _kjor(con, FAR, _paamelding(con, kid))
     emne, html = _mail(ut)
     assert emne == "E" and "<p>X</p>" in html
-    assert SAMLET_UTSATT in html and "<li>2027-09-20 kl. 09:00–16:00</li>" in html and "Sted: Oslo." in html
+    assert SAMLET_UTSATT in html and "<li>20.09.2027 kl. 09:00–16:00</li>" in html and "Sted: Oslo." in html
 
 
 def test_8_html_i_redigerbar_tekst_escapes(con, ut):

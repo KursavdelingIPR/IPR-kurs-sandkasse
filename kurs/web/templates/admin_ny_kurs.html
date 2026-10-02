@@ -1,66 +1,63 @@
 {% extends "admin_base.html" %}
+{% import "_kursskjema.html" as skjema %}
 {% block innhold %}
 <h1>Nytt kurs</h1>
 {% if fra_kurs %}
-<div class="flash info">Du oppretter et nytt kurs basert på «{{ fra_kurs.navn }}» (kursnr. {{ fra_kurs.kursnr }}). Kopien får et nytt kursnummer. Gå gjennom feltene,
-  sett nye kursdatoer og en ny påmeldingsfrist. Kurset lagres som <strong>utkast</strong> til du selv åpner det for påmelding.</div>
+<div class="flash info">Du oppretter et nytt kurs basert på «{{ fra_kurs.navn }}» (kursnr. {{ fra_kurs.kursnr }}). Kopien får et nytt kursnummer.
+  Samlingene er kopiert uten datoer – fyll inn nye datoer, og gå gjennom resten av feltene. Kurset lagres som <strong>utkast</strong> til du selv åpner det for påmelding.</div>
 {% endif %}
 <p class="sub">Når kurset lagres, får det et permanent kursnummer, og påmeldingsside, SharePoint-mappe og innsjekkkoder lages automatisk. Zoom-møte lages ~8 dager før start.</p>
-<form method="post" class="kort" style="max-width:820px">
+{% if feil %}
+<div class="flash feil" role="alert"><strong>Kurset er ikke opprettet ennå.</strong> Rett dette og lagre på nytt:
+  <ul style="margin:6px 0 0; padding-left:20px">{% for x in feil %}<li>{{ x }}</li>{% endfor %}</ul></div>
+{% endif %}
+<form method="post" class="kursskjema" data-kursskjema data-en-gang>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if fra_kurs %}<input type="hidden" name="fra" value="{{ fra_kurs.id }}">{% endif %}
-  <div class="rad">
-    <div style="grid-column:span 3"><label for="f-navn">Kursnavn *</label><input id="f-navn" name="navn" required value="{{ fra_kurs.navn if fra_kurs else '' }}"></div>
-  </div>
-  <div class="rad">
-    <div><label for="f-type">Type</label><select id="f-type" name="type">
-      <option value="fysisk" {{ 'selected' if (fra_kurs.type if fra_kurs else 'fysisk') == 'fysisk' }}>Fysisk</option>
-      <option value="digital" {{ 'selected' if fra_kurs and fra_kurs.type == 'digital' }}>Digitalt</option>
-      <option value="hybrid" {{ 'selected' if fra_kurs and fra_kurs.type == 'hybrid' }}>Hybrid</option>
-    </select></div>
-    <div><label for="f-sted">Sted</label><input id="f-sted" name="sted" value="{{ fra_kurs.sted if fra_kurs and fra_kurs.sted else '' }}"></div>
-    <div><label for="f-kapasitet">Kapasitet</label><input id="f-kapasitet" name="kapasitet" type="number" min="1" value="{{ fra_kurs.kapasitet if fra_kurs and fra_kurs.kapasitet else '' }}"></div>
-  </div>
-  <div class="rad">
-    <div><label for="f-datoer">Kursdatoer * (én per linje, ÅÅÅÅ-MM-DD)</label><textarea id="f-datoer" name="datoer" rows="4" required></textarea>
-      {% if kildedatoer %}<p class="liten dempet" style="margin-top:6px">Kildekursets datoer (kun til referanse – fylles ikke inn automatisk): {{ kildedatoer|join(', ') }}</p>{% endif %}</div>
-    <div><label for="f-start_kl">Fra kl.</label><input id="f-start_kl" name="start_kl" value="{{ fra_kurs.start_kl if fra_kurs else '09:00' }}">
-      <label for="f-slutt_kl">Til kl.</label><input id="f-slutt_kl" name="slutt_kl" value="{{ fra_kurs.slutt_kl if fra_kurs else '16:00' }}"></div>
-    <div><label for="f-timer_pr_dag">Timer per dag (kursbevis)</label><input id="f-timer_pr_dag" name="timer_pr_dag" type="number" step="0.5" value="{{ fra_kurs.timer_pr_dag if fra_kurs else 6 }}">
-         <label for="f-spesialistlop">Spesialistløp (valgfritt)</label><input id="f-spesialistlop" name="spesialistlop" placeholder="EFT" value="{{ fra_kurs.spesialistlop if fra_kurs and fra_kurs.spesialistlop else '' }}"></div>
-  </div>
-  <div class="rad">
-    <div><label for="f-pris_nok">Pris eks. mva (kr)</label><input id="f-pris_nok" name="pris_nok" type="number" min="0" value="{{ fra_kurs.pris_nok if fra_kurs else 0 }}"></div>
-    <div><label for="f-fakturering">Fakturering</label><select id="f-fakturering" name="fakturering">
-      <option value="person" {{ 'selected' if (fra_kurs.fakturering if fra_kurs else 'person') == 'person' }}>Per deltaker (automatisk)</option>
-      <option value="organisasjon" {{ 'selected' if fra_kurs and fra_kurs.fakturering == 'organisasjon' }}>Samlet til organisasjon</option>
-      <option value="ingen" {{ 'selected' if fra_kurs and fra_kurs.fakturering == 'ingen' }}>Ingen</option>
-    </select></div>
-  </div>
-  <div class="rad">
-    <div><label for="betaling">Betaling</label>
-      <select name="betaling" id="betaling" data-skjul-hvis="samlet" data-mal="delfelt">
-        <option value="samlet" {{ 'selected' if (fra_kurs.betaling if fra_kurs else 'samlet') == 'samlet' }}>Hele beløpet i én faktura</option>
-        <option value="per_samling" {{ 'selected' if fra_kurs and fra_kurs.betaling == 'per_samling' }}>Delt opp – én faktura før hver samling</option>
-        <option value="deltaker_velger" {{ 'selected' if fra_kurs and fra_kurs.betaling == 'deltaker_velger' }}>La deltakeren velge ved påmelding</option>
-      </select></div>
-    <div id="delfelt" class="{{ '' if fra_kurs and fra_kurs.betaling == 'per_samling' else 'skjul' }}"><label for="f-faktura_dager_for">Delfaktura sendes (dager før hver samling)</label><input id="f-faktura_dager_for" name="faktura_dager_for" type="number" min="0" max="180" value="{{ fra_kurs.faktura_dager_for if fra_kurs else 14 }}"></div>
-  </div>
-  <p class="liten dempet">Ved oppdelt betaling lages én faktura per kursdag. Beløpet deles likt, og eventuell rest legges på den første fakturaen.</p>
-  <div class="rad">
-    <div><label for="f-ansvarlig_admin_id">Ansvarlig</label><select id="f-ansvarlig_admin_id" name="ansvarlig_admin_id">
-      <option value="">– Ikke satt –</option>
-      {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if fra_kurs and fra_kurs.ansvarlig_admin_id == a.id }}>{{ a.navn }}</option>{% endfor %}
-    </select></div>
-    <div><label for="f-paameldingsfrist">Påmeldingsfrist</label><input id="f-paameldingsfrist" name="paameldingsfrist" type="date">
-      <p class="liten dempet" style="margin:4px 0 0">Tom = ingen frist.</p></div>
-  </div>
-  <div class="rad">
-    <div><label for="f-kursholder_navn">Kursholder navn</label><input id="f-kursholder_navn" name="kursholder_navn" value="{{ kursholder_navn_forslag }}"></div>
-    <div><label for="f-kursholder_epost">Kursholder e-post</label><input id="f-kursholder_epost" name="kursholder_epost" type="email" value="{{ fra_kurs.kursholder_epost if fra_kurs and fra_kurs.kursholder_epost else '' }}"></div>
-    <div><label for="f-materiell_frist">Frist for presentasjon</label><input id="f-materiell_frist" name="materiell_frist" type="date"></div>
-  </div>
-  <label for="f-notat">Praktisk info (tas med i velkomst-e-post)</label><textarea id="f-notat" name="notat" rows="3">{{ fra_kurs.notat if fra_kurs and fra_kurs.notat else '' }}</textarea>
-  <p style="margin-top:16px"><button>Opprett kurs</button></p>
+
+  <section class="kort" aria-labelledby="del-kurs">
+    <h2 id="del-kurs">Kurs</h2>
+    <label for="f-navn">Kursnavn *</label><input id="f-navn" name="navn" required maxlength="200" value="{{ v.navn }}">
+    {{ skjema.format_og_sted(v, formater) }}
+    <div class="rad">
+      <div><label for="f-kapasitet">Kapasitet</label><input id="f-kapasitet" name="kapasitet" type="number" min="1" value="{{ v.kapasitet }}" aria-describedby="f-kapasitet-hjelp">
+        <p class="liten dempet" id="f-kapasitet-hjelp" style="margin:4px 0 0">Tom = ubegrenset.</p></div>
+      <div><label for="f-pris_nok">Pris eks. mva (kr)</label><input id="f-pris_nok" name="pris_nok" type="number" min="0" value="{{ v.pris_nok }}" aria-describedby="f-pris-hjelp">
+        <p class="liten dempet" id="f-pris-hjelp" style="margin:4px 0 0">0 = gratis (ingen faktura).</p></div>
+    </div>
+  </section>
+
+  <section class="kort" aria-labelledby="del-gjennomforing">
+    <h2 id="del-gjennomforing">Kursgjennomføring</h2>
+    {% if kilde_visning %}
+    <p class="liten dempet">Originalkurset (til referanse):
+      {% for g in kilde_visning %}{% if g.navn %}{{ g.navn }}: {% endif %}{{ g.periode }} kl. {{ g.tid }}{{ ' · ' if not loop.last }}{% endfor %}</p>
+    {% endif %}
+    {{ skjema.kursgjennomforing(rader, oppsummering) }}
+  </section>
+
+  <section class="kort" aria-labelledby="del-paamelding">
+    <h2 id="del-paamelding">Påmelding</h2>
+    <div class="rad">
+      <div>{{ skjema.paameldingsfrist(v, idag) }}</div>
+      <div><label for="f-ansvarlig_admin_id">Ansvarlig</label><select id="f-ansvarlig_admin_id" name="ansvarlig_admin_id">
+        <option value="">– Ikke satt –</option>
+        {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if v.ansvarlig_admin_id == a.id|string }}>{{ a.navn }}</option>{% endfor %}
+      </select>
+        <p class="liten dempet" style="margin:4px 0 0">Brukes til «Vis bare mine kurs» på Oversikten.</p></div>
+    </div>
+  </section>
+
+  <section class="kort" aria-labelledby="del-betaling">
+    <h2 id="del-betaling">Betaling</h2>
+    {{ skjema.betaling(v) }}
+  </section>
+
+  <section class="kort" aria-labelledby="del-intern">
+    <h2 id="del-intern">Intern kommentar</h2>
+    {{ skjema.intern_kommentar(v, vis_etikett=false) }}
+  </section>
+
+  <p style="margin-top:16px"><button data-venter="Oppretter kurset …">Opprett kurs</button></p>
 </form>
 {% endblock %}

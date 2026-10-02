@@ -10,6 +10,8 @@ from datetime import date, timedelta
 
 import pytest
 
+from adressehjelp import ADRESSE
+from adressehjelp import ADRESSE, csv_med_adresse
 from kurs import config, db, import_deltakere as imp
 from kurs.integrasjoner import epost, visma
 
@@ -56,8 +58,8 @@ def _antall_mail(con):
     return len(list(config.UTBOKS.glob("*.html"))) if config.UTBOKS.exists() else 0
 
 
-def _csv(*rader: str, header: str = CSV_HEADER) -> bytes:
-    return "\n".join([header, *rader]).encode("utf-8-sig")
+def _csv(*rader: str, header: str = CSV_HEADER, adresse: bool = True) -> bytes:
+    return csv_med_adresse(header, rader, adresse)
 
 
 def _last_opp(klient, kid, innhold: bytes, filnavn="import.csv"):
@@ -119,7 +121,7 @@ def test_full_flyt_alle_kombinasjoner_og_atomisk_bekreft(con):
     assert "Ny påmelding" in tekst
     assert "Reaktiveres" in tekst
     assert "Eksisterende person" in tekst
-    assert "Bekreftet" in tekst
+    assert '<span class="merke ok">Påmeldt</span>' in tekst and "Bekreftet" not in tekst
     assert "Venteliste" in tekst
 
     # E. Ingenting lagret av ren forhaandsvisning
@@ -135,7 +137,7 @@ def test_full_flyt_alle_kombinasjoner_og_atomisk_bekreft(con):
     flash = tekst2[start:tekst2.index("</div>", start)]
     assert "Import fullført" in flash
     assert "3 deltakere registrert" in flash  # helt.ny + gjenganger(reaktivert) + kjent
-    assert "1 bekreftet" in flash
+    assert "1 påmeldt" in flash
     assert "2 venteliste" in flash
     assert "reaktivert" in flash
     assert "hoppet over" in flash
@@ -213,7 +215,7 @@ def test_offentlig_paamelding_overskriver_fortsatt_eksisterende_felt(con):
     con.commit()
     klient = _klient()
     resp = klient.post("/kurs/K2", data={
-        "fornavn": "Kari", "etternavn": "Test", "epost": "kari@x.no", "telefon": "99999999", "samtykke": "on"})
+        "fornavn": "Kari", "etternavn": "Test", "epost": "kari@x.no", "telefon": "99999999", "samtykke": "on", **ADRESSE})
     assert resp.status_code == 200
     rad = con.execute("SELECT telefon FROM deltaker WHERE epost='kari@x.no'").fetchone()
     assert rad["telefon"] == "99999999"  # OPPDATERT - motsatt av importens beskyttede modus
@@ -276,14 +278,15 @@ def test_samlet_personvernkontroll_hele_fase_10_flyten(con):
     # gyldig, sensitiv import
     tekst = _last_opp(klient, kid, _csv(
         "Hemmelig;Person;hemmelig.person@sensitiv-domene.no;98765432;Psykolog;Skjult Klinikk AS;;"
-        "organisasjon;Skjult Bedrift AS;999888777;Skjult Vei 1;Konfidensiell ref;Ikke vis dette;"
+        "organisasjon;Skjult Bedrift AS;999900003;Skjult Vei 1;Konfidensiell ref;Ikke vis dette;"
         "Peanøttallergi;Tegnspråktolk", header=CSV_HEADER)).get_data(as_text=True)
     token = _hent_token(tekst)
     klient.post(RUTE_BEKREFT.format(kid=kid), data={"forhaandsvisning_token": token})
 
     forbudte_tekster = [
         "hemmelig", "skalldyrallergi", "rullestol", "hemmelig.person@sensitiv-domene.no",
-        "98765432", "psykolog", "skjult klinikk", "skjult bedrift", "999888777", "skjult vei",
+        "98765432", "psykolog", "skjult klinikk", "skjult bedrift", "999900003", "skjult vei",
+        "eksempel kommune", "postboks 100",          # firmaopplysningene fra registeret hører heller ikke hjemme i loggen
         "konfidensiell ref", "ikke vis dette", "peanøttallergi", "tegnspråktolk", "import.csv",
     ]
     rader = con.execute("SELECT handling, detaljer FROM hendelse").fetchall()

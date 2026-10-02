@@ -1,0 +1,16 @@
+{% extends "admin_base.html" %}
+{% from "_periodefelt.html" import periodefelt with context %}
+{% block tittel %}Endre periode{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">{% endblock %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_aarsplan', aar=periode.fra_dato[:4]) }}#perioder">← Årsplan {{ periode.fra_dato[:4] }}</a></p>
+<h1>Endre periode</h1>
+{% if admin_rolle != 'lese' %}
+<form method="post" class="kort" style="max-width:900px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {{ periodefelt(skjema, 'e') }}
+  <p class="knapper" style="margin:14px 0 0"><button>Lagre</button>
+    <a class="knapp sekundar" href="{{ url_for('admin_aarsplan', aar=periode.fra_dato[:4]) }}#perioder">Avbryt</a></p>
+</form>
+{% else %}<p class="dempet">Du har lesetilgang og kan ikke endre perioder.</p>{% endif %}
+{% endblock %}

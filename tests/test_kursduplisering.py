@@ -77,8 +77,8 @@ def test_prefyller_felt_fra_kildekurs(con):
     assert "basert på" in t
     assert 'value="EFT spesialistutdanning"' in t
     assert 'value="IPR, Bergen"' in t
-    assert 'value="psykolog.a@ipr.no"' in t
-    assert 'value="Psykolog A"' in t  # kursholdernavn hentet fra materiell_krav
+    assert "kursholder" not in t.lower() and 'value="psykolog.a@ipr.no"' not in t   # forespørsel om presentasjon er flyttet til Kursmateriell
+    assert 'value="7"' in t                                          # timer per dag fra kildekurset
 
 
 def test_dupliser_lenke_finnes_i_kursoversikten_og_peker_riktig(con):
@@ -89,7 +89,7 @@ def test_dupliser_lenke_finnes_i_kursoversikten_og_peker_riktig(con):
     con.commit()
     klient = _klient()
     _logg_inn(klient)
-    t = klient.get("/admin/aktiviteter").get_data(as_text=True)
+    t = klient.get("/admin").get_data(as_text=True)
     assert f'href="/admin/kurs/ny?fra={kid}"' in t
     assert f'href="/admin/kurs/ny?fra={annet_kid}"' in t  # hvert kurs har sin egen, riktige lenke
     assert "Dupliser" in t
@@ -121,11 +121,11 @@ def test_datofelt_tomt_men_kildedatoer_vises_som_referanse(con):
     klient = _klient()
     _logg_inn(klient)
     t = klient.get(f"/admin/kurs/ny?fra={kid}").get_data(as_text=True)
-    assert '<textarea id="f-datoer" name="datoer" rows="4" required></textarea>' in t
+    assert 'name="s-0-fra" type="date" value=""' in t                 # samlingene kopieres uten datoer
     kildedatoer = [d["dato"] for d in db.kursdager(con, kid)]
-    assert "kun til referanse" in t
+    assert "Originalkurset (til referanse)" in t
     for dato in kildedatoer:
-        assert dato in t
+        assert dato not in t and f"{dato[8:10]}.{dato[5:7]}.{dato[:4]}" in t      # vises som 01.03.2027
 
 
 def test_paameldingsfrist_og_materiellfrist_alltid_tomme_ved_duplisering(con):
@@ -135,8 +135,9 @@ def test_paameldingsfrist_og_materiellfrist_alltid_tomme_ved_duplisering(con):
     klient = _klient()
     _logg_inn(klient)
     t = klient.get(f"/admin/kurs/ny?fra={kid}").get_data(as_text=True)
-    assert '<input id="f-paameldingsfrist" name="paameldingsfrist" type="date">' in t
-    assert '<input id="f-materiell_frist" name="materiell_frist" type="date">' in t
+    assert 'name="paameldingsfrist" type="date" value=""' in t
+    assert 'name="paameldingsfrist_manuell" value="0"' in t          # fristen foreslås på nytt fra datoene
+    assert "materiell_frist" not in t
     assert "2020-01-01" not in t
 
 
