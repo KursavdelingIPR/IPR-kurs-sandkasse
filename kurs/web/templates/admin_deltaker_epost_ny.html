@@ -1,0 +1,38 @@
+{% extends "admin_deltaker_ramme.html" %}
+{#- «Send e-post» i deltakervinduet, fanen E-poster (Camilla 03.10.2026: «Vil ikke hoppe til en annen side»): skrive,
+    forhåndsvise og sende uten å forlate vinduet. Skjemaene sendes i bakgrunnen (static/app.js) og svaret vises i vinduet;
+    etter sendingen står man i E-poster med den nye e-posten øverst. Signaturen velges blant de lagrede (vil man endre den
+    for én e-post, finnes den store «Send e-post»-siden fra deltakerlisten). -#}
+{% from "_kodeknapper.html" import kodeknapper %}
+{% block deltakerinnhold %}
+<p class="liten"><a href="{{ url_for('admin_deltaker_kommunikasjon', kurs_id=kurs.id, paamelding_id=p.id) }}" data-i-vindu>← Alle e-poster</a></p>
+<h2 class="epostemne">Ny e-post til {{ p.navn }}</h2>
+<form method="post" action="{{ url_for('admin_epost_forhandsvis', kurs_id=kurs.id) }}" style="max-width:720px" data-skjemanavn="E-posten">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="i_vindu" value="{{ p.id }}">
+  <label for="v-emne">Emne * <span class="liten dempet">(maks {{ emne_maks }} tegn)</span></label>
+  <input id="v-emne" name="emne" required maxlength="{{ emne_maks }}" value="{{ emne }}">
+  <label for="v-tekst">Melding * <span class="liten dempet">(maks {{ tekst_maks }} tegn)</span></label>
+  <textarea id="v-tekst" name="tekst" rows="7" required maxlength="{{ tekst_maks }}" aria-describedby="v-hjelp">{{ tekst }}</textarea>
+  <p id="v-hjelp" class="liten dempet" style="margin:6px 0 4px">Det legges ikke til noen hilsen automatisk. Skriv for eksempel
+    «Hei {fornavn},». Klikk på et flettefelt for å sette det inn der markøren står:</p>
+  {{ kodeknapper("v-tekst", manuelle_koder, koder) }}
+  <label for="v-signatur">Signatur</label>
+  <select id="v-signatur" name="signatur_valg" style="width:auto">
+    {% for s in signaturliste %}<option value="{{ s.id }}" {{ 'selected' if s.id == signatur_valgt }}>{{ s.navn }}{{ ' (standard)' if s.standard }}</option>{% endfor %}
+  </select>
+  <p style="margin:12px 0 0"><button class="liten sekundar">{{ 'Oppdater forhåndsvisning' if forhandsvisning else 'Forhåndsvis' }}</button></p>
+</form>
+
+{% if forhandsvisning %}
+<h3 class="epostinnhold">Slik blir e-posten</h3>
+<div class="kort" style="max-width:640px; background:#fafbfb">{{ forhandsvisning.html | safe }}</div>
+<form method="post" action="{{ url_for('admin_epost_send', kurs_id=kurs.id) }}"
+      data-bekreft="Sende e-posten til {{ p.navn }}? Dette kan ikke angres.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="utsending_id" value="{{ forhandsvisning.utsending_id }}">
+  <input type="hidden" name="i_vindu" value="{{ p.id }}">
+  <p style="margin:12px 0 0"><button class="liten">Send til {{ p.navn }}</button></p>
+</form>
+{% endif %}
+{% endblock %}

@@ -56,7 +56,7 @@ app.secret_key = config.HEMMELIG_NOKKEL
 MATERIELL_MAKS_BYTES = 40 * 1024 * 1024   # stoerste tillatte opplasting (kursmateriell); andre ruter setter lavere grenser
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=not config.DEMO,
                   PERMANENT_SESSION_LIFETIME=timedelta(days=30), MAX_CONTENT_LENGTH=MATERIELL_MAKS_BYTES + 128 * 1024,
-                  MAX_FORM_MEMORY_SIZE=2 * 1024 * 1024, PREFERRED_URL_SCHEME="http" if config.DEMO else "https")
+                  MAX_FORM_MEMORY_SIZE=4 * 1024 * 1024, PREFERRED_URL_SCHEME="http" if config.DEMO else "https")
 if not config.DEMO:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -4074,6 +4074,23 @@ def _vis_signatur(signatur, navn: str, innhold: str, status: int = 200):
                            **_signatureditor_kontekst()), status
 
 
+def _varsle_eksterne_bilder(innhold: str | None) -> None:
+    """Bilder fra en annen nettside eller en fil på PC-en kan ikke brukes i signaturen og ble fjernet - si det, så de
+    ikke bare forsvinner. Innlimte bilder flyttes til biblioteket (signaturer.flytt_innlimte_bilder)."""
+    if (antall := signaturer.eksterne_bilder(innhold)):
+        flash(f"{antall} bilde{'r' if antall > 1 else ''} i signaturen kunne ikke brukes og ble fjernet (bilder fra en "
+              "annen nettside eller en fil på PC-en). Last bildet opp under «Bilder» på Signaturer-siden, så kan det "
+              "settes inn derfra.", "info")
+
+
+def _ta_vare_paa_innlimte(innhold: str | None) -> str:
+    """Når skjemaet vises på nytt etter en feil: innlimte bilder lagres i biblioteket (og bekreftes), ellers ville
+    rensingen fjerne dem fra skjemaet - eller hele signaturen, om den var lang nok. Et bilde som ikke kan brukes, tas bort."""
+    ut = signaturer.flytt_innlimte_bilder(con(), innhold or "", aktor=_aktor(), hopp_over_feil=True)
+    con().commit()
+    return ut
+
+
 @app.route("/admin/signaturer/ny", methods=["GET", "POST"])
 @krever_admin
 def admin_signatur_ny():
@@ -4086,8 +4103,9 @@ def admin_signatur_ny():
     except signaturer.Signaturfeil as e:
         con().rollback()
         flash(str(e), "feil")
-        return _vis_signatur(None, navn, _trygg_signatur(innhold), 400)
+        return _vis_signatur(None, navn, _trygg_signatur(_ta_vare_paa_innlimte(innhold)), 400)
     flash(f"Signaturen «{' '.join(navn.split())}» er lagret.", "ok")
+    _varsle_eksterne_bilder(innhold)
     return redirect(url_for("admin_signaturer"))
 
 
@@ -4105,8 +4123,9 @@ def admin_signatur_rediger(signatur_id):
     except signaturer.Signaturfeil as e:
         con().rollback()
         flash(str(e), "feil")
-        return _vis_signatur(s, navn, _trygg_signatur(innhold), 400)
+        return _vis_signatur(s, navn, _trygg_signatur(_ta_vare_paa_innlimte(innhold)), 400)
     flash("Signaturen er lagret. E-poster som alt er sendt, endres ikke.", "ok")
+    _varsle_eksterne_bilder(innhold)
     return redirect(url_for("admin_signaturer"))
 
 
@@ -4191,11 +4210,12 @@ def admin_kurs_signatur(kurs_id):
                                      innhold=request.form.get("innhold"), aktor=_aktor())
             con().commit()
             flash("Kursets signatur er lagret. Den brukes i e-postene som sendes fra nå av.", "ok")
+            _varsle_eksterne_bilder(request.form.get("innhold") if modus == "egen" else None)
             return redirect(url_for("admin_kurs_kommunikasjon", kurs_id=kurs_id))
         except signaturer.Signaturfeil as e:
             con().rollback()
             flash(str(e), "feil")
-            valg = {**valg, "modus": modus, "innhold": _trygg_signatur(request.form.get("innhold")),
+            valg = {**valg, "modus": modus, "innhold": _trygg_signatur(_ta_vare_paa_innlimte(request.form.get("innhold"))),
                     "signatur_id": request.form.get("signatur_id", type=int)}
     standard = signaturer.standard(con())
     return render_template("admin_kurs_signatur.html", kurs=kurs, valg={**valg, "innhold": _trygg_signatur(valg["innhold"])},
@@ -4255,13 +4275,32 @@ def admin_epost_ny(kurs_id):
                            **_signatur_i_epost())
 
 
+def _epost_i_vindu(kurs, p, emne="", tekst="", forhandsvisning=None, signatur_valgt=None):
+    """«Send e-post» i deltakervinduet, fanen E-poster (Camilla 03.10.2026: «Vil ikke hoppe til en annen side»).
+    Signaturen velges blant de lagrede; vil man endre den for én e-post, brukes den store «Send e-post»-siden."""
+    if signatur_valgt is None:
+        signatur_valgt = signaturer.for_admin(con(), session.get("admin_id"))["id"]
+    return render_template("admin_deltaker_epost_ny.html", kurs=kurs, p=p, emne=emne, tekst=tekst,
+                           emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS, forhandsvisning=forhandsvisning,
+                           signaturliste=_signaturliste(), signatur_valgt=signatur_valgt, fane="kommunikasjon",
+                           **_EPOST_KODER)
+
+
+@app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/epost/ny")
+@krever_admin
+def admin_deltaker_epost_ny(kurs_id, paamelding_id):
+    return _epost_i_vindu(_hent_kurs(kurs_id), _hent_paamelding(kurs_id, paamelding_id))
+
+
 @app.post("/admin/kurs/<int:kurs_id>/epost/forhandsvis")
 @krever_admin
 def admin_epost_forhandsvis(kurs_id):
     kurs = _hent_kurs(kurs_id)
+    i_vindu = request.form.get("i_vindu", type=int)
+    p_vindu = _hent_paamelding(kurs_id, i_vindu) if i_vindu else None      # 404 når påmeldingen ikke hører til kurset
     emne = request.form.get("emne", "").strip()
     tekst = request.form.get("tekst", "").strip()
-    mottakere = _hent_epost_mottakere(kurs_id, request.form.getlist("paamelding_id", type=int))
+    mottakere = _hent_epost_mottakere(kurs_id, [i_vindu] if p_vindu else request.form.getlist("paamelding_id", type=int))
 
     feil = []
     if not emne:
@@ -4291,13 +4330,17 @@ def admin_epost_forhandsvis(kurs_id):
             con(), session.get("admin_id"))
         raa_signatur = s["innhold"]
     try:
-        signatur_html = signaturer.klargjor_innhold(con(), raa_signatur)
+        signatur_html = signaturer.klargjor_innhold(con(), raa_signatur, aktor=_aktor())
+        con().commit()                          # bildene er i biblioteket, også om skjemaet må vises på nytt
+        _varsle_eksterne_bilder(raa_signatur)
     except signaturer.Signaturfeil as e:
         feil.append(str(e))
-        signatur_html = _trygg_signatur(raa_signatur)
+        signatur_html = _trygg_signatur(_ta_vare_paa_innlimte(raa_signatur))
     if feil:
         for x in feil:
             flash(x, "feil")
+        if p_vindu:
+            return _epost_i_vindu(kurs, p_vindu, emne, tekst, signatur_valgt=signatur_valgt)
         return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne=emne, tekst=tekst,
                                emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS, forhandsvisning=None,
                                **_EPOST_KODER, **_signatur_i_epost(signatur_html, signatur_valgt))
@@ -4311,6 +4354,9 @@ def admin_epost_forhandsvis(kurs_id):
     _, eksempel_html = epost.render("admin_melding", emne=emne, tekst=tekst,
                                     d={**dict(eksempel), "min_side_url": Kjoring(con(), idag=_idag()).min_side_lenke(eksempel["id"])},
                                     signatur=signaturer.som_markup(signatur_html))
+    if p_vindu:
+        return _epost_i_vindu(kurs, p_vindu, emne, tekst, signatur_valgt=signatur_valgt,
+                              forhandsvisning={"utsending_id": utsending_id, "html": eksempel_html})
     return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne=emne, tekst=tekst,
                            emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS,
                            forhandsvisning={"utsending_id": utsending_id, "html": eksempel_html,
@@ -4335,10 +4381,15 @@ def _flash_sendefeil(ut) -> None:
 @krever_admin
 def admin_epost_send(kurs_id):
     _hent_kurs(kurs_id)
+    i_vindu = request.form.get("i_vindu", type=int)
+    if i_vindu:
+        _hent_paamelding(kurs_id, i_vindu)                                  # 404 når påmeldingen ikke hører til kurset
     utsending_id = request.form.get("utsending_id", type=int)
     rad = con().execute("SELECT id FROM admin_utsending WHERE id=? AND kurs_id=?", (utsending_id, kurs_id)).fetchone()
     if not rad:
         flash("Fant ikke utsendelsen. Forhåndsvis på nytt.", "feil")
+        if i_vindu:
+            return redirect(url_for("admin_deltaker_epost_ny", kurs_id=kurs_id, paamelding_id=i_vindu))
         return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
     ut = Kjoring(con(), idag=_idag(), aktor=_aktor()).send_admin_utsending(utsending_id)
     for pid in ut.sendt:
@@ -4349,6 +4400,8 @@ def admin_epost_send(kurs_id):
     elif not (ut.uavklart or ut.ikke_forsokt or ut.uavklart_fra_for):
         flash("Denne utsendelsen er allerede sendt – ingenting ble sendt på nytt.", "info")
     _flash_sendefeil(ut)
+    if i_vindu:                                 # tilbake til fanen E-poster i vinduet, med den nye e-posten øverst
+        return redirect(url_for("admin_deltaker_kommunikasjon", kurs_id=kurs_id, paamelding_id=i_vindu))
     return redirect(url_for("admin_kurs_kommunikasjon", kurs_id=kurs_id))
 
 

@@ -289,8 +289,8 @@ def test_send_til_en_deltaker_knapp_finnes_paa_deltaker_kommunikasjon(con):
     klient = _klient()
     _logg_inn(klient)
     tekst = klient.get(f"/admin/kurs/{kid}/deltaker/{pid}/kommunikasjon").get_data(as_text=True)
-    assert f"/admin/kurs/{kid}/epost/ny?kurs_id={kid}&amp;paamelding_id={pid}" in tekst \
-        or f"paamelding_id={pid}" in tekst
+    # Siden 03.10.2026 skrives e-posten i deltakervinduet (test_epost_i_vindu.py), ikke på en egen side
+    assert f'href="/admin/kurs/{kid}/deltaker/{pid}/epost/ny" data-i-vindu>Send e-post til' in tekst
 
 
 # ---------------- justering 1: tydeligere eksempel + valgfri mottaker ----------------

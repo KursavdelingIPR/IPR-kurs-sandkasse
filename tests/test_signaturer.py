@@ -229,7 +229,7 @@ def test_png_jpeg_og_gif_godtas_ut_fra_innholdet(con):
     (b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>', "PNG, JPEG og GIF"),
     (b"%PDF-1.4 ...", "PNG, JPEG og GIF"),
     (b"<html><script>alert(1)</script></html>", "PNG, JPEG og GIF"),
-    (png(1300, 10), "for bredt"),
+    (png(signaturer.BILDE_MAKS_BREDDE + 1, 10), "for bredt"),
     (png(10, 10) + b"\x00" * signaturer.BILDE_MAKS_BYTE, "for stort"),
 ], ids=["svg", "pdf", "html", "for-bredt", "for-stort"])
 def test_farlige_og_for_store_bilder_avvises(con, data, feil):
@@ -604,3 +604,107 @@ def test_kurssiden_viser_valgene_og_forhandsvisning_av_maler_viser_signaturen(co
     forhandsvis = k.get("/admin/e-postmaler/avlysning/forhandsvis").get_data(as_text=True)
     assert f'src="/admin/signaturer/bilde/{bid}"' in forhandsvis and "cid:" not in forhandsvis
     assert "standardsignaturen" in forhandsvis
+
+
+# ---------- innlimte bilder (Camilla 03.10.2026: «Må kunne skrive det vi vil i signaturen») ----------
+
+def _data_url(data: bytes, mime="image/png") -> str:
+    return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
+
+
+def test_innlimte_bilder_flyttes_til_biblioteket_og_teller_ikke_mot_lengden(con):
+    """Standardsignaturen med innlimt logo, logo nr. 2 og et bredt banner: hundrevis av kB tekst som data:-adresser.
+    Bildene lagres i biblioteket, og signaturen blir kort nok."""
+    logo, logo2, banner = png(300, 80), jpeg(260, 90), png(1800, 300, farge=b"\x10\x20\x30")
+    stor_logo = logo + b"\x00" * (signaturer.TEGN_MAKS * 3)          # gjør data:-adressen lengre enn den gamle grensen
+    innhold = (f'Vennlig hilsen<br><img src="{_data_url(stor_logo)}" alt="IPR"> '
+               f"<img src='{_data_url(logo2, 'image/jpeg')}'><br><img width=\"600\" src=\"{_data_url(banner)}\">")
+    sid = signaturer.opprett(con, "Med bilder", innhold, aktor="test")
+    lagret = signaturer.hent(con, sid)["innhold"]
+    assert "data:" not in lagret and len(lagret) < 500
+    ider = signaturer.bilde_ider(lagret)
+    assert len(ider) == 3
+    rader = {r["id"]: r for r in con.execute("SELECT id, alt, bredde FROM signatur_bilde")}
+    assert rader[ider[0]]["alt"] == signaturer.INNLIMT_ALT and 'alt="IPR"' in lagret       # bildets egen alt beholdes
+    assert rader[ider[2]]["bredde"] == 1800 and 'width="600"' in lagret
+
+
+def test_samme_innlimte_bilde_gjenbrukes(con):
+    logo = png(200, 60)
+    bid = _bilde(con, logo)
+    sid = signaturer.opprett(con, "A", f'<img src="{_data_url(logo)}"><img src="{_data_url(logo)}">', aktor="test")
+    assert signaturer.bilde_ider(signaturer.hent(con, sid)["innhold"]) == [bid]
+    assert con.execute("SELECT COUNT(*) FROM signatur_bilde").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("data,mime,feil", [
+    (png(signaturer.BILDE_MAKS_BREDDE + 1, 10), "image/png", "for bredt"),
+    (b"<svg/>", "image/png", "PNG, JPEG og GIF"),
+])
+def test_innlimt_bilde_som_ikke_kan_brukes_stopper_med_forklaring(con, data, mime, feil):
+    with pytest.raises(signaturer.Signaturfeil, match=feil) as e:
+        signaturer.opprett(con, "A", f'Hei<img src="{_data_url(data, mime)}">', aktor="test")
+    assert "innlimt bilde" in str(e.value)
+
+
+def test_bilde_fra_annen_nettside_fjernes_og_admin_faar_beskjed(con):
+    innhold = 'Hei<img src="https://example.com/logo.png"><img src="http://example.com/b.gif">'
+    assert signaturer.eksterne_bilder(innhold) == 2
+    assert signaturer.eksterne_bilder(f'<img src="{_data_url(png())}"><img src="/admin/signaturer/bilde/1">') == 0
+    svar = _klient().post("/admin/signaturer/ny", data={"navn": "Ekstern", "innhold": innhold}, follow_redirects=True)
+    tekst = svar.get_data(as_text=True)
+    assert "2 bilder i signaturen kunne ikke brukes og ble fjernet" in tekst
+    lagret = _fersk().execute("SELECT innhold FROM signatur WHERE navn='Ekstern'").fetchone()["innhold"]
+    assert lagret == "Hei"
+
+
+def test_innlimt_bilde_i_send_e_post_vises_i_forhandsvisningen(con):
+    kid = db.opprett_kurs(con, kode="SIGB", navn="Signaturkurs", datoer=["2031-03-04"], sharepoint_mappe="Kurs/SIGB",
+                          pris_nok=0, type="fysisk", sted="Oslo")
+    pid, _ = db.meld_paa(con, kid, epost="tove@example.no", fornavn="Tove", etternavn="Test")
+    con.commit()
+    svar = _klient().post(f"/admin/kurs/{kid}/epost/forhandsvis", data={
+        "paamelding_id": pid, "emne": "Hei", "tekst": "Hei {fornavn}",
+        "signatur_html": f'Hilsen<br><img src="{_data_url(png(400, 100))}" alt="Logo">'})
+    tekst = svar.get_data(as_text=True)
+    assert svar.status_code == 200 and "for lang" not in tekst
+    assert re.search(r'<img src="/admin/signaturer/bilde/\d+" alt="Logo"', tekst)
+
+
+def test_innlimte_bilder_blir_staaende_naar_skjemaet_vises_paa_nytt_etter_en_feil(con):
+    """Feiler noe annet (her: navnet finnes fra før), skal de innlimte bildene ikke forsvinne fra skjemaet - heller ikke
+    når de gjør innholdet lengre enn den gamle grensen."""
+    signaturer.opprett(con, "Finnes", "Hei", aktor="test")
+    con.commit()
+    stor = png(300, 80) + b"\x00" * (signaturer.TEGN_MAKS * 3)
+    svar = _klient().post("/admin/signaturer/ny", data={
+        "navn": "Finnes", "innhold": f'Vennlig hilsen<br><img src="{_data_url(stor)}" alt="IPR">'})
+    tekst = svar.get_data(as_text=True)
+    assert svar.status_code == 400 and "finnes allerede" in tekst
+    bid = _fersk().execute("SELECT id FROM signatur_bilde").fetchone()[0]             # lagret, ikke rullet tilbake
+    assert f'src="/admin/signaturer/bilde/{bid}"' in tekst and "Vennlig hilsen" in tekst
+
+
+def test_et_ubrukelig_innlimt_bilde_tas_bort_men_resten_av_signaturen_blir_staaende(con):
+    svar = _klient().post("/admin/signaturer/ny", data={
+        "navn": "Bred", "innhold": f'Vennlig hilsen<img src="{_data_url(png(signaturer.BILDE_MAKS_BREDDE + 1, 5))}">'})
+    tekst = svar.get_data(as_text=True)
+    assert svar.status_code == 400 and "for bredt" in tekst and "Vennlig hilsen" in tekst and "data:image" not in tekst
+
+
+def test_feil_i_send_e_post_beholder_det_innlimte_bildet(con):
+    kid = db.opprett_kurs(con, kode="SIGC", navn="Signaturkurs", datoer=["2031-03-04"], sharepoint_mappe="Kurs/SIGC",
+                          pris_nok=0, type="fysisk", sted="Oslo")
+    pid, _ = db.meld_paa(con, kid, epost="tove@example.no", fornavn="Tove", etternavn="Test")
+    con.commit()
+    svar = _klient().post(f"/admin/kurs/{kid}/epost/forhandsvis", data={
+        "paamelding_id": pid, "emne": "", "tekst": "Hei",
+        "signatur_html": f'Hilsen<br><img src="{_data_url(png(400, 100))}" alt="Logo">'})
+    tekst = svar.get_data(as_text=True)
+    assert "Fyll inn et emne." in tekst
+    bid = _fersk().execute("SELECT id FROM signatur_bilde").fetchone()[0]
+    assert f'src="/admin/signaturer/bilde/{bid}"' in tekst
+
+
+def test_bilde_fra_fil_paa_pc_en_gir_ogsaa_beskjed():
+    assert signaturer.eksterne_bilder('<img src="file:///C:/Users/x/clip_image001.png">') == 1

@@ -35,13 +35,19 @@ NAVN_MAKS = 80
 TEGN_MAKS = 20_000
 ALT_MAKS = 200
 BILDE_MAKS_BYTE = 1_000_000
-BILDE_MAKS_BREDDE = 1200
+BILDE_MAKS_BREDDE = 2400     # økt fra 1200 (03.10.2026): innlimte bannere er ofte bredere; de vises nedskalert i e-posten
 BILDER_MAKS_PER_EPOST = 2_000_000
 BILDE_URL = "/admin/signaturer/bilde/{}"
 _BILDE_SRC = re.compile(r"^(?:https?://[^/\s]+)?/admin/signaturer/bilde/(\d{1,9})$")
 _CID = "signaturbilde-{}@ipr"
 _CID_I_HTML = re.compile(r'src="cid:signaturbilde-(\d{1,9})@ipr"')
 _URL_I_HTML = re.compile(r'src="/admin/signaturer/bilde/(\d{1,9})"')
+# Et bilde som er limt rett inn i redigereren (f.eks. kopiert fra Outlook) kommer som en data:-adresse med hele bildet i
+# teksten. Det flyttes til biblioteket før lengden sjekkes (Camilla 03.10.2026: «Må kunne skrive det vi vil i signaturen»).
+_DATA_BILDE = re.compile(r"""(<img\b[^>]*?\bsrc\s*=\s*)(["'])\s*data:image/(?:png|jpe?g|gif);base64,([A-Za-z0-9+/=\s]+?)\2""",
+                         re.IGNORECASE)
+_IMG_SRC = re.compile(r"""<img\b[^>]*?\bsrc\s*=\s*(["'])(.*?)\1""", re.IGNORECASE | re.DOTALL)
+INNLIMT_ALT = "Bilde i signaturen"
 
 # Skriftene i verktøylinjen (navn -> CSS). Andre skrifter fjernes ved rensing.
 SKRIFTER = {
@@ -377,8 +383,43 @@ def _kontroller_navn(con, navn: str, unntak: int | None = None) -> str:
     return navn
 
 
-def klargjor_innhold(con, innhold: str) -> str:
-    """Renset innhold som er klart til å lagres: kjente bilder, og ikke for store bilder til én e-post."""
+def flytt_innlimte_bilder(con, innhold: str, *, aktor: str, hopp_over_feil: bool = False) -> str:
+    """Innlimte bilder (data:-adresser) lagres i biblioteket, og src byttes til bibliotekets adresse. Et bilde som alt
+    ligger i biblioteket (samme innhold), gjenbrukes. Er bildet for stort eller i feil format, stoppes lagringen med
+    samme forklaring som ved opplasting - eller, med hopp_over_feil (når skjemaet vises på nytt etter en feil), tas
+    bare det bildet bort, så resten av signaturen blir stående."""
+    def bytt(m: re.Match) -> str:
+        try:
+            try:
+                data = base64.b64decode(re.sub(r"\s+", "", m[3]), validate=True)
+            except ValueError:
+                raise Signaturfeil("Et innlimt bilde i signaturen kunne ikke leses. Last det heller opp under «Bilder».")
+            rad = con.execute("SELECT id FROM signatur_bilde WHERE sha256=? ORDER BY id LIMIT 1",
+                              (hashlib.sha256(data).hexdigest(),)).fetchone()
+            try:
+                bilde_id = rad["id"] if rad else lagre_bilde(con, "innlimt-bilde", data, INNLIMT_ALT, aktor=aktor)
+            except Signaturfeil as e:
+                raise Signaturfeil(f"Et innlimt bilde i signaturen kan ikke brukes: {e}")
+        except Signaturfeil:
+            if hopp_over_feil:
+                return f"{m[1]}{m[2]}{m[2]}"           # tom src: rens() fjerner bildet
+            raise
+        return f"{m[1]}{m[2]}{BILDE_URL.format(bilde_id)}{m[2]}"
+    return _DATA_BILDE.sub(bytt, innhold or "")
+
+
+def eksterne_bilder(innhold: str) -> int:
+    """Antall bilder som verken er innlimt eller ligger i biblioteket: fra en annen nettside, eller en fil på PC-en
+    (file:///…, typisk når man limer inn fra Outlook eller Word). rens() fjerner dem, og admin skal få vite det i stedet
+    for at de bare forsvinner."""
+    return sum(1 for m in _IMG_SRC.finditer(innhold or "")
+               if not _BILDE_SRC.match(m[2].strip()) and not m[2].strip().lower().startswith("data:image/"))
+
+
+def klargjor_innhold(con, innhold: str, *, aktor: str = "system") -> str:
+    """Renset innhold som er klart til å lagres: innlimte bilder flyttet til biblioteket, kjente bilder, og ikke for store
+    bilder til én e-post."""
+    innhold = flytt_innlimte_bilder(con, innhold, aktor=aktor)
     ren = rens(innhold, bildekart(con))
     kontroller_bildestorrelse(con, ren)
     return ren
@@ -408,7 +449,7 @@ def standard(con):
 
 def opprett(con, navn: str, innhold: str, *, aktor: str) -> int:
     navn = _kontroller_navn(con, navn)
-    ren = klargjor_innhold(con, innhold)
+    ren = klargjor_innhold(con, innhold, aktor=aktor)
     sid = db.sett_inn(con, "INSERT INTO signatur (navn, innhold, opprettet_av) VALUES (?,?,?)", (navn, ren, aktor))
     db.logg(con, "signatur_opprettet", {"signatur_id": sid, "navn": navn}, aktor=aktor)
     return sid
@@ -418,7 +459,7 @@ def oppdater(con, signatur_id: int, navn: str, innhold: str, versjon: int, *, ak
     """Lagrer navn og innhold. `versjon` er versjonen skjemaet ble åpnet med: har noen andre lagret i mellomtiden,
     stoppes lagringen i stedet for å overskrive deres endringer."""
     navn = _kontroller_navn(con, navn, unntak=signatur_id)
-    ren = klargjor_innhold(con, innhold)
+    ren = klargjor_innhold(con, innhold, aktor=aktor)
     rad = con.execute(
         """UPDATE signatur SET navn=?, innhold=?, versjon=versjon+1, endret=?, endret_av=? WHERE id=? AND versjon=?""",
         (navn, ren, db.naa_utc(), aktor, signatur_id, versjon))
@@ -501,7 +542,7 @@ def sett_for_kurs(con, kurs_id: int, modus: str, *, signatur_id: int | None = No
             raise Signaturfeil("Velg en signatur fra biblioteket.")
         verdier = (signatur_id, None)
     elif modus == "egen":
-        verdier = (signatur_id if signatur_id and hent(con, signatur_id) else None, klargjor_innhold(con, innhold or ""))
+        verdier = (signatur_id if signatur_id and hent(con, signatur_id) else None, klargjor_innhold(con, innhold or "", aktor=aktor))
     else:
         raise Signaturfeil("Ugyldig valg.")
     con.execute("UPDATE kurs SET signatur_id=?, signatur_html=? WHERE id=?", (*verdier, kurs_id))
