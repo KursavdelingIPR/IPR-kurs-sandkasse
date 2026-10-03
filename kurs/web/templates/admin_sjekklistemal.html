@@ -1,0 +1,66 @@
+{% extends "admin_base.html" %}
+{% from "_malpunkt_felt.html" import malpunktfelt with context %}
+{% block tittel %}Mal: {{ mal.navn }}{% endblock %}
+{% block sideklasse %} class="bred"{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='sjekkliste.css') }}">{% endblock %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_kalender_maler') }}">← Sjekklistemaler</a></p>
+<h1>Mal: {{ mal.navn }}</h1>
+<p class="sub">{{ mal.punkter|length }} punkter · brukes av {{ mal.antall_kurs }} kurs.{% if mal.beskrivelse %} {{ mal.beskrivelse }}{% endif %}
+  Endringer her gjelder nye sjekklister. De som alt er laget, oppdateres med «Oppdater fra malen» på samlingen (det som er
+  krysset av, røres ikke).</p>
+
+<ol class="malpunkter">
+  {% for p in mal.punkter %}
+  <li id="punkt-{{ p.id }}" class="malpunkt{{ ' mp-under' if p.nivaa }}{{ ' mp-husk' if p.type == 'husk' }}">
+    <div class="mp-tekst">{{ p.tekst_html }}</div>
+    <div class="mp-regel">{% if p.type == 'husk' %}<span class="merke gra">Husk</span> uten avkryssing{% else %}{{ p.regel }}{% endif %}
+      {%- if p.gjelder_tekst %} · {{ p.gjelder_tekst }}{% endif %}{% if p.felt %} · tekstfelt{% endif %}</div>
+    {% if admin_rolle != 'lese' %}
+    <div class="mp-knapper">
+      <form method="post" action="{{ url_for('admin_kalender_malpunkt_flytt', mal_id=mal.id, punkt_id=p.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="retning" value="opp"><button class="liten sekundar" aria-label="Flytt opp"{{ ' disabled' if loop.first }}>↑</button></form>
+      <form method="post" action="{{ url_for('admin_kalender_malpunkt_flytt', mal_id=mal.id, punkt_id=p.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="retning" value="ned"><button class="liten sekundar" aria-label="Flytt ned"{{ ' disabled' if loop.last }}>↓</button></form>
+    </div>
+    <details class="mp-endre"{% if punktskjema.get(p.id) %} open{% endif %}><summary>Endre</summary>
+      <form method="post" action="{{ url_for('admin_kalender_malpunkt', mal_id=mal.id, punkt_id=p.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {{ malpunktfelt(punktskjema.get(p.id) or p, 'p' ~ p.id) }}
+        <p style="margin:10px 0 0"><button class="liten">Lagre punktet</button></p>
+      </form>
+      <form method="post" action="{{ url_for('admin_kalender_malpunkt_slett', mal_id=mal.id, punkt_id=p.id) }}" data-bekreft="Fjerne punktet fra malen?" style="margin-top:6px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Fjern fra malen</button></form>
+    </details>
+    {% endif %}
+  </li>
+  {% else %}
+  <li class="dempet">Ingen punkter ennå.</li>
+  {% endfor %}
+</ol>
+
+{% if admin_rolle != 'lese' %}
+<details class="kort" id="nytt-punkt"{% if nyskjema %} open{% endif %}>
+  <summary>＋ Nytt punkt</summary>
+  <form method="post" action="{{ url_for('admin_kalender_malpunkt_ny', mal_id=mal.id) }}" style="margin-top:8px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {{ malpunktfelt(nyskjema, 'ny') }}
+    <p style="margin:10px 0 0"><button>Legg til punktet</button></p>
+  </form>
+</details>
+<details class="kort"{% if skjema is not sameas mal %} open{% endif %}>
+  <summary>Endre navn og beskrivelse</summary>
+  <form method="post" action="{{ url_for('admin_kalender_mal', mal_id=mal.id) }}" style="margin-top:8px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="m-navn">Navn *</label><input id="m-navn" name="navn" required maxlength="80" value="{{ skjema.get('navn') or '' }}">
+    <label for="m-beskrivelse">Beskrivelse</label><textarea id="m-beskrivelse" name="beskrivelse" rows="2" maxlength="500">{{ skjema.get('beskrivelse') or '' }}</textarea>
+    <p style="margin:10px 0 0"><button>Lagre</button></p>
+  </form>
+</details>
+<form method="post" action="{{ url_for('admin_kalender_mal_slett', mal_id=mal.id) }}" style="margin-top:14px"
+      data-bekreft="Slette malen «{{ mal.navn }}»? Kursene som bruker den, får ingen mal. Sjekklistene som alt er laget, beholdes.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="sekundar liten">Slett malen</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -381,6 +381,17 @@ def _database_foer_migrering_9(sti):
     """En database slik koden før migrering 9 laget den: dagens schema.sql uten samling og de nye kolonnene, på versjon 8."""
     skjema = re.sub(r"--[^\n]*", "", (config.ROT / "kurs" / "schema.sql").read_text(encoding="utf-8"))
     skjema = re.sub(r"CREATE TABLE IF NOT EXISTS ekstradeltaker_samling \(.*?\);", "", skjema, flags=re.S)     # migrering 18: peker på samling
+    # migrering 21: sjekklistepunktene har en egen samling_id (til planlagt_samling), ikke den fra migrering 9
+    skjema = re.sub(r"CREATE TABLE IF NOT EXISTS sjekkliste_punkt \(.*?\n\);", "", skjema, flags=re.S)
+    skjema = re.sub(r"CREATE INDEX IF NOT EXISTS sjekkliste_punkt_\w+ ON sjekkliste_punkt \([^)]*\);", "", skjema)
+    # migrering 22: rollene har en egen samling_id (til planlagt_samling), ikke den fra migrering 9
+    skjema = re.sub(r"CREATE TABLE IF NOT EXISTS planlagt_rolle \(.*?\n\);", "", skjema, flags=re.S)
+    skjema = re.sub(r"CREATE INDEX IF NOT EXISTS planlagt_rolle_\w+ ON planlagt_rolle \([^)]*\);", "", skjema)
+    # migrering 24: bookingen har en egen samling_id (til planlagt_samling), ikke den fra migrering 9
+    skjema = re.sub(r"CREATE TABLE IF NOT EXISTS samling_booking \(.*?\n\);", "", skjema, flags=re.S)
+    # migrering 23: planlagt_samling.kurs_samling_id peker på samling (kolonnen legges til av migrering 23)
+    skjema, antall = re.subn(r"\n\s+kurs_samling_id\s+INTEGER REFERENCES samling\(id\) ON DELETE SET NULL,", "", skjema)
+    assert antall == 1
     skjema = re.sub(r"CREATE TABLE IF NOT EXISTS samling \(.*?\);", "", skjema, flags=re.S)
     skjema = re.sub(r",\s*paameldingsfrist_manuell INTEGER NOT NULL DEFAULT 0", "", skjema)
     # Kolonnene fjernes bare fra kursdag-tabellen: andre tabeller (f.eks. kursside_versjon) har også en kolonne «merknad»

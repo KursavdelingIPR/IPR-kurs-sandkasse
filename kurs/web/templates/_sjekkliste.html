@@ -1,0 +1,165 @@
+{#- Sjekklisten for én samling i et planlagt kurs (kurs/sjekklister.py). Brukes som nedtrekksmeny under raden i kursoversikten
+    og på kursets side (full=true: også «Oppdater fra malen»). Avkryssingen sendes med én gang (data-send-ved-endring i
+    app.js); uten JavaScript står en Lagre-knapp. «Endre» på hvert punkt har notat (hva som er gjort), frist, «Ikke aktuelt»
+    og «Slett»; «Legg til punkt» står under listen (Camilla 03.10.2026). Bookingen (lokale, hotell, grupperom, lunsj,
+    kurs/booking.py) står nederst. -#}
+{% macro sammendrag(sk) -%}
+<span class="sk-teller">{{ sk.ferdige }}/{{ sk.antall }} ferdig</span>
+{%- if sk.forfalt %} <span class="merke feil">{{ sk.forfalt }} forfalt</span>{% endif %}
+{%- if sk.snart %} <span class="merke gul">{{ sk.snart }} snart</span>{% endif %}
+{%- if sk.ferdig %} <span class="merke ok">Alt er gjort</span>{% elif sk.neste_frist and not sk.forfalt %} <span class="sk-neste">neste frist {{ sk.neste_frist_tekst }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro skjult_felt(neste, handling) -%}
+<input type="hidden" name="neste" value="{{ neste }}"><input type="hidden" name="handling" value="{{ handling }}">
+{%- endmacro %}
+
+{% macro punkt(p, neste, full) %}
+{% if p.forelder_kort %}<li class="sk-kontekst">{{ p.forelder_kort }}</li>{% endif %}
+<li class="sk-punkt sk-{{ p.tilstand }}{{ ' sk-under' if p.innrykk }}" id="skp-{{ p.id }}">
+  {% if admin_rolle == 'lese' %}
+  <span class="sk-boks" aria-hidden="true">{{ '✓' if p.status == 'utfort' else '–' if p.status == 'ikke_aktuelt' else '○' }}</span>
+  <span class="sk-tekst">{{ p.tekst_html }}{% if p.felt and p.felt_verdi %} <span class="sk-feltverdi">{{ p.felt_verdi }}</span>{% endif %}</span>
+  {% else %}
+  <form method="post" action="{{ url_for('admin_kalender_sjekkliste_punkt', punkt_id=p.id) }}" class="sk-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="neste" value="{{ neste }}">
+    <input type="hidden" name="handling" value="kryss">
+    {% if p.status == 'ikke_aktuelt' %}<span class="sk-boks" aria-hidden="true">–</span><span class="sk-tekst">{{ p.tekst_html }}</span>
+    {% else %}<label class="sk-kryss"><input type="checkbox" name="utfort" value="1"{{ ' checked' if p.status == 'utfort' }} data-send-ved-endring>
+      <span class="sk-tekst">{{ p.tekst_html }}</span></label>{% endif %}
+    {% if p.felt %}<span class="sk-felt"><input name="felt" value="{{ p.felt_verdi or '' }}" maxlength="500" aria-label="Tekst til punktet" placeholder="Lim inn her">
+      <button class="liten sekundar">Lagre</button></span>{% endif %}
+    <noscript><button class="liten sekundar">Lagre</button></noscript>
+  </form>
+  {% endif %}
+  <span class="sk-info">{% if p.ferdig %}{{ p.utfort_tekst }}{% else %}{{ p.frist_tekst }}{% if p.tilstand == 'forfalt' %} · forfalt{% endif %}{% if p.frist_manuell and not p.eget %} · endret for hånd{% endif %}{% endif %}</span>
+  {% if admin_rolle != 'lese' %}
+  <details class="sk-mer"><summary>Endre</summary>
+    <div class="sk-mer-innhold">
+      <form method="post" action="{{ url_for('admin_kalender_sjekkliste_punkt', punkt_id=p.id) }}" class="sk-notatskjema"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ skjult_felt(neste, 'notat') }}
+        <label class="liten" for="notat-{{ p.id }}">Notat: hva er gjort?</label>
+        <textarea id="notat-{{ p.id }}" name="notat" rows="2" maxlength="1000" placeholder="F.eks. «Sendt til kursholder 12.10» eller referansenummer">{{ p.notat or '' }}</textarea>
+        <button class="liten">Lagre notat</button></form>
+      {% if p.status == 'ikke_aktuelt' %}
+      <form method="post" action="{{ url_for('admin_kalender_sjekkliste_punkt', punkt_id=p.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ skjult_felt(neste, 'aktuelt') }}<button class="liten sekundar">Aktuelt igjen</button></form>
+      {% else %}
+      <form method="post" action="{{ url_for('admin_kalender_sjekkliste_punkt', punkt_id=p.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ skjult_felt(neste, 'ikke_aktuelt') }}<button class="liten sekundar">Ikke aktuelt</button></form>
+      <form method="post" action="{{ url_for('admin_kalender_sjekkliste_punkt', punkt_id=p.id) }}" class="sk-fristskjema"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ skjult_felt(neste, 'frist') }}
+        <label class="liten" for="frist-{{ p.id }}">Frist</label><input id="frist-{{ p.id }}" type="date" name="frist" value="{{ p.frist.isoformat() if p.frist else '' }}">
+        <button class="liten sekundar">Lagre frist</button></form>
+      {% if p.frist_manuell and not p.eget %}
+      <form method="post" action="{{ url_for('admin_kalender_sjekkliste_punkt', punkt_id=p.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ skjult_felt(neste, 'frist') }}<input type="hidden" name="frist" value="">
+        <button class="liten sekundar">Følg datoene igjen</button></form>
+      {% endif %}
+      {% endif %}
+      <form method="post" action="{{ url_for('admin_kalender_sjekkliste_punkt', punkt_id=p.id) }}" data-bekreft="Slette punktet fra sjekklisten?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ skjult_felt(neste, 'slett') }}<button class="liten sekundar">Slett punktet</button></form>
+    </div>
+  </details>
+  {% endif %}
+  {% if p.notat %}<p class="sk-notat">{{ p.notat }}</p>{% endif %}
+</li>
+{% endmacro %}
+
+{% macro lag(plan_id, samling_id, neste, med_id=true) %}
+<form method="post" action="{{ url_for('admin_kalender_planlagt_sjekkliste', plan_id=plan_id, samling_id=samling_id) }}" class="sk-lag"{% if med_id %} id="sk-{{ samling_id }}"{% endif %}>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="neste" value="{{ neste }}">
+  <input type="hidden" name="handling" value="lag"><span class="dempet liten">Ingen sjekkliste for denne samlingen ennå.</span>
+  <button class="liten sekundar">Lag sjekkliste</button></form>
+{% endmacro %}
+
+{% macro nytt_punkt(plan_id, samling_id, neste, full) %}
+<details class="sk-nytt"><summary>＋ {{ 'Legg til eget punkt' if full else 'Legg til punkt' }}</summary>
+  <form method="post" action="{{ url_for('admin_kalender_planlagt_sjekkliste', plan_id=plan_id, samling_id=samling_id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="neste" value="{{ neste }}">
+    <input type="hidden" name="handling" value="nytt_punkt">
+    <label for="nytt-{{ samling_id }}">Tekst *</label><textarea id="nytt-{{ samling_id }}" name="tekst" rows="2" maxlength="2000" required></textarea>
+    <div class="rad"><div><label for="nyfrist-{{ samling_id }}">Frist (valgfri)</label><input id="nyfrist-{{ samling_id }}" type="date" name="frist"></div>
+      <div><label for="nytype-{{ samling_id }}">Type</label><select id="nytype-{{ samling_id }}" name="type"><option value="oppgave">Oppgave (avkryssing)</option><option value="husk">Husk (uten avkryssing)</option></select></div></div>
+    <p style="margin:8px 0 0"><button class="liten">Legg til</button></p>
+  </form>
+</details>
+{% endmacro %}
+
+{% macro innhold(sk, plan_id, samling_id, neste, full, har_mal) %}
+    {% if sk.husk %}<div class="sk-husk"><strong>Husk</strong><ul>{% for p in sk.husk %}<li>{{ p.tekst_html }}
+      {%- if admin_rolle != 'lese' %} <form method="post" action="{{ url_for('admin_kalender_sjekkliste_punkt', punkt_id=p.id) }}" class="sk-husk-slett" data-bekreft="Slette punktet fra sjekklisten?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ skjult_felt(neste, 'slett') }}<button class="lenkeknapp" aria-label="Slett «{{ p.tekst[:40] }}»">Slett</button></form>{% endif %}</li>{% endfor %}</ul></div>{% endif %}
+    {% for fase, navn, punkter in sk.grupper %}
+    <h4 class="sk-fase sk-fase-{{ fase }}">{{ navn }}</h4>
+    <ul class="sk-liste">{% for p in punkter %}{{ punkt(p, neste, full) }}{% endfor %}</ul>
+    {% endfor %}
+    {% if admin_rolle != 'lese' %}
+    <div class="sk-verktoy">
+      {{ nytt_punkt(plan_id, samling_id, neste, full) }}
+      {% if full and har_mal %}
+      <form method="post" action="{{ url_for('admin_kalender_planlagt_sjekkliste', plan_id=plan_id, samling_id=samling_id) }}"
+            data-bekreft="Oppdatere sjekklisten etter malen? Nye punkter legges til, og åpne punkter får malens tekst og frist. Det som er krysset av, røres ikke.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="neste" value="{{ neste }}">
+        <input type="hidden" name="handling" value="oppdater"><button class="liten sekundar">Oppdater fra malen</button></form>
+      {% endif %}
+    </div>
+    {% if sk.slettede %}
+    <details class="sk-slettede"><summary>Slettede punkter ({{ sk.slettede|length }})</summary>
+      <ul>{% for p in sk.slettede %}<li><span class="sk-tekst">{{ p.tekst_html }}</span>
+        <form method="post" action="{{ url_for('admin_kalender_sjekkliste_punkt', punkt_id=p.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ skjult_felt(neste, 'gjenopprett') }}<button class="liten sekundar">Ta tilbake</button></form></li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+    {% if not full %}
+    <p class="sk-bunn"><a href="{{ url_for('admin_kalender_planlagt', plan_id=plan_id, apen=samling_id) }}#sk-{{ samling_id }}">Mer på kursets side</a>
+      <span class="dempet">– alle samlingene, «Oppdater fra malen»</span></p>
+    {% endif %}
+    {% endif %}
+{% endmacro %}
+
+{#- Bookingen for samlingen (kurs/booking.py): én linje per type med status og tekst (hvor, referansenummer ...), og «Endre». -#}
+{% macro bookingblokk(bk, samling_id, neste) %}
+<section class="sk-booking" id="skb-{{ samling_id }}" aria-label="Booking">
+  <h4 class="sk-fase">Booking</h4>
+  <ul class="sk-bookingliste">
+  {%- for b in booking_linjer(bk) %}
+    <li class="skb skb-{{ b.status or 'ikke_satt' }}">
+      <span class="skb-navn">{{ b.navn }}</span>
+      <span class="skb-status">{{ b.statusnavn }}</span>
+      <span class="skb-tekst">{{ b.tekst or '' }}</span>
+      {% if admin_rolle != 'lese' %}
+      <details class="sk-mer"><summary>Endre</summary>
+        <form method="post" action="{{ url_for('admin_kalender_booking', samling_id=samling_id) }}" class="skb-skjema">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="neste" value="{{ neste }}">
+          <input type="hidden" name="type" value="{{ b.type }}">
+          <label class="liten" for="skb-s-{{ samling_id }}-{{ b.type }}">Status</label>
+          <select id="skb-s-{{ samling_id }}-{{ b.type }}" name="status">
+            <option value=""{{ ' selected' if not b.status }}>Ikke satt</option>
+            {%- for kode, navn in booking_statuser %}<option value="{{ kode }}"{{ ' selected' if b.status == kode }}>{{ navn }}</option>{% endfor %}
+          </select>
+          <label class="liten" for="skb-t-{{ samling_id }}-{{ b.type }}">Hvor, referansenummer og annet</label>
+          <textarea id="skb-t-{{ samling_id }}-{{ b.type }}" name="tekst" rows="2" maxlength="1000">{{ b.tekst or '' }}</textarea>
+          <button class="liten">Lagre</button>
+        </form>
+      </details>
+      {% endif %}
+    </li>
+  {%- endfor %}
+  </ul>
+</section>
+{% endmacro %}
+
+{% macro sjekkliste(sk, plan_id, samling_id, neste, apen=false, full=false, har_mal=false) %}
+{% if sk %}
+<details class="sjekkliste{{ ' sk-full' if full }}" id="sk-{{ samling_id }}"{{ ' open' if apen }}>
+  <summary><span class="sk-navn">Sjekkliste</span> {{ sammendrag(sk) }}</summary>
+  <div class="sk-innhold">{{ innhold(sk, plan_id, samling_id, neste, full, har_mal) }}</div>
+</details>
+{% elif har_mal and admin_rolle != 'lese' %}{{ lag(plan_id, samling_id, neste) }}
+{% endif %}
+{% endmacro %}
+
+{#- Kursoversikten i Kalender: det som foldes ut under raden når man trykker på kurset (radpanel), med statusen øverst og
+    bookingen nederst. -#}
+{% macro radpanel(sk, plan_id, samling_id, neste, har_mal, bk=none) %}
+{% if sk %}<div class="sk-innhold"><p class="sk-status"><span class="sk-navn">Sjekkliste</span> {{ sammendrag(sk) }}</p>
+  {{- innhold(sk, plan_id, samling_id, neste, false, har_mal) }}</div>
+{% elif har_mal and admin_rolle != 'lese' %}<div class="sk-innhold">{{ lag(plan_id, samling_id, neste, false) }}</div>
+{% elif har_mal %}<div class="sk-innhold"><p class="sk-bunn dempet">Ingen sjekkliste for denne samlingen ennå.</p></div>
+{% else %}<div class="sk-innhold"><p class="sk-bunn">Kurset har ingen sjekklistemal. Velg en under «Endre kurset» på
+  <a href="{{ url_for('admin_kalender_planlagt', plan_id=plan_id) }}">kursets side</a>.</p></div>{% endif %}
+{{ bookingblokk(bk, samling_id, neste) }}
+{% endmacro %}

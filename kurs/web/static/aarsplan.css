@@ -1,6 +1,12 @@
 /* Årsplanen (Kalender → Årsplan): tolv små månedskalendere, uke for uke som liste (som kurshjulet i Excel) og
    kortene under. Lastes etter planlegging.css (felles for Liste, Kalender og Årsplan) og kursfarger.css (paletten). */
 :root { --kollisjon:#c62828; }
+/* Planlagt kurs med annen arrangør (f.eks. IPRO): lys grå og skravert, så den aldri forveksles med den gråblå kursfargen
+   (filen lastes etter kursfarger.css) */
+.ekstern { --kf:#a3acb2; --kf-mid:#e3e7e9; --kf-lys:#f3f5f6; }
+.miniblokk.ekstern { background:repeating-linear-gradient(135deg, #dfe4e7 0 4px, #f7f8f9 4px 8px) 0 0 / var(--andel, 100%) 100% no-repeat; }
+.ukeaktiviteter li.ekstern { background:repeating-linear-gradient(135deg, #e6eaec 0 5px, #fbfcfc 5px 10px); }
+.prove.ekstern { background:repeating-linear-gradient(135deg, #e6eaec 0 4px, #fbfcfc 4px 8px); box-shadow:inset 0 0 0 1px #a3acb2; }
 .prove.kollisjon { box-shadow:inset 0 0 0 2px var(--kollisjon); font-weight:600; }
 .prove.idag { box-shadow:inset 0 0 0 2px var(--bla); font-weight:600; }
 .prove.advarsel { outline:none; border-bottom:2px dashed var(--blokk-kant); border-radius:0; }

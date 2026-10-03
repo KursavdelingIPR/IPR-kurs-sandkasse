@@ -636,3 +636,145 @@ CREATE TABLE IF NOT EXISTS min_side_lenke (
     endret          TEXT,                           -- UTC
     endret_av       TEXT                            -- 'admin:<brukernavn>'
 );
+
+-- Planlagte kurs (migrering 20): kursene fra kursplanleggingen (fanen «Kommende kurs» i Kurskalender-Excelen) som vises i
+-- Kalender og Årsplan, men som IKKE er opprettet i systemet: ingen påmeldingsside, ingen deltakere, ingen e-post og ingen
+-- fakturering, og de står ikke i kurslisten på Oversikten (kurs/planlagte_kurs.py). Fargen velges én gang etter datoene og
+-- lagres, så alle samlingene i kurset har samme farge og kurs som går nær hverandre i tid får ulike farger
+-- (kursfarger.velg). Ingen deltakerdata.
+CREATE TABLE IF NOT EXISTS planlagt_kurs (
+    id              INTEGER PRIMARY KEY,
+    prosjektnr      TEXT,                           -- prosjektnummeret fra kursplanen, f.eks. «672» (ikke kurs.kursnr)
+    navn            TEXT NOT NULL,                  -- f.eks. «EFT 1-årig» eller «Modul 2 (kull 14)»
+    arrangor        TEXT NOT NULL DEFAULT 'IPR',    -- kort: IPR, TA (Terapiakademiet), IPRO ...
+    ekstern         INTEGER NOT NULL DEFAULT 0 CHECK (ekstern IN (0,1)),   -- 1 = annen arrangør: grå i kalenderen
+    status          TEXT NOT NULL DEFAULT 'planlagt' CHECK (status IN ('planlagt','avlyst')),
+    farge           INTEGER NOT NULL DEFAULT 0 CHECK (farge BETWEEN 0 AND 31),   -- .kursfarge-N i static/kursfarger.css
+    antall_samlinger INTEGER CHECK (antall_samlinger IS NULL OR antall_samlinger BETWEEN 1 AND 20),  -- hele kurset; NULL = de som er lagt inn
+    notat           TEXT,                           -- ren tekst, kun internt
+    sjekk           TEXT,                           -- NULL = i orden, ellers hva som må sjekkes (f.eks. usikker opplysning fra Excel)
+    kilde           TEXT,                           -- hvor kurset kom fra, f.eks. «Excel «Kommende kurs», rad 6, 45, 61»
+    opprettet_av    TEXT,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
+    kurs_id         INTEGER REFERENCES kurs(id) ON DELETE SET NULL   -- migrering 23 (indeksen planlagt_kurs_kurs lages der): satt =
+                                                                      -- holder sjekklisten og rollene til dette kurset i systemet
+);
+
+-- Samlingene (eller datoene) i et planlagt kurs. Veiledningsdager i samlingen står i veiledningsdager.
+CREATE TABLE IF NOT EXISTS planlagt_samling (
+    id              INTEGER PRIMARY KEY,
+    planlagt_kurs_id INTEGER NOT NULL REFERENCES planlagt_kurs(id) ON DELETE CASCADE,
+    nr              INTEGER CHECK (nr IS NULL OR nr BETWEEN 1 AND 20),   -- 2 = «2. samling»; NULL = ikke nummerert
+    navn            TEXT,                           -- valgfritt, f.eks. «Veiledning»; tomt = «N. samling»
+    tema            TEXT,
+    fra_dato        TEXT NOT NULL,                  -- ISO yyyy-mm-dd
+    til_dato        TEXT NOT NULL,
+    veiledningsdager TEXT,                          -- ISO-datoer i samlingen, kommaseparert, f.eks. «2027-01-18»
+    sted            TEXT,                           -- by: Oslo, Bergen, Online ...
+    lokale          TEXT,                           -- Paleet, N58, Chr. Mich ...
+    kursholdere     TEXT,                           -- fritekst, f.eks. «Anne Hilde (T1), Vanja (T2)»
+    veiledere       TEXT,                           -- fritekst (veiledningsdagene)
+    notat           TEXT,                           -- ren tekst, kun internt
+    sjekk           TEXT,                           -- NULL = i orden, ellers hva som må sjekkes
+    kurs_samling_id INTEGER REFERENCES samling(id) ON DELETE SET NULL,   -- migrering 23: samlingen i kurset den følger
+    CHECK (til_dato >= fra_dato)
+);
+CREATE INDEX IF NOT EXISTS planlagt_samling_kurs ON planlagt_samling (planlagt_kurs_id);
+CREATE INDEX IF NOT EXISTS planlagt_samling_dato ON planlagt_samling (fra_dato);
+
+-- Sjekklister (migrering 21): én MAL per kurstype (f.eks. «EFST 1-årig») med punkter og regler for hvilke samlinger punktet
+-- gjelder og når fristen er, og en SJEKKLISTE per samling i et planlagt kurs (kurs/sjekklister.py). Teksten kan ha lenker
+-- ([tekst](https://…)) til interne dokumenter: de ligger bare i databasen, aldri i koden. Ingen deltakerdata.
+CREATE TABLE IF NOT EXISTS sjekkliste_mal (
+    id              INTEGER PRIMARY KEY,
+    navn            TEXT NOT NULL,                  -- f.eks. «EFST 1-årig»
+    beskrivelse     TEXT,
+    opprettet_av    TEXT,
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS sjekkliste_malpunkt (
+    id              INTEGER PRIMARY KEY,
+    mal_id          INTEGER NOT NULL REFERENCES sjekkliste_mal(id) ON DELETE CASCADE,
+    rekkefolge      INTEGER NOT NULL DEFAULT 0,
+    nivaa           INTEGER NOT NULL DEFAULT 0 CHECK (nivaa IN (0,1)),       -- 1 = underpunkt til punktet over
+    type            TEXT NOT NULL DEFAULT 'oppgave' CHECK (type IN ('oppgave','husk')),   -- husk = påminnelse/lenke uten avkryssing
+    tekst           TEXT NOT NULL,
+    felt            INTEGER NOT NULL DEFAULT 0 CHECK (felt IN (0,1)),        -- 1 = har et tekstfelt («Lim inn her:»)
+    gjelder         TEXT NOT NULL DEFAULT 'alle' CHECK (gjelder IN ('alle','forste','siste','ikke_forste','ikke_siste','nr')),
+    gjelder_nr      INTEGER CHECK (gjelder_nr IS NULL OR gjelder_nr BETWEEN 1 AND 20),   -- samlingens nummer når gjelder='nr'
+    gjelder_sted    TEXT,                           -- NULL = overalt; «fysisk», «online» eller en by («Oslo»)
+    gjelder_navn    TEXT,                           -- NULL = alle kurs; ellers bare kurs der navnet inneholder teksten
+    frist_antall    INTEGER CHECK (frist_antall IS NULL OR frist_antall BETWEEN -366 AND 366),  -- NULL = ingen frist; negativ = før
+    frist_enhet     TEXT NOT NULL DEFAULT 'dager' CHECK (frist_enhet IN ('dager','virkedager','uker','maaneder')),
+    frist_fra       TEXT NOT NULL DEFAULT 'start' CHECK (frist_fra IN ('start','slutt'))           -- regnet fra samlingens start/slutt
+);
+CREATE INDEX IF NOT EXISTS sjekkliste_malpunkt_mal ON sjekkliste_malpunkt (mal_id, rekkefolge);
+
+-- Hvilken mal et planlagt kurs bruker (ingen rad = ingen sjekkliste).
+CREATE TABLE IF NOT EXISTS planlagt_kurs_sjekkliste (
+    planlagt_kurs_id INTEGER PRIMARY KEY REFERENCES planlagt_kurs(id) ON DELETE CASCADE,
+    mal_id          INTEGER NOT NULL REFERENCES sjekkliste_mal(id) ON DELETE CASCADE
+);
+
+-- Sjekklisten for én samling: punktene fra malen som gjelder samlingen (fristen regnet ut fra datoene) og egne punkter.
+CREATE TABLE IF NOT EXISTS sjekkliste_punkt (
+    id              INTEGER PRIMARY KEY,
+    samling_id      INTEGER NOT NULL REFERENCES planlagt_samling(id) ON DELETE CASCADE,
+    malpunkt_id     INTEGER REFERENCES sjekkliste_malpunkt(id) ON DELETE SET NULL,   -- NULL = lagt til for hånd
+    rekkefolge      INTEGER NOT NULL DEFAULT 0,
+    nivaa           INTEGER NOT NULL DEFAULT 0 CHECK (nivaa IN (0,1)),
+    type            TEXT NOT NULL DEFAULT 'oppgave' CHECK (type IN ('oppgave','husk')),
+    tekst           TEXT NOT NULL,
+    felt            INTEGER NOT NULL DEFAULT 0 CHECK (felt IN (0,1)),
+    felt_verdi      TEXT,
+    frist           TEXT,                           -- ISO yyyy-mm-dd, NULL = ingen frist
+    frist_manuell   INTEGER NOT NULL DEFAULT 0 CHECK (frist_manuell IN (0,1)),  -- 1 = endret for hånd: følger ikke datoene
+    status          TEXT NOT NULL DEFAULT 'aapen' CHECK (status IN ('aapen','utfort','ikke_aktuelt')),
+    status_tid      TEXT,                           -- UTC, sist status ble endret
+    status_av       TEXT,                           -- 'admin:<brukernavn>'
+    notat           TEXT,                           -- migrering 24: hva som er gjort («Sendt 12.10», ref.nr. …)
+    slettet         INTEGER NOT NULL DEFAULT 0 CHECK (slettet IN (0,1))   -- migrering 24: punkt fra malen tatt bort her
+);
+CREATE INDEX IF NOT EXISTS sjekkliste_punkt_samling ON sjekkliste_punkt (samling_id, rekkefolge);
+CREATE INDEX IF NOT EXISTS sjekkliste_punkt_frist ON sjekkliste_punkt (status, frist);
+
+-- Kursholdere (migrering 22): personene i kolonnene i fanen «Kommende kurs» (kurs/kursholdere.py), og rollen hver av dem
+-- har på en samling eller en veiledningsdag i et planlagt kurs - oversikten Kalender → Kursholdere, som i Excel.
+CREATE TABLE IF NOT EXISTS kursholder (
+    id              INTEGER PRIMARY KEY,
+    navn            TEXT NOT NULL UNIQUE,           -- kort navn som i kolonnen («Marit B.»)
+    fullt_navn      TEXT,
+    rekkefolge      INTEGER NOT NULL DEFAULT 0,
+    aktiv           INTEGER NOT NULL DEFAULT 1 CHECK (aktiv IN (0,1)),
+    opprettet       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Rollen på én samling (dag = '') eller én veiledningsdag (dag = ISO-dato) i samlingen. T/T1/T2 trainer, F facilitator,
+-- B back-up, O opplæring, V/v veileder, bv back-up veileder, - ikke med. psybase: 1 = booket i Psybase (svart), 0 = ikke
+-- lagt inn (rød), som skriftfargen i Excel.
+CREATE TABLE IF NOT EXISTS planlagt_rolle (
+    id              INTEGER PRIMARY KEY,
+    samling_id      INTEGER NOT NULL REFERENCES planlagt_samling(id) ON DELETE CASCADE,
+    dag             TEXT NOT NULL DEFAULT '',
+    kursholder_id   INTEGER NOT NULL REFERENCES kursholder(id) ON DELETE CASCADE,
+    rolle           TEXT NOT NULL CHECK (rolle IN ('T','T1','T2','F','B','O','V','v','bv','-')),
+    psybase         INTEGER NOT NULL DEFAULT 0 CHECK (psybase IN (0,1)),
+    endret          TEXT,                           -- UTC
+    endret_av       TEXT,                           -- 'admin:<brukernavn>'
+    UNIQUE (samling_id, dag, kursholder_id)
+);
+CREATE INDEX IF NOT EXISTS planlagt_rolle_kursholder ON planlagt_rolle (kursholder_id);
+
+-- Booking per samling (migrering 24): lokale, hotell, grupperom og lunsj - nederst når kurset åpnes i Kalender (kurs/booking.py).
+-- status NULL = ikke satt. tekst: hvor, referansenummer og annet (kan ha navnet på en kursholder; aldri deltakerdata).
+CREATE TABLE IF NOT EXISTS samling_booking (
+    id              INTEGER PRIMARY KEY,
+    samling_id      INTEGER NOT NULL REFERENCES planlagt_samling(id) ON DELETE CASCADE,
+    type            TEXT NOT NULL CHECK (type IN ('lokale','hotell','grupperom','lunsj')),
+    status          TEXT CHECK (status IN ('ikke_booket','booket','trengs_ikke')),
+    tekst           TEXT,
+    endret          TEXT,                           -- UTC
+    endret_av       TEXT,                           -- 'admin:<brukernavn>'
+    UNIQUE (samling_id, type)
+);

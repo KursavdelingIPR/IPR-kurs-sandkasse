@@ -1,0 +1,66 @@
+{#- Skjemafeltene for planlagte kurs (Kalender → Planlagte kurs, kurs/planlagte_kurs.py). Importeres «with context»: trenger
+    farger og statuser. `s` er kurset/samlingen (dict) eller det innsendte skjemaet ved feil. -#}
+{% macro kursfelt(s, prefiks='k') %}
+  <div class="rad">
+    <div><label for="{{ prefiks }}-prosjektnr">Prosjektnr.</label><input id="{{ prefiks }}-prosjektnr" name="prosjektnr" maxlength="20"
+         value="{{ s.get('prosjektnr') or '' }}" placeholder="For eksempel 672"></div>
+    <div class="bred"><label for="{{ prefiks }}-navn">Navn *</label><input id="{{ prefiks }}-navn" name="navn" required maxlength="120"
+         value="{{ s.get('navn') or '' }}" placeholder="For eksempel «EFT 1-årig» eller «Modul 2 (kull 14)»"></div>
+    <div><label for="{{ prefiks }}-arrangor">Arrangør</label><input id="{{ prefiks }}-arrangor" name="arrangor" maxlength="20"
+         list="{{ prefiks }}-arrangorer" value="{{ s.get('arrangor') or 'IPR' }}">
+      <datalist id="{{ prefiks }}-arrangorer"><option value="IPR"><option value="TA"><option value="IPRO"></datalist></div>
+    <div><label for="{{ prefiks }}-status">Status</label><select id="{{ prefiks }}-status" name="status">
+        {% for verdi, navn in statuser.items() %}<option value="{{ verdi }}" {{ 'selected' if (s.get('status') or 'planlagt') == verdi }}>{{ navn }}</option>{% endfor %}
+      </select></div>
+    <div><label for="{{ prefiks }}-antall">Samlinger i hele kurset</label><input id="{{ prefiks }}-antall" name="antall_samlinger"
+         inputmode="numeric" maxlength="2" value="{{ s.get('antall_samlinger') or '' }}" placeholder="Tom = de som er lagt inn"></div>
+    <div><label for="{{ prefiks }}-mal">Sjekkliste (mal)</label><select id="{{ prefiks }}-mal" name="sjekkliste_mal">
+        <option value="">Ingen sjekkliste</option>
+        {% for m in maler %}<option value="{{ m.id }}" {{ 'selected' if (s.get('sjekkliste_mal') or '')|string == m.id|string }}>{{ m.navn }}</option>{% endfor %}
+      </select></div>
+  </div>
+  <label class="valg"><input type="checkbox" name="ekstern" value="1" {{ 'checked' if s.get('ekstern') in (1, '1', 'on', true) }}>
+    Annen arrangør – vises grått i kalenderen (for eksempel IPRO)</label>
+  <fieldset class="fargevalg"><legend class="etikett">Farge <span class="dempet">(samme for alle samlingene)</span></legend>
+    <label class="valg"><input type="radio" name="farge" value="auto" {{ 'checked' if s.get('farge') in (none, '', 'auto') }}> Velg ut fra datoene</label>
+    {% for nr in farger %}<label class="fargealt kursfarge-{{ nr }}" title="Farge {{ nr + 1 }}"><input type="radio" name="farge" value="{{ nr }}"
+      {{ 'checked' if s.get('farge') is not none and s.get('farge')|string == nr|string }}><span class="fargeprove"></span><span class="skjul-visuelt">Farge {{ nr + 1 }}</span></label>{% endfor %}
+  </fieldset>
+  <label for="{{ prefiks }}-sjekk">Må sjekkes <span class="dempet">(tøm feltet når det er sjekket)</span></label>
+  <textarea id="{{ prefiks }}-sjekk" name="sjekk" rows="2" maxlength="300">{{ s.get('sjekk') or '' }}</textarea>
+  <label for="{{ prefiks }}-notat">Notat (kun internt)</label>
+  <textarea id="{{ prefiks }}-notat" name="notat" rows="3" maxlength="2000">{{ s.get('notat') or '' }}</textarea>
+{% endmacro %}
+
+{% macro samlingsfelt(s, prefiks, np='') %}{#- np: navneprefiks, «s-» i skjemaet for nytt kurs (der har kurset egne felt med samme navn) -#}
+  <div class="rad">
+    <div><label for="{{ prefiks }}-fra">Fra *</label><input id="{{ prefiks }}-fra" name="{{ np }}fra_dato" type="date" required value="{{ s.get(np ~ 'fra_dato') or '' }}"></div>
+    <div><label for="{{ prefiks }}-til">Til (tom = én dag)</label><input id="{{ prefiks }}-til" name="{{ np }}til_dato" type="date" value="{{ s.get(np ~ 'til_dato') or '' }}"></div>
+    <div><label for="{{ prefiks }}-nr">Samling nr.</label><input id="{{ prefiks }}-nr" name="{{ np }}nr" inputmode="numeric" maxlength="2"
+         value="{{ s.get(np ~ 'nr') or '' }}" placeholder="For eksempel 2"></div>
+    <div><label for="{{ prefiks }}-navn">Navn (valgfritt)</label><input id="{{ prefiks }}-navn" name="{{ np }}navn" maxlength="60"
+         value="{{ s.get(np ~ 'navn') or '' }}" placeholder="Tomt = «Samling 2»"></div>
+  </div>
+  <div class="rad">
+    <div><label for="{{ prefiks }}-sted">By</label><input id="{{ prefiks }}-sted" name="{{ np }}sted" maxlength="60" list="{{ prefiks }}-steder"
+         value="{{ s.get(np ~ 'sted') or '' }}" placeholder="Oslo, Bergen eller Online">
+      <datalist id="{{ prefiks }}-steder"><option value="Oslo"><option value="Bergen"><option value="Online"></datalist></div>
+    <div><label for="{{ prefiks }}-lokale">Lokale</label><input id="{{ prefiks }}-lokale" name="{{ np }}lokale" maxlength="60" list="{{ prefiks }}-lokaler"
+         value="{{ s.get(np ~ 'lokale') or '' }}" placeholder="Paleet, N58, Chr. Mich …">
+      <datalist id="{{ prefiks }}-lokaler"><option value="Paleet"><option value="N58"><option value="Chr. Mich"></datalist></div>
+    <div class="bred"><label for="{{ prefiks }}-veil">Veiledningsdager</label><input id="{{ prefiks }}-veil" name="{{ np }}veiledningsdager" maxlength="200"
+         value="{{ s.get('veiledningsdager_visning', s.get(np ~ 'veiledningsdager')) or '' }}" placeholder="For eksempel 18.01.2027 (flere: skill med komma)"></div>
+  </div>
+  <label for="{{ prefiks }}-tema">Tema</label><input id="{{ prefiks }}-tema" name="{{ np }}tema" maxlength="200" value="{{ s.get(np ~ 'tema') or '' }}">
+  <div class="rad">
+    <div class="bred"><label for="{{ prefiks }}-holdere">Andre kursholdere <span class="dempet">(fritekst)</span></label><input id="{{ prefiks }}-holdere" name="{{ np }}kursholdere" maxlength="300"
+         value="{{ s.get(np ~ 'kursholdere') or '' }}" placeholder="For eksempel en gjesteforeleser"></div>
+    <div class="bred"><label for="{{ prefiks }}-veiledere">Andre veiledere <span class="dempet">(fritekst)</span></label><input id="{{ prefiks }}-veiledere" name="{{ np }}veiledere" maxlength="300"
+         value="{{ s.get(np ~ 'veiledere') or '' }}"></div>
+  </div>
+  <p class="liten dempet" style="margin:4px 0 0">Kursholderne i listen og rollene deres settes i Kalender → Kursholdere.</p>
+  <label for="{{ prefiks }}-sjekk">Må sjekkes <span class="dempet">(tøm feltet når det er sjekket)</span></label>
+  <textarea id="{{ prefiks }}-sjekk" name="{{ np }}sjekk" rows="2" maxlength="300">{{ s.get(np ~ 'sjekk') or '' }}</textarea>
+  <label for="{{ prefiks }}-notat">Notat (kun internt)</label>
+  <textarea id="{{ prefiks }}-notat" name="{{ np }}notat" rows="2" maxlength="2000">{{ s.get(np ~ 'notat') or '' }}</textarea>
+{% endmacro %}

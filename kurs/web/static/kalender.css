@@ -5,6 +5,13 @@
 .hendelse { border-left-color:var(--kf, var(--fysisk)); background:var(--kf-lys, var(--fysisk-lys)); }
 .kalenderkort { border-left-color:var(--kf, var(--fysisk)); }
 .kalenderverktoy .forklaring { margin:0; }
+/* Planlagt kurs med annen arrangør (f.eks. IPRO): lys grå og skravert, så den aldri forveksles med den gråblå kursfargen
+   (filen lastes etter kursfarger.css) */
+.ekstern { --kf:#a3acb2; --kf-mid:#e3e7e9; --kf-lys:#f3f5f6;
+           --skravur:repeating-linear-gradient(135deg, #e6eaec 0 5px, #fbfcfc 5px 10px); }
+.oversiktsrad.ekstern .odato, .hendelse.ekstern, .planrad.ekstern { background:var(--skravur); }
+.kalenderkort.ekstern { background-image:var(--skravur); }
+.prove.ekstern { background:repeating-linear-gradient(135deg, #e6eaec 0 4px, #fbfcfc 4px 8px); box-shadow:inset 0 0 0 1px #a3acb2; }
 
 /* Filtrene kan foldes inn på mobil (avkrysningsboksen styrer, uten skript) */
 .filterbryter, .filterknapp { display:none; }
@@ -28,23 +35,29 @@
 .oversiktsmaaned > h3 { font-size:16px; }
 .oversiktsmaaned > h2 .dempet { font-size:13px; font-weight:400; }
 
-.oversiktsrad { display:grid; grid-template-columns:9.5em minmax(0, 1fr); margin:0 0 7px; overflow:hidden; background:#fff;
-                border:1px solid var(--linje); border-left:6px solid var(--kf, var(--fysisk)); border-radius:8px;
+/* Kursoversikten: én slank rad per samling (Camilla 03.10: «Er det mulig å gjøre de smalere?»). Navnet står på én linje
+   (et langt navn kortes av med …, hele navnet står i boblen), merker, samling, kursholdere og ansvarlig på linja under. Et
+   annet kurs samme dag er et rødt utropstegn ved navnet (.ovarsel) med teksten i en boble (.varselboble, static/app.js). */
+.oversiktsrad { display:grid; grid-template-columns:8em minmax(0, 1fr); margin:0 0 5px; overflow:hidden; background:#fff;
+                border:1px solid var(--linje); border-left:5px solid var(--kf, var(--fysisk)); border-radius:7px;
                 scroll-margin-top:12px; }
-.oversiktsrad .odato { display:flex; flex-direction:column; justify-content:center; gap:1px; padding:8px 12px;
+.oversiktsrad .odato { display:flex; flex-direction:column; justify-content:center; padding:4px 10px; line-height:1.25;
                        background:var(--kf-lys, var(--fysisk-lys)); }
-.oversiktsrad .odag { font-size:17px; font-weight:700; line-height:1.25; color:var(--tekst); white-space:nowrap; }
-.oversiktsrad .oukedag { font-size:12.5px; color:var(--dempet); white-space:nowrap; }
-.oversiktsrad .oinnhold { min-width:0; padding:8px 14px; }
-.oversiktsrad .otittel { display:flex; flex-wrap:wrap; align-items:center; gap:3px 8px; }
-.oversiktsrad .otittel a { font-size:15.5px; font-weight:600; }
-.oversiktsrad .osamling { margin-top:1px; font-size:13.5px; font-weight:600; color:var(--kf, var(--tekst)); }
-.oversiktsrad .ometa { display:flex; flex-wrap:wrap; margin-top:2px; font-size:13.5px; color:var(--dempet); }
-.oversiktsrad .ometa > span { white-space:nowrap; }
-.oversiktsrad .ometa > span:empty { display:none; }
-.oversiktsrad .ometa > span:not(:last-child)::after { content:"·"; margin:0 7px; }
-.oversiktsrad .okollisjon { margin-top:3px; font-size:13px; font-weight:600; color:#8a3b12; }
-.oversiktsrad .okollisjon::before { content:"⚠ "; }
+.oversiktsrad .odag { font-size:14.5px; font-weight:700; color:var(--tekst); white-space:nowrap; }
+.oversiktsrad .oukedag { font-size:12px; color:var(--dempet); white-space:nowrap; }
+.oversiktsrad .oinnhold { min-width:0; padding:5px 12px; }
+.oversiktsrad .otittel { display:flex; flex-wrap:wrap; align-items:center; gap:2px 7px; line-height:1.35; }
+.oversiktsrad .otittel a { font-size:15px; font-weight:600; }
+.oversiktsrad .ounder { display:flex; flex-wrap:wrap; align-items:center; gap:1px 8px; margin-top:1px; font-size:12.5px;
+                        line-height:1.35; color:var(--dempet); }
+.oversiktsrad .ounder .merke { padding:0 7px; font-size:11.5px; }
+.oversiktsrad .ounder > span:not(.merke) + span:not(.merke)::before { content:"·"; margin-right:8px; }
+.oversiktsrad .osamling { font-weight:600; color:var(--kf, var(--tekst)); }
+.oversiktsrad .ometa { display:flex; flex-wrap:wrap; align-items:center; gap:0 12px; margin-top:2px; font-size:13px;
+                       color:var(--dempet); }
+.oversiktsrad .ohvor { display:contents; }
+.oversiktsrad .ometa > span:empty, .oversiktsrad .ohvor > span:empty { display:none; }
+.oversiktsrad .ometa .osted, .oversiktsrad .ometa .otid, .oversiktsrad .ometa .opaameldte { white-space:nowrap; }
 .oversiktsrad.tidligere { opacity:.6; }
 .oversiktsrad.neste { box-shadow:0 0 0 2px var(--bla); }
 .oversiktsrad.avlyst { border-left-color:var(--avlyst); }
@@ -53,16 +66,25 @@
 .oversiktsrad.utkast { border-top-style:dashed; border-right-style:dashed; border-bottom-style:dashed; }
 .merke.neste { background:var(--bla); color:#fff; font-weight:600; }
 .merke.pagar { background:#e3f1e8; color:#256245; font-weight:600; }
+.ovarsel { display:inline-flex; align-items:center; justify-content:center; flex:none; width:17px; height:17px;
+           border-radius:50%; background:#c62828; color:#fff; font-size:12px; font-weight:700; line-height:1; cursor:help; }
+.ovarsel:focus-visible { outline:2px solid var(--bla); outline-offset:2px; }
+.varselboble { position:fixed; z-index:1000; display:none; max-width:min(24rem, calc(100vw - 16px)); padding:7px 11px;
+               border-radius:7px; background:#2b2f33; color:#fff; font-size:13px; line-height:1.4;
+               box-shadow:0 6px 18px rgba(0, 0, 0, .2); pointer-events:none; }
 
-/* Brede skjermer: sted, tid, ansvarlig og påmeldte i faste kolonner (som kursplanen i Excel) */
+/* Brede skjermer: sted og tid (under hverandre), påmeldte og pila til sjekklisten i faste kolonner */
 @media (min-width: 1100px) {
-  .oversiktsrad .oinnhold { display:grid; grid-template-columns:minmax(0, 1fr) 15em 7.5em 10em 8.5em; gap:0 16px;
+  .oversiktsrad .oinnhold { display:grid; grid-template-columns:minmax(0, 1fr) 11em 7.5em 1.6em; gap:0 14px;
                             align-items:center; }
+  .oversiktsrad .otittel { flex-wrap:nowrap; }
+  .oversiktsrad .otittel a { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .oversiktsrad .otittel > :not(a) { flex:none; }
   .oversiktsrad .ometa { display:contents; }
-  .oversiktsrad .ometa > span { white-space:normal; font-size:13.5px; color:var(--tekst); }
-  .oversiktsrad .ometa > span:empty { display:block; }
-  .oversiktsrad .ometa > span::after { content:none !important; }
-  .oversiktsrad .ometa .otid, .oversiktsrad .ometa .opaameldte { color:var(--dempet); font-variant-numeric:tabular-nums; }
+  .oversiktsrad .ohvor { display:flex; flex-direction:column; min-width:0; font-size:13px; line-height:1.3; }
+  .oversiktsrad .ohvor .osted { color:var(--tekst); white-space:normal; }
+  .oversiktsrad .ometa .otid, .oversiktsrad .ometa .opaameldte { font-variant-numeric:tabular-nums; }
+  .oversiktsrad .ometa .opaameldte:empty { display:block; }
 }
 
 .tommaaned { margin:0; padding:9px 14px; border:1px dashed var(--linje); border-radius:8px; background:#fafbfb;
@@ -84,9 +106,8 @@ details.tidligere[open] > summary { margin-bottom:12px; }
   .filterbryter:not(:checked) ~ .filterlinje { display:none; }
   .oversiktsrad { grid-template-columns:1fr; }
   .oversiktsrad .odato { flex-direction:row; flex-wrap:wrap; justify-content:flex-start; align-items:baseline;
-                         gap:2px 10px; padding:6px 12px; }
-  .oversiktsrad .odag { font-size:16px; }
-  .oversiktsrad .oinnhold { padding:8px 12px 10px; }
+                         gap:2px 10px; padding:4px 12px; }
+  .oversiktsrad .oinnhold { padding:6px 12px 8px; }
   .nestelinje { font-size:14px; }
   .maanedshopp { flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px; }
   .maanedsliste { display:block; }       /* månedsrutenettet skjules på mobil (planlegging.css) */

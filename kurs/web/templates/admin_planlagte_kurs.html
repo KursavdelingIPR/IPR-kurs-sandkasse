@@ -1,0 +1,46 @@
+{% extends "admin_base.html" %}
+{% block tittel %}Planlagte kurs{% endblock %}
+{% block sideklasse %} class="bred"{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kursfarger.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kalender.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='sjekkliste.css') }}">{% endblock %}
+{% block innhold %}
+<h1>Planlagte kurs</h1>
+<p class="sub">Kursene fra kursplanen som ikke er opprettet i påmeldingssystemet ennå. De vises i Kalender og Årsplan med
+  fargen sin (samme farge på alle samlingene), men ikke på Oversikten, og de har ingen påmelding, e-post eller faktura.</p>
+{% set visning = 'planlagte' %}
+{% include "admin_aktivitet_faner.html" %}
+
+<div class="verktoylinje planverktoy">
+  <p class="liten dempet">{{ kursliste|length }} {{ 'planlagt kurs' if kursliste|length == 1 else 'planlagte kurs' }}
+    {%- if maa_sjekkes %} · <strong class="sjekktall">{{ maa_sjekkes }} må sjekkes</strong>{% endif %}
+    {%- if antall_skjult %} · <a href="{{ url_for('admin_kalender_planlagte', tidligere=1) }}">vis også {{ antall_skjult }} som er ferdige</a>
+    {%- elif vis_tidligere %} · <a href="{{ url_for('admin_kalender_planlagte') }}">skjul de som er ferdige</a>{% endif %}</p>
+  {% if admin_rolle != 'lese' %}<a class="knapp" href="{{ url_for('admin_kalender_planlagt_ny') }}">Nytt planlagt kurs +</a>{% endif %}
+</div>
+
+<div class="planliste">
+{% for k in kursliste %}
+  <article class="planrad kursfarge-{{ k.farge }}{{ ' ekstern' if k.ekstern }}{{ ' avlyst' if k.status == 'avlyst' }}">
+    <div class="planhode">
+      <a class="plannavn" href="{{ url_for('admin_kalender_planlagt', plan_id=k.id) }}">{{ k.visningsnavn }}</a>
+      {%- if k.ekstern or (k.arrangor and k.arrangor != 'IPR') %} <span class="merke gra" title="{{ 'Annen arrangør' if k.ekstern else 'Arrangør' }}">{{ k.arrangor }}</span>{% endif %}
+      {%- if k.status == 'avlyst' %} <span class="merke gra">Avlyst</span>{% endif %}
+      {%- if k.maa_sjekkes %} <span class="merke gul" title="{{ k.sjekk_tekster|join(' · ') }}">Må sjekkes</span>{% endif %}
+      {%- if k.forfalt %} <span class="merke feil">{{ k.forfalt }} forfalt i sjekklisten</span>{% endif %}
+      {%- if k.snart %} <span class="merke gul">{{ k.snart }} snart</span>{% endif %}
+    </div>
+    <ul class="plansamlinger">
+      {% for s in k.samlinger %}<li><span class="plandato">{{ kort_periode(s.fra, s.til) }} {{ s.til.year }}</span>
+        {%- if s.samlingsnavn %} · <strong>{{ s.samlingsnavn }}</strong>{% endif %}
+        {%- if s.veiledningsdager %} <span class="dempet">(veiledning {% for d in s.veiledningsdager %}{{ d.day }}.{{ d.month }}.{{ ', ' if not loop.last }}{% endfor %})</span>{% endif %}
+        {%- if s.sted_tekst %} · {{ s.sted_tekst }}{% endif %}
+        {%- if s.kursholdere_tekst %} · <span class="dempet">{{ s.kursholdere_tekst }}</span>{% endif %}</li>{% endfor %}
+    </ul>
+  </article>
+{% else %}
+  <p class="dempet">Ingen planlagte kurs{{ ' som ikke er ferdige' if antall_skjult }}.{% if admin_rolle != 'lese' %} Legg inn et med «Nytt planlagt kurs +».{% endif %}</p>
+{% endfor %}
+</div>
+{% endblock %}

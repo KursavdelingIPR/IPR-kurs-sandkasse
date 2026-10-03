@@ -1,0 +1,29 @@
+Emne: Sjekklister: {% if antall_forfalt %}{{ antall_forfalt }} forfalt{% if antall_snart %} · {{ antall_snart }} med frist de neste 7 dagene{% endif %}{% else %}{{ antall_snart }} med frist de neste 7 dagene{% endif %}
+{#- Morgen-e-posten om sjekklistene for planlagte kurs (daglig.py, sjekklister.paaminnelser), til kurspostboksen
+    (config.SJEKKLISTE_EPOST). Intern e-post: ikke deltakerrammen (_ramme.html med «Mine kurs»), samme skrift og bredde.
+    De åtte første punktene per samling står her; resten ligger på kursets side (lenken). -#}
+<div style="font-family:Segoe UI,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1d2a33;max-width:640px">
+<p>Dette står igjen i sjekklistene for de planlagte kursene:
+{%- if antall_forfalt %} <strong>{{ antall_forfalt }} {{ 'punkt' if antall_forfalt == 1 else 'punkter' }} har passert fristen</strong>{% endif %}
+{%- if antall_forfalt and antall_snart %}, og{% endif %}
+{%- if antall_snart %} {{ antall_snart }} {{ 'punkt' if antall_snart == 1 else 'punkter' }} har frist de neste 7 dagene{% endif %}.</p>
+{% for v in samlinger %}
+<p style="margin:20px 0 2px"><a href="{{ base_url }}/admin/aktiviteter/planlagte-kurs/{{ v.plan_id }}?apen={{ v.samling_id }}#sk-{{ v.samling_id }}" style="color:#1f5f7a;font-weight:600">{{ v.kursnavn }}</a><br>
+<span style="color:#667;font-size:13px">{{ v.samling }}</span></p>
+<ul style="margin:4px 0 0;padding-left:20px">
+{%- for p in v.punkter[:8] %}
+{%- if p.forfalt %}
+<li><span style="color:#b3261e;font-weight:600">Forfalt {{ p.frist_tekst }}:</span> {{ p.tekst_html }}</li>
+{%- else %}
+<li><span style="color:#8a5a00">Frist {{ p.frist_tekst }}:</span> {{ p.tekst_html }}</li>
+{%- endif %}
+{%- endfor %}
+{%- if v.punkter|length > 8 %}
+<li style="color:#667">… og {{ v.punkter|length - 8 }} til på kursets side</li>
+{%- endif %}
+</ul>
+{% endfor %}
+<p style="margin-top:28px;color:#667;font-size:13px;border-top:1px solid #dde;padding-top:12px">
+Kryss av i sjekklisten når et punkt er gjort, eller merk det «Ikke aktuelt», så kommer det ikke med her lenger.
+E-posten kommer hver hverdag fra påmeldingssystemet, bare når noe har passert fristen eller har frist de neste 7 dagene.</p>
+</div>

@@ -4,12 +4,15 @@ Personvern (CLAUDE.md regel 1):
   * Standard er bare løpenummer og navn. Kontaktinformasjon, arbeid og faktura må krysses av eksplisitt.
   * Allergier/tilrettelegging (tabellen `sensitivt`) finnes ikke i katalogen og kan aldri velges - de har egen liste
     med tilgangslogg (admin_allergiliste). Ukjente kolonnenavn i adressen ignoreres.
-  * Tomme utfyllingskolonner (signatur, merknad) er bare for papir og tas ikke med i CSV.
+  * Den tomme utfyllingskolonnen (merknad) er bare for papir og tas ikke med i CSV. Signatur er ikke med: registrering
+    av oppmøte har sitt eget skjema (Camilla 03.10.2026: «dette er en deltakerliste … Vi skal ha et annet skjema til
+    registrering»).
   * Svarene på kursets egne felt i påmeldingsskjemaet kan velges som egne kolonner (katalog()). Egne felt skal aldri
     brukes til sensitive opplysninger (skjemabyggeren sier fra om det).
 
 PDF lages bevisst i nettleseren (utskrift -> «Lagre som PDF»), samme løsning som for kursbevis: ingen tung
-PDF-avhengighet i drift. Logo vises bare når en godkjent fil er lagt i static/logo/ (se logo_fil()).
+PDF-avhengighet i drift. Utskriften er et A4-ark med logo øverst, kursnavnet og listen midtstilt (Camilla 03.10.2026).
+Logoen velges blant filene som er lagt i static/logo/ (se logoer() og velg_logo()).
 """
 import unicodedata
 from dataclasses import dataclass
@@ -51,7 +54,6 @@ KOLONNER = (
     Kolonne("org_navn", "Organisasjon", FAKTURA),
     Kolonne("fakturastatus", "Fakturastatus", FAKTURA, personopplysning=True),
     Kolonne("oppmote", "Oppmøte per kursdag", UTFYLLING),
-    Kolonne("signatur", "Signatur", UTFYLLING, kun_utskrift=True),
     Kolonne("merknad", "Merknad", UTFYLLING, kun_utskrift=True),
 )
 
@@ -74,6 +76,14 @@ _BETALER = {"person": "Deltaker", "organisasjon": "Organisasjon"}
 
 LOGO_MAPPE = Path(__file__).resolve().parent / "web" / "static" / "logo"
 _LOGO_FILER = ("deltakerliste.svg", "deltakerliste.png", "deltakerliste.jpg")
+# Logoene utskriften kan ha øverst (Camilla 03.10: «terapiakademiet-logo (NIEFT-logo, eller IPR-logo på IPR sine kurs)»).
+# En logo kan velges når filen er lagt i static/logo/; den første som finnes er standard (alle deltakersidene har
+# Terapiakademiet-drakten til kursene får et eget merke). «egen» er den gamle filen deltakerliste.png.
+LOGOER = (("terapiakademiet", "Terapiakademiet", ("terapiakademiet.svg", "terapiakademiet.png")),
+          ("nieft", "NIEFT", ("nieft.svg", "nieft.png", "nieft.jpg")),
+          ("ipr", "IPR", ("ipr.svg", "ipr.png", "ipr.jpg")),
+          ("egen", "Egen logo", _LOGO_FILER))
+INGEN_LOGO = "ingen"
 
 
 @dataclass(frozen=True)
@@ -207,7 +217,7 @@ def _verdi(nokkel: str, nr: int, r: dict, kurs) -> str:
         return _BETALER.get(r["betaler"], r["betaler"] or "")
     if nokkel == "fakturastatus":
         return fakturastatus(kurs, r)
-    if nokkel in ("signatur", "merknad"):
+    if nokkel == "merknad":
         return ""
     if nokkel.startswith(SVAR_PREFIKS):
         felt_id = nokkel[len(SVAR_PREFIKS):]
@@ -225,7 +235,7 @@ def tabell(kurs, rader, valg: Valg, dager, oppmott: set, *, csv: bool = False) -
             klasser += ["avkrysning"] * len(dager)
         else:
             overskrifter.append(k.tittel)
-            klasser.append(k.nokkel if k.nokkel in ("nr", "signatur", "merknad") else "")
+            klasser.append(k.nokkel if k.nokkel in ("nr", "merknad") else "")
     celler = []
     for nr, r in enumerate(rader, 1):
         rad = []
@@ -240,10 +250,20 @@ def tabell(kurs, rader, valg: Valg, dager, oppmott: set, *, csv: bool = False) -
     return Tabell(overskrifter, klasser, celler)
 
 
-def logo_fil() -> str | None:
-    """Sti under static/ til godkjent logo for utskriften, eller None. Systemet leveres UTEN logo: en godkjent fil
-    (f.eks. NIEFT-logoen, når bruken er avklart) legges som static/logo/deltakerliste.png (eller .svg/.jpg)."""
-    for navn in _LOGO_FILER:
-        if (LOGO_MAPPE / navn).is_file():
-            return f"logo/{navn}"
-    return None
+def logoer() -> list[dict]:
+    """Logoene som kan velges (filen finnes i static/logo/): [{nokkel, navn, fil}] med fil = sti under static/."""
+    ut = []
+    for nokkel, navn, filer in LOGOER:
+        fil = next((f for f in filer if (LOGO_MAPPE / f).is_file()), None)
+        if fil:
+            ut.append({"nokkel": nokkel, "navn": navn, "fil": f"logo/{fil}"})
+    return ut
+
+
+def velg_logo(onsket: str | None) -> dict | None:
+    """Logoen øverst på utskriften: den valgte (?logo=...) når filen finnes, None for «ingen», ellers den første som
+    finnes (standard). Ukjente verdier gir standard."""
+    finnes = logoer()
+    if onsket == INGEN_LOGO:
+        return None
+    return next((l for l in finnes if l["nokkel"] == onsket), finnes[0] if finnes else None)

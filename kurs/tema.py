@@ -1,6 +1,6 @@
 """Terapiakademiet-drakten for deltakersidene (static/tema-terapiakademiet.css, `tema_ta` i base.html): hvilke logofiler som er lagt inn.
 
-Logoen er Terapiakademiets, og en godkjent fil legges av dem som eier den (som NIEFT-logoen til deltakerlisten, se deltakerliste.logo_fil).
+Logoen er Terapiakademiets, og en godkjent fil legges av dem som eier den (som NIEFT- og IPR-logoene til deltakerlisten, se deltakerliste.logoer).
 Camilla ga lov til å legge den inn på Min side 01.10.2026, og filene hun la ved ligger i kurs/web/static/logo/ (751x186, gjennomsiktig bakgrunn):
   * terapiakademiet.png (eller .svg)       – til toppen, på kremfarget bakgrunn (burgunder utgave, `logo-burgunder.png` på terapiakademiet.no)
   * terapiakademiet-lys.png (eller .svg)   – til den mørke bunnen (lys utgave, `logo-lys.png`)

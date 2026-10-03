@@ -1,0 +1,142 @@
+/* Sjekklister for planlagte kurs (kurs/sjekklister.py, malen _sjekkliste.html): nedtrekk under raden i kursoversikten og
+   full utgave på kursets side, og sidene for sjekklistemalene. Lastes etter planlegging.css. Rødt = forfalt, gult = snart. */
+:root { --sk-rod:#b3261e; --sk-rod-lys:#fdecea; --sk-gul:#8a5a00; --sk-gronn:#256245; }
+
+/* kursoversikten: raden markeres når musa er over den, og et klikk på raden (eller den lille pila til høyre, static/app.js)
+   folder sjekklisten ut under raden. Statusen (ferdig, forfalt, snart) står øverst i sjekklisten, ikke på raden. */
+.oversiktsrad.har-sjekkliste > .odato, .oversiktsrad.har-sjekkliste > .oinnhold { cursor:pointer; }
+.oversiktsrad.har-sjekkliste:hover > .oinnhold, .oversiktsrad.sk-apen > .oinnhold { background:#f3f8fb; }
+.oversiktsrad.har-sjekkliste:hover { border-color:#b9cbd6; }
+.oversiktsrad .opil { display:flex; align-items:center; justify-content:flex-end; margin-left:auto; text-decoration:none; }
+.sk-status { display:flex; flex-wrap:wrap; align-items:center; gap:2px 8px; margin:6px 0 2px; font-size:13px; }
+.sk-status .sk-navn { font-weight:600; }
+.oversiktsrad .opil:focus-visible { outline:none; }
+.oversiktsrad .opil:focus-visible .opil-tegn { box-shadow:0 0 0 2px var(--bla); }
+.opil-tegn { flex:none; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px;
+             border-radius:50%; background:#e8f1f6; }
+.opil-tegn::before { content:""; width:7px; height:7px; margin-top:-3px; border-right:2px solid var(--bla);
+                     border-bottom:2px solid var(--bla); transform:rotate(45deg); transition:transform .15s; }
+.oversiktsrad:hover .opil-tegn { background:#d5e6f0; }
+.sk-apen .opil-tegn::before { margin-top:3px; transform:rotate(-135deg); }
+.oversiktsrad .osjekk { grid-column:1 / -1; padding:4px 14px 10px; border-top:1px solid var(--linje); background:#fff;
+                        cursor:auto; }
+.oversiktsrad .osjekk[hidden] { display:none; }
+.oversiktsrad .osjekk > .sk-innhold { padding:0; border-top:0; }
+@media (prefers-reduced-motion: reduce) { .opil-tegn::before { transition:none; } }
+
+/* nedtrekket (kursets side) */
+details.sjekkliste { margin-top:6px; border:1px solid var(--linje); border-radius:8px; background:#fff; }
+details.sjekkliste > summary { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; padding:6px 10px; cursor:pointer;
+                               font-size:13.5px; list-style:none; }
+details.sjekkliste > summary::-webkit-details-marker { display:none; }
+details.sjekkliste > summary::before { content:"▸"; color:var(--dempet); }
+details.sjekkliste[open] > summary::before { content:"▾"; }
+details.sjekkliste > summary .sk-navn { font-weight:600; color:var(--bla); }
+.sk-teller { font-variant-numeric:tabular-nums; color:var(--dempet); }
+.sk-neste { color:var(--dempet); font-size:12.5px; }
+.sk-innhold { padding:2px 12px 10px; border-top:1px solid var(--linje); }
+.sk-husk { margin:8px 0 4px; padding:6px 10px; border:1px dashed var(--linje); border-radius:6px; background:#fafbfb; font-size:13px; }
+.sk-husk ul { margin:2px 0 0; padding-left:18px; }
+.sk-fase { margin:10px 0 2px; font-size:12.5px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; color:var(--dempet); }
+.sk-fase-forfalt { color:var(--sk-rod); }
+ul.sk-liste { margin:0; padding:0; list-style:none; }
+.sk-punkt { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; padding:4px 0; border-bottom:1px solid #f0f2f3; font-size:14px; }
+.sk-punkt:last-child { border-bottom:0; }
+.sk-punkt.sk-under { padding-left:24px; }
+.sk-form { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; flex:1 1 24em; min-width:0; margin:0; }
+.sk-kryss { display:flex; align-items:baseline; gap:8px; margin:0; font-weight:400; cursor:pointer; }
+.sk-kryss input { flex:none; width:16px; height:16px; margin:0; transform:translateY(2px); }
+.sk-boks { flex:none; width:16px; text-align:center; color:var(--dempet); }
+.sk-tekst { white-space:pre-line; overflow-wrap:anywhere; }
+.sk-kontekst { padding:5px 0 1px; font-size:13px; color:var(--dempet); }  /* hovedpunktet, grått, over underpunkter i en annen fase */
+.sk-felt { display:inline-flex; gap:6px; align-items:center; }
+.sk-felt input { width:18em; max-width:100%; padding:3px 6px; font-size:13px; }
+.sk-feltverdi { color:var(--dempet); font-size:13px; }
+.sk-info { margin-left:auto; font-size:12.5px; color:var(--dempet); white-space:nowrap; }
+.sk-forfalt .sk-info { color:var(--sk-rod); font-weight:600; }
+.sk-snart .sk-info { color:var(--sk-gul); font-weight:600; }
+.sk-utfort .sk-tekst { color:var(--dempet); text-decoration:line-through; }
+.sk-utfort .sk-info { color:var(--sk-gronn); }
+.sk-ikke_aktuelt .sk-tekst { color:var(--dempet); font-style:italic; text-decoration:line-through; }
+details.sk-mer { flex:none; font-size:12.5px; }                       /* lukket: «Mer» på samme linje som fristen */
+details.sk-mer[open] { flex-basis:100%; margin-left:24px; }             /* åpen: valgene på egen linje under punktet */
+details.sk-mer > summary { cursor:pointer; color:var(--bla); width:max-content; list-style:none; }
+details.sk-mer > summary::-webkit-details-marker { display:none; }
+details.sk-mer > summary::after { content:" ▸"; }
+details.sk-mer[open] > summary::after { content:" ▾"; }
+.sk-mer-innhold { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding:4px 0; }
+.sk-mer-innhold form { display:flex; align-items:center; gap:6px; margin:0; }
+.sk-mer-innhold input[type=date] { padding:2px 6px; font-size:12.5px; }
+.sk-bunn { margin:8px 0 0; font-size:13px; }
+.sk-verktoy { display:flex; flex-wrap:wrap; align-items:flex-start; gap:8px 16px; margin-top:10px; }
+details.sk-nytt { flex:1 1 30em; }
+details.sk-nytt > summary { cursor:pointer; color:var(--bla); font-size:13.5px; }
+.sk-lag { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:6px 0 0; }
+.samlingkort details.sjekkliste { margin-top:10px; }
+
+/* notat på punktet (hva som er gjort), skrives under «Endre» (03.10.2026) */
+.sk-notat { flex-basis:100%; margin:1px 0 2px 24px; padding:2px 8px; border-left:3px solid #c9d6de; border-radius:0 4px 4px 0;
+            background:#f6f8f9; font-size:13px; white-space:pre-line; overflow-wrap:anywhere; }
+.sk-mer-innhold form.sk-notatskjema { flex-basis:100%; flex-wrap:wrap; align-items:flex-end; }
+.sk-notatskjema label { flex-basis:100%; margin:0; }
+.sk-notatskjema textarea { flex:1 1 24em; max-width:40em; min-height:2.6em; font-size:13.5px; }
+.sk-husk-slett { display:inline; margin:0 0 0 6px; font-size:12px; }
+details.sk-slettede { margin-top:8px; font-size:13px; color:var(--dempet); }
+details.sk-slettede > summary { cursor:pointer; width:max-content; }
+details.sk-slettede ul { margin:4px 0 0; padding-left:18px; }
+details.sk-slettede li { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; padding:2px 0; }
+details.sk-slettede form { margin:0; }
+
+/* bookingen nederst (kurs/booking.py): rød = ikke booket, grønn = booket, grå = trengs ikke / ikke satt */
+.sk-booking { margin-top:12px; padding-top:2px; border-top:1px solid var(--linje); }
+ul.sk-bookingliste { margin:0; padding:0; list-style:none; }
+.skb { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 12px; padding:4px 0; border-bottom:1px solid #f0f2f3;
+       font-size:14px; }
+.skb:last-child { border-bottom:0; }
+.skb-navn { flex:none; width:7.5em; font-weight:600; }
+.skb-status { flex:none; width:7.5em; font-weight:600; }
+.skb-booket .skb-status { color:var(--sk-gronn); }
+.skb-booket .skb-status::before { content:"✓ "; }
+.skb-ikke_booket .skb-status { color:var(--sk-rod); }
+.skb-trengs_ikke .skb-status, .skb-ikke_satt .skb-status { color:var(--dempet); font-weight:400; }
+.skb-tekst { flex:1 1 16em; min-width:0; font-size:13.5px; white-space:pre-line; overflow-wrap:anywhere; }
+.skb details.sk-mer { margin-left:auto; }
+.skb details.sk-mer[open] { margin-left:0; }
+.skb-skjema { display:grid; gap:4px; max-width:36em; padding:4px 0; }
+.skb-skjema label { margin:0; }
+.skb-skjema select { width:auto; }
+.skb-skjema button { justify-self:start; }
+
+/* forfalt: rød prikk på blokkene i måned, uke og årsplan */
+.hendelse.forfalt, .kalenderkort.forfalt, .miniblokk.forfalt { position:relative; }
+.hendelse.forfalt::after, .kalenderkort.forfalt::after, .miniblokk.forfalt::after {
+  content:""; position:absolute; top:3px; right:3px; width:8px; height:8px; border-radius:50%; background:var(--sk-rod);
+  box-shadow:0 0 0 1.5px #fff; }
+.prove.forfalt { position:relative; background:#f3f5f6; }
+.prove.forfalt::after { content:""; position:absolute; top:2px; right:2px; width:7px; height:7px; border-radius:50%; background:var(--sk-rod); }
+
+/* malene */
+ol.malpunkter { margin:12px 0; padding-left:28px; }
+/* hvert punkt: tekst og regel til venstre, pilene og «Endre» til høyre (åpnet skjema på egen linje under) */
+.malpunkt { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:2px 12px; padding:6px 0;
+            border-bottom:1px solid var(--linje); }
+.malpunkt.mp-under { margin-left:24px; }
+.malpunkt.mp-husk .mp-tekst { color:var(--dempet); }
+.mp-tekst { grid-column:1; white-space:pre-line; overflow-wrap:anywhere; }
+.mp-regel { grid-column:1; font-size:12.5px; color:var(--dempet); }
+.mp-knapper { grid-column:2; grid-row:1; display:flex; gap:4px; }
+.mp-knapper > form { margin:0; }
+.mp-knapper button { padding:1px 8px; }
+details.mp-endre { grid-column:2; grid-row:2; justify-self:end; }
+details.mp-endre[open] { grid-column:1 / -1; grid-row:3; justify-self:stretch; padding:6px 0 4px; }
+details.mp-endre > summary { cursor:pointer; color:var(--bla); font-size:13px; width:max-content; margin-left:auto; }
+fieldset.fristvalg { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:10px 0; padding:0; border:0; }
+fieldset.fristvalg legend { width:100%; padding:0; }
+fieldset.fristvalg input, fieldset.fristvalg select { width:auto; }
+
+@media (max-width: 640px) {
+  .sk-info { margin-left:24px; white-space:normal; }
+  .sk-felt input { width:100%; }
+  .oversiktsrad .osjekk { padding:4px 10px 8px; }
+}
+@media print { details.sjekkliste { display:none; } }

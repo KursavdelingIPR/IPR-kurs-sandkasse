@@ -1,0 +1,42 @@
+{#- Skjemafeltene for ett punkt i en sjekklistemal (kurs/sjekklister.py). Importeres «with context»: trenger gjelder, enheter
+    og typer. `s` er punktet (fristen lagret med fortegn: negativ = før) eller det innsendte skjemaet ved feil. -#}
+{% macro malpunktfelt(s, prefiks) %}
+  {% set n = s.get('frist_antall') %}
+  {% if s.get('frist_retning') is none and n is not none and n != '' %}
+    {% set retning = 'for' if n|int < 0 else 'etter' %}{% set antall = (n|int)|abs %}
+  {% elif s.get('frist_retning') is none and s.get('tekst') %}
+    {% set retning = 'for' %}{% set antall = '' %}
+  {% elif s.get('frist_retning') is none %}
+    {% set retning = 'for' %}{% set antall = 1 %}
+  {% else %}
+    {% set retning = s.get('frist_retning') %}{% set antall = n or '' %}
+  {% endif %}
+  <label for="{{ prefiks }}-tekst">Tekst *</label>
+  <textarea id="{{ prefiks }}-tekst" name="tekst" rows="3" maxlength="2000" required>{{ s.get('tekst') or '' }}</textarea>
+  <p class="liten dempet" style="margin:2px 0 8px">Lenke: skriv [teksten som vises](https://adressen). Bare https- og http-lenker blir klikkbare.</p>
+  <div class="rad">
+    <div><label for="{{ prefiks }}-type">Type</label><select id="{{ prefiks }}-type" name="type">
+        {% for verdi, navn in typer.items() %}<option value="{{ verdi }}" {{ 'selected' if (s.get('type') or 'oppgave') == verdi }}>{{ navn }}</option>{% endfor %}
+      </select></div>
+    <div><label for="{{ prefiks }}-gjelder">Gjelder</label><select id="{{ prefiks }}-gjelder" name="gjelder">
+        {% for verdi, navn in gjelder.items() %}<option value="{{ verdi }}" {{ 'selected' if (s.get('gjelder') or 'alle') == verdi }}>{{ navn }}</option>{% endfor %}
+      </select></div>
+    <div><label for="{{ prefiks }}-nr">Samling nr. (når «Bare samling nr.»)</label><input id="{{ prefiks }}-nr" name="gjelder_nr"
+         inputmode="numeric" maxlength="2" value="{{ s.get('gjelder_nr') or '' }}"></div>
+  </div>
+  <div class="rad">
+    <div><label for="{{ prefiks }}-sted">Bare for sted</label><input id="{{ prefiks }}-sted" name="gjelder_sted" maxlength="80"
+         list="{{ prefiks }}-steder" value="{{ s.get('gjelder_sted') or '' }}" placeholder="Tomt = overalt">
+      <datalist id="{{ prefiks }}-steder"><option value="fysisk"><option value="online"><option value="Oslo"><option value="Bergen"></datalist></div>
+    <div><label for="{{ prefiks }}-navn">Bare kurs med dette i navnet</label><input id="{{ prefiks }}-navn" name="gjelder_navn" maxlength="80"
+         value="{{ s.get('gjelder_navn') or '' }}" placeholder="Tomt = alle kurs, f.eks. «Modul 3»"></div>
+  </div>
+  <fieldset class="fristvalg"><legend class="etikett">Frist <span class="dempet">(tomt tall = ingen frist)</span></legend>
+    <input name="frist_antall" inputmode="numeric" maxlength="3" value="{{ antall }}" aria-label="Antall" style="width:5em">
+    <select name="frist_enhet" aria-label="Enhet">{% for verdi, navn in enheter.items() %}<option value="{{ verdi }}" {{ 'selected' if (s.get('frist_enhet') or ('uker' if s.get('tekst') is none else 'dager')) == verdi }}>{{ navn }}</option>{% endfor %}</select>
+    <select name="frist_retning" aria-label="Før eller etter"><option value="for" {{ 'selected' if retning == 'for' }}>før</option><option value="etter" {{ 'selected' if retning == 'etter' }}>etter</option></select>
+    <select name="frist_fra" aria-label="Start eller slutt"><option value="start" {{ 'selected' if (s.get('frist_fra') or 'start') == 'start' }}>samlingen starter</option><option value="slutt" {{ 'selected' if s.get('frist_fra') == 'slutt' }}>samlingen slutter</option></select>
+  </fieldset>
+  <label class="valg"><input type="checkbox" name="nivaa" value="1" {{ 'checked' if s.get('nivaa') in (1, '1', 'on') }}> Underpunkt (rykket inn under punktet over)</label>
+  <label class="valg"><input type="checkbox" name="felt" value="1" {{ 'checked' if s.get('felt') in (1, '1', 'on') }}> Tekstfelt på punktet (for eksempel «Lim inn her»)</label>
+{% endmacro %}

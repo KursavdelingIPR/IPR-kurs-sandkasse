@@ -91,6 +91,7 @@ bærfarget aksent `#8a334e`, firkantede knapper og kort, mørk plommestripe for 
 - **Logoen** er Terapiakademiets (som NIEFT-logoen til deltakerlisten). Camilla la ved filene og ga lov til å bruke den på Min side 01.10.2026: `kurs/web/static/logo/terapiakademiet.png` (burgunder, til toppen) og
   `terapiakademiet-lys.png` (lys, til den mørke bunnen), begge 751x186 med gjennomsiktig bakgrunn (`kurs/tema.py`). Ingen omstart trengs; fjernes filene, står navnet som tekst. Bunnen viser kontaktadressen `AVSENDER_EPOST` og «Kursadministrasjonen, Institutt for Psykologisk Rådgivning».
   Bildene hun la ved (portretter, ikke i kodemappen) ligger i `C:\IPR-kurs-natt\_bilder\terapiakademiet-2026-10-01` og i OneDrive `Bilder fra Camilla 2026-10-01`.
+- **Deltakerlisten (utskrift/PDF)** (03.10.2026): et A4-ark med logo øverst, «Deltakerliste», kursnavnet og listen midtstilt. Logoen velges i «Logo øverst» blant filene i `kurs/web/static/logo/` (`deltakerliste.logoer`): Terapiakademiet (standard), NIEFT (`nieft.png`) og IPR (`ipr.png`), eller ingen. IPR- og NIEFT-logoene kom fra Camilla 03.10.2026 (zip-filene i Downloads, utpakket i `C:\IPR-kurs-natt\_bilder\logoer-2026-10-03`; de smale «liten»-utgavene er i bruk). PDF lages med «Lagre som PDF» i utskriftsvinduet. Står en skriver som mål, kan forhåndsvisningen bli stående på «Laster inn forhåndsvisning» (Chrome venter på skriveren), så velg «Lagre som PDF» under «Destinasjon».
 - Skrifttype som på terapiakademiet.no: systemfonter (Segoe UI, Arial). Ingen fonter lastes ned.
 
 ### Kurs med flere samlinger på Min side
@@ -321,6 +322,88 @@ igjen – de dukker ikke opp her. Se avsnitt 6.
   skoleferier. Røde dager regnes ut automatisk og skal ikke legges inn.
 - **Sperret periode** (for eksempel intern ferie) og **advarsel** (for eksempel «Ikke webinarer i juli») kan gjelde alle
   kurs, bare fysiske eller bare online. Kurs i perioden vises under «Konflikter og merknader» – ingenting stoppes.
+
+## 5b2. Planlagte kurs (kursplanen i Kalender og Årsplan)
+
+- **Hva det er:** kurs fra kursplanen (Kurskalender-Excelen) som ikke er opprettet i påmeldingssystemet ennå. De vises i
+  Kalender og Årsplan med merket «Planlagt kurs», men **ikke på Oversikten**, og de har ingen påmeldingsside, ingen
+  deltakere, ingen e-post og ingen faktura. Fanen **Kalender → Planlagte kurs** har listen, «Nytt planlagt kurs +» og en
+  side per kurs der datoer, samlinger, veiledningsdager, kursholdere, notater og farge endres.
+- **Farge:** hvert planlagt kurs har én lagret farge, så alle samlingene i kurset har samme farge. Den velges ut fra datoene
+  (kurs som går nær hverandre i tid får ulike farger) og endres aldri av seg selv. Den kan byttes for hånd på kursets side,
+  eller velges på nytt («Velg ut fra datoene»). «Fargene» nederst i kursoversikten og årsplanen viser hvert kurs med alle
+  samlingene. Kurs med **annen arrangør** (for eksempel IPRO) og **avlyste** kurs er grå. Avlyste vises ikke i Årsplan.
+- **Varsel «Samme dag som …»** (kursoversikten i Kalender, og kollisjonene i Årsplan; `planlagte_kurs.kolliderer`): et
+  rødt utropstegn ved navnet, med teksten i en boble når musa er over (eller tegnet har fokus). Egne kurs gir varsel bare
+  når to fysiske kurs går samtidig i **samme by** (ukjent by: varsel), eller to kurs med nettdel (online eller hybrid)
+  går samtidig. Et fysisk kurs og et online- eller hybridkurs samtidig, og et kurs i Oslo og et i Bergen samtidig, gir
+  ikke varsel (Camilla 03.10.2026). Annen arrangør: bare når begge har fysisk kurs på samme sted. Samme person på to
+  steder samtidig vises uansett i fanen Kursholdere.
+- **Kursoversikten er slank** (03.10.2026): én rad per samling, med navnet på én linje (et langt navn kortes av med …,
+  hele navnet vises når musa er over) og merker, samling, kursholdere og ansvarlig på linja under. Til høyre: sted og
+  tid, påmeldte (kurs i systemet) og en liten pil. Sjekklistens status står ikke på raden (Camilla 03.10: «Det holder
+  med å kunne trykke på kursene»).
+- **«Må sjekkes»:** en merknad om noe som må kontrolleres (for eksempel en usikker dato fra Excel). Den vises som et gult
+  merke i kalenderen og listen. Rett opplysningene og tøm feltet «Må sjekkes» når det er i orden.
+- **Kursplanen fra Excel** (fanen «Kommende kurs», 44 kurs) ble lagt inn i forhåndsvisningen 02.10.2026 med et eget skript
+  utenfor koden (`C:\tmp\kurskalender\importer_kommende_kurs.py`). Etter det er det systemet som gjelder: nye kurs og
+  endringer legges inn i Kalender → Planlagte kurs. Den ekte kursplanen ligger aldri i git eller i testene.
+- **Sjekklister:** et planlagt kurs kan ha en sjekklistemal (velges på kursets side under «Endre kurset»). Da får hver
+  samling en sjekkliste med frister regnet ut fra datoene. Faller fristen på en helg eller rød dag, flyttes den til
+  virkedagen før. Malene ligger under **Kalender → Sjekklistemaler** (seks maler ble laget fra Camillas lister 02.10.2026).
+  Et punkt kan gjelde alle samlinger eller bare første, siste eller en bestemt samling, bare fysiske eller online, bare
+  Oslo eller Bergen, eller bare kurs med et bestemt navn. Et underpunkt tas bare med når hovedpunktet er med.
+  - I kursoversikten i Kalender folder et klikk på kurset (eller den lille pila til høyre) sjekklisten ut under raden, med
+    statusen øverst (ferdig, forfalt, snart), og der krysser man av. Samlinger uten sjekkliste viser «Lag sjekkliste» når
+    de åpnes.
+  - **«Endre» på hvert punkt** (03.10.2026): notat (hva som er gjort, for eksempel «Sendt 12.10» eller et referansenummer;
+    vises under punktet), frist, «Ikke aktuelt» og «Slett punktet». Et eget punkt slettes helt; et punkt fra malen tas
+    bort fra denne sjekklisten (`sjekkliste_punkt.slettet`) og kan tas tilbake under «Slettede punkter». Slettede punkter
+    er ikke med i påminnelsene, og «Oppdater fra malen» legger dem ikke inn igjen. Et punkt med notat fjernes aldri av
+    «Oppdater fra malen». «＋ Legg til punkt» står under listen både i Kalender og på kursets side.
+  - **Booking nederst** (`kurs/booking.py`, migrering 24): kurslokale, hotell, grupperom og lunsj, hver med status
+    (booket, ikke booket, trengs ikke, eller ikke satt) og fritekst (hvor, referansenummer, hvem rommet er til). Rød = ikke
+    booket, grønn = booket. Står nederst når kurset åpnes i Kalender, og under sjekklisten på kursets side.
+  - **Kursholderne** står på raden også når kurset er lukket («Kursholder: …», fra rollene i Kalender → Kursholdere og
+    feltet «Andre kursholdere»). På kursets side ligger hele listen, med «Ikke aktuelt», frist for hånd, egne punkter og
+    «Oppdater fra malen».
+  - **Kurs i systemet** (ikke bare planlagte) får også sjekkliste (Camilla 03.10.2026: «Må være sjekkliste på alle kurs i
+    kurskalenderen»; ikke IPRO). `sjekklister.synk_kurs` lager et skjult planlagt kurs per kurs (`planlagt_kurs.kurs_id`,
+    én planlagt samling per samling i kurset, `kurs_samling_id`) med malen som passer best etter navnet (`gjett_mal`,
+    ellers «Kortkurs (1–3 dager)»). Det vises ikke blant de planlagte kursene; sjekklisten står på kursets egen rad i
+    Kalender. Navn, datoer, status og samlinger følger kurset (åpne frister flyttes, avlyst kurs = avlyst sjekkliste).
+    Synkroniseringen kjører når Kalender, Oversikt eller Årsplan åpnes og i morgenjobben (steg 10). Gjelder kurs med
+    kursdager fra 30 dager tilbake og framover. Kurs med annen arrangør og avlyste kurs får ingen sjekkliste.
+  - **Forfalt** (rødt) betyr at punktet ikke er krysset av innen fristen. Det vises i nedtrekket, med rød prikk på samlingen
+    i måned, uke og årsplan, og i listen over planlagte kurs. **Snart** (gult) betyr frist innen 7 dager.
+  - **Endringer i en mal** gjelder nye sjekklister. Eksisterende oppdateres med «Oppdater fra malen». Det som er krysset av
+    eller merket «Ikke aktuelt», frister endret for hånd og egne punkter røres ikke.
+  - **Nye datoer** på en samling flytter de åpne fristene (ikke dem som er endret for hånd).
+  - Skriv `[tekst](https://…)` i en punkttekst for å få en klikkbar lenke (bare http og https).
+  - Et kurs uten sted regnes som fysisk (får for eksempel hotell og registreringsskjema). For et webinar: sett stedet til
+    «Online» og trykk «Oppdater fra malen».
+  - Malene og sjekklistene ble lagt inn i forhåndsvisningen med et eget skript utenfor koden
+    (`C:\tmp\kurskalender\lag_sjekklistemaler.py`). Sjekklister ble laget for samlinger fra 03.11.2026 og utover.
+- **Påminnelsen:** Oversikten har kortet «Sjekklister: forfalt» under «Trenger oppfølging», og listen «Sjekklister» med
+  punktene som har passert fristen eller har frist de neste 7 dagene (fem per samling, resten bak «Vis N til»). Morgenjobben
+  (steg 10) sender det samme som én samle-e-post til `SJEKKLISTE_EPOST` (standard kurs@ipr.no) hver hverdag, bare når noe
+  har frist, høyst én gang per dag (malen `sjekkliste_paaminnelse`, typen `sjekkliste-paaminnelse`, åtte punkter per
+  samling). Ikke i helger og på røde dager. Avlyste kurs er ikke med. I demo havner e-posten i Utboks.
+- **Kursholdere** (Kalender → Kursholdere, `kurs/kursholdere.py`, migrering 22): bygget som fanen «Kommende kurs» i
+  Excel. En rad per samling og veiledningsdag (planlagte kurs og kurs i systemet), en kolonne per kursholder, rollen i ruta
+  (T/T1/T2 trainer, F facilitator, B back-up, O opplæring, V/v veileder, bv back-up veileder, «-» ikke med).
+  - **Rød** = ikke lagt inn i Psybase, **svart** = bekreftet og booket i Psybase (som skriftfargen i Excel). Det er viktig at
+    den er rød til den er booket.
+  - **Gul rute** = samme person står på to ulike samlinger som overlapper i tid. Hold musa over ruta for å se hvilken.
+  - Trykk i en rute for å sette rollen og Psybase-status. Filteret viser én kursholder; nederst står antall dager per person.
+  - Kursholderne (kort og fullt navn, aktiv) endres under «Kursholderne i listen». Axel (Axel Sverstad Toppe) og Aksel
+    (Aksel Inge Sinding) er to ulike personer.
+  - Rollene fra Excel ble lagt inn i forhåndsvisningen 03.10.2026 med et eget skript utenfor koden
+    (`C:\tmp\kurskalender\importer_kursholdere.py`: 19 kursholdere, 149 roller, 49 røde). Fritekstfeltene «Kursholdere»
+    og «Veiledere» som Excel-innlesingen laget, ble tømt; teksten vises nå fra rollene. «Andre kursholdere/veiledere
+    (fritekst)» kan fortsatt brukes.
+- **Senere (ikke bygget):** «Opprett som kurs» (fyller ut «Nytt kurs» fra planen, med farge og sjekkliste). Plan:
+  `Plan_Kurskalender_og_sjekklister_2026-10-02.md` i OneDrive.
 
 ## 5c. Kjente begrensninger: Min side og innsjekk (ikke testet av byggerne)
 

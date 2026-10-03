@@ -218,9 +218,9 @@ def test_raden_har_dato_navn_samling_sted_ansvarlig_og_paameldte(con):
     t = _side()
     rad = _rad(t.split('id="m-2027-03"')[1].split("</section>")[0], "EFT 1-årig")
     for tekst in ('<span class="odag">16.–17. mar</span>', '<span class="oukedag">tir–ons · 2 dager</span>',
-                  f'href="/admin/kurs/{kid}/deltakere"', '<div class="osamling">Samling 1 av 2</div>',
+                  f'href="/admin/kurs/{kid}/deltakere"', '<span class="osamling">Samling 1 av 2</span>',
                   '<span class="osted">IPR, Oslo</span>', '<span class="otid">kl. 09:00–16:00</span>',
-                  '<span class="oansvarlig">Anne Eksempel</span>', '<span class="opaameldte">6/24 påmeldte</span>',
+                  '<span class="oansvarlig">Ansvarlig: Anne Eksempel</span>', '<span class="opaameldte">6/24 påmeldte</span>',
                   f"kursfarge-{kursfarger.farge('EFT 1-årig')}", 'id="neste"', '<span class="merke neste">Neste kurs</span>'):
         assert tekst in rad, tekst
     assert "Samling 2 av 2" in t.split('id="m-2027-05"')[1].split("</section>")[0]
@@ -263,11 +263,27 @@ def test_kollisjon_og_status_vises_i_raden(con):
     db.meld_paa(con, kid, epost="to@example.no", fornavn="To", etternavn="Test")          # venteliste: kurset er fullt
     con.commit()
     t = _side()
-    assert '<div class="okollisjon">Samme dag som Kurs B (17. mar)</div>' in _rad(t, "Kurs A")
+    assert ('<span class="ovarsel" tabindex="0" role="img" aria-label="Advarsel: Samme dag som Kurs B (17. mar)" '
+            'title="Samme dag som Kurs B (17. mar)" data-varsel>!</span>') in _rad(t, "Kurs A")      # rødt utropstegn, tekst i boble
     assert '<span class="merke gul">Fullt</span>' in _rad(t, "Kurs B")
     assert '<span class="merke gra">Avlyst</span>' in _rad(t, "Kurs C") and "oversiktsrad kursfarge-" in _rad(t, "Kurs C")
     assert re.search(r'class="oversiktsrad kursfarge-\d+ avlyst', _rad(t, "Kurs C"))
     assert '<span class="merke gra">Utkast</span>' in _rad(t, "Kurs D")
+
+
+def test_varsel_bare_for_to_fysiske_kurs_i_samme_by_eller_to_nettkurs(con):
+    """Camilla 03.10: ikke varsel når et fysisk kurs og et online-/hybridkurs går samtidig, eller ett i Bergen og ett i Oslo."""
+    _kurs(con, "B1", "Bergen fysisk", ["2027-03-16"], type="fysisk", sted="IPR, Bergen")
+    _kurs(con, "B2", "Bergen hybrid", ["2027-03-16"], type="hybrid", sted="Zoom / IPR Bergen")
+    _kurs(con, "O1", "Oslo fysisk", ["2027-03-16"], type="fysisk", sted="Oslo")
+    _kurs(con, "W1", "Webinar", ["2027-03-16"], type="digital", sted="Zoom")
+    _kurs(con, "B3", "Bergen fysisk to", ["2027-03-17"], type="fysisk", sted="Bergen")
+    _kurs(con, "B4", "Bergen fysisk tre", ["2027-03-17"], type="fysisk", sted="IPR, Bergen")
+    t = _side()
+    for navn in ("Bergen fysisk", "Oslo fysisk"):
+        assert 'class="ovarsel"' not in _rad(t, navn), navn
+    assert 'aria-label="Advarsel: Samme dag som Webinar (16. mar)"' in _rad(t, "Bergen hybrid")   # to med nettdel
+    assert 'aria-label="Advarsel: Samme dag som Bergen fysisk tre (17. mar)"' in _rad(t, "Bergen fysisk to")
 
 
 def test_filtrene_gjelder_kursoversikten_og_nullstill_gaar_til_oversikten(con):

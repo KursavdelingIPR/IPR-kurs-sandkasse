@@ -51,6 +51,13 @@
  *                                              (data-mer="id") åpner/lukker detaljene
  *   <form data-adressegruppe> med input[data-adressefelt]   deltakervinduet, person uten komplett adresse: adressen er ikke
  *                                              påkrevd som helhet, men endres den og er noe fylt ut, blir alle tre feltene påkrevd
+ *   <article data-sjekkrad> med <a data-sjekk-veksle aria-controls="id">   kursoversikten i Kalender: pila (eller et klikk
+ *                                              på raden) folder sjekklisten (#id) ut og inn; uten JavaScript er pila en lenke
+ *   <span data-varsel title="tekst">            rødt utropstegn i kursoversikten: teksten vises i en boble (.varselboble)
+ *                                              når musa er over tegnet eller det har fokus; Esc skjuler den
+ *   <td class="kh-celle"><button>             kursholderoversikten: åpner <dialog id="rolle-dialog"> med radens samling/dag
+ *                                              (tr[data-samling], [data-dag]) og kolonnens kursholder (th[data-kh])
+ *   <button type=button data-lukk-dialog>      lukker <dialog> knappen står i
  */
 (function () {
   "use strict";
@@ -158,6 +165,102 @@
 
   document.addEventListener("click", function (e) {
     if (e.target instanceof Element && e.target.closest("[data-skriv-ut]")) { e.preventDefault(); window.print(); }
+  });
+
+  // Kursoversikten i Kalender: sjekklisten under et planlagt kurs foldes ut og inn med pila til høyre på raden eller et
+  // klikk et annet sted på raden. Lenker, knapper og skjema i raden, og alt i selve sjekklisten, gjør det de ellers gjør.
+  document.addEventListener("click", function (e) {
+    if (!(e.target instanceof Element) || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    var rad = e.target.closest("[data-sjekkrad]");
+    var pil = rad && rad.querySelector("[data-sjekk-veksle]");
+    if (!pil) return;
+    if (!pil.contains(e.target) && (e.target.closest("a, button, input, select, textarea, label, summary, form, .osjekk, [data-varsel]") ||
+                                    String(window.getSelection()).length)) return;
+    var panel = document.getElementById(pil.getAttribute("aria-controls"));
+    if (!panel) return;
+    e.preventDefault();
+    var aapne = panel.hidden;
+    panel.hidden = !aapne;
+    pil.setAttribute("aria-expanded", aapne ? "true" : "false");
+    rad.classList.toggle("sk-apen", aapne);
+  });
+
+  // Kursoversikten i Kalender: et rødt utropstegn ved navnet (data-varsel) betyr at et annet kurs går samme dag. Teksten vises
+  // i en boble under tegnet når musa er over det eller det har fokus (Tab, eller et trykk på mobil), og Esc skjuler den.
+  // Boblen ligger rett i <body> med position:fixed, så raden (overflow:hidden) ikke klipper den. Teksten flyttes fra title
+  // (nettleserens egen boble, uten JavaScript) til data-varsel, så det ikke kommer to bobler. Den leses opp fra aria-label.
+  var varselboble = null, varselEier = null;
+  function visVarsel(el) {
+    if (el.hasAttribute("title")) { el.setAttribute("data-varsel", el.getAttribute("title")); el.removeAttribute("title"); }
+    if (!varselboble) {
+      varselboble = document.createElement("div");
+      varselboble.className = "varselboble";
+      varselboble.setAttribute("aria-hidden", "true");
+      document.body.appendChild(varselboble);
+    }
+    varselboble.textContent = el.getAttribute("data-varsel");
+    varselboble.style.display = "block";
+    var r = el.getBoundingClientRect(), b = varselboble.getBoundingClientRect();
+    var topp = r.bottom + 8;
+    if (topp + b.height > window.innerHeight - 8) topp = Math.max(8, r.top - b.height - 8);
+    varselboble.style.left = Math.max(8, Math.min(r.left + r.width / 2 - b.width / 2, window.innerWidth - b.width - 8)) + "px";
+    varselboble.style.top = topp + "px";
+    varselEier = el;
+  }
+  function skjulVarsel() {
+    if (varselboble) varselboble.style.display = "none";
+    varselEier = null;
+  }
+  document.querySelectorAll("[data-varsel][title]").forEach(function (el) {
+    el.setAttribute("data-varsel", el.getAttribute("title"));
+    el.removeAttribute("title");
+  });
+  document.addEventListener("mouseover", function (e) {
+    var el = e.target instanceof Element && e.target.closest("[data-varsel]");
+    if (el && el !== varselEier) visVarsel(el);
+  });
+  document.addEventListener("mouseout", function (e) {
+    var el = e.target instanceof Element && e.target.closest("[data-varsel]");
+    if (el && el === varselEier && document.activeElement !== el) skjulVarsel();
+  });
+  document.addEventListener("focusin", function (e) {
+    var el = e.target instanceof Element && e.target.closest("[data-varsel]");
+    if (el) visVarsel(el);
+    else if (varselEier) skjulVarsel();
+  });
+  document.addEventListener("focusout", function (e) {
+    if (varselEier && e.target === varselEier) skjulVarsel();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && varselEier) skjulVarsel();
+  });
+  // Ruller siden (også når fokus flytter tegnet inn i bildet), følger boblen med tegnet
+  window.addEventListener("scroll", function () { if (varselEier) visVarsel(varselEier); }, true);
+  window.addEventListener("resize", function () { if (varselEier) visVarsel(varselEier); });
+
+  // Kursholderoversikten: en rute åpner dialogen med rollen og Psybase-krysset for kursholderen (kolonnen) på samlingen
+  // eller veiledningsdagen (raden). Rød skrift i ruta (psy-0) = ikke krysset av for Psybase.
+  document.addEventListener("click", function (e) {
+    var knapp = e.target instanceof Element && e.target.closest("td.kh-celle > button");
+    var dialog = document.getElementById("rolle-dialog");
+    if (!knapp || !dialog || typeof dialog.showModal !== "function") return;
+    var td = knapp.parentElement, tr = td.parentElement;
+    var th = tr.closest("table").tHead.rows[0].cells[td.cellIndex];
+    var f = dialog.querySelector("form");
+    f.elements.samling_id.value = tr.getAttribute("data-samling");
+    f.elements.dag.value = tr.getAttribute("data-dag") || "";
+    f.elements.kursholder_id.value = th.getAttribute("data-kh");
+    var rolle = knapp.textContent.trim();
+    Array.prototype.forEach.call(f.querySelectorAll("input[name=rolle]"), function (r) { r.checked = r.value === rolle; });
+    f.elements.psybase.checked = rolle !== "" && !td.classList.contains("psy-0");
+    dialog.querySelector("[data-rolle-tittel]").textContent = th.textContent.trim() + " · " + tr.getAttribute("data-tittel");
+    dialog.showModal();
+  });
+
+  document.addEventListener("click", function (e) {
+    var knapp = e.target instanceof Element && e.target.closest("[data-lukk-dialog]");
+    var dialog = knapp && knapp.closest("dialog");
+    if (dialog) dialog.close();
   });
 
   // Samlingsvalget for ekstradeltaker: en avkrysset samling betyr «Bare utvalgte samlinger», og «Hele kurset» fjerner avkrysningene

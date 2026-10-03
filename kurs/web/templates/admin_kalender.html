@@ -2,9 +2,17 @@
 {% block sideklasse %} class="bred"{% endblock %}
 {% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='kursfarger.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='kalender.css') }}">{% endblock %}
+<link rel="stylesheet" href="{{ url_for('static', filename='kalender.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='sjekkliste.css') }}">{% endblock %}
+{% from "_sjekkliste.html" import radpanel with context %}
+{% macro kurslenke(h) %}{{ url_for('admin_kalender_planlagt', plan_id=h.plan_id) if h.planlagt else url_for('admin_kurs_deltakere', kurs_id=h.kurs_id) }}{% endmacro %}
+{% macro planmerker(h) %}
+  {%- if h.planlagt %} <span class="merke planlagt" title="Fra kursplanen – ikke opprettet i påmeldingssystemet ennå">Planlagt kurs</span>{% endif %}
+  {%- if h.ekstern %} <span class="merke gra" title="Annen arrangør">{{ h.arrangor or 'Annen arrangør' }}</span>{% endif %}
+  {%- if h.sjekk %} <span class="merke gul" title="{{ h.sjekk }}">Må sjekkes</span>{% endif %}
+{%- endmacro %}
 {% macro hendelseskort(h, dagnr=none) %}
-<a class="kalenderkort kursfarge-{{ h.farge }} {{ h.status }}" href="{{ url_for('admin_kurs_deltakere', kurs_id=h.kurs_id) }}" title="{{ h.beskrivelse }}">
+<a class="kalenderkort kursfarge-{{ h.farge }} {{ h.klasser }}{{ ' forfalt' if h.sjekkliste and h.sjekkliste.forfalt }}" href="{{ kurslenke(h) }}" title="{{ h.beskrivelse }}">
   <span class="kortnavn">{{ h.navn }}</span>
   <span class="kortdetaljer">
     <span>{{ h.sted_visning }}</span>
@@ -13,30 +21,58 @@
   <span class="kortdetaljer dempet">
     {%- if dagnr %}Dag {{ dagnr }} av {{ h.dager }}{% else %}{{ h.periode }}{% if h.dager > 1 %} ({{ h.dager }} dager){% endif %}{% endif %}
     {%- if h.samling_tekst %} · {{ h.samling_tekst }}{% endif %}
+    {%- if h.veiledning_tekst %} · {{ h.veiledning_tekst }}{% endif %}
     {%- if h.ansvarlig %} · {{ h.ansvarlig }}{% endif %}
+    {%- if h.planlagt %} · <strong>planlagt kurs</strong>{% endif %}
     {%- if h.status in ('avlyst', 'utkast') %} · <strong>{{ h.status }}</strong>{% endif %}
   </span>
 </a>
 {% endmacro %}
+{#- Et annet kurs samme dag(er): rødt utropstegn ved navnet. Teksten vises i en boble når musa er over tegnet eller det har
+    fokus (static/app.js), og leses opp fra aria-label. Uten JavaScript vises nettleserens egen boble (title). -#}
+{% macro varsel(samme_dag) -%}
+{%- set tekst %}Samme dag som {% for navn, dager in samme_dag %}{{ navn }} ({{ dager }}){{ ', ' if not loop.last }}{% endfor %}{% endset -%}
+<span class="ovarsel" tabindex="0" role="img" aria-label="Advarsel: {{ tekst }}" title="{{ tekst }}" data-varsel>!</span>
+{%- endmacro %}
+{#- Alle egne kurs (planlagte og kurs i systemet, ikke avlyste og ikke annen arrangør) har sjekklisten under raden: pila til
+    høyre (og et klikk på raden, static/app.js) folder den ut og inn. Uten JavaScript er pila en lenke som laster siden med
+    ?apen=<samling>. Statusen (ferdig, forfalt, snart) står øverst i sjekklisten, ikke på raden (Camilla 03.10: «Det holder
+    med å kunne trykke på kursene»). Sjekklisten til et kurs i systemet ligger på et skjult planlagt kurs (h.sjekk_plan_id). Raden er slank
+    (Camilla 03.10: «Er det mulig å gjøre de smalere?»): navnet på én linje, og merker, samling, kursholdere og ansvarlig på
+    linja under. -#}
 {% macro oversiktsrad(r, anker=true) %}{% set h = r.h %}
-<article class="oversiktsrad kursfarge-{{ h.farge }} {{ h.status }}{{ ' tidligere' if r.tidligere }}{{ ' pagar' if r.pagar }}{{ ' neste' if r.neste }}"{% if r.neste and anker %} id="neste"{% endif %}>
-  <div class="odato"><span class="odag">{{ h.kort_periode }}</span><span class="oukedag">{{ h.ukedager }}</span></div>
+{%- set sjekkbar = anker and h.sjekk_plan_id and h.status != 'avlyst' and not h.ekstern %}
+{%- set er_apen = sjekkbar and apen == h.samling_id %}
+<article class="oversiktsrad kursfarge-{{ h.farge }} {{ h.klasser }}{{ ' tidligere' if r.tidligere }}{{ ' pagar' if r.pagar }}{{ ' neste' if r.neste }}{{ ' har-sjekkliste' if sjekkbar }}{{ ' sk-apen' if er_apen }}"{% if r.neste and anker %} id="neste"{% endif %}{% if sjekkbar %} data-sjekkrad{% endif %}>
+  <div class="odato"{% if sjekkbar %} id="sk-{{ h.samling_id }}"{% endif %}><span class="odag">{{ h.kort_periode }}</span><span class="oukedag">{{ h.ukedager }}</span></div>
   <div class="oinnhold">
     <div class="ohoved">
-      <div class="otittel"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=h.kurs_id) }}" title="{{ h.beskrivelse }}">{{ h.navn }}</a>
+      <div class="otittel"><a href="{{ kurslenke(h) }}" title="{{ h.beskrivelse }}">{{ h.navn }}</a>
+        {%- if r.samme_dag %} {{ varsel(r.samme_dag) }}{% endif %}
         {%- if r.neste %} <span class="merke neste">Neste kurs</span>{% endif %}
         {%- if r.pagar %} <span class="merke pagar">{{ 'I dag' if h.fra == h.til else 'Pågår' }}</span>{% endif %}
         {%- if h.status == 'full' %} <span class="merke gul">Fullt</span>{% elif h.status == 'avlyst' %} <span class="merke gra">Avlyst</span>{% elif h.status == 'utkast' %} <span class="merke gra">Utkast</span>{% endif %}</div>
-      {% if h.samling_tekst %}<div class="osamling">{{ h.samling_tekst }}</div>{% endif %}
-      {% if r.samme_dag %}<div class="okollisjon">Samme dag som {% for navn, dager in r.samme_dag %}{{ navn }} ({{ dager }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+      {%- if h.planlagt or h.ekstern or h.sjekk or h.samling_tekst or h.veiledning_tekst or h.kursholdere or h.ansvarlig %}
+      <div class="ounder">{{ planmerker(h) }}
+        {%- if h.samling_tekst or h.veiledning_tekst %} <span class="osamling">{{ h.samling_tekst }}{{ ' · ' if h.samling_tekst and h.veiledning_tekst }}{{ h.veiledning_tekst }}</span>{% endif %}
+        {%- if h.kursholdere %} <span class="oholdere">{{ 'Kursholdere' if ',' in h.kursholdere else 'Kursholder' }}: {{ h.kursholdere }}</span>{% endif %}
+        {%- if h.ansvarlig %} <span class="oansvarlig">Ansvarlig: {{ h.ansvarlig }}</span>{% endif %}</div>
+      {%- endif %}
     </div>
-    <div class="ometa"><span class="osted">{{ h.sted_visning }}</span><span class="otid">{{ ('kl. ' ~ h.tid) if h.tid }}</span><span class="oansvarlig">{{ h.ansvarlig or '' }}</span><span class="opaameldte">{{ h.paameldte_tekst }}</span></div>
+    <div class="ometa"><span class="ohvor"><span class="osted">{{ h.sted_visning }}</span><span class="otid">{{ ('kl. ' ~ h.tid) if h.tid }}</span></span><span class="opaameldte">{{ h.paameldte_tekst }}</span>
+      {%- if sjekkbar %}<a class="opil" href="{{ apne_lenke(h.samling_id, er_apen) }}" aria-controls="skpanel-{{ h.samling_id }}"
+         aria-expanded="{{ 'true' if er_apen else 'false' }}" data-sjekk-veksle><span class="skjul-visuelt">Sjekkliste</span><span class="opil-tegn" aria-hidden="true"></span></a>{% endif %}</div>
   </div>
+  {% if sjekkbar %}
+  <div class="osjekk" id="skpanel-{{ h.samling_id }}"{% if not er_apen %} hidden{% endif %}>{{ radpanel(h.sjekkliste, h.sjekk_plan_id, h.samling_id, her, h.har_mal, h.booking) }}</div>
+  {% endif %}
 </article>
 {% endmacro %}
 {% block innhold %}
 <h1>Kurskalender</h1>
-<p class="sub">Kursene i den rekkefølgen de kommer – neste kurs øverst. Samme farge betyr samme kursserie eller utdanning.</p>
+<p class="sub">Kursene i den rekkefølgen de kommer – neste kurs øverst. Samme farge betyr samme kurs eller kursserie: alle
+  samlingene i et kurs har samme farge. Kurs merket «Planlagt kurs» er fra kursplanen og er ikke opprettet i systemet ennå
+  (fanen Planlagte kurs).</p>
 {% set visning = 'kalender' %}
 {% include "admin_aktivitet_faner.html" %}
 
@@ -62,6 +98,7 @@
   <div><label for="f-status">Status</label><select id="f-status" name="status">
       <option value="" {{ 'selected' if not status }}>Alle</option>
       {% for s in kurs_statusverdier %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ s|capitalize }}</option>{% endfor %}
+      <option value="planlagt" {{ 'selected' if status == 'planlagt' }}>Planlagt kurs (ikke opprettet)</option>
     </select>
   </div>
   <div class="handlinger">
@@ -80,6 +117,7 @@
   <p class="forklaring">
     <span><span class="prove farge">&nbsp;</span> farge = kursserie (samme farge = samme utdanning)</span>
     <span><span class="prove avlyst">Avlyst</span></span><span><span class="prove utkast">Utkast</span></span>
+    <span><span class="merke planlagt">Planlagt kurs</span> fra kursplanen</span><span><span class="prove ekstern">&nbsp;</span> annen arrangør</span>
   </p>
   {% endif %}
   <nav class="visningsvalg" aria-label="Visning">
@@ -91,13 +129,15 @@
 {% if kalendervisning != 'oversikt' %}<p class="forklaring">
   <span><span class="prove farge">&nbsp;</span> farge = kursserie (samme farge = samme utdanning)</span>
   <span><span class="prove avlyst">Avlyst</span></span><span><span class="prove utkast">Utkast</span></span>
+  <span><span class="merke planlagt">Planlagt kurs</span> fra kursplanen</span><span><span class="prove ekstern">&nbsp;</span> annen arrangør</span>
   <span><span class="prove rod">17</span> rød dag</span><span><span class="prove helg">L</span> helg</span>
+  <span><span class="prove forfalt">&nbsp;</span> forfalt i sjekklisten</span>
 </p>{% endif %}
 
 {% if kalendervisning == 'oversikt' %}
 {% if oversikt.neste or oversikt.i_dag %}
 <div class="nestelinje">
-  {% if oversikt.i_dag %}<p><strong>I dag:</strong> {% for r in oversikt.i_dag %}<a href="{{ url_for('admin_kurs_deltakere', kurs_id=r.h.kurs_id) }}">{{ r.h.navn }}</a>{% if r.h.samling_tekst %} <span class="dempet">({{ r.h.samling_tekst|lower }})</span>{% endif %}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+  {% if oversikt.i_dag %}<p><strong>I dag:</strong> {% for r in oversikt.i_dag %}<a href="{{ kurslenke(r.h) }}">{{ r.h.navn }}</a>{% if r.h.samling_tekst %} <span class="dempet">({{ r.h.samling_tekst|lower }})</span>{% endif %}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
   {% if oversikt.neste %}{% set n = oversikt.neste.h %}<p><strong>Neste kurs:</strong> <a href="#neste">{{ n.kort_periode }} · {{ n.navn }}</a> <span class="dempet">– {{ oversikt.neste_om }}</span></p>{% endif %}
 </div>
 {% endif %}
@@ -126,6 +166,16 @@
   {% endfor %}
 </details>
 {% endif %}
+{% if fargeforklaring %}
+<details class="fargeforklaring" id="farger">
+  <summary>Fargene: kurs med flere samlinger <span class="dempet">– {{ fargeforklaring|length }} kurs, alle samlingene</span></summary>
+  <ul>
+    {% for f in fargeforklaring %}<li class="kursfarge-{{ f.farge }}"><span class="fargeprove" aria-hidden="true"></span>
+      <a href="{{ url_for('admin_kalender_planlagt', plan_id=f.plan_id) if f.planlagt else url_for('admin_kurs_deltakere', kurs_id=f.kurs_id) }}">{{ f.navn }}</a>{% if f.planlagt %} <span class="merke planlagt">Planlagt kurs</span>{% endif %}
+      <span class="dempet">{{ f.samlinger|join(' · ') }}</span></li>{% endfor %}
+  </ul>
+</details>
+{% endif %}
 {% endif %}
 
 {% if kalendervisning == 'maned' %}
@@ -142,9 +192,9 @@
     </div>
     {% endfor %}
     {% for bane in u.baner %}{% set rad = loop.index + 1 %}{% for s in bane %}
-    <a class="hendelse kursfarge-{{ s.hendelse.farge }} {{ s.hendelse.status }}{{ ' fra-forrige' if s.fra_forrige }}{{ ' til-neste' if s.til_neste }}"
+    <a class="hendelse kursfarge-{{ s.hendelse.farge }} {{ s.hendelse.klasser }}{{ ' fra-forrige' if s.fra_forrige }}{{ ' til-neste' if s.til_neste }}{{ ' forfalt' if s.hendelse.sjekkliste and s.hendelse.sjekkliste.forfalt }}"
        style="grid-column:{{ s.kolonne + 1 }} / span {{ s.lengde }}; grid-row:{{ rad }}"
-       href="{{ url_for('admin_kurs_deltakere', kurs_id=s.hendelse.kurs_id) }}" title="{{ s.hendelse.beskrivelse }}">
+       href="{{ kurslenke(s.hendelse) }}" title="{{ s.hendelse.beskrivelse }}">
       {%- if s.fra_forrige %}◂ {% endif %}{% if s.hendelse.tid and not s.fra_forrige %}<span class="klokke">{{ s.hendelse.start_kl }}</span> {% endif %}{{ s.hendelse.navn }}
       {%- if s.hendelse.samling_tekst %} <span class="samling">({{ s.hendelse.nr }}/{{ s.hendelse.antall }})</span>{% endif %}{% if s.til_neste %} ▸{% endif %}</a>
     {% endfor %}{% endfor %}

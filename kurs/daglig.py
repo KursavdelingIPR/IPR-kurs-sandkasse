@@ -16,12 +16,13 @@ Rekkefolge:
   7. Sletting av sensitive opplysninger
   8. Rydding av utlopte import-forhaandsvisninger (fase 10)
   9. Min side: gruppelister (tabeller med navn) tommes KURSSIDE_TOM_TABELLER_ETTER_DAGER dager etter siste kursdag
+ 10. Sjekklister for planlagte kurs: en samle-e-post hver hverdag til kurspostboksen naar noe er forfalt eller har frist snart
 """
 import argparse
 from datetime import date, timedelta
 
 from . import (config, db, firmaopplysninger, import_deltakere, kursbevis, lenker, maltekster, privatadresse, sidelager,
-               sveiper)
+               sjekklister, sveiper)
 from .integrasjoner import zoom
 from .feil import sikker_feiltekst
 from .kjoring import Kjoring
@@ -113,6 +114,8 @@ def kjor(k: Kjoring) -> None:
     _steg(k, "importrydding", _rydd_import_forhaandsvisninger, k)
     k.si("9. Min side")
     _steg(k, "kursside", _kursside, k)
+    k.si("10. Sjekklister")
+    _steg(k, "sjekklister", _sjekklister, k)
     if k.sending_stanset:
         k.si("OBS: e-posttjenesten feilet flere ganger på rad - resten av dagens e-poster sendes ved neste kjøring.")
     if k.feil:
@@ -360,6 +363,24 @@ def _kursside(k):
         k.si(f"  {'[TØRR] ville tømt' if k.tor else 'tømte'} gruppetabeller på Min side for {antall} kurs")
         if not k.tor:
             db.logg(k.con, "kursside_tabeller_tomt", {"antall_kurs": antall})
+
+
+def _sjekklister(k):
+    """Påminnelse om sjekklistene for planlagte kurs (kurs/sjekklister.py): ÉN samle-e-post til config.SJEKKLISTE_EPOST
+    (kurs@ipr.no) med punktene som har passert fristen og dem som har frist de neste SNART_DAGER dagene. Bare på hverdager
+    (ikke helg eller røde dager) og bare når det er noe å si fra om. Nøkkelen har datoen, så send_en_gang sender den høyst
+    én gang per dag: kjøres jobben på nytt samme dag, skjer ingenting. Tørrkjøring sender ingenting."""
+    if not k.tor:
+        sjekklister.synk_kurs(k.con, k.idag)           # sjekkliste på alle kurs i systemet, med datoene i takt
+    if not sjekklister.er_virkedag(k.idag):
+        return
+    p = sjekklister.paaminnelser(k.con, k.idag)
+    if not p["samlinger"]:
+        return
+    k.si(f"  sjekklister: {p['forfalt']} punkt(er) forfalt, {p['snart']} med frist de neste {sjekklister.SNART_DAGER} dagene")
+    k.send_en_gang(f"sjekkliste:{k.idag.isoformat()}", config.SJEKKLISTE_EPOST, "sjekkliste-paaminnelse",
+                   "sjekkliste_paaminnelse", samlinger=p["samlinger"], antall_forfalt=p["forfalt"],
+                   antall_snart=p["snart"])
 
 
 def main(argv=None):

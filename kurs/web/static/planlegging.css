@@ -60,6 +60,15 @@ table.aktivitetstabell tr.avlyst td.tittel a { color:var(--avlyst); text-decorat
 .statkort .kort.krever { border-left:4px solid var(--gul); padding-left:13px; }
 .statkort .kort.krever.feil { border-left-color:var(--feil); }
 .statkort .stat { font-size:26px; line-height:1.25; }
+/* Oversikten: punktene i sjekklistene for planlagte kurs som er forfalt eller har frist snart (sjekklister.paaminnelser) */
+.sjekkvarsel { display:grid; gap:10px; max-width:1040px; }
+.sjekkvarsel section { padding:10px 16px; border:1px solid var(--linje); border-radius:8px; background:#fff; }
+.sjekkvarsel h3 { margin:0 0 4px; font-size:15px; }
+.sjekkvarsel h3 .dempet { margin-left:6px; font-size:13px; font-weight:400; }
+.sjekkvarsel ul { margin:0; padding:0; list-style:none; }
+.sjekkvarsel li { padding:3px 0; font-size:14px; overflow-wrap:anywhere; }
+.sjekkvarsel li .merke { margin-right:6px; }
+.sjekkvarsel details.flere > summary { cursor:pointer; padding:3px 0; font-size:13px; color:var(--bla); }
 /* Filterlinjen over kurslisten: feltene i ulik bredde på én rad når det er plass (Status har den lengste teksten) */
 #kursfilter { display:flex; flex-wrap:wrap; align-items:flex-end; gap:0 14px; }
 #kursfilter > div { flex:1 1 150px; min-width:140px; max-width:240px; }
@@ -276,4 +285,50 @@ label.valg input { width:auto; margin:0; }
   .ukedag { padding:0 2px 2px; font-size:10px; }
   .aarsplankort { grid-template-columns:1fr; }
   .periodetabell td.handling { text-align:left; }
+}
+
+/* Planlagte kurs (kurs/planlagte_kurs.py): kurs fra kursplanen som ikke er opprettet i systemet. Fargen er kursets lagrede
+   farge (kursfarger.css). «Annen arrangør» er grå: .ekstern overstyrer fargen i kalender.css og aarsplan.css, som lastes
+   etter kursfarger.css. */
+.merke.planlagt { background:#fff; color:var(--bla); box-shadow:inset 0 0 0 1px var(--bla); font-weight:600; }
+.prove.ekstern { background:var(--avlyst-lys); box-shadow:inset 0 0 0 1px var(--avlyst); }
+.fargeprove { display:inline-block; flex:none; width:14px; height:14px; border-radius:3px; background:var(--kf, var(--fysisk));
+              vertical-align:-2px; }
+.oversiktsrad .oholdere { color:var(--dempet); }
+details.fargeforklaring { margin:14px 0 0; padding:10px 14px; border:1px solid var(--linje); border-radius:10px; background:#fff; }
+details.fargeforklaring > summary { cursor:pointer; font-weight:600; color:var(--bla); }
+details.fargeforklaring ul { display:grid; gap:6px; margin:10px 0 0; padding:0; list-style:none; }
+details.fargeforklaring li { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; font-size:14px; }
+.planverktoy { justify-content:space-between; align-items:center; }
+.planliste { display:grid; gap:8px; margin-top:8px; }
+.planrad { padding:8px 14px; border:1px solid var(--linje); border-left:6px solid var(--kf, var(--fysisk)); border-radius:0 10px 10px 0;
+           background:#fff; }
+.planrad.avlyst { border-left-color:var(--avlyst); }
+.planrad.avlyst .plannavn { color:var(--avlyst); text-decoration:line-through; }
+.planhode { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; }
+.plannavn { font-size:15.5px; font-weight:600; }
+.plansamlinger { margin:4px 0 0; padding-left:18px; font-size:13.5px; }
+.plandato { font-variant-numeric:tabular-nums; white-space:nowrap; }
+.plantittel { display:flex; align-items:center; gap:10px; }
+.plantittel .fargeprove { width:20px; height:20px; border-radius:4px; }
+.samlingkort { border-left:6px solid var(--kf, var(--fysisk)); }
+.samlingkort h3 { margin:0 0 6px; }
+dl.plandetaljer { display:grid; grid-template-columns:9em minmax(0, 1fr); gap:3px 12px; margin:0; font-size:14px; }
+dl.plandetaljer dt { color:var(--dempet); }
+dl.plandetaljer dd { margin:0; }
+dl.plandetaljer dd .merke { white-space:normal; }
+details.endre { margin-top:8px; }
+details.endre > summary { cursor:pointer; color:var(--bla); font-size:14px; }
+.fargevalg { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin:10px 0; padding:0; border:0; }
+.fargevalg legend { width:100%; padding:0; }
+.fargealt { position:relative; display:inline-flex; align-items:center; cursor:pointer; }
+.fargealt input { position:absolute; width:1px; height:1px; opacity:0; }
+.fargealt .fargeprove { width:24px; height:24px; border-radius:5px; }
+.fargealt input:checked + .fargeprove { box-shadow:0 0 0 2px #fff, 0 0 0 4px var(--tekst); }
+.fargealt input:focus-visible + .fargeprove { outline:2px solid var(--bla); outline-offset:4px; }
+.rad > .bred { grid-column:span 2; }          /* skjemaene for planlagte kurs: navn, kursholdere og veiledere får plass */
+@media (max-width: 640px) {
+  dl.plandetaljer { grid-template-columns:1fr; }
+  dl.plandetaljer dt { margin-top:4px; }
+  .rad > .bred { grid-column:auto; }
 }

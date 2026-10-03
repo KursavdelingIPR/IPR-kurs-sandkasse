@@ -3,7 +3,8 @@
 {% block sideklasse %} class="bred"{% endblock %}
 {% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='kursfarger.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='aarsplan.css') }}">{% endblock %}
+<link rel="stylesheet" href="{{ url_for('static', filename='aarsplan.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='sjekkliste.css') }}">{% endblock %}
 {% from "_periodefelt.html" import periodefelt with context %}
 {% block innhold %}
 <h1>Årsplan {{ aar }}</h1>
@@ -16,7 +17,7 @@
   <a class="knapp sekundar liten" href="{{ url_for('admin_aarsplan', aar=aar - 1, vis=aarsvisning if aarsvisning != 'aar' else None, omraade=omraade or None) }}">« {{ aar - 1 }}</a>
   <a class="knapp sekundar liten" href="{{ url_for('admin_aarsplan', aar=aar + 1, vis=aarsvisning if aarsvisning != 'aar' else None, omraade=omraade or None) }}">{{ aar + 1 }} »</a>
   {% if aar != idag.year %}<a class="liten" href="{{ url_for('admin_aarsplan', vis=aarsvisning if aarsvisning != 'aar' else None, omraade=omraade or None) }}">I år</a>{% endif %}
-  <span class="liten dempet">{{ antall_kurs }} kurs · {{ antall_kursdager }} kursdag{{ 'er' if antall_kursdager != 1 }} · {{ antall_planer }} {{ 'planlagt aktivitet' if antall_planer == 1 else 'planlagte aktiviteter' }}</span>
+  <span class="liten dempet">{{ antall_kurs }} kurs · {{ antall_kursdager }} kursdag{{ 'er' if antall_kursdager != 1 }}{% if antall_planlagte_kurs %} · {{ antall_planlagte_kurs }} {{ 'planlagt kurs' if antall_planlagte_kurs == 1 else 'planlagte kurs' }}{% endif %} · {{ antall_planer }} {{ 'planlagt aktivitet' if antall_planer == 1 else 'planlagte aktiviteter' }}</span>
   <form method="get" class="omraadevalg">
     <input type="hidden" name="aar" value="{{ aar }}">{% if aarsvisning != 'aar' %}<input type="hidden" name="vis" value="{{ aarsvisning }}">{% endif %}
     <label for="f-omraade" class="liten">Skoleferier:</label>
@@ -42,6 +43,9 @@
 <p class="forklaring">
   <span><span class="prove farge">&nbsp;</span> kurs (farge = kursserie)</span>
   <span><span class="prove plan">&nbsp;</span> planlagt</span>
+  <span><span class="merke planlagt">Planlagt kurs</span> fra kursplanen</span>
+  <span><span class="prove ekstern">&nbsp;</span> annen arrangør</span>
+  <span><span class="prove forfalt">&nbsp;</span> forfalt i sjekklisten</span>
   <span><span class="prove kollisjon">5</span> kollisjon: flere samme dag</span>
   <span><span class="prove rod">17</span> rød dag</span>
   <span><span class="prove skoleferie">&nbsp;</span> skoleferie</span>
@@ -63,7 +67,7 @@
         <span class="miniukenr">{{ u.nr }}</span>
         {% for d in u.dager %}<span class="minidag {{ d.klasser }}" style="grid-column:{{ loop.index + 1 }}"{% if d.tittel %} title="{{ d.tittel }}"{% endif %}>{% if d.i_maaneden %}<span class="dnr">{{ d.dato.day }}</span>{% endif %}</span>{% endfor %}
         {% for bane in u.baner %}{% set rad = loop.index + 1 %}{% for b in bane %}
-        {% if b.type == 'kurs' %}<a class="miniblokk kursfarge-{{ b.farge }} {{ b.status }}{{ ' fra-forrige' if b.fra_forrige }}{{ ' til-neste' if b.til_neste }}" href="{{ url_for('admin_kurs_deltakere', kurs_id=b.kurs_id) }}"
+        {% if b.type == 'kurs' %}<a class="miniblokk kursfarge-{{ b.farge }} {{ b.klasser }}{{ ' fra-forrige' if b.fra_forrige }}{{ ' til-neste' if b.til_neste }}{{ ' forfalt' if b.samling_id and b.samling_id in forfalte }}" href="{{ url_for('admin_kalender_planlagt', plan_id=b.plan_id) if b.plan_id else url_for('admin_kurs_deltakere', kurs_id=b.kurs_id) }}"
         {%- else %}<span class="miniblokk planblokk{{ ' fra-forrige' if b.fra_forrige }}{{ ' til-neste' if b.til_neste }}"{% endif %}
            style="grid-column:{{ b.kolonne + 2 }} / span {{ b.spenn }}; grid-row:{{ rad }}; --andel:{{ b.andel }}" title="{{ b.tittel }}">{{ b.tekst }}{% if b.type == 'kurs' %}</a>{% else %}</span>{% endif %}
         {% endfor %}{% endfor %}
@@ -81,8 +85,8 @@
   <section class="ukerad{{ ' ledig' if u.ledig }}" role="listitem" aria-label="Uke {{ u.nr }}, {{ u.tekst }}">
     <div class="ukehode"><strong>Uke {{ u.nr }}{% if u.iso_aar != aar %} ({{ u.iso_aar }}){% endif %}</strong><span>{{ u.tekst }}</span></div>
     <ul class="ukeaktiviteter">
-      {% for b in blokker|sort(attribute='fra') %}<li class="{{ ('kursfarge-' ~ b.farge) if b.type == 'kurs' else 'plan' }}{{ ' ' ~ b.status if b.status in ('utkast',) }}">
-        {%- if b.type == 'kurs' %}<a href="{{ url_for('admin_kurs_deltakere', kurs_id=b.kurs_id) }}">{{ b.tittel }}</a>{% if b.samling_tekst %}, {{ b.samling_tekst }}{% endif %}
+      {% for b in blokker|sort(attribute='fra') %}<li class="{{ ('kursfarge-' ~ b.farge) if b.type == 'kurs' else 'plan' }}{{ ' ' ~ b.klasser if b.klasser }}">
+        {%- if b.type == 'kurs' %}<a href="{{ url_for('admin_kalender_planlagt', plan_id=b.plan_id) if b.plan_id else url_for('admin_kurs_deltakere', kurs_id=b.kurs_id) }}">{{ b.tittel }}</a>{% if b.samling_tekst %}, {{ b.samling_tekst }}{% endif %}{% if b.plan_id %} <span class="merke planlagt">Planlagt kurs</span>{% endif %}{% if b.samling_id and b.samling_id in forfalte %} <span class="merke feil">Forfalt i sjekklisten</span>{% endif %}
         {%- else %}<span class="merke gul">Planlagt</span> {{ b.tittel }}{% endif %}
         <span class="dempet">· {{ b.periode }}{% if b.sted %} · {{ b.sted }}{% endif %}{% if b.status == 'utkast' %} · utkast{% endif %}</span></li>
       {%- else %}<li class="ledig">Ingen kurs</li>{% endfor %}
@@ -93,6 +97,17 @@
   </section>
   {% endfor %}
 </div>
+{% endif %}
+
+{% if fargeforklaring %}
+<details class="fargeforklaring ikke-utskrift" id="farger">
+  <summary>Fargene: kurs med flere samlinger <span class="dempet">– {{ fargeforklaring|length }} kurs i {{ aar }}, alle samlingene</span></summary>
+  <ul>
+    {% for f in fargeforklaring %}<li class="kursfarge-{{ f.farge }}"><span class="fargeprove" aria-hidden="true"></span>
+      <a href="{{ url_for('admin_kalender_planlagt', plan_id=f.plan_id) if f.plan_id else url_for('admin_kurs_deltakere', kurs_id=f.kurs_id) }}">{{ f.navn }}</a>{% if f.plan_id %} <span class="merke planlagt">Planlagt kurs</span>{% endif %}
+      <span class="dempet">{{ f.samlinger|join(' · ') }}</span></li>{% endfor %}
+  </ul>
+</details>
 {% endif %}
 
 <div class="aarsplankort">
@@ -113,7 +128,8 @@
   </section>
   <section class="kort" id="overlapp">
     <h2>Kollisjoner</h2>
-    <p class="liten dempet">Dager med to eller flere kurs eller planlagte aktiviteter. Rød ramme i kalenderen.</p>
+    <p class="liten dempet">Dager med to eller flere kurs eller planlagte aktiviteter. Kurs med annen arrangør teller bare når både de
+      og vi har fysisk kurs på samme sted. Rød ramme i kalenderen.</p>
     {% if overlapp %}<ul class="kollisjonsliste">
       {% for o in overlapp %}<li><strong>{{ o.tekst }}</strong>: {{ o.navn }}</li>{% endfor %}
     </ul>{% else %}<p class="liten dempet">Ingen dager med mer enn ett kurs eller én planlagt aktivitet.</p>{% endif %}
@@ -123,7 +139,7 @@
     <p class="liten dempet">Kurs i sperrede perioder og perioder med advarsel, og kurs på røde dager. Bare til orientering – ingenting er stoppet.</p>
     {% if konflikter %}<ul class="konfliktliste">
       {% for k in konflikter %}<li class="{{ k.alvor }}"><span class="merke {{ {'sperre': 'feil', 'advarsel': 'gul', 'rod': 'gra'}[k.alvor] }}">{{ {'sperre': 'Sperret', 'advarsel': 'Advarsel', 'rod': 'Rød dag'}[k.alvor] }}</span>
-        <strong>{{ k.datotekst }}</strong> · <a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.kurs.id) }}">{{ k.kurs.navn }}</a>{% if k.kurs.status == 'utkast' %} <span class="merke gra">utkast</span>{% endif %}
+        <strong>{{ k.datotekst }}</strong> · <a href="{{ url_for('admin_kalender_planlagt', plan_id=k.kurs.plan_id) if k.kurs.plan_id else url_for('admin_kurs_deltakere', kurs_id=k.kurs.id) }}">{{ k.kurs.navn }}</a>{% if k.kurs.status == 'utkast' %} <span class="merke gra">utkast</span>{% endif %}{% if k.kurs.plan_id %} <span class="merke planlagt">Planlagt kurs</span>{% endif %}
         <span class="dempet">– {{ k.hva }}</span></li>{% endfor %}
     </ul>{% else %}<p class="liten dempet">Ingen kurs i sperrede perioder, perioder med advarsel eller på røde dager.</p>{% endif %}
   </section>

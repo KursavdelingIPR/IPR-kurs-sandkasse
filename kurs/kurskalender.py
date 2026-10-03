@@ -12,12 +12,16 @@ Kursdager uten samling (eldre data) grupperes som sammenhengende datoer.
 
 Fargen følger kursserien (kursfarger.py): samlinger i samme utdanning har samme farge i alle visningene og i årsplanen.
 Avlyste kurs er grå og overstrøket, utkast har stiplet kant. Røde dager (helligdager.py) markeres i rutenettet.
+
+Planlagte kurs (kurs/planlagte_kurs.py) kommer med når kalendersiden ber om dem (med_planlagte=True): de er merket
+«Planlagt», har sin lagrede farge, lenker til siden for det planlagte kurset og har ingen påmeldte. Kurs med annen arrangør
+er grå. Andre sider som bruker hent(), får dem ikke (de står ikke på Oversikten).
 """
 import calendar
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from . import db, helligdager, kursfarger
+from . import db, helligdager, kursfarger, planlagte_kurs
 
 FORMAT = {"fysisk": "Fysisk", "digital": "Online", "hybrid": "Hybrid"}
 UKEDAGER = ("Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn")
@@ -50,6 +54,71 @@ class Hendelse:
     ekstradeltakere: int = 0    # ekstradeltakere satt opp PÅ DENNE SAMLINGEN: er på kurset, men tar ikke plass og teller ikke som påmeldte
     spesialistlop: str | None = None
     samling_navn: str | None = None     # samlingens navn fra Opprett kurs (valgfritt, f.eks. «Veiledningsdag»)
+    plan_id: int | None = None          # planlagt kurs (kurs/planlagte_kurs.py): ikke opprettet i systemet ennå
+    fast_farge: int | None = None       # planlagte kurs har lagret farge
+    ekstern: bool = False               # planlagt kurs med annen arrangør (grå)
+    arrangor: str | None = None
+    tema: str | None = None
+    lokale: str | None = None
+    kursholdere: str | None = None
+    veiledningsdager: tuple = ()
+    sjekk: str | None = None            # «Må sjekkes» (samlingens eller kursets)
+    samling_id: int | None = None       # planlagt samling (sjekklisten hører til den)
+    sjekkliste: object = None           # sjekklister.Sjekkliste, satt av sjekklister.legg_paa (kalendersiden)
+    har_mal: bool = False               # kurset har en sjekklistemal (da kan sjekklisten lages)
+    sjekk_plan_id: int | None = None    # planlagt kurs som holder sjekklisten: plan_id, eller det skjulte for et kurs i systemet
+    kurs_samling_id: int | None = None  # samlingen i kurset (kurs i systemet)
+    booking: dict = field(default_factory=dict)   # {type: rad} fra booking.for_samlinger, satt av sjekklister.legg_paa
+
+    @property
+    def planlagt(self) -> bool:
+        return self.plan_id is not None
+
+    @property
+    def nokkel(self) -> tuple:
+        """Hvilket kurs hendelsen hører til: ('kurs', id) eller ('plan', id)."""
+        return ("plan", self.plan_id) if self.planlagt else ("kurs", self.kurs_id)
+
+    @property
+    def fysisk(self) -> bool:
+        """Har kurset et fysisk sted (fysisk eller hybrid)?"""
+        return self.type in ("fysisk", "hybrid")
+
+    @property
+    def online(self) -> bool:
+        """Har kurset en nettdel (online eller hybrid)?"""
+        return self.type in ("digital", "hybrid")
+
+    @property
+    def by(self) -> str | None:
+        """Byen kurset går i (små bokstaver), når den står i sted/lokale."""
+        return planlagte_kurs.by_i(self.sted, self.lokale)
+
+    def kolliderer_med(self, annen: "Hendelse") -> bool:
+        """Dobbeltbooking? Egne kurs når begge er fysiske i samme by eller begge online/hybrid; annen arrangør bare fysisk på
+        samme sted (planlagte_kurs.kolliderer)."""
+        return planlagte_kurs.kolliderer(self.ekstern, self.fysisk, self.by, annen.ekstern, annen.fysisk, annen.by,
+                                         a_online=self.online, b_online=annen.online)
+
+    @property
+    def klasser(self) -> str:
+        """CSS-klassene for status: «aapen», «avlyst planlagt», «planlagt ekstern» ..."""
+        return " ".join([self.status] + (["planlagt"] if self.planlagt and self.status != "planlagt" else [])
+                        + (["ekstern"] if self.ekstern else []))
+
+    @property
+    def veiledning_tekst(self) -> str:
+        """«veiledningsdag 18. jan», «veiledningsdager 1. og 5. feb»"""
+        if not self.veiledningsdager:
+            return ""
+        deler = [f"{d.day}." for d in self.veiledningsdager]
+        mnd = {d.month for d in self.veiledningsdager}
+        if len(mnd) > 1:
+            deler = [f"{d.day}. {_MND_KORT[d.month - 1]}" for d in self.veiledningsdager]
+        tekst = deler[0] if len(deler) == 1 else ", ".join(deler[:-1]) + " og " + deler[-1]
+        if len(mnd) == 1:
+            tekst += f" {_MND_KORT[self.veiledningsdager[0].month - 1]}"
+        return f"veiledningsdag{'er' if len(deler) > 1 else ''} {tekst}"
 
     @property
     def dager(self) -> int:
@@ -75,7 +144,7 @@ class Hendelse:
 
     @property
     def farge(self) -> int:
-        return kursfarger.farge(self.navn, self.spesialistlop)
+        return self.fast_farge if self.fast_farge is not None else kursfarger.farge(self.navn, self.spesialistlop)
 
     @property
     def periode(self) -> str:
@@ -101,7 +170,10 @@ class Hendelse:
 
     @property
     def sted_visning(self) -> str:
-        """Sted slik kursoversikten viser det: «IPR, Bergen», «Online», «Online · Zoom», «Hybrid · Zoom / IPR Bergen»."""
+        """Sted slik kursoversikten viser det: «IPR, Bergen», «Online», «Online · Zoom», «Hybrid · Zoom / IPR Bergen».
+        Planlagte kurs: by og lokale, «Oslo · Paleet»."""
+        if self.planlagt:
+            return planlagte_kurs.sted_tekst(self.sted, self.lokale) or "Sted ikke satt"
         sted = " ".join((self.sted or "").split())
         if self.type == "digital":
             return sted if "online" in sted.casefold() else "Online" + (f" · {sted}" if sted else "")
@@ -111,7 +183,10 @@ class Hendelse:
 
     @property
     def paameldte_tekst(self) -> str:
-        """«6/16 påmeldte», eller «5 påmeldte» når kurset ikke har kapasitet (ordet står i db.PAAMELDINGSSTATUSER)"""
+        """«6/16 påmeldte», eller «5 påmeldte» når kurset ikke har kapasitet (ordet står i db.PAAMELDINGSSTATUSER).
+        Planlagte kurs har ingen påmelding: tomt."""
+        if self.planlagt:
+            return ""
         flertall = db.PAAMELDINGSSTATUSER_FLERTALL["paameldt"].lower()
         if self.kapasitet:
             tekst = f"{self.bekreftet}/{self.kapasitet} {flertall}"
@@ -125,6 +200,12 @@ class Hendelse:
     @property
     def beskrivelse(self) -> str:
         """Kort tekst til verktøytips (title) og skjermlesere: alt i én linje."""
+        if self.planlagt:
+            deler = [self.navn, self.periode, "Planlagt kurs (ikke opprettet i systemet)", self.sted_visning]
+            deler += [x for x in (self.samling_tekst, self.veiledning_tekst, self.kursholdere,
+                                  f"Annen arrangør: {self.arrangor}" if self.ekstern else "",
+                                  "Avlyst" if self.status == "avlyst" else "") if x]
+            return " · ".join(deler)
         deler = [self.navn, self.periode + (f" kl. {self.tid}" if self.tid else ""), self.format_tekst]
         if self.sted_tekst:
             deler.append(self.sted_tekst)
@@ -181,9 +262,51 @@ def _vilkar(ansvarlig: int, status: str, sted: str) -> tuple[list[str], list]:
     return vilkar, parametre
 
 
-def hent(con, fra: date, til: date, *, ansvarlig: int = 0, status: str = "", sted: str = "") -> list[Hendelse]:
+def _planlagte(con, fra: date, til: date, *, ansvarlig: int, status: str, sted: str) -> list[Hendelse]:
+    """De planlagte kursenes samlinger i perioden som hendelser. De har ingen ansvarlig (filteret utelater dem), og status
+    er «planlagt» eller «avlyst» (andre statusfiltre utelater dem)."""
+    if ansvarlig or status not in ("", "planlagt", "avlyst"):
+        return []
+    ut = []
+    for s in planlagte_kurs.samlinger_i_perioden(con, fra, til, sted=sted):
+        if status and s["status"] != status:
+            continue
+        nummerert = s["nr_vist"] is not None and s["antall"] > 1
+        ut.append(Hendelse(
+            kurs_id=0, kursnr=0, navn=s["visningsnavn"],
+            type="digital" if planlagte_kurs.er_online(s["sted"], s["lokale"]) else "fysisk",
+            sted=s["sted"], status=s["status"], ansvarlig=None, fra=s["fra"], til=s["til"], start_kl=None, slutt_kl=None,
+            nr=s["nr_vist"] if nummerert else 1, antall=s["antall"] if nummerert else 1, samling_navn=s["navn"],
+            plan_id=s["plan_id"], fast_farge=s["farge"], ekstern=s["ekstern"], arrangor=s["arrangor"], tema=s["tema"],
+            lokale=s["lokale"], kursholdere=s["kursholdere_tekst"], veiledningsdager=s["veiledningsdager"],
+            sjekk=s["sjekk"] or s["kurs_sjekk"], samling_id=s["samling_id"], sjekk_plan_id=s["plan_id"]))
+    return ut
+
+
+def _knytt_til_sjekklister(con, hendelser: list[Hendelse]) -> None:
+    """Kursene i systemet med et skjult planlagt kurs (sjekklister.synk_kurs): sjekklisten og kursholderne fra det."""
+    sids = [h.kurs_samling_id for h in hendelser if h.kurs_samling_id is not None]
+    if not sids:
+        return
+    lenker = {r["kurs_samling_id"]: (r["plan_id"], r["id"], r["kursholdere"]) for r in con.execute(
+        f"""SELECT ps.kurs_samling_id, ps.id, ps.kursholdere, pk.id AS plan_id FROM planlagt_samling ps
+            JOIN planlagt_kurs pk ON pk.id=ps.planlagt_kurs_id
+            WHERE pk.kurs_id IS NOT NULL AND ps.kurs_samling_id IN ({','.join('?' * len(sids))})""", tuple(sids))}
+    roller = planlagte_kurs.roller_per_samling(con, [v[1] for v in lenker.values()])
+    for h in hendelser:
+        if h.kurs_samling_id in lenker:
+            h.sjekk_plan_id, h.samling_id, fritekst = lenker[h.kurs_samling_id]
+            h.kursholdere = planlagte_kurs.rolletekst(roller.get(h.samling_id, []), veiledere=False, fritekst=fritekst)
+
+
+def hent(con, fra: date, til: date, *, ansvarlig: int = 0, status: str = "", sted: str = "",
+         med_planlagte: bool = False) -> list[Hendelse]:
     """Hendelsene (samlingene) som har minst én dag fra og med `fra` til og med `til`, sortert på dato og navn.
-    Samlingene nummereres ut fra ALLE kursets samlinger, så «Samling 2 av 3» stemmer også når bare én av dem vises."""
+    Samlingene nummereres ut fra ALLE kursets samlinger, så «Samling 2 av 3» stemmer også når bare én av dem vises.
+    med_planlagte=True tar med de planlagte kursene (bare kalendersiden)."""
+    planlagte = _planlagte(con, fra, til, ansvarlig=ansvarlig, status=status, sted=sted) if med_planlagte else []
+    if status == "planlagt":
+        return sorted(planlagte, key=lambda h: (h.fra, h.navn.casefold(), h.nokkel))
     vilkar, parametre = _vilkar(ansvarlig, status, sted)
     kurs = {r["id"]: r for r in con.execute(
         f"""SELECT k.id, k.kursnr, k.kode, k.navn, k.type, k.sted, k.status, k.start_kl, k.slutt_kl, k.kapasitet,
@@ -194,7 +317,7 @@ def hent(con, fra: date, til: date, *, ansvarlig: int = 0, status: str = "", ste
             WHERE EXISTS (SELECT 1 FROM kursdag kd WHERE kd.kurs_id=k.id AND kd.dato BETWEEN ? AND ?)
             {''.join(' AND ' + v for v in vilkar)}""", (fra.isoformat(), til.isoformat(), *parametre))}
     if not kurs:
-        return []
+        return sorted(planlagte, key=lambda h: (h.fra, h.navn.casefold(), h.nokkel))
     # Ekstradeltakere PER SAMLING: en ekstradeltaker uten utvalg er på hele kurset (teller på alle samlingene), en med utvalg bare på de
     # valgte. Hver samling har sin egen oppmøteliste, så kortet skal vise dem som faktisk er satt opp på akkurat den samlingen.
     ekstra_hele: dict[int, int] = {}
@@ -234,8 +357,9 @@ def hent(con, fra: date, til: date, *, ansvarlig: int = 0, status: str = "", ste
                                    nr=nr, antall=len(samlinger), kode=k["kode"], kapasitet=k["kapasitet"],
                                    bekreftet=k["bekreftet"] or 0, ekstradeltakere=ekstra,
                                    spesialistlop=k["spesialistlop"],
-                                   samling_navn=f["samling_navn"]))
-    return sorted(ut, key=lambda h: (h.fra, h.navn.casefold(), h.kurs_id))
+                                   samling_navn=f["samling_navn"], kurs_samling_id=sid))
+    _knytt_til_sjekklister(con, ut)
+    return sorted(ut + planlagte, key=lambda h: (h.fra, h.navn.casefold(), h.nokkel))
 
 
 def _samlinger(kd: list[tuple]) -> list[list[tuple]]:
@@ -321,13 +445,24 @@ class Kursoversikt:
 
 
 def rader(hendelser: list[Hendelse], idag: date) -> list[Oversiktsrad]:
-    """Hendelsene som rader i kursoversikten: tidligere/pågår, og andre kurs som går samme dag (avlyste teller ikke)."""
+    """Hendelsene som rader i kursoversikten: tidligere/pågår, og andre kurs som går samme dag (avlyste teller ikke, et
+    fysisk kurs og et online-/hybridkurs samtidig er greit, det samme er fysiske kurs i ulike byer, og et kurs med annen
+    arrangør teller bare når begge er fysiske på samme sted: planlagte_kurs.kolliderer)."""
     ut = [Oversiktsrad(h, tidligere=h.til < idag, pagar=h.fra <= idag <= h.til) for h in hendelser]
     aktive = [r for r in ut if r.h.status != "avlyst"]
     for r in aktive:
+        treff: dict[tuple, list] = {}          # et annet kurs med to samlinger samme dager nevnes én gang: «(11.–12. nov)»
         for a in aktive:
-            if a.h.kurs_id != r.h.kurs_id and a.h.fra <= r.h.til and r.h.fra <= a.h.til:
-                r.samme_dag.append((a.h.navn, kort_periode(max(a.h.fra, r.h.fra), min(a.h.til, r.h.til))))
+            if a.h.nokkel != r.h.nokkel and a.h.fra <= r.h.til and r.h.fra <= a.h.til and r.h.kolliderer_med(a.h):
+                treff.setdefault(a.h.nokkel, [a.h.navn, []])[1].append((max(a.h.fra, r.h.fra), min(a.h.til, r.h.til)))
+        for navn, perioder in treff.values():
+            sammen: list[list[date]] = []
+            for fra, til in sorted(perioder):
+                if sammen and fra <= sammen[-1][1] + timedelta(days=1):
+                    sammen[-1][1] = max(sammen[-1][1], til)
+                else:
+                    sammen.append([fra, til])
+            r.samme_dag.append((navn, " og ".join(kort_periode(fra, til) for fra, til in sammen)))
     return ut
 
 
@@ -336,7 +471,7 @@ def oversikt(hendelser: list[Hendelse], idag: date) -> Kursoversikt:
     hullene synes), og tidligere måneder for seg. En samling som pågår, står i denne måneden selv om den startet før.
     Lange utdanninger med samlinger fram i tid står som aktuelle: de kommende samlingene ligger i sine måneder."""
     alle = rader(hendelser, idag)
-    neste = next((r for r in alle if r.h.fra > idag and r.h.status not in ("avlyst", "utkast")), None)
+    neste = next((r for r in alle if r.h.fra > idag and r.h.status not in ("avlyst", "utkast") and not r.h.ekstern), None)
     if neste:
         neste.neste = True
     denne = (idag.year, idag.month)
@@ -355,6 +490,41 @@ def oversikt(hendelser: list[Hendelse], idag: date) -> Kursoversikt:
                  if (a, mm) < denne]
     return Kursoversikt(maaneder, tidligere, neste, om_dager(neste.h.fra, idag) if neste else "",
                         [r for r in alle if r.pagar and r.h.status != "avlyst"])
+
+
+@dataclass
+class Fargekurs:
+    """Ett kurs i fargeforklaringen: navnet, fargen og alle samlingene, så samme kurs er lett å finne igjen."""
+    navn: str
+    farge: int
+    planlagt: bool
+    plan_id: int | None
+    kurs_id: int
+    samlinger: list             # [«2. samling 18.–21. jan», ...]
+
+
+def fargeforklaring(hendelser: list[Hendelse], fra: date) -> list[Fargekurs]:
+    """Kursene med flere samlinger som har en samling fra og med `fra`, med fargen og ALLE samlingene i listen (et år som
+    ikke er `fra` sitt, står med). Avlyste kurs og kurs med annen arrangør er grå og står ikke her."""
+    per: dict[tuple, list[Hendelse]] = {}
+    for h in hendelser:
+        if h.status != "avlyst" and not h.ekstern and h.antall > 1:
+            per.setdefault(h.nokkel, []).append(h)
+    ut = []
+    for liste in per.values():
+        if max(h.til for h in liste) < fra:
+            continue
+        samlinger: dict[int, list[Hendelse]] = {}
+        for h in liste:
+            samlinger.setdefault(h.nr, []).append(h)
+        tekster = []
+        for nr, deler in sorted(samlinger.items()):
+            start, slutt = min(h.fra for h in deler), max(h.til for h in deler)
+            tekster.append(f"{nr}. samling {kort_periode(start, slutt)}" + (f" {start.year}" if start.year != fra.year else ""))
+        h0 = liste[0]
+        ut.append((min(h.fra for h in liste if h.til >= fra),
+                   Fargekurs(h0.navn, h0.farge, h0.planlagt, h0.plan_id, h0.kurs_id, tekster)))
+    return [f for _, f in sorted(ut, key=lambda x: (x[0], x[1].navn.casefold()))]
 
 
 # ---------------- månedsvisning ----------------

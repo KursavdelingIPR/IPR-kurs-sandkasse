@@ -348,6 +348,61 @@ def _m19_min_side_lenke(con) -> None:
     _opprett_tabell_fra_skjema(con, "min_side_lenke")
 
 
+def _m20_planlagte_kurs(con) -> None:
+    """Planlagte kurs i Kalender og Årsplan: tabellene planlagt_kurs og planlagt_samling (kursene fra kursplanleggingen som
+    ikke er opprettet i systemet). Bare nye tabeller - ingen eksisterende tabell eller kolonne endres, og ingen rader legges
+    inn (kursplanen leses inn av administrator)."""
+    for tabell in ("planlagt_kurs", "planlagt_samling"):
+        _opprett_tabell_fra_skjema(con, tabell)
+    con.execute("CREATE INDEX IF NOT EXISTS planlagt_samling_kurs ON planlagt_samling (planlagt_kurs_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS planlagt_samling_dato ON planlagt_samling (fra_dato)")
+
+
+def _m21_sjekklister(con) -> None:
+    """Sjekklister for planlagte kurs: tabellene sjekkliste_mal, sjekkliste_malpunkt, planlagt_kurs_sjekkliste og
+    sjekkliste_punkt. Bare nye tabeller - ingen eksisterende tabell eller kolonne endres, og ingen rader legges inn (malene
+    legges inn av administrator)."""
+    for tabell in ("sjekkliste_mal", "sjekkliste_malpunkt", "planlagt_kurs_sjekkliste", "sjekkliste_punkt"):
+        _opprett_tabell_fra_skjema(con, tabell)
+    con.execute("CREATE INDEX IF NOT EXISTS sjekkliste_malpunkt_mal ON sjekkliste_malpunkt (mal_id, rekkefolge)")
+    con.execute("CREATE INDEX IF NOT EXISTS sjekkliste_punkt_samling ON sjekkliste_punkt (samling_id, rekkefolge)")
+    con.execute("CREATE INDEX IF NOT EXISTS sjekkliste_punkt_frist ON sjekkliste_punkt (status, frist)")
+
+
+def _m22_kursholdere(con) -> None:
+    """Kursholderoversikten for planlagte kurs: tabellene kursholder og planlagt_rolle (rollen per samling og veiledningsdag,
+    med Psybase-status). Bare nye tabeller - ingen eksisterende tabell eller kolonne endres, og ingen rader legges inn
+    (kursholderne legges inn av administrator)."""
+    for tabell in ("kursholder", "planlagt_rolle"):
+        _opprett_tabell_fra_skjema(con, tabell)
+    con.execute("CREATE INDEX IF NOT EXISTS planlagt_rolle_kursholder ON planlagt_rolle (kursholder_id)")
+
+
+def _m23_sjekkliste_for_kurs(con) -> None:
+    """Sjekklister (og kursholderroller) også for kurs som er opprettet i systemet: et kurs får et skjult planlagt kurs som
+    holder dem. To nye, tomme kolonner: planlagt_kurs.kurs_id og planlagt_samling.kurs_samling_id (begge NULL for de planlagte
+    kursene fra kursplanen), og indeksen planlagt_kurs_kurs. Ingen eksisterende kolonne eller rad endres."""
+    heltall = "BIGINT" if db.er_postgres(con) else "INTEGER"
+    if not db.har_kolonne(con, "planlagt_kurs", "kurs_id"):
+        con.execute(f"ALTER TABLE planlagt_kurs ADD COLUMN kurs_id {heltall} REFERENCES kurs(id) ON DELETE SET NULL")
+    if not db.har_kolonne(con, "planlagt_samling", "kurs_samling_id"):
+        con.execute(f"ALTER TABLE planlagt_samling ADD COLUMN kurs_samling_id {heltall} "
+                    "REFERENCES samling(id) ON DELETE SET NULL")
+    con.execute("CREATE INDEX IF NOT EXISTS planlagt_kurs_kurs ON planlagt_kurs (kurs_id)")
+
+
+def _m24_booking_og_notat(con) -> None:
+    """Booking per samling (lokale, hotell, grupperom og lunsj) i den nye tabellen samling_booking, og to nye kolonner på
+    sjekklistepunktene: notat (hva som er gjort) og slettet (et punkt fra malen som er tatt bort fra denne sjekklisten;
+    0 for alle som finnes). Ingen eksisterende kolonne eller rad endres (Camilla 03.10.2026)."""
+    _opprett_tabell_fra_skjema(con, "samling_booking")
+    heltall = "BIGINT" if db.er_postgres(con) else "INTEGER"
+    if not db.har_kolonne(con, "sjekkliste_punkt", "notat"):
+        con.execute("ALTER TABLE sjekkliste_punkt ADD COLUMN notat TEXT")
+    if not db.har_kolonne(con, "sjekkliste_punkt", "slettet"):
+        con.execute(f"ALTER TABLE sjekkliste_punkt ADD COLUMN slettet {heltall} NOT NULL DEFAULT 0 CHECK (slettet IN (0,1))")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
@@ -368,6 +423,11 @@ MIGRERINGER = [
     (17, "kursside_apningstid", _m17_kursside_apningstid),
     (18, "ekstradeltaker_samling", _m18_ekstradeltaker_samling),
     (19, "min_side_lenke", _m19_min_side_lenke),
+    (20, "planlagte_kurs", _m20_planlagte_kurs),
+    (21, "sjekklister", _m21_sjekklister),
+    (22, "kursholdere", _m22_kursholdere),
+    (23, "sjekkliste_for_kurs", _m23_sjekkliste_for_kurs),
+    (24, "booking_og_notat", _m24_booking_og_notat),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

@@ -125,7 +125,27 @@
     <p class="liten" style="margin:6px 0 0"><a href="#adressekontroll">Se påmeldingene →</a></p>{% endif %}</div>
   <div class="kort{{ ' krever feil' if uavklart.totalt }}"><div class="liten dempet">Uavklarte operasjoner som krever manuell kontroll</div><div class="stat" style="color:{{ 'var(--feil)' if uavklart.totalt else 'inherit' }}">{{ uavklart.totalt }}</div>{% if uavklart.totalt %}<div class="liten dempet">E-post: {{ uavklart.epost }} · Faktura: {{ uavklart.faktura }}. Sendes/faktureres ikke automatisk på nytt.</div>
     <p class="liten" style="margin:6px 0 0"><a href="{{ url_for('admin_uavklart') }}">Se og avklar →</a></p>{% endif %}</div>
+  <div class="kort{{ ' krever feil' if sjekk.forfalt else (' krever' if sjekk.snart else '') }}"><div class="liten dempet">Sjekklister: forfalt</div><div class="stat" style="color:{{ 'var(--feil)' if sjekk.forfalt else 'inherit' }}">{{ sjekk.forfalt }}</div><div class="liten dempet">{{ sjekk.snart }} med frist de neste {{ snart_dager }} dagene</div>
+    {% if sjekk.samlinger %}<p class="liten" style="margin:6px 0 0"><a href="#sjekklister">Se punktene →</a></p>{% endif %}</div>
 </div>
+
+{% if sjekk.samlinger %}
+{#- Sjekklistene for planlagte kurs (kurs/sjekklister.paaminnelser): det samme som morgen-e-posten til kurs@ipr.no.
+    De fem første punktene per samling vises, resten bak «Vis N til». -#}
+{% macro sjekkvarsel(p) %}<li>{% if p.forfalt %}<span class="merke feil">Forfalt {{ p.frist_tekst }}</span>{% else %}<span class="merke gul">Frist {{ p.frist_tekst }}</span>{% endif %} {{ p.tekst_html }}</li>{% endmacro %}
+<h2 id="sjekklister">Sjekklister</h2>
+<p class="liten dempet">Punkter i sjekklistene for de planlagte kursene som har passert fristen, eller har frist de neste {{ snart_dager }} dagene. Kryss av eller merk «Ikke aktuelt» på kursets side. Hver hverdag morgen går det samme på e-post til kurs@ipr.no.</p>
+<div class="sjekkvarsel">
+  {% for v in sjekk.samlinger %}
+  <section>
+    <h3><a href="{{ url_for('admin_kalender_planlagt', plan_id=v.plan_id, apen=v.samling_id) }}#sk-{{ v.samling_id }}">{{ v.kursnavn }}</a> <span class="dempet">{{ v.samling }}</span></h3>
+    <ul>{% for p in v.punkter[:5] %}{{ sjekkvarsel(p) }}{% endfor %}</ul>
+    {% if v.punkter|length > 5 %}<details class="flere"><summary>Vis {{ v.punkter|length - 5 }} til</summary>
+      <ul>{% for p in v.punkter[5:] %}{{ sjekkvarsel(p) }}{% endfor %}</ul></details>{% endif %}
+  </section>
+  {% endfor %}
+</div>
+{% endif %}
 
 {% if firma_mangler %}
 <h2 id="firmakontroll">{{ FIRMA_MERKE }}</h2>

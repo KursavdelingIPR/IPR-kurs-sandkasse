@@ -1,0 +1,23 @@
+{% extends "admin_base.html" %}
+{% from "_planlagt_felt.html" import kursfelt, samlingsfelt with context %}
+{% block tittel %}Nytt planlagt kurs{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kursfarger.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kalender.css') }}">{% endblock %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_kalender_planlagte') }}">← Planlagte kurs</a></p>
+<h1>Nytt planlagt kurs</h1>
+<p class="sub">Et kurs fra kursplanen som skal vises i Kalender og Årsplan, men som ikke opprettes i påmeldingssystemet ennå
+  (ingen påmelding, e-post eller faktura, og det står ikke på Oversikten). Legg inn første samling her, og resten etterpå.</p>
+{% if admin_rolle != 'lese' %}
+<form method="post" class="kort" style="max-width:1000px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <h2>Kurset</h2>
+  {{ kursfelt(skjema, 'k') }}
+  <h2 style="margin-top:18px">Første samling</h2>
+  {{ samlingsfelt(skjema, 's', 's-') }}
+  <p class="knapper" style="margin:14px 0 0"><button>Legg inn i kalenderen</button>
+    <a class="knapp sekundar" href="{{ url_for('admin_kalender_planlagte') }}">Avbryt</a></p>
+</form>
+{% else %}<p class="dempet">Du har lesetilgang og kan ikke legge inn kurs.</p>{% endif %}
+{% endblock %}

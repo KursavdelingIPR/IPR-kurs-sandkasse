@@ -1,6 +1,7 @@
 """Deltakerliste med kolonnevalg (utskrift/PDF og CSV): personvern, filtrering, sortering, roller og logging."""
 import csv
 import io
+import re
 import json
 from datetime import date, timedelta
 
@@ -51,7 +52,7 @@ def _kurs(con):
 
 
 def _tabell(html: str) -> str:
-    return html.split('<table class="liste">')[1].split("</table>")[0]
+    return re.split(r'<table class="liste[^"]*">', html)[1].split("</table>")[0]      # «liste mange utfylling» ved mange kolonner
 
 
 def _csv(tekst: str) -> list[list[str]]:
@@ -146,16 +147,17 @@ def test_utskriften_starter_med_kursnavn_kursnr_datoer_og_sted(con):
     assert 'class="ikke-utskrift"' in kontroller and "data-skriv-ut" in kontroller   # skjules ved utskrift
 
 
-def test_oppmote_signatur_og_merknad_i_utskrift(con):
+def test_oppmote_og_merknad_i_utskrift_men_ingen_signatur(con):
     kid, pids = _kurs(con)
     dager = db.kursdager(con, kid)
     db.registrer_oppmote(con, pids["Anders Test"], dager[0]["id"], "manuell")
     con.commit()
-    t = _tabell(_admin().get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&kol=oppmote&kol=signatur&kol=merknad")
-                .get_data(as_text=True))
+    side = _admin().get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&kol=oppmote&kol=signatur&kol=merknad").get_data(as_text=True)
+    t = _tabell(side)
     d0 = dager[0]["dato"]
     assert f'<th scope="col" class="avkrysning">{d0[8:10]}.{d0[5:7]}.</th>' in t
-    assert '<th scope="col" class="signatur">Signatur</th>' in t and '<th scope="col" class="merknad">Merknad</th>' in t
+    assert '<th scope="col" class="merknad">Merknad</th>' in t
+    assert "Signatur" not in side            # 03.10: registrering har et eget skjema - signatur er ikke et valg her
     anders = t.split("Anders Test")[1].split("</tr>")[0]
     assert anders.count('<td class="avkrysning">✓</td>') == 1 and anders.count('<td class="avkrysning"></td>') == 1
 
@@ -168,7 +170,26 @@ def test_logo_vises_bare_naar_godkjent_fil_finnes(con, tmp_path, monkeypatch):
     (tmp_path / "logo").mkdir()
     (tmp_path / "logo" / "deltakerliste.png").write_bytes(b"\x89PNG\r\n")
     html = k.get(f"/admin/kurs/{kid}/deltakerliste").get_data(as_text=True)
-    assert '<img class="liste-logo" src="/static/logo/deltakerliste.png" alt="Logo">' in html
+    assert '<img class="liste-logo" src="/static/logo/deltakerliste.png" alt="Egen logo">' in html
+
+
+def test_logoen_velges_og_terapiakademiet_er_standard(con, tmp_path, monkeypatch):
+    """Camilla 03.10: Terapiakademiet-logoen øverst (NIEFT- eller IPR-logo når den passer). En logo kan velges når
+    filen finnes; arket har «Deltakerliste» og kursnavnet midtstilt over listen."""
+    kid, _ = _kurs(con)
+    monkeypatch.setattr(deltakerliste, "LOGO_MAPPE", tmp_path / "logo")
+    (tmp_path / "logo").mkdir()
+    for navn in ("terapiakademiet.png", "ipr.png"):
+        (tmp_path / "logo" / navn).write_bytes(b"PNG")
+    k = _admin()
+    html = k.get(f"/admin/kurs/{kid}/deltakerliste").get_data(as_text=True)
+    assert '<img class="liste-logo" src="/static/logo/terapiakademiet.png" alt="Terapiakademiet">' in html
+    assert '<option value="ipr" >IPR</option>' in html and 'value="nieft"' not in html     # NIEFT: ingen fil ennå
+    assert '<p class="ark-etikett">Deltakerliste</p>' in html and '<h2>Listekurs i EFT</h2>' in html
+    ipr = k.get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&logo=ipr").get_data(as_text=True)
+    assert 'src="/static/logo/ipr.png" alt="IPR"' in ipr and '<option value="ipr" selected>IPR</option>' in ipr
+    uten = k.get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&logo=ingen").get_data(as_text=True)
+    assert '<img class="liste-logo"' not in uten and '<option value="ingen" selected>Ingen logo</option>' in uten
 
 
 def test_lenke_fra_deltakersiden(con):

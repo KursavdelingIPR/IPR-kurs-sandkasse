@@ -33,8 +33,28 @@ Fra toppen:
 
 ## Kalender
 
-**Kalender** er en egen fane i menyen. Den har to underfaner: **Kalender** (kursene som kalender: kursoversikt, per måned eller uke) og **Årsplan** (hele året: kurs, planlagte aktiviteter som ennå ikke er kurs,
-skoleferier, sperrede perioder og røde dager – og hvor kurs overlapper).
+**Kalender** er en egen fane i menyen. Den har fem underfaner: **Kalender** (kursene som kalender: kursoversikt, per måned eller uke), **Årsplan** (hele året: kurs, planlagte aktiviteter som ennå ikke er kurs,
+skoleferier, sperrede perioder og røde dager – og hvor kurs overlapper), **Planlagte kurs** (kursplanen: kurs som ikke er opprettet i
+systemet ennå, med samlinger og én farge per kurs; de vises i Kalender og Årsplan med merket «Planlagt kurs», men ikke på Oversikten)
+**Kursholdere** (som fanen «Kommende kurs» i Excel: en rad per samling og veiledningsdag, en kolonne per kursholder,
+rollen i ruta; rød = ikke lagt inn i Psybase, svart = booket; gul rute = samme person to steder samtidig; trykk i en rute
+for å endre) og **Sjekklistemaler** (oppgavelistene som kursene får per samling, med frister regnet ut fra datoene).
+
+**Alle kurs** får en **sjekkliste per samling**, både planlagte kurs og kurs som er opprettet i systemet (de får malen
+som passer best etter navnet). Unntak: kurs med annen arrangør (IPRO) og avlyste kurs. I kursoversikten i Kalender trykker du på kurset (eller
+den lille pila til høyre), så folder sjekklisten seg ut under kurset, med status øverst (for eksempel «0/30 ferdig · 7 forfalt»),
+og du krysser av der. «Endre» på et punkt gir notat (skriv hva som er gjort), frist, «Ikke aktuelt» og «Slett punktet», og
+«＋ Legg til punkt» står under listen. Nederst står **Booking**: kurslokale, hotell, grupperom og lunsj, hver med status (rød =
+ikke booket, grønn = booket) og tekst (hvor, referansenummer). Kursholderne står på raden også når kurset er lukket. På kursets side ligger hele listen, med «Ikke aktuelt», frist for hånd, egne punkter og «Oppdater fra malen».
+Punkter som ikke er gjort innen fristen, er **røde («forfalt»)**, og samlingen får en rød prikk i måned, uke og årsplan. «Snart»
+(gul) betyr frist innen en uke.
+
+Et **rødt utropstegn** ved kursnavnet betyr at et annet kurs går samme dag: hold musa over det for å se hvilket. Det kommer
+bare når to fysiske kurs går i samme by samtidig, eller to nettkurs samtidig – ikke for et fysisk kurs og et online-kurs,
+og ikke for ett kurs i Oslo og ett i Bergen.
+
+**Påminnelse:** Oversikten har kortet «Sjekklister: forfalt» og en liste over punktene som har passert fristen eller har frist
+de neste 7 dagene. Hver hverdag morgen går det samme på e-post til kurs@ipr.no (i forhåndsvisningen havner den i Utboks).
 
 Når du åpner ett kurs (klikk på tittelen i kurslisten), får du fanene **Oppsett**, **Nettside**, **Påmeldingsskjema**, **Min side**, **Deltakere** og **Kommunikasjon**.
 
@@ -134,7 +154,7 @@ Innholdet i kurset (program, presentasjoner, grupper, litteratur) ligger på Min
 | Oversikten: to søkefelt side ved side, tellerkort, kursliste med søk, filter, sortering, 10–100 rader; Rediger, Min side, Dupliser | `admin.html`, `_sokefelt.html`, `admin()` og `_kursliste()` i `app.py`, `planlegging.css` |
 | Uten valgt status skjules avsluttede og avlyste kurs; et søk leter i alle kurs | `_kursliste()` i `app.py` (`KURS_ALLE`), test `tests/test_oversikt_omlegging.py` |
 | Gamle lenker til Aktiviteter sendes til Oversikten | `admin_aktiviteter()` i `app.py` (omdirigering) |
-| Kalender: egen fane, med underfanene Kalender og Årsplan | `admin_base.html`, `admin_aktivitet_faner.html`, `admin_kalender.html`, `admin_aarsplan.html` |
+| Kalender: egen fane, med underfanene Kalender, Årsplan, Planlagte kurs, Kursholdere og Sjekklistemaler | `admin_base.html`, `admin_aktivitet_faner.html`, `admin_kalender.html`, `admin_aarsplan.html`, `admin_planlagte_kurs.html`, `admin_planlagt_kurs.html`, `admin_planlagt_kurs_ny.html`, `_planlagt_felt.html` (data: `kurs/planlagte_kurs.py`); sjekklistene: `_sjekkliste.html`, `admin_sjekklistemaler.html`, `admin_sjekklistemal.html`, `_malpunkt_felt.html`, `static/sjekkliste.css` (data: `kurs/sjekklister.py`); kursholderne: `admin_kursholdere.html`, `static/kursholdere.css` (data: `kurs/kursholdere.py`) |
 | «/» hopper til deltakersøket (fra andre adminsider til Oversikten) | `data-sok-adresse` i `admin_base.html`, `static/app.js` |
 | Rekkefølgen på Oversikten: søk, Kurs, Status (alle boksene), så listene under | `admin.html` |
 | «Lenke til innloggingen» med «Kopier lenke» under Brukere | `admin_brukere.html`, `admin_brukere()` i `app.py`, test `tests/test_oversikt_omlegging.py` |

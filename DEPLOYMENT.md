@@ -44,6 +44,7 @@ I Azure settes alt som App Settings på web-appen. Hemmelige verdier legges i Ke
 | `SHAREPOINT_SITE_ID` | – | **påkrevd** | | Kurs-siten (Sites.Selected) |
 | `AVSENDER_EPOST`, `AVSENDER_NAVN` | standard | **påkrevd** | | Postboksen e-post sendes fra (kurs@ipr.no i prod, en testpostboks i sandbox) |
 | `ADMIN_EPOST` | standard | **påkrevd** | | Mottaker av eskaleringer og «til adm»-henvendelser |
+| `SJEKKLISTE_EPOST` | standard | valgfri | | Mottaker av morgen-e-posten om sjekklistene for planlagte kurs, standard `kurs@ipr.no` |
 | `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID` | – | påkrevd for digitale kurs | | Zoom Server-to-Server OAuth |
 | `ZOOM_CLIENT_SECRET` | – | påkrevd for digitale kurs | ✔ | |
 | `VISMA_CLIENT_ID` | – | påkrevd for fakturering | | Visma-produktet er **ikke avklart** (se `kurs/integrasjoner/visma.py`) |

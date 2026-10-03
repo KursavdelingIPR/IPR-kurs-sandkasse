@@ -1,25 +1,53 @@
 {% extends "admin_base.html" %}
+{#- Deltakerlisten for utskrift og PDF (kurs/deltakerliste.py): valgene øverst (bare på skjermen), og under dem arket slik
+    det blir på papir - A4 med logoen, «Deltakerliste», kursnavnet og listen midtstilt (Camilla 03.10.2026). PDF-en lages med
+    nettleserens «Lagre som PDF». -#}
 {% block tittel %}Deltakerliste – {{ kurs.navn }}{% endblock %}
 {% block hode %}<style>
   .kolonnevalg fieldset { margin-top:10px; }
   .kolonnevalg .valg { display:inline-flex; align-items:center; font-weight:normal; font-size:14px; margin:4px 18px 4px 0; }
   .kolonnevalg .valg .dempet { margin-left:4px; }
-  .liste-hode { display:flex; align-items:center; gap:18px; margin:22px 0 12px; }
-  .liste-hode h2 { margin:0; font-size:22px; }
-  .liste-hode p { margin:2px 0 0; }
-  .liste-logo { max-height:60px; max-width:190px; }
-  table.liste .nr { width:1%; white-space:nowrap; }
-  table.liste .avkrysning { text-align:center; min-width:48px; }
-  table.liste .signatur { min-width:190px; }
-  table.liste .merknad { min-width:150px; }
-  @media print { table.liste td { height:26px; } .liste-hode { margin-top:0; } }
+  .kolonnevalg select { width:auto; }
+  .pdf-hjelp { margin:10px 0 0; font-size:13px; color:var(--dempet); }
+
+  /* arket: A4 på skjermen (forhåndsvisning) og på papir */
+  .deltakerliste { max-width:210mm; margin:22px auto 30px; padding:14mm 13mm 12mm; background:#fff; border:1px solid #dfe4e7;
+         box-shadow:0 2px 14px rgba(20, 30, 40, .10); border-radius:4px; color:#1f2326; }
+  .ark-hode { margin:0 0 7mm; text-align:center; }
+  .liste-logo { display:block; max-width:75mm; max-height:16mm; margin:0 auto 6mm; }
+  .ark-etikett { margin:0 0 1.5mm; font-size:9.5pt; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:#5c656b; }
+  .ark-hode h2 { margin:0; font-size:18pt; font-weight:650; line-height:1.25; }
+  .ark-info { margin:2mm 0 0; font-size:10.5pt; color:#4a5258; }
+  table.liste { width:auto; min-width:62%; max-width:100%; margin:0 auto; border-collapse:collapse; font-size:10.5pt; }
+  table.liste.mange { width:100%; }
+  table.liste th { padding:2mm 3mm; border:0; border-bottom:1.5px solid #1f2326; background:none; text-align:left;
+                   font-size:8.5pt; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:#1f2326; }
+  table.liste td { padding:2.2mm 3mm; border:0; border-bottom:1px solid #d7dcdf; vertical-align:top; }
+  table.liste tbody tr:nth-child(even) td { background:#f6f7f8; }
+  table.liste .nr { width:1%; white-space:nowrap; color:#5c656b; }
+  table.liste .avkrysning { text-align:center; min-width:12mm; }
+  table.liste .merknad { min-width:38mm; }
+  table.liste td.tom { text-align:center; color:#5c656b; }
+  .ark-fot { margin:6mm 0 0; text-align:center; font-size:9pt; color:#5c656b; }
+  .deltakerliste .tabellboks { overflow:visible; border:0; border-radius:0; background:none; }
+
+  @media (max-width: 760px) { .deltakerliste { padding:16px 12px; } .tabellboks { overflow-x:auto; } }
+  @page { size:A4; margin:14mm 12mm 15mm; }
+  @media print {
+    .deltakerliste { max-width:none; margin:0; padding:0; border:0; box-shadow:none; border-radius:0; }
+    table.liste th, table.liste td { border:0 !important; border-bottom:1px solid #c9cfd3 !important; color:#1f2326 !important; }
+    table.liste th { border-bottom:1.5px solid #1f2326 !important; }
+    table.liste tbody tr:nth-child(even) td { background:#f4f5f6 !important; }
+    table.liste, table.liste td, table.liste th { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    table.liste.utfylling td { height:9mm; }
+  }
 </style>{% endblock %}
 {% block innhold %}
 <div class="ikke-utskrift">
   <p class="liten"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">← Deltakere i {{ kurs.navn }}</a></p>
   <h1>Deltakerliste</h1>
-  <p class="sub">Velg hvem og hvilke kolonner som skal med. Skriv ut, eller velg «Lagre som PDF» i utskriftsvinduet.
-    Har listen mange kolonner, velg liggende papirretning.</p>
+  <p class="sub">Kryss av for det som skal med. Arket under viser hvordan listen blir. Har listen mange kolonner, velg
+    liggende papirretning.</p>
 
   <form method="get" class="kort kolonnevalg">
     <input type="hidden" name="valgt" value="1">
@@ -27,6 +55,11 @@
       <div><label for="f-status">Hvem skal med?</label>
         <select id="f-status" name="status" data-send-ved-endring>
           {% for verdi, tekst in statusvalg.items() %}<option value="{{ verdi }}" {{ 'selected' if valg.status == verdi }}>{{ tekst }}</option>{% endfor %}
+        </select></div>
+      <div><label for="f-logo">Logo øverst</label>
+        <select id="f-logo" name="logo" data-send-ved-endring>
+          {% for l in logoer %}<option value="{{ l.nokkel }}" {{ 'selected' if logo and logo.nokkel == l.nokkel }}>{{ l.navn }}</option>{% endfor %}
+          <option value="ingen" {{ 'selected' if not logo }}>Ingen logo</option>
         </select></div>
     </div>
     {% for gruppe in grupper if katalog|selectattr('gruppe', 'equalto', gruppe)|list %}
@@ -42,27 +75,29 @@
       aldri med her – de ligger i en egen liste der all visning logges.</p>
     <div class="verktoylinje" style="margin:12px 0 0">
       <button>Oppdater listen</button>
-      <button type="button" class="sekundar" data-skriv-ut>Skriv ut / lagre som PDF</button>
+      <button type="button" class="sekundar" data-skriv-ut>Lagre som PDF / skriv ut</button>
       {% if admin_rolle != 'lese' %}<a class="knapp sekundar" href="{{ url_for('admin_deltakerliste_csv', kurs_id=kurs.id, **valg.som_args()) }}">Last ned som CSV (Excel)</a>{% endif %}
     </div>
+    <p class="pdf-hjelp">PDF: velg <strong>«Lagre som PDF»</strong> under «Destinasjon» i utskriftsvinduet. Står en skriver der,
+      kan forhåndsvisningen bruke lang tid. Under «Flere innstillinger» kan du ta bort «Topptekst og bunntekst».</p>
   </form>
 </div>
 
 <section class="deltakerliste">
-  <div class="liste-hode">
-    {% if logo %}<img class="liste-logo" src="{{ url_for('static', filename=logo) }}" alt="Logo">{% endif %}
-    <div>
-      <h2>{{ kurs.navn }}</h2>
-      <p class="liten">Kursnr. {{ kurs.kursnr }}{% if datoer %} · {{ datoer }}{% endif %}{% if kurs.sted %} · {{ kurs.sted }}{% endif %}</p>
-      <p class="liten dempet">{% if valg.status == 'plass' and antall_ekstra %}{{ antall_paameldte }} {{ (STATUS.paameldt if antall_paameldte == 1 else STATUS_FLERTALL.paameldt)|lower }} + {{ antall_ekstra }} {{ (STATUS.ekstradeltaker if antall_ekstra == 1 else STATUS_FLERTALL.ekstradeltaker)|lower }}{% else %}{{ statusvalg[valg.status] }}: {{ tabell.rader|length }}{% endif %} · Utskrevet {{ utskrevet }}</p>
-    </div>
+  <div class="ark-hode">
+    {% if logo %}<img class="liste-logo" src="{{ url_for('static', filename=logo.fil) }}" alt="{{ logo.navn }}">{% endif %}
+    <p class="ark-etikett">Deltakerliste</p>
+    <h2>{{ kurs.navn }}</h2>
+    <p class="ark-info">{% if datoer %}{{ datoer }}{% endif %}{% if kurs.sted %}{{ ' · ' if datoer }}{{ kurs.sted }}{% endif %}{{ ' · ' if datoer or kurs.sted }}Kursnr. {{ kurs.kursnr }}</p>
   </div>
-  <div class="tabellboks"><table class="liste">
+  {%- set utfylling = 'merknad' in valg.nokler %}
+  <div class="tabellboks"><table class="liste{{ ' mange' if tabell.overskrifter|length > 4 }}{{ ' utfylling' if utfylling }}">
     <thead><tr>{% for o in tabell.overskrifter %}<th scope="col" class="{{ tabell.klasser[loop.index0] }}">{{ o }}</th>{% endfor %}</tr></thead>
     <tbody>
     {% for rad in tabell.rader %}<tr>{% for v in rad %}<td class="{{ tabell.klasser[loop.index0] }}">{{ v }}</td>{% endfor %}</tr>
     {% else %}<tr><td colspan="{{ tabell.overskrifter|length }}" class="tom">Ingen deltakere med valgt status.</td></tr>{% endfor %}
     </tbody>
   </table></div>
+  <p class="ark-fot">{% if valg.status == 'plass' and antall_ekstra %}{{ antall_paameldte }} {{ (STATUS.paameldt if antall_paameldte == 1 else STATUS_FLERTALL.paameldt)|lower }} + {{ antall_ekstra }} {{ (STATUS.ekstradeltaker if antall_ekstra == 1 else STATUS_FLERTALL.ekstradeltaker)|lower }}{% else %}{{ statusvalg[valg.status] }}: {{ tabell.rader|length }}{% endif %} · Utskrevet {{ utskrevet }}</p>
 </section>
 {% endblock %}

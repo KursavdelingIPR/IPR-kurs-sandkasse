@@ -1,0 +1,114 @@
+{% extends "admin_base.html" %}
+{#- Kursholderoversikten (kurs/kursholdere.py), bygget som fanen «Kommende kurs» i Excel: en rad per samling og veiledningsdag,
+    en kolonne per kursholder. En rute åpner #rolle-dialog (static/app.js) der rollen og Psybase-status settes. -#}
+{% block tittel %}Kursholdere{% endblock %}
+{% block sideklasse %} class="bred"{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kursfarger.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kursholdere.css') }}">{% endblock %}
+{% block innhold %}
+{% set kan_endre = admin_rolle != 'lese' %}
+<h1>Kursholdere</h1>
+<p class="sub">Som fanen «Kommende kurs» i Excel: en rad per samling og veiledningsdag, en kolonne per kursholder.
+  {%- if kan_endre %} Trykk i en rute for å sette rollen.{% endif %} <span class="psy-0">Rød</span> = ikke lagt inn i Psybase,
+  svart = booket i Psybase.</p>
+{% include "admin_aktivitet_faner.html" %}
+
+<form method="get" class="kh-filter">
+  <label for="kh-velg">Kursholder</label>
+  <select id="kh-velg" name="kursholder" data-send-ved-endring>
+    <option value="">Alle</option>
+    {% for k in alle %}<option value="{{ k.id }}"{{ ' selected' if valgt == k.id }}>{{ k.navn }}{{ ' (ikke aktiv)' if not k.aktiv }}</option>{% endfor %}
+  </select>
+  <label class="valg"><input type="checkbox" name="tidligere" value="1"{{ ' checked' if tidligere }} data-send-ved-endring> Ta med tidligere</label>
+  <noscript><button class="liten">Vis</button></noscript>
+</form>
+
+<p class="forklaring">
+  <span><strong>T T1 T2</strong> trainer</span><span><strong>F</strong> facilitator</span><span><strong>B</strong> back-up</span>
+  <span><strong>O</strong> opplæring</span><span><strong>V v</strong> veileder</span><span><strong>bv</strong> back-up veileder</span>
+  <span><strong>–</strong> ikke med</span><span><span class="psy-0"><strong>T1</strong></span> ikke i Psybase</span>
+  <span><span class="kh-prove-kollisjon">T</span> samme person på to steder samtidig</span>
+</p>
+{% if m.kollisjoner %}<p class="varselboks gul">{{ m.kollisjoner }} {{ 'rute er' if m.kollisjoner == 1 else 'ruter er' }}
+  dobbeltbooket: samme person står på to samlinger samtidig. Hold musa over ruta for å se hvilke.</p>{% endif %}
+
+{% if m.kolonner %}
+<div class="kh-boks">
+<table class="kh-tabell">
+  <thead><tr><th scope="col" class="kh-dato">Dato</th><th scope="col" class="kh-kurs">Kurs</th>
+    {%- for k in m.kolonner %}<th scope="col" class="kh-navn{{ ' kh-valgt' if valgt == k.id }}" data-kh="{{ k.id }}"
+        {%- if k.fullt_navn %} title="{{ k.fullt_navn }}"{% endif %}>{{ k.navn }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {%- for tittel, rader in m.maaneder %}
+    <tr class="kh-mnd"><th scope="rowgroup" colspan="{{ 2 + m.kolonner|length }}">{{ tittel }}</th></tr>
+    {%- for r in rader %}
+    <tr id="{{ r.anker }}" class="kursfarge-{{ r.farge }}{{ ' kh-veil' if r.dag }}{{ ' ekstern' if r.ekstern }}"
+        data-samling="{{ r.samling_id }}" data-dag="{{ r.dag }}" data-tittel="{{ r.kursnavn }} · {{ r.dato_tekst }}">
+      <td class="kh-dato">{{ r.dato_tekst }}</td>
+      <td class="kh-kurs"><a href="{{ url_for('admin_kurs', kurs_id=r.kurs_id) if r.kurs_id else url_for('admin_kalender_planlagt', plan_id=r.plan_id) }}">{{ r.kursnavn }}</a>
+        {%- if r.samling %} <span class="dempet">{{ r.samling }}</span>{% endif %}</td>
+      {%- for k in m.kolonner %}{% set c = r.celler.get(k.id) %}
+      <td class="kh-celle{% if c and c.rolle != '-' %} psy-{{ c.psybase }}{% endif %}{{ ' kollisjon' if c and c.kollisjon }}"
+          {%- if c and c.kollisjon %} title="Også: {{ c.kollisjon|join('; ') }}"{% endif %}>
+        {%- if kan_endre %}<button type="button" aria-label="{{ k.navn }}: {{ c.rolle if c else 'ingen rolle' }}">{{ c.rolle if c else '' }}</button>
+        {%- else %}{{ c.rolle if c else '' }}{% endif %}</td>
+      {%- endfor %}
+    </tr>
+    {%- endfor %}
+  {%- else %}
+    <tr><td colspan="{{ 2 + m.kolonner|length }}" class="dempet">Ingen samlinger i perioden.</td></tr>
+  {%- endfor %}
+  </tbody>
+  <tfoot><tr><th scope="row" colspan="2">Dager i perioden</th>
+    {%- for k in m.kolonner %}<td>{{ m.dager.get(k.id, '') }}</td>{% endfor %}</tr></tfoot>
+</table>
+</div>
+{% else %}
+<p class="dempet">Ingen kursholdere er lagt inn ennå. Legg dem til under.</p>
+{% endif %}
+
+{% if kan_endre %}
+<dialog id="rolle-dialog" class="kh-dialog" aria-labelledby="rolle-tittel">
+  <form method="post" action="{{ url_for('admin_kursholdere_rolle') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="neste" value="{{ her }}">
+    <input type="hidden" name="samling_id" value=""><input type="hidden" name="dag" value=""><input type="hidden" name="kursholder_id" value="">
+    <h2 id="rolle-tittel" data-rolle-tittel>Rolle</h2>
+    <fieldset class="kh-roller"><legend>Rolle</legend>
+      <label><input type="radio" name="rolle" value=""> Ingen rolle</label>
+      {%- for kode, navn in roller %}
+      <label><input type="radio" name="rolle" value="{{ kode }}"> <strong>{{ kode }}</strong> {{ navn }}</label>
+      {%- endfor %}
+    </fieldset>
+    <label class="valg"><input type="checkbox" name="psybase" value="1"> Booket i Psybase <span class="dempet">(uten kryss blir den rød)</span></label>
+    <p class="kh-knapper"><button>Lagre</button> <button type="button" class="sekundar" data-lukk-dialog>Avbryt</button></p>
+  </form>
+</dialog>
+{% endif %}
+
+<details class="kort" id="kursholderne">
+  <summary>Kursholderne i listen ({{ alle|length }})</summary>
+  <p class="liten dempet">Kort navn som i kolonnen, og fullt navn. En kursholder som ikke er aktiv, vises bare der hen har en rolle.</p>
+  {% for k in alle %}
+  {% if kan_endre %}
+  <form method="post" action="{{ url_for('admin_kursholdere_endre', kid=k.id) }}" class="kh-person">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="neste" value="{{ her }}">
+    <label class="skjul-visuelt" for="kh-n-{{ k.id }}">Kort navn</label><input id="kh-n-{{ k.id }}" name="navn" value="{{ k.navn }}" maxlength="40" required>
+    <label class="skjul-visuelt" for="kh-f-{{ k.id }}">Fullt navn</label><input id="kh-f-{{ k.id }}" name="fullt_navn" value="{{ k.fullt_navn or '' }}" maxlength="120" placeholder="Fullt navn">
+    <label class="valg"><input type="checkbox" name="aktiv" value="1"{{ ' checked' if k.aktiv }}> Aktiv</label>
+    <button class="liten sekundar">Lagre</button>
+  </form>
+  {% else %}
+  <p class="kh-person">{{ k.navn }}{% if k.fullt_navn %} <span class="dempet">{{ k.fullt_navn }}</span>{% endif %}{{ ' (ikke aktiv)' if not k.aktiv }}</p>
+  {% endif %}
+  {% endfor %}
+  {% if kan_endre %}
+  <form method="post" action="{{ url_for('admin_kursholdere_ny') }}" class="kh-person kh-ny">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="neste" value="{{ her }}">
+    <label class="skjul-visuelt" for="kh-ny-navn">Kort navn</label><input id="kh-ny-navn" name="navn" maxlength="40" required placeholder="Kort navn, f.eks. «Marit B.»">
+    <label class="skjul-visuelt" for="kh-ny-fullt">Fullt navn</label><input id="kh-ny-fullt" name="fullt_navn" maxlength="120" placeholder="Fullt navn">
+    <button class="liten">Legg til kursholder</button>
+  </form>
+  {% endif %}
+</details>
+{% endblock %}

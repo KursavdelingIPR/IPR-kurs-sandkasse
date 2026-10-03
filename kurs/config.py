@@ -49,6 +49,8 @@ ADMIN_PASSORD = get("ADMIN_PASSORD", "demo")
 AVSENDER_EPOST = get("AVSENDER_EPOST", "kurs@ipr.no")
 AVSENDER_NAVN = get("AVSENDER_NAVN", "IPR Påmeldingssystem")
 ADMIN_EPOST = get("ADMIN_EPOST", "admin@ipr.no")
+# Morgen-e-posten om sjekklistene for planlagte kurs (daglig.py): alltid til kurspostboksen (Camilla 02.10.2026)
+SJEKKLISTE_EPOST = get("SJEKKLISTE_EPOST", "kurs@ipr.no")
 
 # Microsoft 365 (e-post via Graph + SharePoint) – én app-registrering i Entra ID
 M365_TENANT_ID = get("M365_TENANT_ID")

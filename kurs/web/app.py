@@ -13,7 +13,7 @@ import secrets
 import time
 from datetime import date, datetime, timedelta
 from functools import wraps
-from urllib.parse import parse_qsl, quote, urlsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 import qrcode
 import qrcode.image.svg
@@ -26,10 +26,11 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.routing import IntegerConverter
 from werkzeug.utils import secure_filename
 
-from .. import (aarsplan, aktivitetsliste, behandling, config, daglig, db, deltakerliste, deltakerside, deltakersok,
-                ekstrafelt, eposthistorikk, firmaopplysninger, hendelseslogg, import_deltakere, kursdatoer, kurskalender, lenker,
-                mal_eksempler, maltekster, migreringer, minside, okonomi, paameldingsside, privatadresse, signaturer, skjemafelt,
-                statustekster, sveiper, tema)
+from .. import (aarsplan, aktivitetsliste, behandling, booking, config, daglig, db, deltakerliste, deltakerside, deltakersok,
+                ekstrafelt, eposthistorikk, firmaopplysninger, hendelseslogg, import_deltakere, kursdatoer, kursfarger,
+                kurskalender, kursholdere, lenker,
+                mal_eksempler, maltekster, migreringer, minside, okonomi, paameldingsside, planlagte_kurs, privatadresse,
+                signaturer, sjekklister, skjemafelt, statustekster, sveiper, tema)
 from ..deltakerliste import fakturastatus as _fakturastatus
 from ..feil import sikker_feiltekst
 from ..integrasjoner import brreg, epost, sharepoint
@@ -1220,9 +1221,13 @@ def admin():
     # Levende telling fra NAAVAERENDE tilstand (ikke kumulativ hendelseslogg): uavklarte e-post-/faktura-
     # operasjoner som vi bevisst IKKE prover automatisk paa nytt. Samme staleness-grense som motoren.
     uavklart = db.uavklarte_operasjoner(con())
+    if sjekklister.synk_kurs(con(), _idag()):         # påminnelsen tar med kursene i systemet med riktige datoer
+        con().commit()
     return render_template("admin.html", mangler=mangler, uavklart=uavklart, statistikk=_kursstatistikk(),
                            firma_mangler=firmaopplysninger.liste(con()),
-                           adresse_venter=privatadresse.liste(con(), uten_avsluttede=True), **_kursliste())
+                           adresse_venter=privatadresse.liste(con(), uten_avsluttede=True),
+                           sjekk=sjekklister.paaminnelser(con(), _idag()), snart_dager=sjekklister.SNART_DAGER,
+                           **_kursliste())
 
 
 def _kursstatistikk() -> dict:
@@ -1410,6 +1415,8 @@ def admin_kalender():
     """Kurskalenderen: kursoversikt (standard - kursene kronologisk per måned, neste kurs først), måned eller uke.
     Uten ?visning= gir ?aar= og ?maned= månedsvisningen (lenkene fra før). Se kurs/kurskalender.py."""
     idag = _idag()
+    if sjekklister.synk_kurs(con(), idag):           # sjekkliste på alle kurs i systemet (og datoene i takt)
+        con().commit()
     visning = request.args.get("visning") or ""
     if visning == "agenda":                  # agendaen er erstattet av kursoversikten
         visning = "oversikt"
@@ -1426,12 +1433,13 @@ def admin_kalender():
 
     ansvarlig = request.args.get("ansvarlig", type=int) or 0
     status = request.args.get("status") or ""
-    if status not in KURS_STATUSVERDIER:
+    if status not in KURS_STATUSVERDIER and status != "planlagt":
         status = ""
     sted = request.args.get("sted") or ""
     if sted not in kurskalender.STEDER:
         sted = ""
     filtre = dict(ansvarlig=ansvarlig or None, status=status or None, sted=sted or None)
+    utvalg = dict(ansvarlig=ansvarlig, status=status, sted=sted, med_planlagte=True)
 
     def lenke(visning_, **kw):
         return url_for("admin_kalender", visning=None if visning_ in ("maned", "oversikt") else visning_, **kw,
@@ -1443,15 +1451,15 @@ def admin_kalender():
     neste_aar, neste_maned = (aar + 1, 1) if maned == 12 else (aar, maned + 1)
     uker = ukedager = oversikt = maanedsrader = None
     forrige_lenke = neste_lenke = None
+    fargeforklaring = []
     if visning == "oversikt":
-        hendelser = kurskalender.hent(con(), date(idag.year - 1, idag.month, 1), date(idag.year + 3, 12, 31),
-                                      ansvarlig=ansvarlig, status=status, sted=sted)
+        hendelser = kurskalender.hent(con(), date(idag.year - 1, idag.month, 1), date(idag.year + 3, 12, 31), **utvalg)
         oversikt = kurskalender.oversikt(hendelser, idag)
+        fargeforklaring = kurskalender.fargeforklaring(hendelser, date(idag.year, idag.month, 1))
         tittel = "Kursoversikt"
     elif visning == "uke":
         mandag = dato - timedelta(days=dato.weekday())
-        hendelser = kurskalender.hent(con(), mandag, mandag + timedelta(days=6), ansvarlig=ansvarlig, status=status,
-                                      sted=sted)
+        hendelser = kurskalender.hent(con(), mandag, mandag + timedelta(days=6), **utvalg)
         ukedager = kurskalender.uke(dato, hendelser, idag)
         tittel = f"Uke {mandag.isocalendar()[1]} · {kurskalender.periode_tekst(mandag, mandag + timedelta(days=6))}"
         forrige_lenke = lenke("uke", dato=(mandag - timedelta(days=7)).isoformat())
@@ -1459,8 +1467,7 @@ def admin_kalender():
         aar, maned = mandag.year, mandag.month
     else:
         kalender_ = calendar.Calendar(firstweekday=0).monthdatescalendar(aar, maned)
-        hendelser = kurskalender.hent(con(), kalender_[0][0], kalender_[-1][-1], ansvarlig=ansvarlig, status=status,
-                                      sted=sted)
+        hendelser = kurskalender.hent(con(), kalender_[0][0], kalender_[-1][-1], **utvalg)
         uker = kurskalender.uker(aar, maned, hendelser, idag)
         maanedsrader = kurskalender.rader([h for h in hendelser if h.til >= forste and h.fra <= siste], idag)
         tittel = f"{kurskalender.MAANEDER[maned - 1]} {aar}"
@@ -1468,8 +1475,17 @@ def admin_kalender():
         neste_lenke = lenke(visning, aar=neste_aar, maned=neste_maned)
 
     admins = con().execute("SELECT id, navn FROM admin_bruker WHERE aktiv=1 ORDER BY navn").fetchall()
+    sjekklister.legg_paa(con(), hendelser, idag)
+    her = _her()
+
+    def apne_lenke(samling_id: int, lukk: bool = False) -> str:
+        """Pila på raden uten JavaScript: siden med sjekklisten åpen (eller lukket), tilbake til raden (#sk-<samling>)."""
+        lenke = _tilbake(her, None if lukk else samling_id, url_for("admin_kalender"))
+        return f"{lenke}#sk-{samling_id}" if lukk else lenke
+
     return render_template(
         "admin_kalender.html", kalendervisning=visning, uker=uker, ukedager=ukedager, oversikt=oversikt,
+        apen=request.args.get("apen", type=int), her=her, apne_lenke=apne_lenke,
         maanedsrader=maanedsrader, idag=idag, aar=aar,
         maned=maned, dato=dato, tittel=tittel, ukedagnavn=kurskalender.UKEDAGER,
         forrige_lenke=forrige_lenke, neste_lenke=neste_lenke,
@@ -1483,7 +1499,8 @@ def admin_kalender():
                          url_for("admin_kalender", visning=None if visning == "maned" else visning, aar=aar,
                                  maned=maned, dato=dato.isoformat() if visning == "uke" else None)),
         ansvarlig=ansvarlig, status=status, sted=sted, admins=admins, kurs_statusverdier=KURS_STATUSVERDIER,
-        antall_hendelser=len(hendelser))
+        antall_hendelser=len(hendelser), fargeforklaring=fargeforklaring,
+        antall_planlagte=len({h.plan_id for h in hendelser if h.planlagt}))
 
 
 def _vis_aarsplan(aar: int, skjema=None, status: int = 200, periodeskjema=None):
@@ -1501,6 +1518,7 @@ def _vis_aarsplan(aar: int, skjema=None, status: int = 200, periodeskjema=None):
     plan = aarsplan.hent(con(), aar, omraade)
     ledige = aarsplan.ledige(plan, min_dager)
     kommende = [p for p in ledige if p.til >= idag]
+    kurs_i_systemet = [k for k in plan.kurs if k.get("plan_id") is None]
     return render_template(
         "admin_aarsplan.html", aar=aar, idag=idag, visning="aarsplan",
         maaneder=aarsplan.aarskalender(plan, idag) if aarsvisning == "aar" else None,
@@ -1510,9 +1528,11 @@ def _vis_aarsplan(aar: int, skjema=None, status: int = 200, periodeskjema=None):
         konflikter=aarsplan.konflikter(plan), uker=aarsplan.uker(plan, idag) if aarsvisning == "uker" else None,
         aarsvisning=aarsvisning, ukedagnavn=aarsplan.UKEDAGER, omraader=omraader, omraade=omraade,
         perioder=aarsplan.perioder_i_aaret(con(), aar), periodetyper=aarsplan.PERIODETYPER, gjelder=aarsplan.GJELDER,
-        antall_kurs=len(plan.kurs), antall_kursdager=sum(len(k["datoer"]) for k in plan.kurs),
+        antall_kurs=len(kurs_i_systemet), antall_kursdager=sum(len(k["datoer"]) for k in kurs_i_systemet),
+        antall_planlagte_kurs=len(plan.kurs) - len(kurs_i_systemet),
         antall_planer=sum(p["type"] == "plan" for p in plan.planer), skjema=skjema or {},
-        periodeskjema=periodeskjema or {}), status
+        periodeskjema=periodeskjema or {}, fargeforklaring=aarsplan.fargeforklaring(plan),
+        forfalte=sjekklister.forfalte_samlinger(con(), idag)), status
 
 
 @app.get("/admin/aktiviteter/aarsplan")
@@ -1523,6 +1543,8 @@ def admin_aarsplan():
     aar = request.args.get("aar", type=int) or _idag().year
     if not aarsplan.FORSTE_AAR <= aar <= aarsplan.SISTE_AAR:
         aar = _idag().year
+    if sjekklister.synk_kurs(con(), _idag()):         # rød prikk også for kursene i systemet
+        con().commit()
     return _vis_aarsplan(aar)
 
 
@@ -1604,6 +1626,443 @@ def admin_aarsplan_periode_slett(periode_id):
         abort(404)
     flash("Perioden er fjernet fra årsplanen.", "ok")
     return redirect(url_for("admin_aarsplan", aar=int(rad["fra_dato"][:4])) + "#perioder")
+
+
+# ------- planlagte kurs (Kalender → Planlagte kurs): ikke opprettet i systemet, se kurs/planlagte_kurs.py -------
+
+def _planlagt_maler() -> dict:
+    return dict(visning="planlagte", farger=range(kursfarger.ANTALL), statuser=planlagte_kurs.STATUSER,
+                kort_periode=kurskalender.kort_periode, periode_tekst=kurskalender.periode_tekst,
+                maler=sjekklister.maler(con()))
+
+
+def _her() -> str:
+    """Denne sidens adresse (sti og spørring) - til «tilbake hit» etter et skjema."""
+    return request.full_path.rstrip("?")
+
+
+def _tilbake(neste, apen: int | None, standard: str) -> str:
+    """Tilbake til siden skjemaet kom fra (bare sider under /admin/aktiviteter/), med ?apen=<samling> og #sk-<samling>
+    så sjekklisten står åpen der man var."""
+    sti = sikkerhet.trygg_neste(neste, "")
+    if not sti.startswith("/admin/aktiviteter/"):
+        sti = standard
+    deler = urlsplit(sti)
+    sporring = [(k, v) for k, v in parse_qsl(deler.query) if k != "apen"] + ([("apen", str(apen))] if apen else [])
+    return deler.path + (f"?{urlencode(sporring)}" if sporring else "") + (f"#sk-{apen}" if apen else "")
+
+
+def _mal_fra_skjema() -> tuple[bool, int | None]:
+    """(feltet fantes, mal-id) fra «Sjekkliste» i skjemaet for planlagt kurs. Tomt = ingen mal."""
+    if "sjekkliste_mal" not in request.form:
+        return False, None
+    verdi = (request.form.get("sjekkliste_mal") or "").strip()
+    if not verdi:
+        return True, None
+    if not verdi.isascii() or not verdi.isdigit():
+        raise sjekklister.SjekklisteFeil("Ugyldig sjekklistemal.")
+    return True, int(verdi)
+
+
+@app.get("/admin/aktiviteter/planlagte-kurs")
+@krever_admin
+def admin_kalender_planlagte():
+    """Alle planlagte kurs med samlingene. Kurs som er ferdige før denne måneden, vises med ?tidligere=1."""
+    idag = _idag()
+    alle = planlagte_kurs.liste(con())
+    tidligere = request.args.get("tidligere") == "1"
+    grense = date(idag.year, idag.month, 1)
+    synlige = [k for k in alle if tidligere or k["til"] is None or k["til"] >= grense]
+    lister = sjekklister.for_samlinger(con(), [s["id"] for k in synlige for s in k["samlinger"]], idag)
+    for k in synlige:
+        k["forfalt"] = sum(lister[s["id"]].forfalt for s in k["samlinger"] if s["id"] in lister)
+        k["snart"] = sum(lister[s["id"]].snart for s in k["samlinger"] if s["id"] in lister)
+    return render_template("admin_planlagte_kurs.html", kursliste=synlige, vis_tidligere=tidligere,
+                           antall_skjult=len(alle) - len(synlige), maa_sjekkes=sum(k["maa_sjekkes"] for k in synlige),
+                           **_planlagt_maler())
+
+
+@app.route("/admin/aktiviteter/planlagte-kurs/ny", methods=["GET", "POST"])
+@krever_admin
+def admin_kalender_planlagt_ny():
+    """Nytt planlagt kurs med første samling. Fargen velges ut fra datoene. Med mal lages sjekklisten for samlingen."""
+    if request.method == "POST":
+        try:
+            kurs = planlagte_kurs.valider_kurs(request.form)
+            samling = planlagte_kurs.valider_samling(request.form, "s-")
+            _, mal_id = _mal_fra_skjema()
+            with db.transaksjon(con()):
+                plan_id = planlagte_kurs.opprett(con(), kurs, [samling], _aktor())
+                if mal_id:
+                    sjekklister.sett_mal(con(), plan_id, mal_id, _aktor())
+                    sjekklister.lag_for_kurs(con(), plan_id, _aktor(), fra=_idag())
+        except (planlagte_kurs.PlanFeil, sjekklister.SjekklisteFeil) as e:
+            flash(str(e), "feil")
+            return render_template("admin_planlagt_kurs_ny.html", skjema=request.form, **_planlagt_maler()), 400
+        flash("Det planlagte kurset er lagt inn i kalenderen. Legg til flere samlinger under.", "ok")
+        return redirect(url_for("admin_kalender_planlagt", plan_id=plan_id))
+    return render_template("admin_planlagt_kurs_ny.html", skjema={}, **_planlagt_maler())
+
+
+def _planlagt_side(kurs, *, skjema=None, nyskjema=None, samlingsskjema=None, status=200):
+    idag = _idag()
+    lister = sjekklister.for_samlinger(con(), [s["id"] for s in kurs["samlinger"]], idag)
+    apen = request.args.get("apen", type=int)
+    if apen is None:        # uten valg: den første samlingen som ikke er over, står åpen
+        apen = next((s["id"] for s in kurs["samlinger"] if s["til"] >= idag and s["id"] in lister), None)
+    mal_id = sjekklister.mal_for_kurs(con(), kurs["id"])
+    bookinger = booking.for_samlinger(con(), [s["id"] for s in kurs["samlinger"]])
+    return render_template("admin_planlagt_kurs.html", kurs={**kurs, "sjekkliste_mal": mal_id}, skjema=skjema,
+                           nyskjema=nyskjema or {}, samlingsskjema=samlingsskjema or {}, sjekklister=lister, apen=apen,
+                           bookinger=bookinger, her=_her(), idag=idag, mal_id=mal_id, **_planlagt_maler()), status
+
+
+@app.route("/admin/aktiviteter/planlagte-kurs/<int:plan_id>", methods=["GET", "POST"])
+@krever_admin
+def admin_kalender_planlagt(plan_id):
+    """Ett planlagt kurs: kursets felt, samlingene med sjekklistene, og «Må sjekkes». Lagring av kursets felt (POST)."""
+    kurs = planlagte_kurs.hent(con(), plan_id) or abort(404)
+    if request.method == "POST":
+        try:
+            verdier = planlagte_kurs.valider_kurs(request.form)
+            sendt, mal_id = _mal_fra_skjema()
+            with db.transaksjon(con()):
+                planlagte_kurs.oppdater_kurs(con(), plan_id, verdier, _aktor())
+                ny_mal = sendt and sjekklister.sett_mal(con(), plan_id, mal_id, _aktor())
+                laget = sjekklister.lag_for_kurs(con(), plan_id, _aktor(), fra=_idag()) if ny_mal and mal_id else 0
+        except (planlagte_kurs.PlanFeil, sjekklister.SjekklisteFeil) as e:
+            flash(str(e), "feil")
+            return _planlagt_side(kurs, skjema=request.form, status=400)
+        flash("Endringene er lagret." + (f" Sjekkliste laget for {laget} samling{'er' if laget != 1 else ''}." if laget else "")
+              + (" Samlinger som alt har sjekkliste, beholder den: bruk «Oppdater fra malen» på samlingen." if ny_mal and mal_id
+                 else ""), "ok")
+        return redirect(url_for("admin_kalender_planlagt", plan_id=plan_id))
+    return _planlagt_side(kurs)
+
+
+@app.post("/admin/aktiviteter/planlagte-kurs/<int:plan_id>/slett")
+@krever_admin
+def admin_kalender_planlagt_slett(plan_id):
+    with db.transaksjon(con()):
+        rad = planlagte_kurs.slett(con(), plan_id, _aktor())
+    if not rad:
+        abort(404)
+    flash(f"«{planlagte_kurs.visningsnavn(rad['prosjektnr'], rad['navn'])}» er slettet fra kalenderen.", "ok")
+    return redirect(url_for("admin_kalender_planlagte"))
+
+
+@app.post("/admin/aktiviteter/planlagte-kurs/<int:plan_id>/samling/ny")
+@krever_admin
+def admin_kalender_planlagt_samling_ny(plan_id):
+    """Ny samling. Har kurset en mal og samlingen ikke er over, lages sjekklisten med en gang."""
+    kurs = planlagte_kurs.hent(con(), plan_id) or abort(404)
+    try:
+        samling = planlagte_kurs.valider_samling(request.form)
+        with db.transaksjon(con()):
+            sid = planlagte_kurs.legg_til_samling(con(), plan_id, samling, _aktor())
+            if samling["til_dato"] >= _idag().isoformat():
+                sjekklister.lag_for_samling(con(), sid, _aktor())
+    except planlagte_kurs.PlanFeil as e:
+        flash(str(e), "feil")
+        return _planlagt_side(kurs, nyskjema=request.form, status=400)
+    flash("Samlingen er lagt til.", "ok")
+    return redirect(url_for("admin_kalender_planlagt", plan_id=plan_id) + "#samlinger")
+
+
+@app.post("/admin/aktiviteter/planlagte-kurs/<int:plan_id>/samling/<int:samling_id>")
+@krever_admin
+def admin_kalender_planlagt_samling(plan_id, samling_id):
+    """Lagrer samlingen. Nye datoer flytter fristene i sjekklisten (ikke frister som er endret for hånd)."""
+    kurs = planlagte_kurs.hent(con(), plan_id) or abort(404)
+    if not any(s["id"] == samling_id for s in kurs["samlinger"]):
+        abort(404)
+    try:
+        samling = planlagte_kurs.valider_samling(request.form)
+    except planlagte_kurs.PlanFeil as e:
+        flash(str(e), "feil")
+        return _planlagt_side(kurs, samlingsskjema={samling_id: request.form}, status=400)
+    with db.transaksjon(con()):
+        planlagte_kurs.oppdater_samling(con(), plan_id, samling_id, samling, _aktor())
+        flyttet = sjekklister.flytt_frister(con(), samling_id)
+    flash("Samlingen er lagret." + (f" {flyttet} frist{'er' if flyttet != 1 else ''} i sjekklisten er flyttet etter de nye "
+                                    "datoene." if flyttet else ""), "ok")
+    return redirect(url_for("admin_kalender_planlagt", plan_id=plan_id) + f"#samling-{samling_id}")
+
+
+@app.post("/admin/aktiviteter/planlagte-kurs/<int:plan_id>/samling/<int:samling_id>/slett")
+@krever_admin
+def admin_kalender_planlagt_samling_slett(plan_id, samling_id):
+    try:
+        with db.transaksjon(con()):
+            rad = planlagte_kurs.slett_samling(con(), plan_id, samling_id, _aktor())
+    except planlagte_kurs.PlanFeil as e:
+        flash(str(e), "feil")
+        return redirect(url_for("admin_kalender_planlagt", plan_id=plan_id) + "#samlinger")
+    if not rad:
+        abort(404)
+    flash("Samlingen er slettet.", "ok")
+    return redirect(url_for("admin_kalender_planlagt", plan_id=plan_id) + "#samlinger")
+
+
+# ------- sjekklister (kurs/sjekklister.py): én per samling i et planlagt kurs, laget fra kursets mal -------
+
+@app.post("/admin/aktiviteter/planlagte-kurs/<int:plan_id>/samling/<int:samling_id>/sjekkliste")
+@krever_admin
+def admin_kalender_planlagt_sjekkliste(plan_id, samling_id):
+    """Samlingens sjekkliste: «lag» (fra kursets mal), «oppdater» (etter malen) eller «nytt_punkt» (eget punkt)."""
+    kurs = planlagte_kurs.hent(con(), plan_id) or abort(404)
+    if not any(s["id"] == samling_id for s in kurs["samlinger"]):
+        abort(404)
+    handling = request.form.get("handling") or ""
+    if handling not in ("lag", "oppdater", "nytt_punkt"):
+        abort(400)
+    try:
+        with db.transaksjon(con()):
+            if handling == "lag":
+                n = sjekklister.lag_for_samling(con(), samling_id, _aktor())
+                melding = (f"Sjekklisten er laget ({n} punkter)." if n else
+                           "Ingen sjekkliste laget: kurset har ingen mal, eller samlingen har sjekkliste fra før.")
+            elif handling == "oppdater":
+                r = sjekklister.oppdater_fra_mal(con(), samling_id, _aktor())
+                melding = (f"Oppdatert fra malen: {r['lagt_til']} nye, {r['endret']} endret og {r['fjernet']} fjernet. "
+                           "Det som er krysset av, er ikke rørt.")
+            else:
+                sjekklister.legg_til_punkt(con(), samling_id, request.form, _aktor())
+                melding = "Punktet er lagt til."
+        flash(melding, "ok")
+    except sjekklister.SjekklisteFeil as e:
+        flash(str(e), "feil")
+    return redirect(_tilbake(request.form.get("neste"), samling_id, url_for("admin_kalender_planlagt", plan_id=plan_id)))
+
+
+@app.post("/admin/aktiviteter/sjekkliste/<int:punkt_id>")
+@krever_admin
+def admin_kalender_sjekkliste_punkt(punkt_id):
+    """Ett punkt: «kryss» (utfort=1 eller tomt, og ev. tekstfeltet), «ikke_aktuelt», «aktuelt», «frist» (tom = følg
+    datoene), «notat» (hva som er gjort), «slett» (eget punkt slettes, punkt fra malen tas bort fra denne sjekklisten) eller
+    «gjenopprett» (et slettet punkt fra malen tilbake). Tilbake til siden man var på, med sjekklisten åpen."""
+    plan_id, samling_id = sjekklister.samling_for_punkt(con(), punkt_id) or abort(404)
+    handling = request.form.get("handling") or "kryss"
+    try:
+        with db.transaksjon(con()):
+            if handling == "kryss":
+                if "felt" in request.form:
+                    sjekklister.sett_felt(con(), punkt_id, request.form.get("felt"), _aktor())
+                sjekklister.sett_status(con(), punkt_id, "utfort" if request.form.get("utfort") else "aapen", _aktor())
+            elif handling == "ikke_aktuelt":
+                sjekklister.sett_status(con(), punkt_id, "ikke_aktuelt", _aktor())
+            elif handling == "aktuelt":
+                sjekklister.sett_status(con(), punkt_id, "aapen", _aktor())
+            elif handling == "frist":
+                sjekklister.sett_frist(con(), punkt_id, request.form.get("frist"), _aktor())
+            elif handling == "notat":
+                sjekklister.sett_notat(con(), punkt_id, request.form.get("notat"), _aktor())
+            elif handling == "slett":
+                sjekklister.slett_punkt(con(), punkt_id, _aktor())
+            elif handling == "gjenopprett":
+                sjekklister.gjenopprett_punkt(con(), punkt_id, _aktor())
+            else:
+                abort(400)
+    except sjekklister.SjekklisteFeil as e:
+        flash(str(e), "feil")
+    return redirect(_tilbake(request.form.get("neste"), samling_id, url_for("admin_kalender_planlagt", plan_id=plan_id)))
+
+
+app.jinja_env.globals.update(booking_linjer=booking.linjer, booking_statuser=booking.STATUSER)   # _sjekkliste.html
+
+
+@app.post("/admin/aktiviteter/booking/<int:samling_id>")
+@krever_admin
+def admin_kalender_booking(samling_id):
+    """Booking for samlingen (nederst når kurset åpnes i Kalender, og på kursets side): type (lokale, hotell, grupperom,
+    lunsj), status (booket, ikke booket, trengs ikke, tom = ikke satt) og tekst (hvor, referansenummer ...)."""
+    rad = con().execute("SELECT planlagt_kurs_id FROM planlagt_samling WHERE id=?", (samling_id,)).fetchone() or abort(404)
+    try:
+        with db.transaksjon(con()):
+            booking.sett(con(), samling_id, request.form.get("type") or "", request.form.get("status"),
+                         request.form.get("tekst"), _aktor())
+    except booking.BookingFeil as e:
+        flash(str(e), "feil")
+    return redirect(_tilbake(request.form.get("neste"), samling_id, url_for("admin_kalender_planlagt", plan_id=rad[0])))
+
+
+# ------- kursholderoversikten (Kalender → Kursholdere): som fanen «Kommende kurs» i Excel, se kurs/kursholdere.py -------
+
+@app.get("/admin/aktiviteter/kursholdere")
+@krever_admin
+def admin_kursholdere():
+    """En rad per samling og veiledningsdag, en kolonne per kursholder, rollen i ruta (trykk for å endre). Rød skrift =
+    ikke lagt inn i Psybase, svart = booket. Samme person på to samlinger samtidig markeres. ?kursholder=<id> viser bare
+    radene der personen har en rolle, ?tidligere=1 tar med fjoråret."""
+    idag = _idag()
+    if sjekklister.synk_kurs(con(), idag):           # kursene i systemet er med (de har et skjult planlagt kurs)
+        con().commit()
+    valgt = request.args.get("kursholder", type=int)
+    tidligere = bool(request.args.get("tidligere"))
+    m = kursholdere.matrise(con(), idag, fra=date(idag.year - 1, 1, 1) if tidligere else None, kursholder_id=valgt)
+    return render_template("admin_kursholdere.html", m=m, valgt=valgt, tidligere=tidligere, roller=kursholdere.ROLLER,
+                           alle=kursholdere.liste(con(), med_inaktive=True), visning="kursholdere", her=_her())
+
+
+def _tilbake_kursholdere(neste, anker: str = "") -> str:
+    sti = sikkerhet.trygg_neste(neste, "")
+    if not sti.startswith("/admin/aktiviteter/kursholdere"):
+        sti = url_for("admin_kursholdere")
+    deler = urlsplit(sti)
+    return deler.path + (f"?{deler.query}" if deler.query else "") + (f"#{anker}" if anker else "")
+
+
+@app.post("/admin/aktiviteter/kursholdere/rolle")
+@krever_admin
+def admin_kursholdere_rolle():
+    """Rollen og Psybase-status i én rute (tom rolle = fjern). Tilbake til raden."""
+    samling_id = request.form.get("samling_id", type=int) or 0
+    dag = (request.form.get("dag") or "").strip()
+    try:
+        with db.transaksjon(con()):
+            kursholdere.sett_rolle(con(), samling_id, dag, request.form.get("kursholder_id", type=int) or 0,
+                                   request.form.get("rolle"), request.form.get("psybase") == "1", _aktor())
+    except kursholdere.KursholderFeil as e:
+        flash(str(e), "feil")
+    return redirect(_tilbake_kursholdere(request.form.get("neste"), f"rad-{samling_id}" + (f"-{dag}" if dag else "")))
+
+
+@app.post("/admin/aktiviteter/kursholdere/ny")
+@krever_admin
+def admin_kursholdere_ny():
+    try:
+        with db.transaksjon(con()):
+            kursholdere.opprett(con(), kursholdere.valider(request.form), _aktor())
+        flash("Kursholderen er lagt til.", "ok")
+    except kursholdere.KursholderFeil as e:
+        flash(str(e), "feil")
+    return redirect(_tilbake_kursholdere(request.form.get("neste"), "kursholderne"))
+
+
+@app.post("/admin/aktiviteter/kursholdere/<int:kid>")
+@krever_admin
+def admin_kursholdere_endre(kid):
+    try:
+        with db.transaksjon(con()):
+            if not kursholdere.oppdater(con(), kid, kursholdere.valider(request.form), request.form.get("aktiv") == "1",
+                                        _aktor()):
+                abort(404)
+        flash("Endringene er lagret.", "ok")
+    except kursholdere.KursholderFeil as e:
+        flash(str(e), "feil")
+    return redirect(_tilbake_kursholdere(request.form.get("neste"), "kursholderne"))
+
+
+def _mal_side(mal, *, skjema=None, nyskjema=None, punktskjema=None, status=200):
+    return render_template("admin_sjekklistemal.html", mal=mal, skjema=skjema or mal, nyskjema=nyskjema or {},
+                           punktskjema=punktskjema or {}, gjelder=sjekklister.GJELDER, enheter=sjekklister.ENHETER,
+                           typer=sjekklister.TYPER, visning="maler"), status
+
+
+@app.get("/admin/aktiviteter/sjekklistemaler")
+@krever_admin
+def admin_kalender_maler():
+    """Sjekklistemalene (én per kurstype). Et planlagt kurs velger mal på sin side."""
+    return render_template("admin_sjekklistemaler.html", maler=sjekklister.maler(con()), skjema={}, visning="maler")
+
+
+@app.post("/admin/aktiviteter/sjekklistemaler/ny")
+@krever_admin
+def admin_kalender_mal_ny():
+    try:
+        verdier = sjekklister.valider_mal(request.form)
+    except sjekklister.SjekklisteFeil as e:
+        flash(str(e), "feil")
+        return render_template("admin_sjekklistemaler.html", maler=sjekklister.maler(con()), skjema=request.form,
+                               visning="maler"), 400
+    with db.transaksjon(con()):
+        mal_id = sjekklister.opprett_mal(con(), verdier, _aktor())
+    flash("Malen er laget. Legg inn punktene under.", "ok")
+    return redirect(url_for("admin_kalender_mal", mal_id=mal_id))
+
+
+@app.route("/admin/aktiviteter/sjekklistemaler/<int:mal_id>", methods=["GET", "POST"])
+@krever_admin
+def admin_kalender_mal(mal_id):
+    mal = sjekklister.hent_mal(con(), mal_id) or abort(404)
+    if request.method == "POST":
+        try:
+            verdier = sjekklister.valider_mal(request.form)
+        except sjekklister.SjekklisteFeil as e:
+            flash(str(e), "feil")
+            return _mal_side(mal, skjema=request.form, status=400)
+        with db.transaksjon(con()):
+            sjekklister.oppdater_mal(con(), mal_id, verdier, _aktor())
+        flash("Malen er lagret.", "ok")
+        return redirect(url_for("admin_kalender_mal", mal_id=mal_id))
+    return _mal_side(mal)
+
+
+@app.post("/admin/aktiviteter/sjekklistemaler/<int:mal_id>/slett")
+@krever_admin
+def admin_kalender_mal_slett(mal_id):
+    with db.transaksjon(con()):
+        rad = sjekklister.slett_mal(con(), mal_id, _aktor())
+    if not rad:
+        abort(404)
+    flash(f"Malen «{rad['navn']}» er slettet. Sjekklistene som alt er laget, beholdes.", "ok")
+    return redirect(url_for("admin_kalender_maler"))
+
+
+@app.post("/admin/aktiviteter/sjekklistemaler/<int:mal_id>/punkt/ny")
+@krever_admin
+def admin_kalender_malpunkt_ny(mal_id):
+    mal = sjekklister.hent_mal(con(), mal_id) or abort(404)
+    try:
+        verdier = sjekklister.valider_malpunkt(request.form)
+    except sjekklister.SjekklisteFeil as e:
+        flash(str(e), "feil")
+        return _mal_side(mal, nyskjema=request.form, status=400)
+    with db.transaksjon(con()):
+        pid = sjekklister.opprett_malpunkt(con(), mal_id, verdier, _aktor())
+    flash("Punktet er lagt til i malen.", "ok")
+    return redirect(url_for("admin_kalender_mal", mal_id=mal_id) + f"#punkt-{pid}")
+
+
+@app.post("/admin/aktiviteter/sjekklistemaler/<int:mal_id>/punkt/<int:punkt_id>")
+@krever_admin
+def admin_kalender_malpunkt(mal_id, punkt_id):
+    mal = sjekklister.hent_mal(con(), mal_id) or abort(404)
+    if not any(p["id"] == punkt_id for p in mal["punkter"]):
+        abort(404)
+    try:
+        verdier = sjekklister.valider_malpunkt(request.form)
+    except sjekklister.SjekklisteFeil as e:
+        flash(str(e), "feil")
+        return _mal_side(mal, punktskjema={punkt_id: request.form}, status=400)
+    with db.transaksjon(con()):
+        sjekklister.oppdater_malpunkt(con(), mal_id, punkt_id, verdier, _aktor())
+    flash("Punktet er lagret. Sjekklister som alt er laget, endres når du velger «Oppdater fra malen» på samlingen.", "ok")
+    return redirect(url_for("admin_kalender_mal", mal_id=mal_id) + f"#punkt-{punkt_id}")
+
+
+@app.post("/admin/aktiviteter/sjekklistemaler/<int:mal_id>/punkt/<int:punkt_id>/flytt")
+@krever_admin
+def admin_kalender_malpunkt_flytt(mal_id, punkt_id):
+    retning = request.form.get("retning")
+    if retning not in ("opp", "ned"):
+        abort(400)
+    with db.transaksjon(con()):
+        ok = sjekklister.flytt_malpunkt(con(), mal_id, punkt_id, retning)
+    if not ok:
+        abort(404)
+    return redirect(url_for("admin_kalender_mal", mal_id=mal_id) + f"#punkt-{punkt_id}")
+
+
+@app.post("/admin/aktiviteter/sjekklistemaler/<int:mal_id>/punkt/<int:punkt_id>/slett")
+@krever_admin
+def admin_kalender_malpunkt_slett(mal_id, punkt_id):
+    with db.transaksjon(con()):
+        ok = sjekklister.slett_malpunkt(con(), mal_id, punkt_id, _aktor())
+    if not ok:
+        abort(404)
+    flash("Punktet er fjernet fra malen. Sjekklister som alt er laget, beholder det.", "ok")
+    return redirect(url_for("admin_kalender_mal", mal_id=mal_id))
 
 
 # ------- uavklarte operasjoner (e-post og faktura med ukjent utfall) -------
@@ -4105,9 +4564,10 @@ def admin_deltakerliste(kurs_id):
     """Deltakerliste med kolonnevalg for utskrift / PDF (nettleserens «Lagre som PDF»). Personvernreglene står i
     kurs/deltakerliste.py: bare nr og navn som standard, aldri allergier/tilrettelegging."""
     kurs, katalog, valg, dager, tabell = _deltakerliste(kurs_id)
+    logo = deltakerliste.velg_logo(request.args.get("logo"))
     return render_template("admin_deltakerliste.html", kurs=kurs, valg=valg, tabell=tabell,
                            katalog=katalog, grupper=deltakerliste.GRUPPER,
-                           statusvalg=deltakerliste.STATUSVALG, logo=deltakerliste.logo_fil(),
+                           statusvalg=deltakerliste.STATUSVALG, logo=logo, logoer=deltakerliste.logoer(),
                            datoer=deltakerliste.datoer_tekst(dager), utskrevet=_idag().strftime("%d.%m.%Y"),
                            # «Påmeldte og ekstradeltakere»: tallene vises hver for seg (12 påmeldte + 2 ekstradeltakere)
                            antall_paameldte=db.antall_bekreftet(con(), kurs_id), antall_ekstra=db.antall_ekstradeltakere(con(), kurs_id))

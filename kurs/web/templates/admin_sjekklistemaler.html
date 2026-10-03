@@ -1,0 +1,38 @@
+{% extends "admin_base.html" %}
+{% block tittel %}Sjekklistemaler{% endblock %}
+{% block sideklasse %} class="bred"{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='sjekkliste.css') }}">{% endblock %}
+{% block innhold %}
+<h1>Sjekklistemaler</h1>
+<p class="sub">Én mal per kurstype. Et planlagt kurs velger mal på sin side, og hver samling får da sin egen sjekkliste med
+  punktene som gjelder den. Fristene regnes ut fra samlingens datoer. Endrer du en mal, gjelder det nye sjekklister; de som
+  alt er laget, oppdateres med «Oppdater fra malen» på samlingen.</p>
+{% set visning = 'maler' %}
+{% include "admin_aktivitet_faner.html" %}
+
+{% if maler %}
+<div class="tabellboks"><table class="periodetabell">
+  <thead><tr><th scope="col">Mal</th><th scope="col">Punkter</th><th scope="col">Brukes av</th><th scope="col">Beskrivelse</th></tr></thead>
+  <tbody>{% for m in maler %}<tr>
+    <td><a href="{{ url_for('admin_kalender_mal', mal_id=m.id) }}"><strong>{{ m.navn }}</strong></a></td>
+    <td>{{ m.antall_punkter }}</td>
+    <td>{{ m.antall_kurs }} {{ 'kurs' }}</td>
+    <td class="liten dempet notattekst">{{ m.beskrivelse or '' }}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="dempet">Ingen maler ennå.</p>{% endif %}
+
+{% if admin_rolle != 'lese' %}
+<details class="kort" id="ny-mal"{% if skjema %} open{% endif %}>
+  <summary>＋ Ny mal</summary>
+  <form method="post" action="{{ url_for('admin_kalender_mal_ny') }}" style="margin-top:8px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="m-navn">Navn *</label><input id="m-navn" name="navn" required maxlength="80" value="{{ skjema.get('navn', '') }}"
+      placeholder="For eksempel «EFST 1-årig»">
+    <label for="m-beskrivelse">Beskrivelse</label><textarea id="m-beskrivelse" name="beskrivelse" rows="2" maxlength="500">{{ skjema.get('beskrivelse', '') }}</textarea>
+    <p style="margin:12px 0 0"><button>Lag malen</button></p>
+  </form>
+</details>
+{% endif %}
+{% endblock %}

@@ -612,6 +612,7 @@ def test_hver_redigerbar_mal_sendes_faktisk_via_send_en_gang_under_noyaktig_dett
     brukt = _send_en_gang_mal_argumenter()
     for mal in REDIGERBARE:
         assert mal in brukt, f"{mal} sendes ikke under dette navnet (navnedrift?)"
-    # alle andre maler som sendes via send_en_gang/render_for_sending er de LASTE (ikke redigerbare): eskalering (til admin)
-    # og avslag (fase 17 - det viktige innholdet er begrunnelsen admin skriver i hver sak; kan gjoeres redigerbar senere)
-    assert set(brukt) - set(MALER) == {"eskalering", "avslag"}
+    # alle andre maler som sendes via send_en_gang/render_for_sending er de LASTE (ikke redigerbare): eskalering (til admin),
+    # avslag (fase 17 - det viktige innholdet er begrunnelsen admin skriver i hver sak; kan gjoeres redigerbar senere) og
+    # sjekkliste_paaminnelse (morgen-e-posten om sjekklistene til kurspostboksen, 02.10.2026)
+    assert set(brukt) - set(MALER) == {"eskalering", "avslag", "sjekkliste_paaminnelse"}

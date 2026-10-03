@@ -4,6 +4,8 @@
     over dagene de varer (hver samling for seg, farget etter kursserien - kursfarger.py), helger, røde dager,
     skoleferier, sperrer og advarsler markert på dagene, og dager med flere kurs/planer som kollisjoner.
   * Kurs kommer med automatisk (fra kursdag), unntatt avlyste. Utkast vises, merket som utkast.
+  * Planlagte kurs (kurs/planlagte_kurs.py, ikke opprettet i systemet) vises og opptar datoene som kurs, med lagret farge og
+    lagret samlingsnummer; avlyste planlagte kurs vises ikke. Kurs med annen arrangør er grå, men opptar også datoene.
   * Planlagte aktiviteter (type 'plan') opptar datoene sine. Notater ('notat') er bare påminnelser og opptar ingenting.
   * Overlapp = en dato med minst to kurs/planlagte aktiviteter (vises som perioder: «15.–16. okt»).
   * Ledige perioder = sammenhengende dager uten kursdager, planlagte aktiviteter og sperrer («8.–14. mar · 7 dager»).
@@ -17,7 +19,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from . import db, helligdager, kursfarger
+from . import db, helligdager, kursfarger, planlagte_kurs
 
 MAANEDER = ("Januar", "Februar", "Mars", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
             "November", "Desember")
@@ -50,18 +52,50 @@ class Aktivitet:
     status: str | None = None
     kurstype: str | None = None     # fysisk / digital / hybrid (kurs)
     spesialistlop: str | None = None
+    plan_id: int | None = None      # planlagt kurs (kurs/planlagte_kurs.py): type 'kurs', men ikke opprettet i systemet
+    fast_farge: int | None = None   # planlagte kurs har lagret farge
+    ekstern: bool = False           # planlagt kurs med annen arrangør (grå)
+    samling_id: int | None = None   # den planlagte samlingen (sjekklisten hører til den)
+
+    @property
+    def nokkel(self) -> tuple:
+        """Hvilket kurs aktiviteten hører til: ('kurs', id) eller ('plan', id)."""
+        return ("plan", self.plan_id) if self.plan_id is not None else ("kurs", self.kurs_id)
 
     @property
     def farge(self) -> int | None:
-        """Kursseriens farge (kursfarger.py) - bare for kurs"""
+        """Kursseriens farge (kursfarger.py) - bare for kurs. Planlagte kurs har lagret farge."""
+        if self.fast_farge is not None:
+            return self.fast_farge
         return kursfarger.farge(self.tittel, self.spesialistlop) if self.type == "kurs" else None
 
     @property
     def opptar(self) -> bool:
-        return self.type in ("kurs", "plan")
+        """Opptar datoen for oss (ledige perioder, «Opptatt:»). Kurs med annen arrangør gjør det ikke: de teller bare som
+        kollisjon med et eget fysisk kurs på samme sted (kollisjon())."""
+        return self.type in ("kurs", "plan") and not self.ekstern
+
+    @property
+    def fysisk(self) -> bool:
+        if self.type == "kurs":
+            return self.kurstype in ("fysisk", "hybrid")
+        return not planlagte_kurs.er_online(self.sted)
+
+    @property
+    def online(self) -> bool:
+        """Har aktiviteten en nettdel (online- eller hybridkurs, eller en plan med «Online» som sted)?"""
+        if self.type == "kurs":
+            return self.kurstype in ("digital", "hybrid")
+        return planlagte_kurs.er_online(self.sted)
+
+    @property
+    def by(self) -> str | None:
+        return planlagte_kurs.by_i(self.sted)
 
     @property
     def visning(self) -> str:
+        if self.plan_id is not None:
+            return f"{self.tittel} (planlagt)"
         if self.type == "kurs":
             return f"{self.kursnr} {self.tittel}" if self.kursnr else self.tittel
         return f"{'Planlagt' if self.type == 'plan' else 'Notat'}: {self.tittel}"
@@ -92,6 +126,8 @@ class Aarsplan:
     perioder: list = field(default_factory=list)    # rader fra kalenderperiode (skoleferier bare for valgt område)
     rode: dict = field(default_factory=dict)        # date -> navnet på den røde dagen (også kantukene)
     samlinger: dict = field(default_factory=dict)   # kurs_id -> [[datoene i samling 1], [samling 2], ...] (hele kurset)
+    plan_samling: dict = field(default_factory=dict)    # (plan_id, dato) -> (nr, antall) for planlagte kurs
+    planlagte: dict = field(default_factory=dict)   # plan_id -> kurset fra planlagte_kurs.hent (alle samlingene)
 
 
 # ============================ datoer og tekst ============================
@@ -139,16 +175,35 @@ def hent(con, aar: int, omraade: str = "") -> Aarsplan:
     kurs: dict = {}
     for r in con.execute(
             """SELECT kd.dato, k.id, k.kursnr, k.navn, k.status, k.type AS kurstype, k.spesialistlop,
-                      COALESCE(k.sted, CASE WHEN k.type='digital' THEN 'Online' END) AS sted
+                      COALESCE(k.sted, CASE WHEN k.type='digital' THEN 'Online' END) AS sted,
+                      (SELECT ps.id FROM planlagt_samling ps JOIN planlagt_kurs pk ON pk.id=ps.planlagt_kurs_id
+                       WHERE pk.kurs_id=k.id AND ps.kurs_samling_id=kd.samling_id) AS sjekk_samling_id
                FROM kursdag kd JOIN kurs k ON k.id=kd.kurs_id
                WHERE kd.dato BETWEEN ? AND ? AND k.status != 'avlyst'
                ORDER BY kd.dato, k.navn, k.id""", (fra.isoformat(), til.isoformat())):
         d = date.fromisoformat(r["dato"])
         per_dato.setdefault(d, []).append(Aktivitet("kurs", r["navn"], r["sted"], r["id"], r["kursnr"], r["status"],
-                                                    r["kurstype"], r["spesialistlop"]))
+                                                    r["kurstype"], r["spesialistlop"],
+                                                    samling_id=r["sjekk_samling_id"]))   # sjekklisten (rød prikk)
         if d.year == aar:
-            kurs.setdefault(r["id"], {"id": r["id"], "kursnr": r["kursnr"], "navn": r["navn"], "status": r["status"],
-                                      "sted": r["sted"], "type": r["kurstype"], "datoer": []})["datoer"].append(d)
+            kurs.setdefault(r["id"], {"id": r["id"], "plan_id": None, "kursnr": r["kursnr"], "navn": r["navn"],
+                                      "status": r["status"], "sted": r["sted"], "type": r["kurstype"],
+                                      "datoer": []})["datoer"].append(d)
+    # Planlagte kurs (ikke opprettet i systemet) opptar datoene som kurs. Avlyste vises ikke (som avlyste kurs).
+    plan_samling: dict = {}
+    for s in planlagte_kurs.samlinger_i_perioden(con, fra, til, med_avlyste=False):
+        kurstype = "digital" if planlagte_kurs.er_online(s["sted"], s["lokale"]) else "fysisk"
+        sted = planlagte_kurs.sted_tekst(s["sted"], s["lokale"]) or None
+        a = Aktivitet("kurs", s["visningsnavn"], sted, None, None, s["status"], kurstype, None, s["plan_id"], s["farge"],
+                      s["ekstern"], s["samling_id"])
+        nummer = (s["nr_vist"], s["antall"]) if s["nr_vist"] is not None and s["antall"] > 1 else (1, 1)
+        for d in _dager(max(s["fra"], fra), min(s["til"], til)):
+            per_dato.setdefault(d, []).append(a)
+            plan_samling[(s["plan_id"], d)] = nummer
+            if d.year == aar:
+                kurs.setdefault(("plan", s["plan_id"]), {
+                    "id": None, "plan_id": s["plan_id"], "kursnr": None, "navn": s["visningsnavn"], "status": s["status"],
+                    "sted": sted, "type": kurstype, "ekstern": s["ekstern"], "datoer": []})["datoer"].append(d)
     planer = [dict(r) for r in con.execute(
         "SELECT * FROM planlagt_aktivitet WHERE til_dato >= ? AND fra_dato <= ? ORDER BY fra_dato, id",
         (fra.isoformat(), til.isoformat()))]
@@ -163,9 +218,10 @@ def hent(con, aar: int, omraade: str = "") -> Aarsplan:
     if omraade:
         perioder = [p for p in perioder
                     if p["type"] != "skoleferie" or (p["omraade"] or "").casefold() == omraade.casefold()]
-    kurs_ider = sorted({a.kurs_id for akt in per_dato.values() for a in akt if a.type == "kurs"})
+    kurs_ider = sorted({a.kurs_id for akt in per_dato.values() for a in akt if a.type == "kurs" and a.plan_id is None})
+    plan_ider = sorted({pid for pid, _ in plan_samling})
     return Aarsplan(aar, per_dato, list(kurs.values()), planer, perioder, helligdager.i_perioden(fra, til),
-                    _samlinger(con, kurs_ider))
+                    _samlinger(con, kurs_ider), plan_samling, planlagte_kurs.hent_flere(con, plan_ider))
 
 
 def _samlinger(con, kurs_ider: list[int]) -> dict:
@@ -195,8 +251,13 @@ def _samlinger(con, kurs_ider: list[int]) -> dict:
     return ut
 
 
-def samling(plan: "Aarsplan", kurs_id: int, dato: date) -> tuple[int, int]:
-    """(nr, antall) for samlingen `dato` hører til i kurset - (1, 1) når kurset har én samling."""
+def samling(plan: "Aarsplan", kurs_id, dato: date) -> tuple[int, int]:
+    """(nr, antall) for samlingen `dato` hører til i kurset - (1, 1) når kurset har én samling. `kurs_id` er kursets id
+    eller nøkkelen ('kurs', id) / ('plan', id); planlagte kurs har lagret samlingsnummer."""
+    if isinstance(kurs_id, tuple):
+        if kurs_id[0] == "plan":
+            return plan.plan_samling.get((kurs_id[1], dato), (1, 1))
+        kurs_id = kurs_id[1]
     samlinger = plan.samlinger.get(kurs_id) or []
     for nr, datoer in enumerate(samlinger, start=1):
         if dato in datoer:
@@ -235,13 +296,27 @@ def gjelder_kurs(gjelder: str, kurstype: str | None) -> bool:
             or (gjelder == "online" and kurstype in ("digital", "hybrid")))
 
 
+def kolliderende(aktiviteter: list) -> list:
+    """Kursene/planene en dag som kolliderer med minst ett annet: egne planer alltid med egne kurs og planer, egne kurs når
+    begge er fysiske i samme by eller begge online/hybrid (fysisk + online, og Oslo + Bergen, er greit), et kurs med annen
+    arrangør bare med et eget fysisk kurs på samme sted (planlagte_kurs.kolliderer). Notater teller aldri."""
+    kandidater = [a for a in aktiviteter if a.type in ("kurs", "plan")]
+    return [a for a in kandidater if any(b is not a and _kolliderer(a, b) for b in kandidater)]
+
+
+def _kolliderer(a, b) -> bool:
+    if "plan" in (a.type, b.type) and not a.ekstern and not b.ekstern:
+        return True
+    return planlagte_kurs.kolliderer(a.ekstern, a.fysisk, a.by, b.ekstern, b.fysisk, b.by, a_online=a.online, b_online=b.online)
+
+
 def overlapp(plan: Aarsplan) -> list[tuple[str, list]]:
-    """(datotekst, aktiviteter) for hver dato i året med minst to kurs/planlagte aktiviteter."""
+    """(datotekst, aktiviteter) for hver dato i året med kurs/planlagte aktiviteter som kolliderer (kolliderende())."""
     ut = []
     for d in sorted(plan.per_dato):
-        opptar = [a for a in plan.per_dato[d] if a.opptar]
-        if d.year == plan.aar and len(opptar) >= 2:
-            ut.append((dato_tekst(d), opptar))
+        kollisjon = kolliderende(plan.per_dato[d])
+        if d.year == plan.aar and kollisjon:
+            ut.append((dato_tekst(d), kollisjon))
     return ut
 
 
@@ -266,17 +341,18 @@ def overlapp_perioder(plan: Aarsplan) -> list[dict]:
     """Overlappene som sammenhengende perioder med de samme aktivitetene: {tekst: «15.–16. okt», dager, aktiviteter}."""
     ut: list[dict] = []
     for d in sorted(plan.per_dato):
-        opptar = [a for a in plan.per_dato[d] if a.opptar]
-        if d.year != plan.aar or len(opptar) < 2:
+        kollisjon = kolliderende(plan.per_dato[d])
+        if d.year != plan.aar or not kollisjon:
             continue
-        nokkel = tuple(sorted((a.type, a.kurs_id or 0, a.tittel) for a in opptar))
+        nokkel = tuple(sorted((a.type, a.nokkel[0], a.nokkel[1] or 0, a.tittel) for a in kollisjon))
         if ut and ut[-1]["nokkel"] == nokkel and ut[-1]["til"] + timedelta(days=1) == d:
             ut[-1]["til"] = d
         else:
-            ut.append({"fra": d, "til": d, "nokkel": nokkel, "aktiviteter": opptar})
+            ut.append({"fra": d, "til": d, "nokkel": nokkel, "aktiviteter": kollisjon})
     for o in ut:
         o["tekst"], o["dager"] = periode_tekst(o["fra"], o["til"]), (o["til"] - o["fra"]).days + 1
-        o["navn"] = _og([a.tittel if a.type == "kurs" else f"Planlagt: {a.tittel}" for a in o["aktiviteter"]])
+        o["navn"] = _og([(f"{a.tittel} (planlagt kurs)" if a.plan_id is not None else a.tittel) if a.type == "kurs"
+                         else f"Planlagt: {a.tittel}" for a in o["aktiviteter"]])
     return ut
 
 
@@ -367,6 +443,8 @@ def konflikter(plan: Aarsplan) -> list[Konflikt]:
     Bare til orientering - ingenting hindrer at kurs opprettes. Sortert på dato, sperrer først."""
     ut = []
     for k in plan.kurs:
+        if k.get("ekstern"):                                # annen arrangør: ikke vår sak
+            continue
         for p in plan.perioder:
             if p["type"] in ("sperre", "advarsel") and gjelder_kurs(p["gjelder"], k["type"]):
                 treff = [d for d in k["datoer"] if _dekker(p, d)]
@@ -397,6 +475,15 @@ class Blokk:
     farge: int | None = None
     samling_nr: int = 1
     samling_antall: int = 1
+    plan_id: int | None = None      # planlagt kurs (ikke opprettet i systemet)
+    ekstern: bool = False
+    samling_id: int | None = None   # planlagt samling (sjekklisten)
+
+    @property
+    def klasser(self) -> str:
+        """CSS-klasser utover fargen: «utkast», «planlagt», «planlagt ekstern»."""
+        return " ".join(x for x in ("utkast" if self.status == "utkast" else "",
+                                    "planlagt" if self.plan_id is not None else "", "ekstern" if self.ekstern else "") if x)
 
     @property
     def samling_tekst(self) -> str:
@@ -462,15 +549,15 @@ def uker(plan: Aarsplan, idag: date) -> list[Ukerad]:
     """Ukene i året - fra uken med 1. januar til uken med 31. desember, så alle datoene i året er med - med kursene
     (hver samling som én blokk over dagene den varer, også over ukeskifter), planlagte aktiviteter, røde dager,
     skoleferier, sperrer, advarsler og notater."""
-    kursdatoer: dict[int, list[date]] = {}
-    info: dict[int, object] = {}
+    kursdatoer: dict[tuple, list[date]] = {}
+    paa_dag: dict[tuple, object] = {}           # (kurs, dato) -> aktiviteten den dagen (riktig samling for sjekklisten)
     for d, akt in plan.per_dato.items():
         for a in akt:
             if a.type == "kurs":
-                kursdatoer.setdefault(a.kurs_id, []).append(d)
-                info[a.kurs_id] = a
-    lop = [("kurs", info[kid].tittel, fra, til, info[kid])
-           for kid, datoer in kursdatoer.items() for fra, til in _lop(datoer)]
+                kursdatoer.setdefault(a.nokkel, []).append(d)
+                paa_dag[(a.nokkel, d)] = a
+    lop = [("kurs", paa_dag[(n, fra)].tittel, fra, til, paa_dag[(n, fra)])
+           for n, datoer in kursdatoer.items() for fra, til in _lop(datoer)]
     lop += [("plan", p["tittel"], _periodedato(p, "fra_dato"), _periodedato(p, "til_dato"), p)
             for p in plan.planer if p["type"] == "plan"]
     ut = []
@@ -482,9 +569,10 @@ def uker(plan: Aarsplan, idag: date) -> list[Ukerad]:
         for type_, tittel, fra, til, kilde in lop:
             if fra <= sondag and til >= mandag:
                 if type_ == "kurs":
-                    samling_nr, samling_antall = samling(plan, kilde.kurs_id, fra)
+                    samling_nr, samling_antall = samling(plan, kilde.nokkel, fra)
                     blokker.append(Blokk("kurs", tittel, fra, til, mandag, kilde.kurs_id, kilde.kursnr, kilde.status,
-                                         kilde.kurstype, kilde.sted, kilde.farge, samling_nr, samling_antall))
+                                         kilde.kurstype, kilde.sted, kilde.farge, samling_nr, samling_antall,
+                                         kilde.plan_id, kilde.ekstern, kilde.samling_id))
                 else:
                     blokker.append(Blokk("plan", tittel, fra, til, mandag, sted=kilde["sted"]))
         baner: list[list[Blokk]] = []
@@ -525,12 +613,13 @@ class Minidag:
     sperre: bool = False
     advarsel: bool = False
     notat: bool = False
-    opptatt: int = 0                # kurs og planlagte aktiviteter denne dagen
+    opptatt: int = 0                # egne kurs og planlagte aktiviteter denne dagen (ikke annen arrangør)
     tittel: str = ""                # verktøytips: alt som skjer
+    kolliderer: bool | None = None  # satt av _minidag (kolliderende()); None = som før: minst to som opptar dagen
 
     @property
     def kollisjon(self) -> bool:
-        return self.opptatt >= 2
+        return self.kolliderer if self.kolliderer is not None else self.opptatt >= 2
 
     @property
     def klasser(self) -> str:
@@ -556,6 +645,15 @@ class Miniblokk:
     fra_forrige: bool = False       # fortsetter fra uken eller måneden før
     til_neste: bool = False         # fortsetter i uken eller måneden etter
     ekstra: int = 0                 # ledige dager etter blokken på samme linje, som navnet kan fortsette inn i (høyst 3)
+    plan_id: int | None = None      # planlagt kurs (ikke opprettet i systemet)
+    ekstern: bool = False
+    samling_id: int | None = None   # planlagt samling (sjekklisten)
+
+    @property
+    def klasser(self) -> str:
+        """Status-klassene i tillegg til fargen: «aapen», «utkast planlagt», «planlagt ekstern» ..."""
+        return " ".join(x for x in (self.status or "", "planlagt" if self.plan_id is not None and self.status != "planlagt"
+                                    else "", "ekstern" if self.ekstern else "") if x)
 
     @property
     def spenn(self) -> int:
@@ -601,29 +699,31 @@ class Minimaaned:
 
 def _aarslop(plan: Aarsplan) -> list[tuple]:
     """Kursene (hver sammenhengende del av en samling) og de planlagte aktivitetene som (mal, fra, til), der malen er
-    (type, tekst, tittel, farge, kurs_id, status)."""
-    kursdatoer: dict[int, list[date]] = {}
-    info: dict[int, Aktivitet] = {}
+    (type, tekst, tittel, farge, kurs_id, status, plan_id, ekstern, samling_id)."""
+    kursdatoer: dict[tuple, list[date]] = {}
+    paa_dag: dict[tuple, Aktivitet] = {}        # (kurs, dato) -> aktiviteten den dagen (riktig samling for sjekklisten)
     for d, akt in plan.per_dato.items():
         for a in akt:
             if a.type == "kurs":
-                kursdatoer.setdefault(a.kurs_id, []).append(d)
-                info[a.kurs_id] = a
+                kursdatoer.setdefault(a.nokkel, []).append(d)
+                paa_dag[(a.nokkel, d)] = a
     ut = []
-    for kid, datoer in kursdatoer.items():
-        a = info[kid]
+    for n, datoer in kursdatoer.items():
         for fra, til in _lop(datoer):
-            nr, antall = samling(plan, kid, fra)
+            a = paa_dag[(n, fra)]
+            nr, antall = samling(plan, n, fra)
             tittel = " · ".join(x for x in (a.tittel, periode_tekst(fra, til),
                                             f"samling {nr} av {antall}" if antall > 1 else "", a.sted or "",
-                                            "utkast" if a.status == "utkast" else "") if x)
+                                            "utkast" if a.status == "utkast" else "",
+                                            "planlagt kurs (ikke opprettet i systemet)" if a.plan_id is not None else "",
+                                            "annen arrangør" if a.ekstern else "") if x)
             tekst = a.tittel + (f" {nr}/{antall}" if antall > 1 else "")
-            ut.append((("kurs", tekst, tittel, a.farge, kid, a.status), fra, til))
+            ut.append((("kurs", tekst, tittel, a.farge, a.kurs_id, a.status, a.plan_id, a.ekstern, a.samling_id), fra, til))
     for p in plan.planer:
         if p["type"] == "plan":
             fra, til = _periodedato(p, "fra_dato"), _periodedato(p, "til_dato")
             tittel = f"Planlagt: {p['tittel']} · {periode_tekst(fra, til)}" + (f" · {p['sted']}" if p["sted"] else "")
-            ut.append((("plan", f"Planlagt: {p['tittel']}", tittel, None, None, None), fra, til))
+            ut.append((("plan", f"Planlagt: {p['tittel']}", tittel, None, None, None, None, False, None), fra, til))
     return sorted(ut, key=lambda x: (x[1], x[0][1].casefold()))
 
 
@@ -639,7 +739,7 @@ def _minidag(plan: Aarsplan, d: date, maaned: int, idag: date) -> Minidag:
                    sperre=any(p["type"] == "sperre" for p in dekker),
                    advarsel=any(p["type"] == "advarsel" for p in dekker),
                    notat=any(a.type == "notat" for a in akt), opptatt=sum(1 for a in akt if a.opptar),
-                   tittel=_tittel(d, akt, ekstra))
+                   tittel=_tittel(d, akt, ekstra), kolliderer=bool(kolliderende(akt)))
 
 
 def _miniblokkbaner(blokker: list[Miniblokk]) -> list[list[Miniblokk]]:
@@ -669,16 +769,46 @@ def aarskalender(plan: Aarsplan, idag: date) -> list[Minimaaned]:
         uker_ = []
         for uke in calendar.Calendar(firstweekday=0).monthdatescalendar(plan.aar, m):
             blokker = []
-            for (type_, tekst, tittel, farge, kurs_id, status), fra, til in lop:
+            for (type_, tekst, tittel, farge, kurs_id, status, plan_id, ekstern, samling_id), fra, til in lop:
                 start, slutt = max(fra, uke[0], forste), min(til, uke[-1], siste)
                 if start <= slutt:
                     blokker.append(Miniblokk(type_, tekst, tittel, (start - uke[0]).days, (slutt - start).days + 1,
-                                             farge, kurs_id, status, fra < start, til > slutt))
+                                             farge, kurs_id, status, fra < start, til > slutt, plan_id=plan_id,
+                                             ekstern=ekstern, samling_id=samling_id))
             uker_.append(Miniuke(uke[0].isocalendar()[1], [_minidag(plan, d, m, idag) for d in uke],
                                  _miniblokkbaner(blokker)))
         opptatt = [d for d in _dager(forste, siste) if any(a.opptar for a in plan.per_dato.get(d, []))]
         ut.append(Minimaaned(plan.aar, m, uker_, opptatt))
     return ut
+
+
+def fargeforklaring(plan: Aarsplan) -> list[dict]:
+    """Kursene med flere samlinger i året, med fargen og ALLE samlingene (også i andre år), så samme kurs er lett å finne
+    igjen: {navn, farge, kurs_id, plan_id, samlinger: [«2. samling 18.–21. jan»]}. Kurs med annen arrangør er grå og
+    står ikke her."""
+    info: dict[tuple, Aktivitet] = {}
+    for d in sorted(plan.per_dato):
+        for a in plan.per_dato[d]:
+            if a.type == "kurs" and not a.ekstern and d.year == plan.aar:
+                info.setdefault(a.nokkel, a)
+    ut = []
+    for (art, nr_id), a in info.items():
+        if art == "plan":
+            k = plan.planlagte.get(nr_id)
+            samlinger = [(s["nr_vist"] or i, s["fra"], s["til"]) for i, s in enumerate(k["samlinger"], 1)] if k else []
+            if not k or k["antall"] < 2:
+                continue
+        else:
+            grupper = plan.samlinger.get(nr_id) or []
+            if len(grupper) < 2:
+                continue
+            samlinger = [(i, min(g), max(g)) for i, g in enumerate(grupper, 1)]
+        tekster = [f"{nr}. samling {periode_tekst(fra, til)}" + (f" {fra.year}" if fra.year == til.year != plan.aar else "")
+                   for nr, fra, til in samlinger]
+        forste = min((fra for _, fra, til in samlinger if til.year >= plan.aar), default=samlinger[0][1])
+        ut.append((forste, {"navn": a.tittel, "farge": a.farge, "kurs_id": a.kurs_id, "plan_id": a.plan_id,
+                            "samlinger": tekster}))
+    return [x for _, x in sorted(ut, key=lambda x: (x[0], x[1]["navn"].casefold()))]
 
 
 def planliste(plan: Aarsplan) -> list[dict]:

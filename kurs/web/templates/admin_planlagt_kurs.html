@@ -1,0 +1,107 @@
+{% extends "admin_base.html" %}
+{% from "_planlagt_felt.html" import kursfelt, samlingsfelt with context %}
+{% from "_sjekkliste.html" import sjekkliste, bookingblokk with context %}
+{% block tittel %}{{ kurs.visningsnavn }}{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kursfarger.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='kalender.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='sjekkliste.css') }}">{% endblock %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_kalender_planlagte') }}">← Planlagte kurs</a> · <a href="{{ url_for('admin_kalender') }}">Kalender</a>
+  {%- if kurs.fra %} · <a href="{{ url_for('admin_aarsplan', aar=kurs.fra.year) }}">Årsplan {{ kurs.fra.year }}</a>{% endif %}</p>
+<h1 class="plantittel kursfarge-{{ kurs.farge }}{{ ' ekstern' if kurs.ekstern }}"><span class="fargeprove" aria-hidden="true"></span>{{ kurs.visningsnavn }}</h1>
+{% if kurs.kurs_id %}
+<p class="sub">Sjekklisten og kursholderne til kurset <a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.kurs_id) }}">{{ kurs.navn }}</a>
+  i systemet. Datoene og samlingene følger kurset og endres der.</p>
+{% else %}
+<p class="sub"><span class="merke planlagt">Planlagt kurs</span>
+  {%- if kurs.ekstern %} <span class="merke gra">Annen arrangør: {{ kurs.arrangor }}</span>{% elif kurs.arrangor != 'IPR' %} <span class="merke gra">{{ kurs.arrangor }}</span>{% endif %}
+  {%- if kurs.status == 'avlyst' %} <span class="merke gra">Avlyst</span>{% endif %}
+  Fra kursplanen – ikke opprettet i påmeldingssystemet ennå. Vises i Kalender og Årsplan, men ikke på Oversikten, og har ingen
+  påmelding, e-post eller faktura.</p>
+{% endif %}
+
+{% if kurs.maa_sjekkes %}
+<div class="varselboks gul">
+  <strong>Må sjekkes</strong>
+  <ul>{% for t in kurs.sjekk_tekster %}<li>{{ t }}</li>{% endfor %}</ul>
+  <p class="liten" style="margin:4px 0 0">Rett opplysningene under, og tøm feltet «Må sjekkes» når det er i orden.</p>
+</div>
+{% endif %}
+
+<section id="samlinger">
+  <h2>{{ 'Samlinger' if kurs.samlinger|length > 1 else 'Datoer' }} <span class="dempet">– {{ kurs.samlinger|length }}{% if kurs.antall > kurs.samlinger|length %} av {{ kurs.antall }} lagt inn{% endif %}</span></h2>
+  {% for s in kurs.samlinger %}
+  <article class="kort samlingkort kursfarge-{{ kurs.farge }}" id="samling-{{ s.id }}">
+    <h3>{% if s.samlingsnavn %}{{ s.samlingsnavn }} · {% endif %}{{ periode_tekst(s.fra, s.til) }}</h3>
+    <dl class="plandetaljer">
+      {% if s.sted_tekst %}<dt>Sted</dt><dd>{{ s.sted_tekst }}</dd>{% endif %}
+      {% if s.veiledningsdager %}<dt>Veiledning</dt><dd>{% for d in s.veiledningsdager %}{{ d.strftime('%d.%m.%Y') }}{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
+      {% if s.tema %}<dt>Tema</dt><dd>{{ s.tema }}</dd>{% endif %}
+      {% if s.kursholdere_tekst %}<dt>Kursholdere</dt><dd>{{ s.kursholdere_tekst }}</dd>{% endif %}
+      {% if s.veiledere_tekst %}<dt>Veiledere</dt><dd>{{ s.veiledere_tekst }}</dd>{% endif %}
+      {% if s.notat %}<dt>Notat</dt><dd class="notattekst">{{ s.notat }}</dd>{% endif %}
+      {% if s.sjekk %}<dt>Må sjekkes</dt><dd><span class="merke gul">{{ s.sjekk }}</span></dd>{% endif %}
+    </dl>
+    {% if kurs.status != 'avlyst' and not kurs.ekstern %}
+    {{ sjekkliste(sjekklister.get(s.id), kurs.id, s.id, her, apen == s.id, true, mal_id is not none) }}
+    {{ bookingblokk(bookinger.get(s.id), s.id, her) }}
+    {% endif %}
+    {% if admin_rolle != 'lese' %}
+    <details class="endre"{% if samlingsskjema.get(s.id) %} open{% endif %}>
+      <summary>Endre {{ 'samlingen' if kurs.samlinger|length > 1 else 'datoene' }}</summary>
+      <form method="post" action="{{ url_for('admin_kalender_planlagt_samling', plan_id=kurs.id, samling_id=s.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {{ samlingsfelt(samlingsskjema.get(s.id) or s, 's' ~ s.id) }}
+        <p class="knapper" style="margin:12px 0 0"><button>Lagre</button></p>
+      </form>
+      {% if kurs.samlinger|length > 1 %}
+      <form method="post" action="{{ url_for('admin_kalender_planlagt_samling_slett', plan_id=kurs.id, samling_id=s.id) }}"
+            data-bekreft="Slette {{ s.samlingsnavn or 'samlingen' }} ({{ kort_periode(s.fra, s.til) }})?" style="margin-top:8px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Slett {{ 'denne samlingen' }}</button>
+      </form>
+      {% endif %}
+    </details>
+    {% endif %}
+  </article>
+  {% endfor %}
+  {% if admin_rolle != 'lese' %}
+  <details class="kort" id="ny-samling"{% if nyskjema %} open{% endif %}>
+    <summary>＋ Legg til samling</summary>
+    <form method="post" action="{{ url_for('admin_kalender_planlagt_samling_ny', plan_id=kurs.id) }}" style="margin-top:8px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {{ samlingsfelt(nyskjema, 'ny') }}
+      <p class="knapper" style="margin:12px 0 0"><button>Legg til</button></p>
+    </form>
+  </details>
+  {% endif %}
+</section>
+
+<section id="kurset">
+  <h2>Om kurset</h2>
+  <dl class="plandetaljer">
+    <dt>Prosjektnr.</dt><dd>{{ kurs.prosjektnr or '–' }}</dd>
+    <dt>Arrangør</dt><dd>{{ kurs.arrangor }}{{ ' (annen arrangør, vises grått)' if kurs.ekstern }}</dd>
+    <dt>Status</dt><dd>{{ statuser[kurs.status] }}</dd>
+    <dt>Samlinger</dt><dd>{{ kurs.antall }}{% if kurs.antall > kurs.samlinger|length %} ({{ kurs.samlinger|length }} lagt inn){% endif %}</dd>
+    {% set brukt_mal = maler|selectattr('id', 'equalto', mal_id)|first if mal_id is not none else none %}
+    <dt>Sjekkliste</dt><dd>{% if brukt_mal %}<a href="{{ url_for('admin_kalender_mal', mal_id=brukt_mal.id) }}">{{ brukt_mal.navn }}</a>{% else %}Ingen mal – velg en under «Endre kurset»{% endif %}</dd>
+    {% if kurs.notat %}<dt>Notat</dt><dd class="notattekst">{{ kurs.notat }}</dd>{% endif %}
+    {% if kurs.kilde %}<dt>Kilde</dt><dd class="dempet">{{ kurs.kilde }}</dd>{% endif %}
+  </dl>
+  {% if admin_rolle != 'lese' %}
+  <details class="kort"{% if skjema %} open{% endif %}>
+    <summary>Endre kurset (navn, arrangør, status, sjekkliste, farge, notat)</summary>
+    <form method="post" action="{{ url_for('admin_kalender_planlagt', plan_id=kurs.id) }}" style="margin-top:8px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {{ kursfelt(skjema or kurs, 'k') }}
+      <p class="knapper" style="margin:12px 0 0"><button>Lagre</button></p>
+    </form>
+  </details>
+  <form method="post" action="{{ url_for('admin_kalender_planlagt_slett', plan_id=kurs.id) }}" style="margin-top:14px"
+        data-bekreft="Slette «{{ kurs.visningsnavn }}» fra kalenderen? Alle samlingene slettes også.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="sekundar liten">Slett det planlagte kurset</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}
