@@ -30,6 +30,9 @@
  *   <a data-deltaker-vindu href="…">           åpner deltakersiden i vinduet <dialog id="deltaker-vindu"> over listen
  *                                              (uten JS, eller med Ctrl/Cmd-klikk, er det en vanlig lenke)
  *   <a data-i-vindu href="…">                  inne i deltakervinduet: siden lastes i vinduet (f.eks. én e-post)
+ *   <select data-vis-signatur>                 e-post i deltakervinduet: valgt signatur vises i [data-signaturvisning] i samme
+ *                                              skjema, hentet fra <template data-signaturmal="id"> (allerede renset av serveren);
+ *                                              er feltet contenteditable, sendes innholdet med i input[name=signatur_html]
  *   <button type=button data-sett-inn="{fornavn}" data-felt="f-tekst">   flettefelt: setter teksten inn der markøren
  *                                              står i feltet (eller erstatter det som er markert)
  *   <form data-deltakerfilter>                 deltakerlisten: søket (input[name=sok]) og statusvalgene (input[name=status])
@@ -745,6 +748,8 @@
           vinduInnhold.replaceChildren(document.adoptNode(nytt));
           var tittel = document.getElementById("deltaker-tittel");
           if (tittel) tittel.focus();
+          var hit = vinduInnhold.querySelector("[data-rull-hit]");   // f.eks. forhåndsvisningen med Send-knappen
+          if (hit) hit.scrollIntoView({ block: "start" });
         })
         .catch(function () {
           if (nr !== sisteForespoersel || !vindu.open) return;
@@ -823,6 +828,29 @@
       lastInn(form.action, { method: "POST", body: data, credentials: "same-origin" });
     });
   }
+
+  // Signaturen under teksten i e-post fra deltakervinduet følger valget i nedtrekkslisten (lyttes på dokumentet, så det
+  // virker også for innhold som lastes inn i vinduet etterpå).
+  document.addEventListener("change", function (e) {
+    var valg = e.target;
+    if (!(valg instanceof HTMLSelectElement) || !valg.hasAttribute("data-vis-signatur") || !valg.form) return;
+    var visning = valg.form.querySelector("[data-signaturvisning]");
+    var mal = valg.form.querySelector('template[data-signaturmal="' + valg.value + '"]');
+    if (!visning) return;
+    if (mal) visning.replaceChildren(mal.content.cloneNode(true));
+    else visning.replaceChildren();
+  });
+  // Signaturen kan redigeres i feltet: slik den står når skjemaet sendes, følger den med (serveren renser den). Fanges før
+  // andre submit-lyttere (capture), så også vinduet, som sender skjemaet i bakgrunnen, får den med.
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    var visning = form.querySelector("[data-signaturvisning][contenteditable]");
+    var felt = form.querySelector("input[name=signatur_html]");
+    if (!visning || !felt) return;
+    felt.value = visning.innerHTML;
+    felt.disabled = false;
+  }, true);
 
   // Kursskjemaet («Opprett kurs» og Oppsett, form[data-kursskjema]). Serveren kontrollerer alt på nytt - dette er bare
   // hjelp mens man fyller ut: format styrer sted og Zoom-lenke, Faktura styrer fakturavalgene, samlinger kan legges til,

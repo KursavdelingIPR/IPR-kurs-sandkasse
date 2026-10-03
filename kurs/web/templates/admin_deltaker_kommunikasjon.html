@@ -2,7 +2,7 @@
 {% block deltakerinnhold %}
 <div class="seksjonstopp">
   <p class="liten dempet">E-poster som er sendt for denne påmeldingen, nyeste først. Klikk på emnet for å se når den ble sendt, til hvem, hva som sto i den og eventuelle vedlegg.</p>
-  {% if admin_rolle != 'lese' %}<a class="knapp sekundar liten" href="{{ url_for('admin_deltaker_epost_ny', kurs_id=kurs.id, paamelding_id=p.id) }}" data-i-vindu>Send e-post til {{ p.navn }}</a>{% endif %}
+  {% if admin_rolle != 'lese' %}<a class="knapp liten" href="{{ url_for('admin_deltaker_epost_ny', kurs_id=kurs.id, paamelding_id=p.id) }}" data-i-vindu>Send e-post til {{ p.navn }}</a>{% endif %}
 </div>
 <div class="tabellboks"><table class="eposttabell">
   <thead><tr><th scope="col">Emne</th><th scope="col">Dato</th><th scope="col">Kl.</th><th scope="col">Til</th>

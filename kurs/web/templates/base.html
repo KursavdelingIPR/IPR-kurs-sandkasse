@@ -209,6 +209,18 @@
   .epostfakta dt { font-weight:600; color:var(--dempet); }
   .epostfakta dd { margin:0; overflow-wrap:anywhere; }
   iframe.epostramme { width:100%; height:560px; border:1px solid var(--linje); border-radius:8px; background:#fff; }
+  /* E-post i deltakervinduet: teksten og signaturen i én boks, Send til høyre ved flettefeltene (admin_deltaker_epost_ny.html) */
+  .vindu-epost { max-width:900px; }
+  .epostboks { border:1px solid #c7d0d5; border-radius:6px; background:#fff; }
+  .epostboks:hover { border-color:#9aa8b0; }
+  .epostboks:focus-within { border-color:var(--bla); }
+  .epostboks textarea { border:0; border-radius:6px 6px 0 0; resize:vertical; outline:none; }
+  .epostboks-signatur { padding:8px 10px 12px; border-top:1px dashed var(--linje); font-size:14px; overflow-wrap:anywhere; min-height:2.5em; outline:none; cursor:text; }
+  .epostboks-signatur:empty::before { content:"Ingen signatur – skriv her om du vil ha en"; color:var(--dempet); }
+  .epostboks-signatur img { max-width:100%; height:auto; }
+  .epostlinje { display:flex; align-items:center; justify-content:space-between; gap:8px 16px; flex-wrap:wrap; margin:6px 0 12px; }
+  .epostlinje .kodeknapper { margin:0; }
+  .epostlinje .sendknapp { background:var(--bla-mork); border-color:var(--bla-mork); font-weight:600; padding:10px 22px; margin-left:auto; }
   .vedleggsliste { padding-left:18px; }
   /* Logger-fanen: lesbar historikk med detaljer som åpnes per rad, og innsyn (kun systemadministrator) nederst */
   .loggtabell td + td { white-space:nowrap; }

@@ -2325,14 +2325,16 @@ def uavklart_status_for_paamelding(con, kurs_id: int, epost: str, paamelding_id:
 # ---------- admin: manuell e-post (fase 5) ----------
 
 def opprett_admin_utsending(con, kurs_id: int, emne: str, tekst: str, mottaker_paamelding_ider: list[int],
-                            sendt_av_admin_id: int | None, signatur_html: str | None = None) -> tuple[int, str]:
+                            sendt_av_admin_id: int | None, signatur_html: str | None = None,
+                            nokkel: str | None = None) -> tuple[int, str]:
     """Forbereder en manuell utsendelse (kalles ved forhaandsvisning) - sender IKKE noe selv.
 
     Lager en unik, stabil nokkel som skal folge med til selve sendingen (se Kjoring.send_admin_utsending),
     slik at et dobbeltklikk/refresh paa "Send" gjenbruker samme nokkel og dedupliseres riktig.
     Mottakerne er allerede validert av kalleren (tilhorer kurset) foer denne kalles.
+    `nokkel` gis av kalleren naar skjemaet selv baerer nokkelen (e-post i deltakervinduet sendes uten forhaandsvisning).
     """
-    nokkel = f"adhoc:{kurs_id}:{secrets.token_hex(8)}"
+    nokkel = nokkel or f"adhoc:{kurs_id}:{secrets.token_hex(8)}"
     utsending_id = sett_inn(
         con, """INSERT INTO admin_utsending (nokkel, kurs_id, emne, tekst, sendt_av_admin_id, signatur_html)
                 VALUES (?,?,?,?,?,?)""", (nokkel, kurs_id, emne, tekst, sendt_av_admin_id, signatur_html))

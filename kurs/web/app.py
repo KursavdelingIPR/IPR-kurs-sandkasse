@@ -4275,33 +4275,8 @@ def admin_epost_ny(kurs_id):
                            **_signatur_i_epost())
 
 
-def _epost_i_vindu(kurs, p, emne="", tekst="", forhandsvisning=None, signatur_valgt=None):
-    """«Send e-post» i deltakervinduet, fanen E-poster (Camilla 03.10.2026: «Vil ikke hoppe til en annen side»).
-    Signaturen velges blant de lagrede; vil man endre den for én e-post, brukes den store «Send e-post»-siden."""
-    if signatur_valgt is None:
-        signatur_valgt = signaturer.for_admin(con(), session.get("admin_id"))["id"]
-    return render_template("admin_deltaker_epost_ny.html", kurs=kurs, p=p, emne=emne, tekst=tekst,
-                           emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS, forhandsvisning=forhandsvisning,
-                           signaturliste=_signaturliste(), signatur_valgt=signatur_valgt, fane="kommunikasjon",
-                           **_EPOST_KODER)
-
-
-@app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/epost/ny")
-@krever_admin
-def admin_deltaker_epost_ny(kurs_id, paamelding_id):
-    return _epost_i_vindu(_hent_kurs(kurs_id), _hent_paamelding(kurs_id, paamelding_id))
-
-
-@app.post("/admin/kurs/<int:kurs_id>/epost/forhandsvis")
-@krever_admin
-def admin_epost_forhandsvis(kurs_id):
-    kurs = _hent_kurs(kurs_id)
-    i_vindu = request.form.get("i_vindu", type=int)
-    p_vindu = _hent_paamelding(kurs_id, i_vindu) if i_vindu else None      # 404 når påmeldingen ikke hører til kurset
-    emne = request.form.get("emne", "").strip()
-    tekst = request.form.get("tekst", "").strip()
-    mottakere = _hent_epost_mottakere(kurs_id, [i_vindu] if p_vindu else request.form.getlist("paamelding_id", type=int))
-
+def _epost_feil(emne: str, tekst: str) -> list[str]:
+    """Kontroll av emne og melding i en manuell e-post - FØR noe lagres eller sendes."""
     feil = []
     if not emne:
         feil.append("Fyll inn et emne.")
@@ -4320,6 +4295,87 @@ def admin_epost_forhandsvis(kurs_id):
             maltekster.valider_manuell_tekst(tekst)     # ukjent kode / loes klamme: stoppes FOER noe lagres eller sendes
         except maltekster.MalFeil as e:
             feil.append(e.forklaring)
+    return feil
+
+
+def _epost_i_vindu(kurs, p, emne="", tekst="", signatur_valgt=None, skjemanokkel=None, signatur_html=None):
+    """«Send e-post» i deltakervinduet, fanen E-poster (Camilla 03.10.2026: «Vil ikke hoppe til en annen side», «Vi trenger
+    ikke forhåndsvisning. Signaturen skal automatisk komme på bunnen inne i e-postvinduet», «jeg kan fortsatt ikke redigere
+    signaturen»). Den valgte signaturen står under teksten og kan redigeres der; endringen gjelder bare denne e-posten.
+    Skjemanøkkelen følger skjemaet og blir utsendelsens nøkkel, så et dobbeltklikk på Send aldri sender to ganger.
+    `signatur_html` er en redigert signatur som skal stå i skjemaet igjen etter en feil (alltid renset)."""
+    if signatur_valgt is None:
+        signatur_valgt = signaturer.for_admin(con(), session.get("admin_id"))["id"]
+    return render_template("admin_deltaker_epost_ny.html", kurs=kurs, p=p, emne=emne, tekst=tekst,
+                           emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS,
+                           skjemanokkel=skjemanokkel or secrets.token_hex(8), signatur_html=signatur_html,
+                           signaturliste=_signaturliste(), signatur_valgt=signatur_valgt, fane="kommunikasjon",
+                           **_EPOST_KODER)
+
+
+@app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/epost/ny")
+@krever_admin
+def admin_deltaker_epost_ny(kurs_id, paamelding_id):
+    return _epost_i_vindu(_hent_kurs(kurs_id), _hent_paamelding(kurs_id, paamelding_id))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/epost/send")
+@krever_admin
+def admin_deltaker_epost_send(kurs_id, paamelding_id):
+    """Sender e-posten fra vinduet direkte (ingen forhåndsvisning) til denne ene påmeldingen, og viser fanen E-poster."""
+    kurs = _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)
+    skjemanokkel = request.form.get("skjemanokkel", "")
+    if not re.fullmatch(r"[0-9a-f]{16}", skjemanokkel):
+        abort(400)
+    nokkel = f"adhoc:{kurs_id}:{skjemanokkel}"
+    rad = con().execute("SELECT id FROM admin_utsending WHERE nokkel=? AND kurs_id=?", (nokkel, kurs_id)).fetchone()
+    if rad:                                     # samme skjema sendt igjen (dobbeltklikk): samme utsendelse, sendes ikke på nytt
+        if [m["id"] for m in db.admin_utsending_mottakere(con(), rad["id"])] != [p["id"]]:
+            abort(404)
+        utsending_id = rad["id"]
+    else:
+        emne, tekst = request.form.get("emne", "").strip(), request.form.get("tekst", "").strip()
+        feil = _epost_feil(emne, tekst)
+        signatur_valgt = request.form.get("signatur_valg", type=int)
+        raa_signatur = request.form.get("signatur_html")             # redigert i skjemaet (settes av static/app.js)
+        if raa_signatur is None:                                     # uten JavaScript: den valgte, slik den er lagret
+            s = (signaturer.hent(con(), signatur_valgt) if signatur_valgt else None) or signaturer.for_admin(
+                con(), session.get("admin_id"))
+            raa_signatur = s["innhold"]
+        try:
+            signatur_html = signaturer.klargjor_innhold(con(), raa_signatur, aktor=_aktor())
+            con().commit()                          # innlimte bilder er i biblioteket, også om skjemaet må vises på nytt
+            _varsle_eksterne_bilder(raa_signatur)
+        except signaturer.Signaturfeil as e:
+            feil.append(str(e))
+            signatur_html = _trygg_signatur(_ta_vare_paa_innlimte(raa_signatur))
+        if feil:
+            for x in feil:
+                flash(x, "feil")
+            return _epost_i_vindu(kurs, p, emne, tekst, signatur_valgt=signatur_valgt, skjemanokkel=skjemanokkel,
+                                  signatur_html=signatur_html)
+        try:
+            utsending_id, _ = db.opprett_admin_utsending(con(), kurs_id, emne, tekst, [p["id"]],
+                                                         sendt_av_admin_id=session.get("admin_id"),
+                                                         signatur_html=signatur_html, nokkel=nokkel)
+            con().commit()
+        except db.IntegritetsFeil:              # to klikk samtidig: det andre bruker utsendelsen det første laget
+            con().rollback()
+            utsending_id = con().execute("SELECT id FROM admin_utsending WHERE nokkel=?", (nokkel,)).fetchone()["id"]
+    return _send_utsending(kurs_id, utsending_id,
+                           url_for("admin_deltaker_kommunikasjon", kurs_id=kurs_id, paamelding_id=p["id"]))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/epost/forhandsvis")
+@krever_admin
+def admin_epost_forhandsvis(kurs_id):
+    kurs = _hent_kurs(kurs_id)
+    emne = request.form.get("emne", "").strip()
+    tekst = request.form.get("tekst", "").strip()
+    mottakere = _hent_epost_mottakere(kurs_id, request.form.getlist("paamelding_id", type=int))
+
+    feil = _epost_feil(emne, tekst)
     if not mottakere:
         feil.append("Velg minst én gyldig mottaker.")
     # Signaturen i akkurat denne e-posten (renses her og igjen ved sending). Uten JavaScript: den valgte i biblioteket.
@@ -4339,8 +4395,6 @@ def admin_epost_forhandsvis(kurs_id):
     if feil:
         for x in feil:
             flash(x, "feil")
-        if p_vindu:
-            return _epost_i_vindu(kurs, p_vindu, emne, tekst, signatur_valgt=signatur_valgt)
         return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne=emne, tekst=tekst,
                                emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS, forhandsvisning=None,
                                **_EPOST_KODER, **_signatur_i_epost(signatur_html, signatur_valgt))
@@ -4354,9 +4408,6 @@ def admin_epost_forhandsvis(kurs_id):
     _, eksempel_html = epost.render("admin_melding", emne=emne, tekst=tekst,
                                     d={**dict(eksempel), "min_side_url": Kjoring(con(), idag=_idag()).min_side_lenke(eksempel["id"])},
                                     signatur=signaturer.som_markup(signatur_html))
-    if p_vindu:
-        return _epost_i_vindu(kurs, p_vindu, emne, tekst, signatur_valgt=signatur_valgt,
-                              forhandsvisning={"utsending_id": utsending_id, "html": eksempel_html})
     return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne=emne, tekst=tekst,
                            emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS,
                            forhandsvisning={"utsending_id": utsending_id, "html": eksempel_html,
@@ -4381,16 +4432,16 @@ def _flash_sendefeil(ut) -> None:
 @krever_admin
 def admin_epost_send(kurs_id):
     _hent_kurs(kurs_id)
-    i_vindu = request.form.get("i_vindu", type=int)
-    if i_vindu:
-        _hent_paamelding(kurs_id, i_vindu)                                  # 404 når påmeldingen ikke hører til kurset
     utsending_id = request.form.get("utsending_id", type=int)
     rad = con().execute("SELECT id FROM admin_utsending WHERE id=? AND kurs_id=?", (utsending_id, kurs_id)).fetchone()
     if not rad:
         flash("Fant ikke utsendelsen. Forhåndsvis på nytt.", "feil")
-        if i_vindu:
-            return redirect(url_for("admin_deltaker_epost_ny", kurs_id=kurs_id, paamelding_id=i_vindu))
         return redirect(url_for("admin_kurs_deltakere", kurs_id=kurs_id))
+    return _send_utsending(kurs_id, utsending_id, url_for("admin_kurs_kommunikasjon", kurs_id=kurs_id))
+
+
+def _send_utsending(kurs_id: int, utsending_id: int, tilbake: str):
+    """Sender en lagret utsendelse (dedupliseres på nøkkelen), logger og sier ærlig fra om utfallet."""
     ut = Kjoring(con(), idag=_idag(), aktor=_aktor()).send_admin_utsending(utsending_id)
     for pid in ut.sendt:
         db.logg(con(), "admin_epost_sendt", {"paamelding_id": pid, "kurs_id": kurs_id}, aktor=_aktor())
@@ -4400,9 +4451,7 @@ def admin_epost_send(kurs_id):
     elif not (ut.uavklart or ut.ikke_forsokt or ut.uavklart_fra_for):
         flash("Denne utsendelsen er allerede sendt – ingenting ble sendt på nytt.", "info")
     _flash_sendefeil(ut)
-    if i_vindu:                                 # tilbake til fanen E-poster i vinduet, med den nye e-posten øverst
-        return redirect(url_for("admin_deltaker_kommunikasjon", kurs_id=kurs_id, paamelding_id=i_vindu))
-    return redirect(url_for("admin_kurs_kommunikasjon", kurs_id=kurs_id))
+    return redirect(tilbake)
 
 
 @app.get("/admin/kurs/<int:kurs_id>/epost/<int:utsending_id>")
