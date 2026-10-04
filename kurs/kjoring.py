@@ -228,9 +228,10 @@ class Kjoring:
                 ut.uavklart += 1
         return ut
 
-    def send_admin_utsending(self, utsending_id: int) -> Sendeutfall:
+    def send_admin_utsending(self, utsending_id: int, vedlegg=()) -> Sendeutfall:
         """Sender en manuell, forhaandsvist utsendelse - én e-post pr mottaker, ingen ser andres adresse. Utsendelsens
-        egen, stabile nokkel dedupliserer via claim-motoren (se send_til_mange)."""
+        egen, stabile nokkel dedupliserer via claim-motoren (se send_til_mange). `vedlegg` (epost.Vedlegg, kontrollert av
+        kalleren i kurs/vedlegg.py) sendes med og lagres i e-posthistorikken."""
         rad = self.con.execute("SELECT * FROM admin_utsending WHERE id=?", (utsending_id,)).fetchone()
         if not rad:
             return Sendeutfall()
@@ -238,10 +239,12 @@ class Kjoring:
         if rad["signatur_html"] is not None:    # renses på nytt i det den sendes (eldre utsendelser: fast hilsen)
             signatur["signatur"] = signaturer.som_markup(signaturer.til_epost(
                 signaturer.rens(rad["signatur_html"], signaturer.bildekart(self.con))))
+        kurs = self.con.execute("SELECT * FROM kurs WHERE id=?", (rad["kurs_id"],)).fetchone()   # kursnummeret øverst
         return self.send_til_mange(
             rad["nokkel"], "admin_epost", db.admin_utsending_mottakere(self.con, utsending_id),
-            lambda m: epost.render("admin_melding", emne=rad["emne"], tekst=rad["tekst"],
-                                   d={**dict(m), "min_side_url": self.min_side_lenke(m["id"])}, **signatur),
+            lambda m: (*epost.render("admin_melding", emne=rad["emne"], tekst=rad["tekst"], kurs=kurs,
+                                     d={**dict(m), "min_side_url": self.min_side_lenke(m["id"])}, **signatur),
+                       list(vedlegg)),
             mal="admin_melding")
 
     def avslutt(self) -> None:

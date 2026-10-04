@@ -1,4 +1,11 @@
 <div style="font-family:Segoe UI,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1d2a33;max-width:600px">
+{#- Kursnummeret står tydelig øverst i alle e-poster som gjelder et kurs (Camilla 03.10.2026: «det er viktig at det alltid
+    står kursnummeret tydelig et sted. Gjelder alle steder»). E-poster uten kurs (innlogging, interne varsler) får ingen linje. -#}
+{%- if kurs is defined and kurs and kurs["kursnr"] %}{% set _kursnr, _kursnavn = kurs["kursnr"], kurs["navn"] %}
+{%- elif m is defined and m and m["kursnr"] %}{% set _kursnr, _kursnavn = m["kursnr"], m["kursnavn"] %}{# materiell (purring) #}
+{%- else %}{% set _kursnr = none %}{% endif %}
+{% if _kursnr %}<p style="margin:0 0 16px;padding:6px 10px;background:#eef3f5;border-radius:4px;font-size:13px;color:#1f5c73">Kurs nr. <span style="font-weight:700">{{ _kursnr }}</span> · {{ _kursnavn }}</p>
+{% endif %}
 {% block innhold %}{% endblock %}
 {#- Signaturen (kurs/signaturer.py, allerede renset) står der den faste hilsenen står. E-poster uten signatur (bekreftelse,
     venteliste, innlogging ...) har den faste hilsenen som før. En signatur uten avsnitt/lister står i samme <p> som

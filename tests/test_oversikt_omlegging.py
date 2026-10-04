@@ -134,7 +134,7 @@ def test_menyen_har_ikke_aktiviteter_og_oversikt_er_aktiv_paa_kurssidene(con):
     for url in ("/admin/aktiviteter/kalender", "/admin/aktiviteter/aarsplan"):
         meny = _nav(_html(admin.get(url)))
         assert 'aria-current="page">Kalender</a>' in meny and 'aria-current="page">Oversikt</a>' not in meny, url
-    for url, tekst in (("/admin/rapporter", "Rapporter"), ("/admin/e-postmaler", "E-postmaler")):
+    for url, tekst in (("/admin/rapporter", "Økonomi"), ("/admin/e-postmaler", "E-postmaler")):
         meny = _nav(_html(admin.get(url)))
         assert f'aria-current="page">{tekst}</a>' in meny and 'aria-current="page">Oversikt</a>' not in meny, url
 

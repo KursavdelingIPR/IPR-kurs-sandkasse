@@ -1,7 +1,7 @@
 {#- Signatureditoren: verktøylinje + redigeringsflate (contenteditable) + skjult felt som sendes inn. Oppførselen ligger i
     static/signatur.js (ingen inline-JS). Innholdet som vises her, er alltid renset på serveren (kurs/signaturer.py), og
     serveren renser alt som sendes inn på nytt - verktøylinjen er bare et hjelpemiddel. -#}
-{% macro signatureditor(felt, innhold, id, etikett="Signatur", skrivebeskyttet=false) %}
+{% macro signatureditor(felt, innhold, id, etikett="Signatur", skrivebeskyttet=false, hjelp=none) %}
 <div class="signatureditor" data-signatureditor>
   <span class="etikett" id="{{ id }}-etikett">{{ etikett }}</span>
   {% if not skrivebeskyttet %}
@@ -39,7 +39,7 @@
        {% if not skrivebeskyttet %}contenteditable="true" data-felt="{{ id }}-felt"{% endif %}>{{ innhold | safe }}</div>
   <input type="hidden" id="{{ id }}-felt" name="{{ felt }}" value="{{ innhold }}">
   {% if not skrivebeskyttet %}
-  <p class="liten dempet signaturhjelp">Slik ser signaturen ut nederst i e-posten, over lenken til Min side. Bilder settes inn
+  <p class="liten dempet signaturhjelp">{% if hjelp %}{{ hjelp }} {% else %}Slik ser signaturen ut nederst i e-posten, over lenken til Min side. {% endif %}Bilder settes inn
     fra biblioteket{% if not signaturbilder %} (det er ingen bilder ennå – last dem opp under <a href="{{ url_for('admin_signaturer') }}#bilder">Signaturer → Bilder</a>){% endif %}.
     Lenker må begynne med https://, mailto: eller tel:. Klikk på et bilde for å endre bredden.</p>
   {% endif %}

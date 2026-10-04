@@ -10,7 +10,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from . import db, maltekster
+from . import db, kursbevismal, maltekster
 from .kjoring import Kjoring
 
 MIN_ANDEL = 1.0
@@ -26,6 +26,18 @@ def timer_i_lop(con, deltaker_id: int, lop: str) -> float:
            JOIN paamelding p ON p.id=o.paamelding_id JOIN kurs k ON k.id=p.kurs_id
            JOIN kursdag kd ON kd.id=o.kursdag_id LEFT JOIN samling s ON s.id=kd.samling_id
            WHERE p.deltaker_id=? AND k.spesialistlop=? AND {db.sql_egen_dag('p', 'kd')}""", (deltaker_id, lop)).fetchone()[0]
+
+
+def lag_html(con, kurs, v: dict, *, egen: str | None = None, forhandsvisning: bool = False) -> str:
+    """Hele kursbeviset (A4) for én deltaker. Kurset kan ha en egen versjon (kurs.kursbevis_html, fanen Kursbevis) og en
+    ramme (kurs.kursbevis_ramme); ellers standardbeviset. `egen` overstyrer kursets lagrede versjon (forhåndsvisning av det
+    som står i redigereren, ikke lagret ennå). `v`: navn, fornavn, kurs, dager, timer, samlinger, antall_samlinger,
+    lop_timer og dato."""
+    if egen is None:
+        egen = kurs["kursbevis_html"]
+    innhold = kursbevismal.flett(con, egen, v, db.i_setning) if egen else None
+    return _env.get_template("kursbevis.html").render(**v, innhold=innhold, ramme_farge=kursbevismal.ramme_farge(kurs),
+                                                      forhandsvisning=forhandsvisning)
 
 
 def _logg_kursbevis_feil(k: Kjoring, r, feil: maltekster.MalFeil) -> None:
@@ -74,14 +86,15 @@ def kjor(k: Kjoring) -> None:
             _logg_kursbevis_feil(k, r, e)
             continue
         delvis = db.er_ekstradeltaker(pm) and bool(db.ekstradeltaker_samlinger(k.con, r["pid"]))
-        bevis_html = _env.get_template("kursbevis.html").render(
-            navn=r["deltaker_navn"], kurs=r, dager=[m["dato"] for m in mott],
+        bevis_html = lag_html(k.con, r, dict(
+            navn=r["deltaker_navn"], fornavn=r["deltaker_fornavn"], kurs=r, dager=[m["dato"] for m in mott],
             timer=sum(m["timer"] for m in mott),
             # Kursbeviset skal ikke si at deltakeren har gjennomført hele kurset når hen bare var på noen samlinger
             samlinger=db.samlingsutvalg_tekst(k.con, pm, alle, og=True) if delvis else None,
             antall_samlinger=len(db.kursets_samlinger(k.con, r["id"], alle)),
             lop_timer=timer_i_lop(k.con, r["deltaker_id"], r["spesialistlop"]) if r["spesialistlop"] else None,
-        )
+            dato=k.idag.isoformat(),
+        ))
         # Lagres i databasen (dokument_innhold), ikke som fil: overlever omstart/skalering i Azure og er med i backup.
         dok_id = db.sett_inn(
             k.con, "INSERT INTO dokument (kurs_id, deltaker_id, type, tittel, url) VALUES (?,?,?,?,?)",

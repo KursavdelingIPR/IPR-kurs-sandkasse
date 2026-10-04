@@ -89,7 +89,9 @@ CREATE TABLE IF NOT EXISTS kurs (
     opprettet       TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
     paameldingsfrist_manuell BIGINT NOT NULL DEFAULT 0,
     signatur_id     BIGINT REFERENCES signatur(id),
-    signatur_html   TEXT
+    signatur_html   TEXT,
+    kursbevis_html  TEXT,
+    kursbevis_ramme TEXT
 );
 
 CREATE TABLE IF NOT EXISTS samling (

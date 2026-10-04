@@ -1,0 +1,32 @@
+{% extends "admin_base.html" %}
+{#- E-post til flere deltakere i et vindu over deltakerlisten (Camilla 03.10.2026: «det skal ikke komme til en ny side, men
+    det skal komme opp et vindu på siden»). #deltaker-innhold er det som vises i vinduet (static/app.js), med samme blå topp
+    som deltakervinduet. Uten JavaScript er dette en vanlig side. Etter sendingen viser vinduet hvem e-posten gikk til. -#}
+{% from "_epostskjema.html" import epostskjema with context %}
+{% block innhold %}
+<p class="liten"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">← {{ kurs.navn }}</a></p>
+<div id="deltaker-innhold" class="deltakerkort" data-ulagret-vakt>
+  <div class="deltakerkort-topp">
+    <h1 id="deltaker-tittel" tabindex="-1">{{ 'E-post sendt' if sendt else 'Send e-post' }}
+      {%- if mottakere %} <span class="deltaker-nr">{{ mottakere|length }} mottaker{{ 'e' if mottakere|length != 1 }}</span>{% endif %}</h1>
+    <p>Kurs nr. {{ kurs.kursnr }} · {{ kurs.kode }} {{ kurs.navn }}</p>
+  </div>
+  <div class="deltakerkort-kropp">
+    {% if mottakere %}
+    <p class="liten" style="margin-top:0"><b>Til:</b> {{ mottakere|map(attribute='navn')|join(', ') }}</p>
+    {% endif %}
+    {% if sendt %}
+    <p>«{{ sendt.emne }}» er sendt som {{ mottakere|length }} separate e-poster – ingen mottaker ser hvem andre som fikk den.
+      E-posten ligger under E-poster hos hver deltaker.</p>
+    <p><button type="button" class="liten" data-lukk-vindu>Lukk</button></p>
+    {% elif mottakere %}
+    <p class="liten dempet">Sendes som {{ mottakere|length }} separate e-poster – ingen mottaker ser hvem andre som fikk den.</p>
+    {{ epostskjema(url_for('admin_kurs_epost_vindu_send', kurs_id=kurs.id),
+                   "Sende e-posten til " ~ mottakere|length ~ " mottaker" ~ ("e" if mottakere|length != 1 else "") ~ "? Dette kan ikke angres.",
+                   mottakere) }}
+    {% else %}
+    <p><button type="button" class="liten sekundar" data-lukk-vindu>Lukk</button></p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

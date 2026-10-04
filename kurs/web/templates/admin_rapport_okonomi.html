@@ -1,7 +1,7 @@
 {% extends "admin_base.html" %}
 {% block tittel %}Økonomi {{ fra }}–{{ til }}{% endblock %}
 {% block innhold %}
-<p class="liten ikke-utskrift"><a href="{{ url_for('admin_rapporter') }}">← Rapporter</a></p>
+<p class="liten ikke-utskrift"><a href="{{ url_for('admin_rapporter') }}">← Økonomi</a></p>
 <h1>Økonomi</h1>
 <p class="sub">Fakturaer systemet har laget i Visma, etter fakturadato. Innbetalinger følges opp i Visma og hentes ikke
   tilbake hit ennå – tallene viser derfor <strong>fakturert</strong> beløp, ikke innbetalt. Krediterte fakturaer er ikke

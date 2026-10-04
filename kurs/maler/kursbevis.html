@@ -11,8 +11,21 @@
   td { padding: .25rem 1rem; }
   .signatur { margin-top: 3.5rem; font-family: system-ui, sans-serif; font-size: .85rem; }
   @media print { body { margin: 0; } }
+{#- Rammen (kursbevismal.RAMMER): en dobbel linje i kursets farge, eller ingen. Standard (blå) er som før. -#}
+{%- if ramme_farge is defined and ramme_farge != "#1f5c73" %}
+  .ramme { {% if ramme_farge %}border: 6px double {{ ramme_farge }};{% else %}border: 0;{% endif %} }
+{%- endif %}
+  .egen { text-align: left; font-family: system-ui, "Segoe UI", Arial, sans-serif; }
+  .egen img { max-width: 100%; height: auto; }
+{%- if forhandsvisning is defined and forhandsvisning %}
+  html { background: #dfe5e8; } body { background: #fff; margin: 1.5rem auto; padding: 1.5rem; box-shadow: 0 2px 14px rgba(0,0,0,.18); }
+  @media print { html { background: none; } body { box-shadow: none; margin: 0; padding: 0; } }
+{%- endif %}
 </style></head>
 <body><div class="ramme">
+{%- if innhold is defined and innhold is not none %}
+<div class="egen">{{ innhold | safe }}</div>
+{%- else %}
   <div class="liten">Institutt for Psykologisk Rådgivning</div>
   <h1>Kursbevis</h1>
   <p>Dette bekrefter at</p>
@@ -27,4 +40,5 @@
     {% if lop_timer is not none %}<tr><td>Akkumulert i {{ kurs.spesialistlop }}-løpet</td><td>{{ '%g' % lop_timer }} timer</td></tr>{% endif %}
   </table>
   <div class="signatur">______________________________<br>Kursansvarlig, IPR</div>
+{%- endif %}
 </div></body></html>

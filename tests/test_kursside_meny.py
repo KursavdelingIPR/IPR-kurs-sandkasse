@@ -124,8 +124,9 @@ def test_admin_menyen_har_ikke_offentlig_side_og_forsiden_finnes(con, monkeypatc
 def test_admin_menyen_har_de_andre_valgene_som_for(con):
     admin = admin_klient(con)
     lenker = _lenker(_html(admin.get("/admin")))
-    assert lenker[:4] == ["Oversikt", "Kalender", "Rapporter", "E-postmaler"] and "Aktiviteter" not in lenker
-    assert lenker[4:6] == ["Daglig kjøring", "Brukere"] and "Utboks" in lenker                     # demo
+    # Rapporter står sist i menyen, etter Utboks (Camilla 04.10.2026)
+    assert lenker[:3] == ["Oversikt", "Kalender", "E-postmaler"] and "Aktiviteter" not in lenker
+    assert lenker[3:6] == ["Daglig kjøring", "Brukere", "Utboks"] and lenker[6] == "Økonomi"      # demo
     assert 'href="/admin/logg-ut">Logg ut' in _html(admin.get("/admin"))       # «Logg ut» står i gruppen til høyre (globalt søk)
 
 

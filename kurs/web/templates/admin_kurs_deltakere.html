@@ -25,8 +25,8 @@
   <a class="knapp sekundar liten" id="eksporter-treff" data-grunnadresse="{{ url_for('admin_csv', kurs_id=kurs.id) }}"
      href="{{ url_for('admin_csv', kurs_id=kurs.id, sok=sok or None, status=statuser or None) }}">Eksporter {{ 'treff (Excel)' if (sok or statuser) else 'deltakerliste (Excel)' }}</a>
   {% if kurs.type != 'digital' %}<a class="knapp sekundar liten" href="{{ url_for('admin_allergiliste', kurs_id=kurs.id) }}">Allergi-/tilretteleggingsliste</a>{% endif %}
-  {% if antall_med_plass %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='bekreftet') }}">Send e-post til alle {{ STATUS_FLERTALL.paameldt|lower }}{% if tellere.ekstradeltaker %} og {{ STATUS_FLERTALL.ekstradeltaker|lower }}{% endif %}</a>{% endif %}
-  {% if tellere.venteliste %}<a class="knapp sekundar liten" href="{{ url_for('admin_epost_ny', kurs_id=kurs.id, gruppe='venteliste') }}">Send e-post til venteliste</a>{% endif %}
+  {% if antall_med_plass %}<a class="knapp sekundar liten" href="{{ url_for('admin_kurs_epost_vindu', kurs_id=kurs.id, gruppe='bekreftet') }}" data-deltaker-vindu>Send e-post til alle {{ STATUS_FLERTALL.paameldt|lower }}{% if tellere.ekstradeltaker %} og {{ STATUS_FLERTALL.ekstradeltaker|lower }}{% endif %}</a>{% endif %}
+  {% if tellere.venteliste %}<a class="knapp sekundar liten" href="{{ url_for('admin_kurs_epost_vindu', kurs_id=kurs.id, gruppe='venteliste') }}" data-deltaker-vindu>Send e-post til venteliste</a>{% endif %}
 </div>
 
 {% if antall_adresse_venter %}
@@ -54,7 +54,7 @@
      slik at den ikke kolliderer med per-rad-skjemaene inni tabellen (skjema kan ikke nestes).
      Flere knapper under peker paa DENNE samme formen med formaction/formmethod, slik at samme
      utvalg kan brukes til flere handlinger uten aa duplisere avkrysningsboksene. -->
-<form id="valgte-deltakere" method="post" action="{{ url_for('admin_epost_ny', kurs_id=kurs.id) }}">
+<form id="valgte-deltakere" method="post" action="{{ url_for('admin_kurs_epost_vindu', kurs_id=kurs.id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 
 {# Søk og statusvalg. Med JavaScript filtreres listen mens man skriver (static/app.js, samme regel som _treffer i
@@ -116,7 +116,7 @@
 </table></div>
 {% if deltakere %}
 <p class="liten" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
-  <button form="valgte-deltakere" class="liten sekundar">Send e-post til valgte</button>
+  <button form="valgte-deltakere" class="liten sekundar" data-deltaker-vindu>Send e-post til valgte</button>
   <button form="valgte-deltakere" formaction="{{ url_for('admin_eksporter_valgte_csv', kurs_id=kurs.id) }}" formmethod="post" class="liten sekundar">Eksporter valgte</button>
   <button form="valgte-deltakere" formaction="{{ url_for('admin_bulk_forhandsvis', kurs_id=kurs.id) }}" formmethod="post" class="liten">Behandle valgte</button>
 </p>

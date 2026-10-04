@@ -28,7 +28,8 @@
  *   <div data-ulagret-vakt>                    rundt flere skjema med data-skjemanavn="…": advarer før ett av dem sendes (eller
  *                                              vinduet lukkes) når et ANNET har endringer som ellers går tapt
  *   <a data-deltaker-vindu href="…">           åpner deltakersiden i vinduet <dialog id="deltaker-vindu"> over listen
- *                                              (uten JS, eller med Ctrl/Cmd-klikk, er det en vanlig lenke)
+ *                                              (uten JS, eller med Ctrl/Cmd-klikk, er det en vanlig lenke). På en
+ *                                              <button> som sender et skjema: svaret på skjemaet (POST) åpnes i vinduet
  *   <a data-i-vindu href="…">                  inne i deltakervinduet: siden lastes i vinduet (f.eks. én e-post)
  *   <select data-vis-signatur>                 e-post i deltakervinduet: valgt signatur vises i [data-signaturvisning] i samme
  *                                              skjema, hentet fra <template data-signaturmal="id"> (allerede renset av serveren);
@@ -291,13 +292,25 @@
 
   // Flettefelt-knapper: koden settes inn der markøren sto (feltet husker markøren selv om knappen fikk fokus), og markøren
   // havner rett etter koden. Feltets makslengde respekteres. input-hendelsen gjør at endringen merkes som ulagret.
+  // For en redigerer med formatering (contenteditable) beholdes markøren ved at knappen ikke tar fokus.
+  document.addEventListener("mousedown", function (e) {
+    var knapp = e.target instanceof Element && e.target.closest("[data-sett-inn]");
+    var felt = knapp && document.getElementById(knapp.getAttribute("data-felt"));
+    if (felt && felt.isContentEditable) e.preventDefault();
+  });
   document.addEventListener("click", function (e) {
     var knapp = e.target instanceof Element && e.target.closest("[data-sett-inn]");
     if (!knapp) return;
     e.preventDefault();
     var felt = document.getElementById(knapp.getAttribute("data-felt"));
-    if (!felt || typeof felt.setRangeText !== "function") return;
     var kode = knapp.getAttribute("data-sett-inn");
+    if (felt && felt.isContentEditable) {        // redigereren med formatering (f.eks. kursbeviset): der markøren står
+      felt.focus();
+      document.execCommand("insertText", false, kode);
+      felt.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+    if (!felt || typeof felt.setRangeText !== "function") return;
     var start = felt.selectionStart, slutt = felt.selectionEnd;
     if (start === null || slutt === null) { start = slutt = felt.value.length; }
     felt.focus();
@@ -758,7 +771,7 @@
         });
     };
 
-    var aapne = function (url) {
+    var aapne = function (url, valg) {
       listenErEndret = false;
       var laster = document.createElement("p");
       laster.className = "vindu-laster dempet";
@@ -766,7 +779,8 @@
       vinduInnhold.replaceChildren(laster);
       document.documentElement.classList.add("vindu-aapent");
       vindu.showModal();
-      lastInn(url);
+      lastInn(url, valg);
+      listenErEndret = false;            // å åpne vinduet (også med POST, se under) endrer ikke listen
     };
 
     // Rydder med en gang vinduet lukkes. close-hendelsen kommer først litt senere - er vinduet åpnet igjen innen da,
@@ -817,6 +831,16 @@
       }
     });
 
+    // En knapp med data-deltaker-vindu som sender et skjema (f.eks. «Send e-post til valgte» i deltakerlisten) åpner svaret
+    // i vinduet - som POST, så utvalget aldri står i adressen.
+    document.addEventListener("submit", function (e) {
+      var form = e.target;
+      if (e.defaultPrevented || vindu.open || !(form instanceof HTMLFormElement)) return;
+      if (!e.submitter || !e.submitter.hasAttribute("data-deltaker-vindu")) return;
+      e.preventDefault();
+      aapne(form.action, { method: "POST", body: new FormData(form), credentials: "same-origin" });
+    });
+
     // Skjema i vinduet sendes i bakgrunnen. Kjører etter bekreftelsene over (data-bekreft, ulagrede endringer).
     document.addEventListener("submit", function (e) {
       var form = e.target;
@@ -829,6 +853,36 @@
     });
   }
 
+  // Forhåndsvisning av kursbeviset (fanen Kursbevis): knappen sender skjemaet til rammen i vinduet (dialog) i stedet for en
+  // ny fane, og vinduet åpnes. «Lagre som PDF / skriv ut» skriver ut innholdet i rammen; [data-lukk-dialog] lukker vinduet.
+  document.addEventListener("click", function (e) {
+    if (!(e.target instanceof Element)) return;
+    var knapp = e.target.closest("[data-forhandsvis-kursbevis]");
+    if (knapp) {
+      var dialog = document.getElementById(knapp.getAttribute("data-forhandsvis-kursbevis"));
+      var ramme = dialog && dialog.querySelector("iframe[name]");
+      if (dialog && ramme && typeof dialog.showModal === "function") {
+        knapp.formTarget = ramme.name;           // uten JavaScript: ny fane (formtarget=_blank)
+        document.documentElement.classList.add("vindu-aapent");
+        dialog.showModal();
+      }
+      return;
+    }
+    var skriv = e.target.closest("[data-skriv-ut-ramme]");
+    if (skriv) {
+      var f = document.getElementById(skriv.getAttribute("data-skriv-ut-ramme"));
+      if (f && f.contentWindow) { f.contentWindow.focus(); f.contentWindow.print(); }
+      return;
+    }
+    var lukk = e.target.closest("[data-lukk-dialog]");
+    if (lukk && lukk.closest("dialog")) lukk.closest("dialog").close();
+  });
+  document.addEventListener("close", function (e) {
+    if (e.target instanceof HTMLDialogElement && e.target.querySelector("iframe[name]")) {
+      document.documentElement.classList.remove("vindu-aapent");
+    }
+  }, true);
+
   // Signaturen under teksten i e-post fra deltakervinduet følger valget i nedtrekkslisten (lyttes på dokumentet, så det
   // virker også for innhold som lastes inn i vinduet etterpå).
   document.addEventListener("change", function (e) {
@@ -840,6 +894,46 @@
     if (mal) visning.replaceChildren(mal.content.cloneNode(true));
     else visning.replaceChildren();
   });
+  // Vedlegg (input[type=file][data-vedlegg="<liste-id>"]): filer som velges legges til de som alt er valgt, og vises i
+  // listen med navn, størrelse og × for å fjerne. Serveren kontrollerer filtype og størrelse på nytt (kurs/vedlegg.py).
+  var vedleggValgt = new WeakMap();           // input -> DataTransfer med alle valgte filer
+  var visVedlegg = function (input) {
+    var liste = document.getElementById(input.getAttribute("data-vedlegg"));
+    if (!liste) return;
+    liste.replaceChildren();
+    Array.prototype.forEach.call(input.files, function (fil, nr) {
+      var li = document.createElement("li");
+      var kb = fil.size < 1024 * 1024 ? Math.max(1, Math.round(fil.size / 1024)) + " kB"
+        : (fil.size / 1024 / 1024).toFixed(1).replace(".", ",") + " MB";
+      li.textContent = "📎 " + fil.name + " (" + kb + ")";
+      var fjern = document.createElement("button");
+      fjern.type = "button";
+      fjern.textContent = "×";
+      fjern.title = "Fjern " + fil.name;
+      fjern.setAttribute("aria-label", "Fjern vedlegget " + fil.name);
+      fjern.addEventListener("click", function () {
+        var dt = new DataTransfer();
+        Array.prototype.forEach.call(input.files, function (f, i) { if (i !== nr) dt.items.add(f); });
+        vedleggValgt.set(input, dt);
+        input.files = dt.files;
+        visVedlegg(input);
+      });
+      li.appendChild(fjern);
+      liste.appendChild(li);
+    });
+  };
+  document.addEventListener("change", function (e) {
+    var input = e.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== "file" || !input.hasAttribute("data-vedlegg")) return;
+    if (window.DataTransfer) {
+      var dt = vedleggValgt.get(input) || new DataTransfer();
+      Array.prototype.forEach.call(input.files, function (f) { dt.items.add(f); });
+      vedleggValgt.set(input, dt);
+      input.files = dt.files;
+    }
+    visVedlegg(input);
+  });
+
   // Signaturen kan redigeres i feltet: slik den står når skjemaet sendes, følger den med (serveren renser den). Fanges før
   // andre submit-lyttere (capture), så også vinduet, som sender skjemaet i bakgrunnen, får den med.
   document.addEventListener("submit", function (e) {

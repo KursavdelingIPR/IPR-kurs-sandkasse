@@ -278,14 +278,18 @@ def bilde_ider(html: str) -> list[int]:
     return list(dict.fromkeys(int(m) for m in _URL_I_HTML.findall(html or "")))
 
 
-def kontroller_bildestorrelse(con, html: str) -> None:
-    """Alle bildene i én e-post til sammen maks 2 MB (Microsoft 365 tillater 4 MB i én forespørsel)."""
+def bildestorrelse(con, html: str) -> int:
+    """Antall byte bildene i signaturen utgjør i e-posten (hvert bilde én gang)."""
     ider = bilde_ider(html)
     if not ider:
-        return
-    sum_ = con.execute(f"SELECT COALESCE(SUM(storrelse), 0) FROM signatur_bilde WHERE id IN ({','.join('?' * len(ider))})",
+        return 0
+    return con.execute(f"SELECT COALESCE(SUM(storrelse), 0) FROM signatur_bilde WHERE id IN ({','.join('?' * len(ider))})",
                        ider).fetchone()[0]
-    if sum_ > BILDER_MAKS_PER_EPOST:
+
+
+def kontroller_bildestorrelse(con, html: str) -> None:
+    """Alle bildene i én e-post til sammen maks 2 MB (Microsoft 365 tillater 4 MB i én forespørsel)."""
+    if bildestorrelse(con, html) > BILDER_MAKS_PER_EPOST:
         raise Signaturfeil("Bildene i signaturen er til sammen for store (maks 2 MB i én e-post).")
 
 

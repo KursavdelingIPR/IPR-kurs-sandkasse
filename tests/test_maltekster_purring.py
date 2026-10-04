@@ -124,6 +124,7 @@ def test_c_standardtekst_uendret_for_alle_varianter_via_ekte_daglig_flyt(con, ut
     assert f"<a href=\"{config.BASE_URL}/lever/" in html and "Last opp her" in html
     assert "Vennlig hilsen<br>Kursadministrasjonen, Institutt for Psykologisk Rådgivning<br>" in html
     m = {"ansvarlig_navn": "Per Psykolog", "beskrivelse": "Kurspresentasjon", "kursnavn": "Veiledning i praksis",
+         "kursnr": 1001,                                   # kursnummeret står øverst i e-posten (_ramme.html)
          "frist": frist.isoformat(), "id": con.execute("SELECT id FROM materiell_krav").fetchone()[0]}
     direkte = epost.render("purring", m=m, igjen=igjen)[1]
     assert _n(direkte) == html

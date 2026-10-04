@@ -1,0 +1,84 @@
+{% extends "admin_base.html" %}
+{#- Fanen Kursbevis (Camilla 04.10.2026): rediger kursbeviset for dette kurset - tekst, flettefelt, bilder og en ferdig ramme i
+    valgt farge - og se det som et A4-ark i et vindu («Lagre som PDF» bruker nettleserens utskrift). Innholdet renses på
+    serveren (kurs/kursbevismal.py, samme rensing som signaturene). -#}
+{% from "_signatureditor.html" import signatureditor with context %}
+{% block hode %}{% include "_signatur_hode.html" %}{% endblock %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+
+<p class="liten dempet" style="margin-top:0">Kursbeviset lages automatisk når kurset er avsluttet, for deltakere som har møtt alle
+  dagene sine, og legges på Min side. Endringer her gjelder kursbevis som utstedes fra nå av – de som alt er sendt, endres ikke.
+  {% if egen_versjon %}<strong>Dette kurset har sin egen versjon.</strong>{% else %}Kurset bruker standardbeviset; lagrer du her, får det sin egen versjon.{% endif %}</p>
+
+{% set lese = admin_rolle == 'lese' %}
+<form method="post" action="{{ url_for('admin_kurs_kursbevis', kurs_id=kurs.id) }}" class="kort kursbevisskjema">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label for="kb-ramme">Ramme</label>
+  <select id="kb-ramme" name="ramme" style="width:auto" {{ 'disabled' if lese }}>
+    {% for nokkel, (navn, farge) in rammer.items() %}<option value="{{ nokkel }}" {{ 'selected' if nokkel == ramme }}>{{ navn }}</option>{% endfor %}
+  </select>
+  {{ signatureditor("innhold", innhold, "kb-innhold", "Kursbeviset", skrivebeskyttet=lese,
+                    hjelp="Teksten midt i kursbeviset, innenfor rammen. Flettefeltene fylles ut for hver deltaker.") }}
+  {% if not lese %}
+  <p class="liten dempet" style="margin:8px 0 4px">Klikk på et flettefelt for å sette det inn der markøren står:</p>
+  <div class="kodeknapper" role="group" aria-label="Flettefelt – klikk for å sette inn i kursbeviset">
+    {%- for kode, forklaring in koder.items() %}
+    <button type="button" class="kodeknapp" data-sett-inn="{{ '{' ~ kode ~ '}' }}" data-felt="kb-innhold" title="{{ forklaring }}"><code>{{ '{' ~ kode ~ '}' }}</code> {{ forklaring.split('(')[0].split(',')[0] | truncate(34, true, '…') }}</button>
+    {%- endfor %}
+  </div>
+  <p class="kursbevisknapper">
+    <button name="handling" value="lagre">Lagre kursbeviset</button>
+    <button class="sekundar" formaction="{{ url_for('admin_kurs_kursbevis_forhandsvis', kurs_id=kurs.id) }}" formtarget="_blank"
+            data-forhandsvis-kursbevis="kursbevis-vindu">Forhåndsvis</button>
+  </p>
+  {% endif %}
+</form>
+
+{% if not lese %}
+<div class="rad" style="gap:16px; margin-top:14px; align-items:end; flex-wrap:wrap">
+  {% if egen_versjon %}
+  <form method="post" action="{{ url_for('admin_kurs_kursbevis', kurs_id=kurs.id) }}"
+        data-bekreft="Tilbakestille kursbeviset til standardbeviset? Teksten du har skrevet for dette kurset, forsvinner.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="liten sekundar" name="handling" value="tilbakestill">Tilbakestill til standard</button>
+  </form>
+  {% endif %}
+  {% if kopier_fra %}
+  <form method="post" action="{{ url_for('admin_kurs_kursbevis', kurs_id=kurs.id) }}" class="rad" style="gap:8px; align-items:end"
+        data-bekreft="Kopiere kursbeviset fra det valgte kurset? Det som står her nå, erstattes.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div><label for="kb-kopier" class="liten">Kopier fra et annet kurs</label>
+      <select id="kb-kopier" name="fra_kurs_id" style="width:auto">
+        {% for k in kopier_fra %}<option value="{{ k.id }}">{{ k.kursnr }} {{ k.navn }}</option>{% endfor %}
+      </select></div>
+    <button class="liten sekundar" name="handling" value="kopier">Kopier</button>
+  </form>
+  {% endif %}
+</div>
+{% else %}
+<p><a class="knapp sekundar liten" href="{{ url_for('admin_kurs_kursbevis_forhandsvis', kurs_id=kurs.id) }}" target="_blank" rel="noopener">Se kursbeviset</a></p>
+{% endif %}
+
+<!-- Forhåndsvisningen: kursbeviset som et A4-ark i et vindu over siden (static/app.js, data-forhandsvis-kursbevis). -->
+<dialog id="kursbevis-vindu" class="vindu" aria-labelledby="kursbevis-vindu-tittel">
+  <button type="button" class="vindu-lukk" data-lukk-dialog aria-label="Lukk">×</button>
+  <div class="vindu-innhold">
+    <div class="deltakerkort">
+      <div class="deltakerkort-topp">
+        <h1 id="kursbevis-vindu-tittel" tabindex="-1">Forhåndsvisning av kursbeviset</h1>
+        <p>Kurs nr. {{ kurs.kursnr }} · {{ kurs.navn }} · eksempel: Ola Nordmann (oppdiktet), alle kursdagene</p>
+      </div>
+      <div class="deltakerkort-kropp kursbevisramme-kropp">
+        <p class="kursbevisknapper" style="margin-top:0">
+          <button type="button" data-skriv-ut-ramme="kursbevis-ramme">Lagre som PDF / skriv ut</button>
+          <button type="button" class="sekundar" data-lukk-dialog>Lukk</button>
+          <span class="liten dempet">I utskriftsvinduet velger du «Lagre som PDF» som skriver.</span>
+        </p>
+        <iframe name="kursbevis-ramme" id="kursbevis-ramme" class="kursbevisramme" title="Kursbeviset som A4-ark"></iframe>
+      </div>
+    </div>
+  </div>
+</dialog>
+{% endblock %}

@@ -178,8 +178,9 @@ def test_alle_kursfaner_rendres_og_fanelenkene_peker_til_registrerte_ruter(con, 
     adapter = webapp.app.url_map.bind("localhost")
     forventet = {"Oppsett": "admin_kurs_oppsett", "Nettside": "admin_kurs_nettside",
                  "Påmeldingsskjema": "admin_kurs_paameldingsskjema", "Min side": "admin_kursside",
-                 "Deltakere": "admin_kurs_deltakere", "Kommunikasjon": "admin_kurs_kommunikasjon"}
-    for side in ("oppsett", "nettside", "paameldingsskjema", "kursside", "deltakere", "kommunikasjon"):
+                 "Deltakere": "admin_kurs_deltakere", "Kommunikasjon": "admin_kurs_kommunikasjon",
+                 "Kursbevis": "admin_kurs_kursbevis"}
+    for side in ("oppsett", "nettside", "paameldingsskjema", "kursside", "deltakere", "kommunikasjon", "kursbevis"):
         r = admin.get(f"/admin/kurs/{kid}/{side}")
         assert r.status_code == 200, side
         faner = r.get_data(as_text=True).split('<nav class="faner">')[1].split("</nav>")[0]

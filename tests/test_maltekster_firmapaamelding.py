@@ -89,7 +89,7 @@ def _kvittering(config_, til="kari.hr@firma.no"):
 def _direkte_data(navn="Kari HR", kursnavn="Testkurs", firmanavn="Firma AS", antall_totalt=1,
                   antall_bekreftet=1, antall_venteliste=0, antall_feilet=0, kvittering_url="/x"):
     return dict(kontakt={"navn": navn, "fornavn": navnedeler(navn)["fornavn"], "firmanavn": firmanavn},
-                kurs={"navn": kursnavn, "fakturering": "person",
+                kurs={"navn": kursnavn, "kursnr": 1001, "fakturering": "person",
                 "pris_nok": 1000}, antall_totalt=antall_totalt, antall_bekreftet=antall_bekreftet,
                 antall_venteliste=antall_venteliste, antall_feilet=antall_feilet, kvittering_url=kvittering_url)
 

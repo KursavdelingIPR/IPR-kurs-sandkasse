@@ -19,7 +19,7 @@ import qrcode
 import qrcode.image.svg
 from flask import (Flask, Response, abort, flash, g, jsonify, make_response, redirect, render_template, request,
                    session, url_for)
-from markupsafe import Markup
+from markupsafe import Markup, escape
 from werkzeug.datastructures import MultiDict
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -28,13 +28,15 @@ from werkzeug.utils import secure_filename
 
 from .. import (aarsplan, aktivitetsliste, behandling, booking, config, daglig, db, deltakerliste, deltakerside, deltakersok,
                 ekstrafelt, eposthistorikk, firmaopplysninger, hendelseslogg, import_deltakere, kursdatoer, kursfarger,
+                kursbevismal, kursokonomi,
                 kurskalender, kursholdere, lenker,
                 mal_eksempler, maltekster, migreringer, minside, okonomi, paameldingsside, planlagte_kurs, privatadresse,
-                signaturer, sjekklister, skjemafelt, statustekster, sveiper, tema)
+                signaturer, sjekklister, skjemafelt, statustekster, sveiper, tema, vedlegg)
 from ..deltakerliste import fakturastatus as _fakturastatus
 from ..feil import sikker_feiltekst
 from ..integrasjoner import brreg, epost, sharepoint
 from ..kjoring import Kjoring
+from .. import kursbevis
 from ..kursbevis import timer_i_lop
 from . import deltakerside_ruter, entra, kursside_admin_ruter, oppmoteliste_ruter, sikkerhet
 
@@ -4224,6 +4226,85 @@ def admin_kurs_signatur(kurs_id):
                            **_signatureditor_kontekst())
 
 
+# ------- admin: kursbeviset per kurs (fanen Kursbevis, Camilla 04.10.2026) -------
+
+def _kursbevis_eksempel(kurs) -> dict:
+    """Det forhåndsvisningen fyller inn: en oppdiktet deltaker, og kursets egne dager og timer (som om alle møtte)."""
+    dager = con().execute(
+        """SELECT kd.dato, COALESCE(kd.timer, s.timer_pr_dag, k.timer_pr_dag) AS timer FROM kursdag kd
+           JOIN kurs k ON k.id=kd.kurs_id LEFT JOIN samling s ON s.id=kd.samling_id
+           WHERE kd.kurs_id=? ORDER BY kd.dato""", (kurs["id"],)).fetchall()
+    timer = sum(d["timer"] or 0 for d in dager)
+    return dict(navn="Ola Nordmann", fornavn="Ola", kurs=kurs, dager=[d["dato"] for d in dager], timer=timer,
+                samlinger=None, antall_samlinger=0, lop_timer=timer if kurs["spesialistlop"] else None,
+                dato=_idag().isoformat())
+
+
+def _kursbevis_side(kurs, innhold=None, ramme=None, status=200):
+    return render_template(
+        "admin_kurs_kursbevis.html", kurs=kurs, fane="kursbevis",
+        innhold=_trygg_signatur(innhold if innhold is not None else kursbevismal.for_redigering(kurs)),
+        ramme=ramme or kurs["kursbevis_ramme"] or kursbevismal.STANDARD_RAMME, rammer=kursbevismal.RAMMER,
+        koder=kursbevismal.KODER, egen_versjon=bool(kurs["kursbevis_html"]),
+        kopier_fra=kursbevismal.kurs_med_egen_versjon(con(), kurs["id"]),
+        **{**_signatureditor_kontekst(), "storrelser": kursbevismal.STORRELSER}), status
+
+
+@app.route("/admin/kurs/<int:kurs_id>/kursbevis", methods=["GET", "POST"])
+@krever_admin
+def admin_kurs_kursbevis(kurs_id):
+    """Rediger kursbeviset for dette kurset: tekst, flettefelt, bilder og ramme. Gjelder kursbevis som utstedes fra nå av."""
+    kurs = _hent_kurs(kurs_id)
+    if request.method == "GET":
+        return _kursbevis_side(kurs)
+    handling = request.form.get("handling", "lagre")
+    try:
+        if handling == "tilbakestill":
+            kursbevismal.tilbakestill(con(), kurs_id, aktor=_aktor())
+            melding = "Kursbeviset er tilbakestilt til standardbeviset."
+        elif handling == "kopier":
+            kursbevismal.kopier(con(), kurs_id, request.form.get("fra_kurs_id", type=int) or 0, aktor=_aktor())
+            melding = "Kursbeviset er kopiert. Se over teksten og forhåndsvis før kurset avsluttes."
+        else:
+            kursbevismal.lagre(con(), kurs_id, request.form.get("innhold", ""), request.form.get("ramme", ""),
+                               aktor=_aktor())
+            melding = "Kursbeviset er lagret. Det brukes for kursbevis som utstedes fra nå av – de som alt er sendt, endres ikke."
+        con().commit()
+    except kursbevismal.Kursbevisfeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+        return _kursbevis_side(kurs, _ta_vare_paa_innlimte(request.form.get("innhold", "")), request.form.get("ramme"), 400)
+    flash(melding, "ok")
+    return redirect(url_for("admin_kurs_kursbevis", kurs_id=kurs_id))
+
+
+@app.route("/admin/kurs/<int:kurs_id>/kursbevis/forhandsvis", methods=["GET", "POST"])
+@krever_admin
+def admin_kurs_kursbevis_forhandsvis(kurs_id):
+    """Kursbeviset slik det blir (A4), med en oppdiktet deltaker. POST: det som står i redigereren nå (ikke lagret);
+    GET: det lagrede. Vises i vinduet på fanen; «Lagre som PDF» bruker nettleserens utskrift."""
+    kurs = _hent_kurs(kurs_id)
+    egen = None
+    if request.method == "POST":
+        ramme = request.form.get("ramme")
+        kurs = {**dict(kurs), "kursbevis_ramme": ramme if ramme in kursbevismal.RAMMER else None}
+        try:
+            egen = kursbevismal.klargjor(con(), request.form.get("innhold", ""), aktor=_aktor())
+            con().commit()                      # innlimte bilder er lagret i biblioteket
+        except kursbevismal.Kursbevisfeil as e:
+            con().rollback()
+            return Response(f'<!doctype html><meta charset="utf-8"><p style="font-family:sans-serif;padding:2rem;color:#b3261e">'
+                            f'{escape(str(e))}</p>', status=400, mimetype="text/html")
+    side = kursbevis.lag_html(con(), kurs, _kursbevis_eksempel(kurs), egen=egen, forhandsvisning=True)
+    r = make_response(side)
+    # Bare innholdet selv: ingen skript, ingen eksterne ressurser (bildene er bakt inn som data:-adresser)
+    r.headers["Content-Security-Policy"] = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'self'"
+    r.headers["X-Frame-Options"] = "SAMEORIGIN"                 # vises i vinduet på fanen (samme nettsted)
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
 def _signatur_i_epost(signatur_html: str | None = None, valgt: int | None = None) -> dict:
     """Signaturfeltet i «Send e-post»: avsenderens hovedsignatur (ellers standard) ferdig utfylt, og biblioteket å
     velge fra. Innholdet i editoren er alltid renset."""
@@ -4309,6 +4390,7 @@ def _epost_i_vindu(kurs, p, emne="", tekst="", signatur_valgt=None, skjemanokkel
     return render_template("admin_deltaker_epost_ny.html", kurs=kurs, p=p, emne=emne, tekst=tekst,
                            emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS,
                            skjemanokkel=skjemanokkel or secrets.token_hex(8), signatur_html=signatur_html,
+                           vedlegg_accept=vedlegg.ACCEPT, vedlegg_typer=vedlegg.GODTATTE,
                            signaturliste=_signaturliste(), signatur_valgt=signatur_valgt, fane="kommunikasjon",
                            **_EPOST_KODER)
 
@@ -4319,52 +4401,131 @@ def admin_deltaker_epost_ny(kurs_id, paamelding_id):
     return _epost_i_vindu(_hent_kurs(kurs_id), _hent_paamelding(kurs_id, paamelding_id))
 
 
+def _utsending_fra_skjema(kurs_id: int, mottaker_ider: list[int]):
+    """Felles for e-post fra vinduet (én eller flere mottakere), som sendes uten forhåndsvisning. Gir (utsending_id, filer,
+    None) når e-posten kan sendes, ellers (None, [], igjen), der `igjen` er det skjemaet skal vises med på nytt (feilene er
+    alt vist som meldinger). Skjemanøkkelen blir utsendelsens nøkkel: samme skjema sendt to ganger (dobbeltklikk, to klikk
+    samtidig) gir samme utsendelse, og den sendes aldri på nytt."""
+    skjemanokkel = request.form.get("skjemanokkel", "")
+    if not re.fullmatch(r"[0-9a-f]{16}", skjemanokkel):
+        abort(400)
+    nokkel = f"adhoc:{kurs_id}:{skjemanokkel}"
+    rad = con().execute("SELECT id FROM admin_utsending WHERE nokkel=? AND kurs_id=?", (nokkel, kurs_id)).fetchone()
+    if rad:
+        if sorted(m["id"] for m in db.admin_utsending_mottakere(con(), rad["id"])) != sorted(mottaker_ider):
+            abort(404)
+        return rad["id"], [], None
+    emne, tekst = request.form.get("emne", "").strip(), request.form.get("tekst", "").strip()
+    feil = _epost_feil(emne, tekst)
+    signatur_valgt = request.form.get("signatur_valg", type=int)
+    raa_signatur = request.form.get("signatur_html")             # redigert i skjemaet (settes av static/app.js)
+    if raa_signatur is None:                                     # uten JavaScript: den valgte, slik den er lagret
+        s = (signaturer.hent(con(), signatur_valgt) if signatur_valgt else None) or signaturer.for_admin(
+            con(), session.get("admin_id"))
+        raa_signatur = s["innhold"]
+    try:
+        signatur_html = signaturer.klargjor_innhold(con(), raa_signatur, aktor=_aktor())
+        con().commit()                          # innlimte bilder er i biblioteket, også om skjemaet må vises på nytt
+        _varsle_eksterne_bilder(raa_signatur)
+    except signaturer.Signaturfeil as e:
+        feil.append(str(e))
+        signatur_html = _trygg_signatur(_ta_vare_paa_innlimte(raa_signatur))
+    filer = []
+    try:
+        filer = vedlegg.les(request.files.getlist("vedlegg"), signaturer.bildestorrelse(con(), signatur_html))
+    except vedlegg.Vedleggfeil as e:
+        feil.append(str(e))
+    if not mottaker_ider:
+        feil.append("Velg minst én gyldig mottaker.")
+    if feil:
+        for x in feil:
+            flash(x, "feil")
+        if any(f.filename for f in request.files.getlist("vedlegg")):     # nettleseren kan ikke fylle filvalget igjen
+            flash("Vedleggene må velges på nytt.", "info")
+        return None, [], dict(emne=emne, tekst=tekst, signatur_valgt=signatur_valgt, skjemanokkel=skjemanokkel,
+                              signatur_html=signatur_html)
+    try:
+        utsending_id, _ = db.opprett_admin_utsending(con(), kurs_id, emne, tekst, mottaker_ider,
+                                                     sendt_av_admin_id=session.get("admin_id"),
+                                                     signatur_html=signatur_html, nokkel=nokkel)
+        con().commit()
+    except db.IntegritetsFeil:                  # to klikk samtidig: det andre bruker utsendelsen det første laget
+        con().rollback()
+        utsending_id = con().execute("SELECT id FROM admin_utsending WHERE nokkel=?", (nokkel,)).fetchone()["id"]
+    return utsending_id, filer, None
+
+
 @app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/epost/send")
 @krever_admin
 def admin_deltaker_epost_send(kurs_id, paamelding_id):
     """Sender e-posten fra vinduet direkte (ingen forhåndsvisning) til denne ene påmeldingen, og viser fanen E-poster."""
     kurs = _hent_kurs(kurs_id)
     p = _hent_paamelding(kurs_id, paamelding_id)
-    skjemanokkel = request.form.get("skjemanokkel", "")
-    if not re.fullmatch(r"[0-9a-f]{16}", skjemanokkel):
-        abort(400)
-    nokkel = f"adhoc:{kurs_id}:{skjemanokkel}"
-    rad = con().execute("SELECT id FROM admin_utsending WHERE nokkel=? AND kurs_id=?", (nokkel, kurs_id)).fetchone()
-    if rad:                                     # samme skjema sendt igjen (dobbeltklikk): samme utsendelse, sendes ikke på nytt
-        if [m["id"] for m in db.admin_utsending_mottakere(con(), rad["id"])] != [p["id"]]:
-            abort(404)
-        utsending_id = rad["id"]
-    else:
-        emne, tekst = request.form.get("emne", "").strip(), request.form.get("tekst", "").strip()
-        feil = _epost_feil(emne, tekst)
-        signatur_valgt = request.form.get("signatur_valg", type=int)
-        raa_signatur = request.form.get("signatur_html")             # redigert i skjemaet (settes av static/app.js)
-        if raa_signatur is None:                                     # uten JavaScript: den valgte, slik den er lagret
-            s = (signaturer.hent(con(), signatur_valgt) if signatur_valgt else None) or signaturer.for_admin(
-                con(), session.get("admin_id"))
-            raa_signatur = s["innhold"]
-        try:
-            signatur_html = signaturer.klargjor_innhold(con(), raa_signatur, aktor=_aktor())
-            con().commit()                          # innlimte bilder er i biblioteket, også om skjemaet må vises på nytt
-            _varsle_eksterne_bilder(raa_signatur)
-        except signaturer.Signaturfeil as e:
-            feil.append(str(e))
-            signatur_html = _trygg_signatur(_ta_vare_paa_innlimte(raa_signatur))
-        if feil:
-            for x in feil:
-                flash(x, "feil")
-            return _epost_i_vindu(kurs, p, emne, tekst, signatur_valgt=signatur_valgt, skjemanokkel=skjemanokkel,
-                                  signatur_html=signatur_html)
-        try:
-            utsending_id, _ = db.opprett_admin_utsending(con(), kurs_id, emne, tekst, [p["id"]],
-                                                         sendt_av_admin_id=session.get("admin_id"),
-                                                         signatur_html=signatur_html, nokkel=nokkel)
-            con().commit()
-        except db.IntegritetsFeil:              # to klikk samtidig: det andre bruker utsendelsen det første laget
-            con().rollback()
-            utsending_id = con().execute("SELECT id FROM admin_utsending WHERE nokkel=?", (nokkel,)).fetchone()["id"]
+    utsending_id, filer, igjen = _utsending_fra_skjema(kurs_id, [p["id"]])
+    if igjen is not None:
+        return _epost_i_vindu(kurs, p, **igjen)
     return _send_utsending(kurs_id, utsending_id,
-                           url_for("admin_deltaker_kommunikasjon", kurs_id=kurs_id, paamelding_id=p["id"]))
+                           url_for("admin_deltaker_kommunikasjon", kurs_id=kurs_id, paamelding_id=p["id"]), filer)
+
+
+# ------- admin: e-post til flere i et vindu over deltakerlisten -------
+# Camilla 03.10.2026: «Når jeg velger to personer, så vil jeg at det skal komme opp slik som det står i vedlagt bilde med blå
+# på toppen. Det skal ikke komme til en ny side». Samme skjema som for én deltaker (_epostskjema.html); uten JavaScript er
+# det en vanlig side.
+
+def _gruppe_ider(kurs_id: int, gruppe: str | None) -> list[int] | None:
+    """Påmeldingene i «alle påmeldte» / «venteliste», eller None når ingen gruppe er valgt."""
+    if gruppe not in ("bekreftet", "venteliste"):
+        return None
+    return [r["id"] for r in con().execute("SELECT id FROM paamelding WHERE kurs_id=? AND status=?", (kurs_id, gruppe))]
+
+
+def _epost_til_flere(kurs, mottakere, sendt=None, emne="", tekst="", signatur_valgt=None, skjemanokkel=None,
+                     signatur_html=None):
+    if signatur_valgt is None:
+        signatur_valgt = signaturer.for_admin(con(), session.get("admin_id"))["id"]
+    return render_template("admin_kurs_epost_vindu.html", kurs=kurs, mottakere=mottakere, sendt=sendt, emne=emne,
+                           tekst=tekst, emne_maks=EPOST_EMNE_MAKS, tekst_maks=EPOST_TEKST_MAKS,
+                           skjemanokkel=skjemanokkel or secrets.token_hex(8), signatur_html=signatur_html,
+                           vedlegg_accept=vedlegg.ACCEPT, vedlegg_typer=vedlegg.GODTATTE,
+                           signaturliste=_signaturliste(), signatur_valgt=signatur_valgt, **_EPOST_KODER)
+
+
+@app.route("/admin/kurs/<int:kurs_id>/epost/vindu", methods=["GET", "POST"])
+@krever_admin
+def admin_kurs_epost_vindu(kurs_id):
+    """Åpnes fra deltakerlisten: GET med ?gruppe=... eller POST med de valgte (paamelding_id), så utvalget aldri står i
+    adressen. Mottakerne kontrolleres mot databasen."""
+    kurs = _hent_kurs(kurs_id)
+    ider = _gruppe_ider(kurs_id, request.args.get("gruppe"))
+    if ider is None:
+        ider = request.form.getlist("paamelding_id", type=int)
+    mottakere = _hent_epost_mottakere(kurs_id, ider)
+    if not mottakere:
+        flash("Velg minst én mottaker i listen (kryss av foran navnet).", "feil")
+    return _epost_til_flere(kurs, mottakere)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/epost/vindu/send")
+@krever_admin
+def admin_kurs_epost_vindu_send(kurs_id):
+    kurs = _hent_kurs(kurs_id)
+    mottakere = _hent_epost_mottakere(kurs_id, request.form.getlist("paamelding_id", type=int))
+    utsending_id, filer, igjen = _utsending_fra_skjema(kurs_id, [m["id"] for m in mottakere])
+    if igjen is not None:
+        return _epost_til_flere(kurs, mottakere, **igjen)
+    return _send_utsending(kurs_id, utsending_id,
+                           url_for("admin_kurs_epost_vindu_sendt", kurs_id=kurs_id, utsending_id=utsending_id), filer)
+
+
+@app.get("/admin/kurs/<int:kurs_id>/epost/vindu/<int:utsending_id>")
+@krever_admin
+def admin_kurs_epost_vindu_sendt(kurs_id, utsending_id):
+    """Kvitteringen i vinduet etter sending: hvem den gikk til (meldingene om utfallet står øverst)."""
+    kurs = _hent_kurs(kurs_id)
+    sendt = con().execute("SELECT * FROM admin_utsending WHERE id=? AND kurs_id=?",
+                          (utsending_id, kurs_id)).fetchone() or abort(404)
+    return _epost_til_flere(kurs, db.admin_utsending_mottakere(con(), utsending_id), sendt=sendt)
 
 
 @app.post("/admin/kurs/<int:kurs_id>/epost/forhandsvis")
@@ -4405,7 +4566,7 @@ def admin_epost_forhandsvis(kurs_id):
     con().commit()
     eksempel_id = request.form.get("eksempel_paamelding_id", type=int)
     eksempel = next((m for m in mottakere if m["id"] == eksempel_id), mottakere[0])
-    _, eksempel_html = epost.render("admin_melding", emne=emne, tekst=tekst,
+    _, eksempel_html = epost.render("admin_melding", emne=emne, tekst=tekst, kurs=kurs,
                                     d={**dict(eksempel), "min_side_url": Kjoring(con(), idag=_idag()).min_side_lenke(eksempel["id"])},
                                     signatur=signaturer.som_markup(signatur_html))
     return render_template("admin_epost_ny.html", kurs=kurs, mottakere=mottakere, emne=emne, tekst=tekst,
@@ -4440,9 +4601,10 @@ def admin_epost_send(kurs_id):
     return _send_utsending(kurs_id, utsending_id, url_for("admin_kurs_kommunikasjon", kurs_id=kurs_id))
 
 
-def _send_utsending(kurs_id: int, utsending_id: int, tilbake: str):
-    """Sender en lagret utsendelse (dedupliseres på nøkkelen), logger og sier ærlig fra om utfallet."""
-    ut = Kjoring(con(), idag=_idag(), aktor=_aktor()).send_admin_utsending(utsending_id)
+def _send_utsending(kurs_id: int, utsending_id: int, tilbake: str, filer=()):
+    """Sender en lagret utsendelse (dedupliseres på nøkkelen), logger og sier ærlig fra om utfallet. `filer` er vedlegg
+    som alt er kontrollert (kurs/vedlegg.py)."""
+    ut = Kjoring(con(), idag=_idag(), aktor=_aktor()).send_admin_utsending(utsending_id, vedlegg=filer)
     for pid in ut.sendt:
         db.logg(con(), "admin_epost_sendt", {"paamelding_id": pid, "kurs_id": kurs_id}, aktor=_aktor())
     con().commit()
@@ -5175,8 +5337,10 @@ def admin_rapporter():
         """SELECT COUNT(*) FROM (SELECT deltaker_id FROM paamelding WHERE status='bekreftet' AND ekstradeltaker_ts IS NULL
              GROUP BY deltaker_id HAVING COUNT(DISTINCT kurs_id) > 1) AS flere""").fetchone()[0]   # alias: PostgreSQL < 16
 
+    kursrader, kurstotalt = kursokonomi.kursoversikt(con(), fra, til)
     return render_template(
-        "admin_rapporter.html", fra=fra, til=til, deltakelser=deltakelser, ekstradeltakelser=ekstradeltakelser,
+        "admin_rapporter.html", fra=fra, til=til, kursoversikt=kursrader, kurstotalt=kurstotalt,
+        deltakelser=deltakelser, ekstradeltakelser=ekstradeltakelser,
         venteliste_kurs=venteliste_kurs,
         avlyste_kurs=avlyste_kurs, avmeldt_antall=avmeldt_antall, fakturert_sum=fakturert_sum,
         flere_kurs_antall=flere_kurs_antall)
@@ -5431,6 +5595,8 @@ def _opprett_kurs(f, kilde):
                 # Et duplisert kurs skal gjennomgås og åpnes bevisst - ikke være synlig/åpent for påmelding med en gang.
                 felter["status"] = "utkast"
                 felter.update(side_kopi)
+                # Kursbeviset (fanen Kursbevis) følger med kopien; utstedte kursbevis hører til originalen
+                felter.update(kursbevis_html=kilde["kursbevis_html"], kursbevis_ramme=kilde["kursbevis_ramme"])
             kid = db.opprett_kurs(con(), kode=kode, navn=navn, datoer=[], samlinger=samlinger, idag=_idag(),
                                   aktor=_aktor(), **felter)
             for felt, egenskaper in kopiplan:
@@ -5500,6 +5666,8 @@ def _opprett_kurs_gammelt_skjema(f, kilde):
                 # Et duplisert kurs skal gjennomgås og åpnes bevisst - ikke være synlig/åpent for påmelding med en gang.
                 felter["status"] = "utkast"
                 felter.update(side_kopi)
+                # Kursbeviset (fanen Kursbevis) følger med kopien; utstedte kursbevis hører til originalen
+                felter.update(kursbevis_html=kilde["kursbevis_html"], kursbevis_ramme=kilde["kursbevis_ramme"])
             kid = db.opprett_kurs(con(), kode=kode, navn=f["navn"].strip(), datoer=datoer, aktor=_aktor(), **felter)
             # Kopien faar EGNE rader paa den NYE kurs-id-en, i samme transaksjon som kurs/kursdager/materiell.
             for felt, egenskaper in kopiplan:

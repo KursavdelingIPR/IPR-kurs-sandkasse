@@ -5,4 +5,5 @@
   <a class="{{ 'aktiv' if fane == 'kursside' }}" href="{{ url_for('admin_kursside', kurs_id=kurs.id) }}">Min side</a>
   <a class="{{ 'aktiv' if fane == 'deltakere' }}" href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">Deltakere</a>
   <a class="{{ 'aktiv' if fane == 'kommunikasjon' }}" href="{{ url_for('admin_kurs_kommunikasjon', kurs_id=kurs.id) }}">Kommunikasjon</a>
+  <a class="{{ 'aktiv' if fane == 'kursbevis' }}" href="{{ url_for('admin_kurs_kursbevis', kurs_id=kurs.id) }}">Kursbevis</a>
 </nav>

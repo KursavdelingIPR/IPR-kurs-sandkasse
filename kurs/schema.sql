@@ -43,7 +43,12 @@ CREATE TABLE IF NOT EXISTS kurs (
     -- Signatur i påminnelser, kursbevis, avlysning og avslag (migrering «signaturer»): signatur_html satt = kursets egen,
     -- tilpassede versjon; ellers signaturen signatur_id; ellers standardsignaturen. Se kurs/signaturer.py.
     signatur_id     INTEGER REFERENCES signatur(id),
-    signatur_html   TEXT
+    signatur_html   TEXT,
+    -- Kursbeviset (migrering 25 «kursbevis_per_kurs», fanen Kursbevis): kursbevis_html satt = kursets egen, redigerte
+    -- versjon (renset HTML med flettefelt, kurs/kursbevismal.py); NULL = standardbeviset. kursbevis_ramme: fargen på
+    -- rammen (kursbevismal.RAMMER), NULL = blå.
+    kursbevis_html  TEXT,
+    kursbevis_ramme TEXT
 );
 
 -- Samlinger (migrering 9): kursdagene gruppert, f.eks. «Samling 1» over fire dager eller en enkelt veiledningsdag. Kursets

@@ -888,7 +888,7 @@ def test_oversikten_har_deltakersoek_og_kurssoek_side_ved_side_og_menyen_er_delt
     assert html.count("data-deltakersok") == 1                                              # bare ett deltakersøk i bildet
     hode = html.split("</header>")[0]
     hovedmeny = hode.split("<nav>")[1].split("</nav>")[0]
-    for tekst in ("Oversikt", "Kalender", "Rapporter", "E-postmaler", "Daglig kjøring", "Brukere", "Utboks"):
+    for tekst in ("Oversikt", "Kalender", "Økonomi", "E-postmaler", "Daglig kjøring", "Brukere", "Utboks"):
         assert f">{tekst}</a>" in hovedmeny, tekst
     assert "Aktiviteter" not in hovedmeny                           # slått sammen med Oversikten
     assert "Kunnskapsbase" not in hovedmeny                         # av sammen med «Spør oss» (ASSISTENT_AKTIV=0)
@@ -900,7 +900,7 @@ def test_oversikten_har_deltakersoek_og_kurssoek_side_ved_side_og_menyen_er_delt
 def test_menyen_viser_riktig_valg_per_rolle(con):
     _bygg(con)
     kursadmin = _html(_innlogget(con, "kursadmin"), "/admin").split("</header>")[0]
-    assert "Daglig kjøring" not in kursadmin and "Brukere" not in kursadmin and ">Rapporter</a>" in kursadmin
+    assert "Daglig kjøring" not in kursadmin and "Brukere" not in kursadmin and ">Økonomi</a>" in kursadmin
     lese = _html(_innlogget(con, "lese"), "/admin")
     assert "Logg ut (Lese, lesetilgang)" in lese.split("</header>")[0] and 'data-deltakersok' in lese     # lesetilgang kan søke
 
@@ -908,7 +908,7 @@ def test_menyen_viser_riktig_valg_per_rolle(con):
 def test_aktiv_menyside_er_fortsatt_markert(con):
     _bygg(con)
     k = _innlogget(con)
-    assert 'aria-current="page">Rapporter</a>' in _html(k, "/admin/rapporter")
+    assert 'aria-current="page">Økonomi</a>' in _html(k, "/admin/rapporter")
     assert 'aria-current="page">Oversikt</a>' in _html(k, "/admin")
     meny = _html(k, "/admin/sok").split("</header>")[0].split("<nav>")[1].split("</nav>")[0]
     assert 'aria-current="page"' not in meny                        # søkesiden er ikke et menyvalg

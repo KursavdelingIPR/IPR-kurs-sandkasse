@@ -403,6 +403,14 @@ def _m24_booking_og_notat(con) -> None:
         con.execute(f"ALTER TABLE sjekkliste_punkt ADD COLUMN slettet {heltall} NOT NULL DEFAULT 0 CHECK (slettet IN (0,1))")
 
 
+def _m25_kursbevis_per_kurs(con) -> None:
+    """Kursbeviset kan redigeres per kurs (fanen Kursbevis, Camilla 04.10.2026): to nye kolonner på kurs, kursbevis_html
+    og kursbevis_ramme. NULL for alle kurs som finnes, altså standardbeviset som før. Ingen eksisterende kolonne endres."""
+    for kolonne in ("kursbevis_html", "kursbevis_ramme"):
+        if not db.har_kolonne(con, "kurs", kolonne):
+            con.execute(f"ALTER TABLE kurs ADD COLUMN {kolonne} TEXT")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
@@ -428,6 +436,7 @@ MIGRERINGER = [
     (22, "kursholdere", _m22_kursholdere),
     (23, "sjekkliste_for_kurs", _m23_sjekkliste_for_kurs),
     (24, "booking_og_notat", _m24_booking_og_notat),
+    (25, "kursbevis_per_kurs", _m25_kursbevis_per_kurs),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

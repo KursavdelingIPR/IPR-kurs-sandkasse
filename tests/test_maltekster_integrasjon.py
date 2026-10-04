@@ -70,7 +70,7 @@ def _lagre(con, felt, tekst):
 
 
 def _direkte_data(navn="Ola Nordmann", kursnavn="Veiledning i praksis"):
-    return dict(p={"navn": navn, "fornavn": navnedeler(navn)["fornavn"]}, kurs={"navn": kursnavn})
+    return dict(p={"navn": navn, "fornavn": navnedeler(navn)["fornavn"]}, kurs={"navn": kursnavn, "kursnr": 1001})
 
 
 def _kall_send_en_gang(con, kid, pid):
@@ -427,7 +427,7 @@ def _lagre_avl(con, felt, tekst):
 
 
 def _avl_direkte_data():
-    return dict(d={"navn": "Ola Nordmann", "fornavn": "Ola"}, kurs={"navn": "Veiledning i praksis"})
+    return dict(d={"navn": "Ola Nordmann", "fornavn": "Ola"}, kurs={"navn": "Veiledning i praksis", "kursnr": 1001})
 
 
 def _kall_avlysning_direkte(con, kid, pid):

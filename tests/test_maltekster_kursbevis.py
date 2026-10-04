@@ -85,7 +85,7 @@ def _lagre(con, felt, tekst):
 
 
 def _direkte_data(navn="Ola Nordmann", kursnavn="Veiledning i praksis"):
-    return dict(navn=navn, fornavn=navnedeler(navn)["fornavn"], kurs={"navn": kursnavn})
+    return dict(navn=navn, fornavn=navnedeler(navn)["fornavn"], kurs={"navn": kursnavn, "kursnr": 1001})
 
 
 # ============================ aktivering ============================
