@@ -187,3 +187,28 @@ def test_kursnummeret_i_rammen_bare_naar_e_posten_gjelder_et_kurs():
     assert "Kurs nr. <span" in med and ">686</span> · EFT" in med
     _, uten = epost.render("innlogging", fornavn="A", lenke="http://x")
     assert "Kurs nr." not in uten
+
+
+# ---------------- rettelser etter gjennomgangen 04.10.2026 ----------------
+
+def test_samme_skjema_sendt_igjen_tar_med_vedleggene(con, monkeypatch):
+    """Blir skjemaet sendt på nytt (f.eks. etter en nettverksfeil), skal de som ikke fikk e-posten få den med vedleggene."""
+    from kurs.kjoring import Kjoring
+    kid, a, b = _kurs(con)
+    k = _klient()
+    nokkel = _nokkel(k.get(f"/admin/kurs/{kid}/deltaker/{a}/epost/ny").get_data(as_text=True))
+    data = lambda: {"skjemanokkel": nokkel, "emne": "Program", "tekst": "Hei", "vedlegg": [(io.BytesIO(PDF), "program.pdf")]}
+    k.post(f"/admin/kurs/{kid}/deltaker/{a}/epost/send", content_type="multipart/form-data", data=data())
+    sett = []
+    monkeypatch.setattr(Kjoring, "send_admin_utsending", lambda self, uid, vedlegg=(): sett.append([v.filnavn for v in vedlegg]) or
+                        type("U", (), {"sendt": [], "uavklart": 0, "ikke_forsokt": 0, "uavklart_fra_for": 0})())
+    k.post(f"/admin/kurs/{kid}/deltaker/{a}/epost/send", content_type="multipart/form-data", data=data())
+    assert sett == [["program.pdf"]]
+
+
+@pytest.mark.parametrize("innhold", [b"tekst\x01binaer", b"\x1b[31mfarge"])
+def test_tekstfil_med_styretegn_avvises(innhold):
+    from werkzeug.datastructures import FileStorage
+    with pytest.raises(vedlegg.Vedleggfeil, match="ekte TXT"):
+        vedlegg.les([FileStorage(io.BytesIO(innhold), filename="notat.txt")])
+    assert vedlegg.les([FileStorage(io.BytesIO("Navn;Sted\nÅse;Bergen\n".encode("cp1252")), filename="liste.csv")])

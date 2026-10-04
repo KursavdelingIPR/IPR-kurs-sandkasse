@@ -83,7 +83,6 @@ def dato_tekst(iso: str | None) -> str:
     return f"{iso[8:10]}.{iso[5:7]}.{iso[:4]}" if len(iso) == 10 else ""
 
 
-FORMAT = {"fysisk": "Fysisk", "digital": "Online", "hybrid": "Hybrid"}
 # Kursstatus slik den vises i kurslisten og statusvalget (lagret verdi -> tekst; «aapen» skrives «Åpen»)
 STATUSNAVN = {"utkast": "Utkast", "aapen": "Åpen", "full": "Full", "aktiv": "Aktiv", "avsluttet": "Avsluttet", "avlyst": "Avlyst"}
 
@@ -101,7 +100,3 @@ def stedmerke(r) -> tuple[str, str]:
             return by, by.lower()
     return (sted.split(",")[-1].strip() or "Fysisk"), "annet"
 
-
-def sted_tekst(r) -> str:
-    """Sted for fysiske kurs og hybridkurs (tomt for online)."""
-    return (r["sted"] or "") if r["type"] != "digital" else ""

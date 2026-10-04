@@ -86,7 +86,7 @@
             (Camilla 04.10.2026: «Det var IKKE oversiktlig … En veldig enkel oversikt») -#}
         <ul class="dp-samlingsliste">
         {% for g in v.samlinger %}
-          <li><b>{{ loop.index }}. samling</b><span>{{ g.fra_til }}</span>{% if g.tag %}<span class="dp-idag-merke">{{ g.tag }}</span>{% endif %}</li>
+          <li><b>{{ g.etikett }}</b><span>{{ g.fra_til }}</span>{% if g.tag %}<span class="dp-idag-merke">{{ g.tag }}</span>{% endif %}</li>
         {% endfor %}
         </ul>
         {% else %}

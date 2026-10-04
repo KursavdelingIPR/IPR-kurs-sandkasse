@@ -162,5 +162,6 @@ def flett(con, ren: str, v: dict, i_setning) -> str:
     def bytt(m: re.Match) -> str:
         if m[1] == "detaljer":
             return detaljer_html(v)
-        return html_.escape(verdier[m[1]], quote=False) if m[1] in verdier else m[0]
+        # quote=True: et flettefelt kan stå inne i en lenke eller alt-tekst, og et navn med «"» skal ikke kunne lage nye attributter
+        return html_.escape(verdier[m[1]], quote=True) if m[1] in verdier else m[0]
     return _bilder_inn(con, _KODE.sub(bytt, ren))

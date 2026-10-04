@@ -14,6 +14,7 @@ nådd «vis fra»-datoen og filer som ikke er synlige ennå FINNES IKKE i utdata
 allergier/tilrettelegging, aldri innsjekk-kode eller -token, aldri deltakerens adresse.
 """
 import hmac
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -625,8 +626,9 @@ def _blokkdata(con, kurs, b: dict, filmeta: dict, dager: list[dict], idag: date,
 
 
 def _samlingsgrupper(dager: list[dict], kursdager: list[dict], idag: date) -> list[dict]:
-    """Kursdagene til «Samlinger og kursdager»-kortet, gruppert per samling (bare for kurs med flere samlinger), i datorekkefølge:
-    [{"navn", "periode", "tag", "dager"}]. `periode` står bare når samlingen har flere dager (en enkelt dag har sin dato i raden).
+    """Samlingene til «Samlinger»-kortet (bare for kurs med flere samlinger), én linje per samling i datorekkefølge:
+    [{"navn", "etikett", "fra_til", "tag"}]. `etikett` er «1. samling» med kursets eget nummer, eller samlingens eget navn;
+    `fra_til` er første og siste dato («14.06.2027 – 15.06.2027», én dag: bare datoen).
     `tag` merker samlingen som pågår («Pågår nå»), ellers den som kommer først («Neste samling»); en ferdig samling har ingen.
     En kursdag uten samling i et kurs med samlinger får gruppen «Øvrige kursdager». `dager` og `kursdager` er parallelle lister."""
     per_samling: dict = {}
@@ -638,8 +640,10 @@ def _samlingsgrupper(dager: list[dict], kursdager: list[dict], idag: date) -> li
     for g in per_samling.values():
         forst, sist = min(g["datoer"]), max(g["datoer"])
         fra_til = forst.strftime("%d.%m.%Y") + ("" if sist == forst else " – " + sist.strftime("%d.%m.%Y"))
-        ut.append({"navn": g["navn"], "periode": kursdatoer.datoliste(g["datoer"]) if len(g["datoer"]) > 1 else "", "fra_til": fra_til,
-                   "tag": "Pågår nå" if forst <= idag <= sist else None, "dager": g["dager"], "_forst": forst})
+        # «1. samling» med kursets eget nummer (også for en ekstradeltaker som bare er på noen); et eget navn beholdes
+        nr = re.match(r"Samling (\d+)\b", g["navn"])
+        ut.append({"navn": g["navn"], "etikett": f"{nr[1]}. samling" if nr else g["navn"], "fra_til": fra_til,
+                   "tag": "Pågår nå" if forst <= idag <= sist else None, "_forst": forst})
     if ut and not any(g["tag"] for g in ut):
         neste = next((g for g in ut if g["_forst"] > idag), None)
         if neste:
@@ -685,13 +689,17 @@ def bygg_visning(con, kurs, dok: dict, *, deltaker_id: int | None, idag: date, f
         if b["type"] == "bilde" and data["plassering"] == "topp" and topp_bilde is None:
             topp_bilde = {"url": data["url"], "alt": data["alt"], "tekst": data["tekst"]}
             continue
-        if b["type"] == "bilde" and data["plassering"] == "topp_side" and side_bilde is None:
-            side_bilde = {"url": data["url"], "alt": data["alt"], "tekst": data["tekst"]}
-            continue
+        er_side = b["type"] == "bilde" and data["plassering"] == "topp_side" and side_bilde is None
+        if er_side:
+            side_bilde = {"url": data["url"], "alt": data["alt"], "tekst": data["tekst"], "blokk_id": b["id"]}
         if b["type"] == "bilde" and data["plassering"] in ("topp", "topp_side"):    # bare ett av hver i toppen
             data["plassering"] = "bred"
+        # Sidebildet står også her som et bredt bilde: det fjernes fra listen under når det får plass i toppen, og blir
+        # stående (i stedet for å forsvinne) når siden har et toppbilde bak tittelen
         blokker.append({"id": b["id"], "type": b["type"], "tittel": b["tittel"] or si.STANDARDTITLER.get(b["type"], ""),
                         "i_meny": bool(b.get("i_meny", True)), "data": data})
+    if side_bilde and not topp_bilde:
+        blokker = [bl for bl in blokker if bl["id"] != side_bilde["blokk_id"]]
 
     oppmotte = {int(r["kursdag_id"]) for r in con.execute("SELECT kursdag_id FROM oppmote WHERE paamelding_id=?", (pid,))} if pid else set()
     kursdager = []

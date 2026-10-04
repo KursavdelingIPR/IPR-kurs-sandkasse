@@ -16,8 +16,13 @@ MAKS_SUM = 3_000_000            # byte, vedlegg + signaturbilder (base64 gjør d
 _PDF, _OOXML, _OLE = b"%PDF-", b"PK\x03\x04", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 
+_STYRETEGN = re.compile(rb"[\x00-\x08\x0b\x0e-\x1f\x7f]")
+
+
 def _tekst(data: bytes) -> bool:
-    if b"\x00" in data:
+    """Ren tekst (UTF-8 eller Windows-1252): ingen styretegn utenom tabulator, linjeskift og sideskift. Windows-1252 kan lese
+    nesten alle byte, så uten denne kontrollen ville en hvilken som helst binærfil med navn .txt eller .csv slippe gjennom."""
+    if _STYRETEGN.search(data):
         return False
     try:
         data.decode("utf-8")

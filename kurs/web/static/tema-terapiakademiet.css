@@ -153,8 +153,6 @@ body[data-tema="ta"] .dp-dager li small { color:var(--ta-mauve); }
 body[data-tema="ta"] .dp-dager .merke { font-size:11.5px; padding:1px 7px; }                         /* smalt kort: «Ikke registrert» skal få plass på samme linje som dag og dato */
 body[data-tema="ta"] .dp-dager li.dp-i-dag { background:rgba(138,51,78,.13); border-radius:0; }
 body[data-tema="ta"] .dp-dager li.dp-i-dag b, body[data-tema="ta"] .dp-dager li.dp-i-dag .dp-idag-tekst { color:var(--ta-baer); }
-body[data-tema="ta"] .dp-samling { background:var(--ta-glass); border-radius:0; border-left:4px solid var(--ta-baer); color:var(--ta-plomme); font-weight:600; }
-body[data-tema="ta"] .dp-samling-periode { color:var(--ta-mauve); }
 body[data-tema="ta"] .dp-meny a { color:var(--ta-plomme); border-radius:0; }
 body[data-tema="ta"] .dp-meny a:hover { background:rgba(255,255,255,.45); color:var(--ta-baer); }
 body[data-tema="ta"] .dp-meny a.dp-aktiv { background:rgba(138,51,78,.13); color:var(--ta-baer); }

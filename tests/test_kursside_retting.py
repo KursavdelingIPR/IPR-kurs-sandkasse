@@ -1131,3 +1131,13 @@ def test_14b_bilde_til_hoeyre_med_tekst_til_venstre_og_lengre_tekst(con, kid):
         with pytest.raises(si.Sidefeil):
             si.valider(dokument({"id": "", "type": "bilde", "tittel": "B", "data": {"fil_id": None, "alt": "a", "tekst": "y" * 301, "plassering": plass}}),
                        fil_ider=None, kursdag_ider=None)
+
+
+def test_14b_sidebildet_forsvinner_ikke_naar_siden_ogsaa_har_toppbilde(con, kid):
+    did, _ = lag_deltaker(con, kid, "kari@example.no")
+    topp, _ = sidelager.lagre_fil(con, kid, "topp.png", png(), "admin:test")
+    side, _ = sidelager.lagre_fil(con, kid, "side.png", png(5, 3), "admin:test")         # et annet bilde enn toppbildet
+    skriv_side(con, kid, dokument({"id": "", "type": "bilde", "tittel": "Topp", "data": {"fil_id": topp, "alt": "Topp", "tekst": "", "plassering": "topp"}},
+                                  {"id": "", "type": "bilde", "tittel": "Side", "data": {"fil_id": side, "alt": "Sidebildet", "tekst": "", "plassering": "topp_side"}}))
+    html = _side_html(con, kid, did)
+    assert 'class="dp-toppbilde"' in html and 'alt="Sidebildet"' in html and "dp-sidebilde" not in html

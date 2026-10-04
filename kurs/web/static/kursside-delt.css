@@ -130,14 +130,10 @@ body.dp-forhandsvisning main { padding-top:12px; padding-bottom:28px; }
 .dp-dager .merke.ok { color:var(--dp-mork-ok); } .dp-dager .merke.gul { color:var(--dp-mork-gul); }        /* .merke i base.html har litt for lav kontrast på lys bakgrunn */
 .dp-dager li.dp-i-dag b { color:var(--bla-mork); }
 .dp-dager .dp-merknad { display:block; flex-basis:100%; font-style:italic; }          /* kursdagens merknad, f.eks. «Veiledningsdag», på egen linje */
-.dp-samling { display:flex; flex-wrap:wrap; align-items:center; gap:0 8px; margin:8px 0 0; padding:4px 10px; background:var(--bla-lys); border-radius:8px; font-size:14px; font-weight:650; line-height:1.35; }
-.dp-dager .dp-liten-h + .dp-samling { margin-top:2px; }
-.dp-samling-periode { font-weight:400; font-size:13px; color:var(--dempet); }
 /* Samlingene på Min side: én linje per samling (1. samling  14.06.2027 – 15.06.2027) */
 .dp-samlingsliste li { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 12px; padding:8px 0; font-size:14.5px; }
 .dp-samlingsliste li > b { min-width:6.5em; font-weight:650; }
 .dp-samlingsliste li > .dp-idag-merke { margin-left:auto; }
-.dp-samling .dp-idag-merke { margin-left:auto; }
 .dp-meny { padding:14px 8px 8px; }
 .dp-meny ul { max-height:30vh; overflow-y:auto; }
 .dp-meny a { display:flex; align-items:center; gap:10px; padding:7px 10px; min-height:36px; border-radius:8px; text-decoration:none; color:var(--tekst); font-size:14.5px; }

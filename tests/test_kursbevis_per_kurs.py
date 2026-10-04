@@ -150,3 +150,19 @@ def test_flettefelt_fylles_ut_og_escapes():
              antall_samlinger=3, lop_timer=None, dato="2027-06-01")
     ut = kursbevismal.flett(None, "{navn} – {kursnavn} – {deltakelse} – {dato}", v, db.i_setning)
     assert ut == "Ola &lt;script&gt; – Kurs &lt;b&gt; – har deltatt på samling 1 og 3 i – 01.06.2027"
+
+
+def test_flettefelt_i_attributter_kan_ikke_lage_nye_attributter():
+    kurs = {"navn": "K", "kursnr": 1, "sted": "", "spesialistlop": None}
+    v = dict(navn='Ola" onmouseover="x', fornavn="Ola", kurs=kurs, dager=[], timer=0, samlinger=None, antall_samlinger=0,
+             lop_timer=None, dato="2027-06-01")
+    ut = kursbevismal.flett(None, '<a href="https://example.no/{navn}">lenke</a>', v, db.i_setning)
+    assert 'onmouseover="x' not in ut and "&quot;" in ut
+
+
+def test_feil_ved_kopier_viser_det_lagrede_kursbeviset_igjen(con):
+    kid = _kurs(con)
+    k = _klient()
+    k.post(f"/admin/kurs/{kid}/kursbevis", data={"ramme": "blaa", "innhold": "Mitt bevis for {navn}"})
+    r = k.post(f"/admin/kurs/{kid}/kursbevis", data={"handling": "kopier", "fra_kurs_id": 999999})
+    assert r.status_code == 400 and "Mitt bevis for {navn}" in r.get_data(as_text=True)

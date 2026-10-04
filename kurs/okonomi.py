@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 from datetime import date
 
 STATUSNAVN = {"opprettet": "Opprettet", "sendt": "Sendt", "betalt": "Betalt", "kreditert": "Kreditert", "feil": "Feil"}
-_TELLER_IKKE = ("kreditert", "feil")         # teller ikke i fakturert beløp
+TELLER_IKKE = ("kreditert", "feil")          # teller ikke i fakturert beløp (brukes også av kursokonomi og Økonomi-siden)
+_TELLER_IKKE = TELLER_IKKE
 
 
 @dataclass

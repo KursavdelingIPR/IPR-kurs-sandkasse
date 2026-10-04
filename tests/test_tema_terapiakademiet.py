@@ -165,7 +165,8 @@ def test_alle_andre_kort_og_blokker_er_beige_som_for(klasse):
     assert _bakgrunn(f'body[data-tema="ta"] {klasse}') == "var(--ta-band)", klasse
 
 
-@pytest.mark.parametrize("klasse", [".dp-melding", ".dp-viktig-info", ".flash.info", ".dp-pr-dag", ".dp-kk", ".dp-samling", ".ms-idag", ".inn-boks"])
+# (.dp-samling er fjernet 04.10.2026: samlingskortet er én enkel linje per samling uten egen flate)
+@pytest.mark.parametrize("klasse", [".dp-melding", ".dp-viktig-info", ".flash.info", ".dp-pr-dag", ".dp-kk", ".ms-idag", ".inn-boks"])
 def test_meldinger_og_flater_inne_i_kortene_er_halvhvite_som_for(klasse):
     assert _bakgrunn(f'body[data-tema="ta"] {klasse}') == "var(--ta-glass)", klasse
 

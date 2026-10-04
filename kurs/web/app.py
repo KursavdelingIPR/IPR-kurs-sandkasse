@@ -1359,9 +1359,6 @@ def _kursliste() -> dict:
                                                          AND p.ekstradeltaker_ts IS NULL) AS bekreftet,
                      (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='bekreftet'
                                                          AND p.ekstradeltaker_ts IS NOT NULL) AS ekstra_antall,
-                     (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='venteliste') AS venteliste,
-                     (SELECT COUNT(*) FROM faktura f JOIN paamelding p ON p.id=f.paamelding_id WHERE p.kurs_id=k.id) AS fakturert,
-                     (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id) AS totalt_registrert,
                      (SELECT MIN(kd2.id) FROM kursdag kd2 WHERE kd2.kurs_id=k.id AND kd2.dato=?) AS idag_dag_id
               FROM kurs k
               LEFT JOIN kursdag kd ON kd.kurs_id=k.id
@@ -1400,7 +1397,7 @@ def _kursliste() -> dict:
         sorterlenke=sorterlenke, admins=admins, kurs_statusverdier=KURS_STATUSVERDIER, status_navn=aktivitetsliste.STATUSNAVN,
         nullstill_lenke=url_for("admin", _anchor="kurs"), sortering=sortering, sorteringer=aktivitetsliste.SORTERINGER,
         sortering_tekst=aktivitetsliste.beskrivelse(sortering), dato_tekst=aktivitetsliste.dato_tekst,
-        formater=aktivitetsliste.FORMAT, sted_tekst=aktivitetsliste.sted_tekst, stedmerke=aktivitetsliste.stedmerke)
+        stedmerke=aktivitetsliste.stedmerke)
 
 
 @app.get("/admin/aktiviteter")
@@ -4273,7 +4270,9 @@ def admin_kurs_kursbevis(kurs_id):
     except kursbevismal.Kursbevisfeil as e:
         con().rollback()
         flash(str(e), "feil")
-        return _kursbevis_side(kurs, _ta_vare_paa_innlimte(request.form.get("innhold", "")), request.form.get("ramme"), 400)
+        # «Kopier» og «Tilbakestill» sender ingen tekst: da vises det lagrede kursbeviset igjen, ikke en tom redigerer
+        innhold = _ta_vare_paa_innlimte(request.form["innhold"]) if "innhold" in request.form else None
+        return _kursbevis_side(kurs, innhold, request.form.get("ramme"), 400)
     flash(melding, "ok")
     return redirect(url_for("admin_kurs_kursbevis", kurs_id=kurs_id))
 
@@ -4341,11 +4340,8 @@ def admin_epost_ny(kurs_id):
     """GET med ?gruppe=... (alle påmeldte/venteliste) eller POST med valgte paamelding_id fra deltakerlisten (POST, slik
     at utvalget og CSRF-tokenet aldri havner i en URL)."""
     kurs = _hent_kurs(kurs_id)
-    gruppe = request.args.get("gruppe")
-    if gruppe in ("bekreftet", "venteliste"):
-        ider = [r["id"] for r in con().execute(
-            "SELECT id FROM paamelding WHERE kurs_id=? AND status=?", (kurs_id, gruppe))]
-    else:
+    ider = _gruppe_ider(kurs_id, request.args.get("gruppe"))
+    if ider is None:
         ider = request.values.getlist("paamelding_id", type=int)
     mottakere = _hent_epost_mottakere(kurs_id, ider)
     if not mottakere:
@@ -4414,7 +4410,13 @@ def _utsending_fra_skjema(kurs_id: int, mottaker_ider: list[int]):
     if rad:
         if sorted(m["id"] for m in db.admin_utsending_mottakere(con(), rad["id"])) != sorted(mottaker_ider):
             abort(404)
-        return rad["id"], [], None
+        # Samme skjema sendt igjen (f.eks. etter en nettverksfeil): de som ikke fikk e-posten første gang, skal få den med
+        # de samme vedleggene. Skjemaet sender filene på nytt; de som alt har fått den, får den aldri igjen.
+        try:
+            filer = vedlegg.les(request.files.getlist("vedlegg"))
+        except vedlegg.Vedleggfeil:
+            filer = []
+        return rad["id"], filer, None
     emne, tekst = request.form.get("emne", "").strip(), request.form.get("tekst", "").strip()
     feil = _epost_feil(emne, tekst)
     signatur_valgt = request.form.get("signatur_valg", type=int)
@@ -5328,10 +5330,11 @@ def admin_rapporter():
         """SELECT COUNT(*) FROM hendelse WHERE handling='avmelding'
            AND (? = '' OR substr(ts, 1, 10) >= ?) AND (? = '' OR substr(ts, 1, 10) <= ?)""", periode_args).fetchone()[0]
 
-    fakturert_sum = con().execute(
-        """SELECT COALESCE(SUM(belop_nok),0) FROM faktura
-           WHERE (? = '' OR substr(opprettet, 1, 10) >= ?) AND (? = '' OR substr(opprettet, 1, 10) <= ?)""",
-        periode_args).fetchone()[0]
+    fakturert_sum = con().execute(                      # krediterte og feilede teller ikke (okonomi.TELLER_IKKE)
+        f"""SELECT COALESCE(SUM(belop_nok),0) FROM faktura
+           WHERE (? = '' OR substr(opprettet, 1, 10) >= ?) AND (? = '' OR substr(opprettet, 1, 10) <= ?)
+             AND status NOT IN ({",".join("?" * len(okonomi.TELLER_IKKE))})""",
+        (*periode_args, *okonomi.TELLER_IKKE)).fetchone()[0]
 
     flere_kurs_antall = con().execute(
         """SELECT COUNT(*) FROM (SELECT deltaker_id FROM paamelding WHERE status='bekreftet' AND ekstradeltaker_ts IS NULL
@@ -5600,6 +5603,7 @@ def _opprett_kurs(f, kilde):
                 felter.update(side_kopi)
                 # Kursbeviset (fanen Kursbevis) følger med kopien; utstedte kursbevis hører til originalen
                 felter.update(kursbevis_html=kilde["kursbevis_html"], kursbevis_ramme=kilde["kursbevis_ramme"])
+                felter.setdefault("merke", kilde["merke"])     # arrangøren følger med (skjemaet kan ha valgt en annen)
             kid = db.opprett_kurs(con(), kode=kode, navn=navn, datoer=[], samlinger=samlinger, idag=_idag(),
                                   aktor=_aktor(), **felter)
             for felt, egenskaper in kopiplan:
@@ -5671,6 +5675,7 @@ def _opprett_kurs_gammelt_skjema(f, kilde):
                 felter.update(side_kopi)
                 # Kursbeviset (fanen Kursbevis) følger med kopien; utstedte kursbevis hører til originalen
                 felter.update(kursbevis_html=kilde["kursbevis_html"], kursbevis_ramme=kilde["kursbevis_ramme"])
+                felter.setdefault("merke", kilde["merke"])     # arrangøren følger med (skjemaet kan ha valgt en annen)
             kid = db.opprett_kurs(con(), kode=kode, navn=f["navn"].strip(), datoer=datoer, aktor=_aktor(), **felter)
             # Kopien faar EGNE rader paa den NYE kurs-id-en, i samme transaksjon som kurs/kursdager/materiell.
             for felt, egenskaper in kopiplan:

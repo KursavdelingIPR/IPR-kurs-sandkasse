@@ -68,7 +68,6 @@ table.aktivitetstabell tr.avlyst td.tittel a { color:var(--avlyst); text-decorat
 .sokepanel .sokefelt { flex:none; max-width:none; margin:0; }
 .sokepanel .sokefelt input[type=search] { padding:10px 36px 10px 36px; font-size:15px; }
 .sokepanel .sokefelt button.sok-knapp { padding:0 18px; }
-.sok-hjelp { margin:8px 0 0; font-size:13px; color:var(--dempet); }
 .statkort { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:12px; max-width:1040px; }
 .statkort + .statgruppe { margin:18px 0 8px; font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--dempet); }
 .statkort .kort { margin:0; padding:12px 16px; }

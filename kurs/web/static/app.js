@@ -762,8 +762,6 @@
           vinduInnhold.replaceChildren(document.adoptNode(nytt));
           var tittel = document.getElementById("deltaker-tittel");
           if (tittel) tittel.focus();
-          var hit = vinduInnhold.querySelector("[data-rull-hit]");   // f.eks. forhåndsvisningen med Send-knappen
-          if (hit) hit.scrollIntoView({ block: "start" });
         })
         .catch(function () {
           if (nr !== sisteForespoersel || !vindu.open) return;

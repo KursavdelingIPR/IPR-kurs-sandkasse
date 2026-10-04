@@ -65,3 +65,14 @@ def test_rapporter_viser_kursoversikten(con):
     k.post("/admin/logg-inn", data={"brukernavn": config.ADMIN_BRUKERNAVN, "passord": config.ADMIN_PASSORD})
     html = k.get("/admin/rapporter").get_data(as_text=True)
     assert "Kursoversikt" in html and "Kurs A" in html and "29 000 kr" in html and "14 500 kr" in html
+
+
+def test_krediterte_og_feilede_fakturaer_teller_ikke_som_fakturert(con):
+    a = _kurs(con, "A", "2031-03-04", 1000)
+    _meld(con, a, 3)
+    pider = [r[0] for r in con.execute("SELECT id FROM paamelding WHERE kurs_id=?", (a,))]
+    for pid, status in zip(pider, ("sendt", "kreditert", "feil")):
+        con.execute("INSERT INTO faktura (paamelding_id, belop_nok, status) VALUES (?, 1000, ?)", (pid, status))
+    con.commit()
+    rader, t = kursokonomi.kursoversikt(con)
+    assert rader[0]["fakturert"] == 1000 and t.fakturert == 1000

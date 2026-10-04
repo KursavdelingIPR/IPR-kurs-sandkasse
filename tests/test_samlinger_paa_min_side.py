@@ -65,9 +65,11 @@ def test_merkelappen_samling_n_av_m_er_borte_og_alle_samlingene_staar_i_kortet(c
     ola = meld(con, kid, "Ola")
     v = _visning(con, kid, _did(con, ola), date(2031, 10, 16))
     assert [p["tekst"] for p in v["pillene"]] == ["Du er påmeldt", "Dag 1 av 5"]                              # ingen «Samling 1 av 3»
-    assert [(g["navn"], g["periode"], len(g["dager"])) for g in v["samlinger"]] == [
-        ("Samling 1", "16.–17.10.2031", 2), ("Samling 2", "13.–14.11.2031", 2), ("Samling 3", "", 1)]          # en enkelt dag har sin dato i raden
-    assert [d["nr"] for g in v["samlinger"] for d in g["dager"]] == [1, 2, 3, 4, 5]                          # dagene nummereres gjennom hele kurset
+    # Én linje per samling (04.10.2026): «1. samling» og datoene fra og til (én dag: bare datoen)
+    assert [(g["navn"], g["etikett"], g["fra_til"]) for g in v["samlinger"]] == [
+        ("Samling 1", "1. samling", "16.10.2031 – 17.10.2031"), ("Samling 2", "2. samling", "13.11.2031 – 14.11.2031"),
+        ("Samling 3", "3. samling", "04.12.2031")]
+    assert [d["nr"] for d in v["kursdager"]] == [1, 2, 3, 4, 5]                                              # dagene nummereres gjennom hele kurset
     assert [d["samling"] for d in v["kursdager"]] == ["Samling 1", "Samling 1", "Samling 2", "Samling 2", "Samling 3"]
 
 
@@ -99,7 +101,8 @@ def test_en_ekstradeltaker_ser_bare_sine_samlinger_med_kursets_eget_nummer(con):
     kid = kurs_med_samlinger(con)
     eva, nina = ekstra(con, kid, "Eva", nr=[1, 3]), ekstra(con, kid, "Nina", nr=[3])
     v = _visning(con, kid, _did(con, eva), date(2031, 10, 1))
-    assert [(g["navn"], len(g["dager"])) for g in v["samlinger"]] == [("Samling 1", 2), ("Samling 3", 1)]
+    # kursets eget nummer også for en ekstradeltaker på samling 1 og 3 (ikke «1.» og «2. samling»)
+    assert [(g["navn"], g["etikett"]) for g in v["samlinger"]] == [("Samling 1", "1. samling"), ("Samling 3", "3. samling")]
     assert [d["nr"] for d in v["kursdager"]] == [1, 2, 3]                                                      # deres egne dager
     v2 = _visning(con, kid, _did(con, nina), date(2031, 10, 1))
     assert [g["navn"] for g in v2["samlinger"]] == ["Samling 3"] and v2["samlinger"][0]["tag"] == "Neste samling"
