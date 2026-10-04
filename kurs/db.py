@@ -1579,6 +1579,10 @@ def prisendring_feil(con, kurs_id: int, ny_pris: int, fakturering: str) -> str |
             "kursavgiften at neste faktura per samling ville blitt på 0 kr. Sett en høyere pris.")
 
 
+# Arrangør per kurs (kurs.merke, migrering 26): lagret verdi -> navn. «ipr» lagres som NULL.
+KURSMERKER = {"ipr": "IPR", "terapiakademiet": "Terapiakademiet"}
+
+
 def oppdater_kurs_felter(con, kurs_id: int, felter: dict, aktor: str = "admin", *, tillat_okonomi: bool = False) -> list[str]:
     """Oppdaterer kursfelt (ikke kapasitet/status, se egne funksjoner for dem).
 

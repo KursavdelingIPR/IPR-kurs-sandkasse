@@ -206,7 +206,8 @@ def test_statuskortene_teller_alle_aapne_kurs_uansett_soek_og_filter(con):
         assert _tall(html, "Aktive / åpne kurs") == 2 and _tall(html, "Påmeldte (åpne kurs)") == 3, url
 
 
-def test_kurslisten_viser_paameldte_venteliste_og_fakturering_i_samme_celle(con):
+def test_kurslisten_viser_bare_paameldte_og_kapasitet(con):
+    """Camilla 04.10.2026: «på venteliste» og «registrert · fakturert» er tatt bort fra cellen (før 01.10: samme celle)."""
     kid = _kurs(con, "CELLE", "Cellekurset", IDAG + timedelta(days=30), kapasitet=1, pris_nok=1000)
     lag_deltaker(con, kid, "a@example.no", "Ada", "En")
     lag_deltaker(con, kid, "b@example.no", "Bo", "To")                                  # kurset er fullt: venteliste
@@ -216,9 +217,8 @@ def test_kurslisten_viser_paameldte_venteliste_og_fakturering_i_samme_celle(con)
     assert "<th" in html and "Fakturert</th>" not in html                               # ingen egen kolonne lenger
     celler = {m[0]: _tekst(m[1]) for m in re.findall(r'<td class="tittel"><a [^>]*><strong>(.*?)</strong></a>.*?'
                                                       r'<td class="tall" data-etikett="Påmeldte"><span>(.*?)</span></td>', html, re.S)}
-    assert celler["Cellekurset"] == "1 / 1 1 på venteliste 2 registrert · 0 fakturert"
-    assert celler["Gratiskurset"].endswith("0 registrert · gratis kurs")
-    assert celler["Samletkurset"].endswith("0 registrert · faktureres samlet")
+    assert celler["Cellekurset"] == "1 / 1"
+    assert celler["Gratiskurset"] == "0" and celler["Samletkurset"] == "0"
 
 
 def test_sortering_og_sidenummerering_peker_paa_oversikten_og_hopper_til_kurslisten(con):
@@ -247,7 +247,7 @@ def test_filterlinjen_beholder_valgene_og_nullstill_gaar_til_kurslisten(con):
 def test_lesetilgang_ser_oversikten_uten_nytt_kurs_men_med_soek_og_oppmoteliste(con):
     lag_kurs(con, "K1", start=IDAG)                                                    # kursdag i dag
     lese = _html(admin_klient(con, "lese").get("/admin"))
-    assert "Nytt kurs +" not in lese and ">Dupliser</a>" not in lese
+    assert "Nytt kurs +" not in lese and 'aria-label="Dupliser' not in lese
     assert "data-deltakersok" in lese and 'id="sok-kurs"' in lese
     assert "Se oppmøteliste i dag" in lese and "Ta opp oppmøte i dag" not in lese
     assert "Ta opp oppmøte i dag" in _html(admin_klient(con).get("/admin"))
@@ -314,3 +314,51 @@ def test_de_brede_sidene_er_midtstilt_og_ikke_helt_ut_til_kantene():
     m = re.search(r"body\.bred header \.inner, body\.bred main \{ max-width:(\d+)px; \}", mal)
     assert m and 1080 < int(m.group(1)) <= 1240
     assert "header .inner, main { max-width: 1080px; margin: 0 auto; padding: 0 20px; }" in mal           # vanlige sider: som før
+
+
+def test_kurssoeket_oppdaterer_listen_mens_man_skriver(con):
+    """Camilla 04.10.2026: «når jeg feks skriver inn 1004 … så kommer de kursene automatisk opp under». Søkefeltet er merket
+    for live-søk, og listen ligger i elementet som byttes ut; et tall finner kursnumre som starter med tallet."""
+    from kurs.web import app as webapp
+    a = db.opprett_kurs(con, kode="L1", navn="Første", datoer=["2031-03-04"], sharepoint_mappe="Kurs/L1",
+                        pris_nok=0, type="fysisk", sted="Oslo")
+    db.opprett_kurs(con, kode="L2", navn="Andre", datoer=["2031-03-05"], sharepoint_mappe="Kurs/L2",
+                    pris_nok=0, type="fysisk", sted="Oslo")
+    con.commit()
+    kursnr = str(con.execute("SELECT kursnr FROM kurs WHERE id=?", (a,)).fetchone()[0])
+    k = webapp.app.test_client()
+    k.post("/admin/logg-inn", data={"brukernavn": config.ADMIN_BRUKERNAVN, "passord": config.ADMIN_PASSORD})
+    html = k.get("/admin").get_data(as_text=True)
+    assert 'data-live-sok="kursliste-treff"' in html and '<div id="kursliste-treff">' in html
+    treff = k.get(f"/admin?sok={kursnr[:-1]}").get_data(as_text=True).split('id="kursliste-treff"')[1]
+    assert "Første" in treff and "Andre" in treff                        # «100» finner både 1001 og 1002
+    treff = k.get(f"/admin?sok={kursnr}").get_data(as_text=True).split('id="kursliste-treff"')[1]
+    assert "Første" in treff and "Andre" not in treff
+
+
+def test_handlingene_i_kurslisten_er_ikoner_med_forklaring(con):
+    """Camilla 04.10.2026: penn for Rediger, to ark for Dupliser, et ikon for Min side og boks med pil for forhåndsvisning
+    av påmeldingsskjemaet - som i Pindena."""
+    kid = _kurs(con, "IKON", "Ikonkurset", IDAG + timedelta(days=30))
+    html = _html(admin_klient(con).get("/admin"))
+    for href, tekst in ((f"/admin/kurs/{kid}/forhandsvis-paamelding", "Forhåndsvis påmeldingsskjemaet"),
+                        (f"/admin/kurs/{kid}/kursside", "Min side"), (f"/admin/kurs/ny?fra={kid}", "Dupliser"),
+                        (f"/admin/kurs/{kid}/oppsett", "Rediger")):
+        lenke = re.search(rf'<a class="ikonknapp" href="{re.escape(href)}"[^>]*aria-label="{tekst}[^"]*"[^>]*><svg', html)
+        assert lenke, tekst
+    assert ">Rediger</a>" not in html and ">Dupliser</a>" not in html
+    assert 'href="/admin/kurs/{}/forhandsvis-paamelding" target="_blank" rel="noopener"'.format(kid) in html
+
+
+def test_terapiakademiet_kurs_merkes_i_kurslisten_og_arrangoer_velges_i_skjemaet(con):
+    """Camilla 04.10.2026: «skille på kurs av IPR og kurs via Terapiakademiet» - kursnavnet i Terapiakademiets plommefarge."""
+    ta = _kurs(con, "TA1", "Terapiakademiet-kurset", IDAG + timedelta(days=30))
+    ipr = _kurs(con, "IPR1", "IPR-kurset", IDAG + timedelta(days=31))
+    con.execute("UPDATE kurs SET merke='terapiakademiet' WHERE id=?", (ta,))
+    con.commit()
+    html = _html(admin_klient(con).get("/admin"))
+    rader = re.findall(r'<tr class="([^"]*)">\s*<td data-etikett="Kursnr">\d+</td>\s*<td class="tittel"><a [^>]*><strong>([^<]+)</strong>', html)
+    klasser = {navn: klasse for klasse, navn in rader}
+    assert "merke-ta" in klasser["Terapiakademiet-kurset"] and "merke-ta" not in klasser["IPR-kurset"]
+    oppsett = _html(admin_klient(con).get(f"/admin/kurs/{ta}/oppsett"))
+    assert '<select id="f-merke" name="merke"' in oppsett and '<option value="terapiakademiet" selected>' in oppsett

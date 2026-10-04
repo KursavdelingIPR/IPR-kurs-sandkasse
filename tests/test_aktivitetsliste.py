@@ -143,10 +143,11 @@ def test_eldre_lenker_virker(con, kurs, gammel, ny):
 def test_visning_bred_side_format_og_etiketter_til_mobil(con, kurs):
     side = _klient().get("/admin").get_data(as_text=True)
     assert '<body class="bred">' in side and "planlegging.css" in side
-    assert '<span class="format digital">Online</span>' in side and '<span class="format fysisk">Fysisk</span>' in side
+    # Sted-merkene (Camilla 04.10.2026): Zoom for nettkurs, byen for fysiske kurs, i fast farge
+    assert '<span class="format zoom">Zoom</span>' in side and '<span class="format bergen" title="IPR, Bergen">Bergen</span>' in side
     for etikett in ("Start", "Sted", "Påmeldte", "Status", "Ansvarlig"):
         assert f'data-etikett="{etikett}"' in side
-    assert "3 kursdager, til" in side                                          # fler-dagers kurs
+    assert "kursdager, til" not in side                                        # bare startdatoen (04.10.2026)
     dag = (IDAG + timedelta(days=10)).strftime("%d.%m.%Y")
     assert f"{dag} kl. 09:00" in side                                          # norsk dato på én linje
 

@@ -91,7 +91,8 @@ CREATE TABLE IF NOT EXISTS kurs (
     signatur_id     BIGINT REFERENCES signatur(id),
     signatur_html   TEXT,
     kursbevis_html  TEXT,
-    kursbevis_ramme TEXT
+    kursbevis_ramme TEXT,
+    merke           TEXT
 );
 
 CREATE TABLE IF NOT EXISTS samling (

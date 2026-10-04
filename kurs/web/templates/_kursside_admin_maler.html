@@ -250,12 +250,14 @@
         </div>
         <p class="ks-hjelp" data-felt="bildeinfo"></p>
         <label>Alternativ tekst <small>(påkrevd – leses opp for blinde)</small><input type="text" data-felt="alt" maxlength="{{ g.alt }}" autocomplete="off"></label>
-        <label>Bildetekst <small>(valgfri)</small><input type="text" data-felt="tekst" maxlength="{{ g.bildetekst }}" placeholder="F.eks. Foto: Anne Berg" autocomplete="off"></label>
+        <label>Bildetekst <small>(valgfri, maks {{ g.bildetekst }} tegn – ved «Bilde til høyre» er dette teksten til venstre, maks {{ g.sidetekst }} tegn)</small><textarea data-felt="tekst" rows="3" maxlength="{{ g.sidetekst }}" placeholder="F.eks. Foto: Anne Berg"></textarea></label>
         <fieldset class="ks-niva-gruppe"><legend>Plassering</legend>
           <div class="ks-niva-rad">
             <label class="ks-niva i"><input type="radio" data-felt="plassering" value="topp">Toppbilde bak tittelen</label>
             <label class="ks-niva i"><input type="radio" data-felt="plassering" value="bred">Bredt bilde i siden</label>
             <label class="ks-niva i"><input type="radio" data-felt="plassering" value="liten">Lite bilde</label>
+            <label class="ks-niva i"><input type="radio" data-felt="plassering" value="hoyre">Bilde til høyre, tekst til venstre</label>
+            <label class="ks-niva i"><input type="radio" data-felt="plassering" value="topp_side">Bilde til høyre i toppen</label>
           </div>
         </fieldset>
       </div>

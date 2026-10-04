@@ -31,7 +31,8 @@
  *                                              (uten JS, eller med Ctrl/Cmd-klikk, er det en vanlig lenke). På en
  *                                              <button> som sender et skjema: svaret på skjemaet (POST) åpnes i vinduet
  *   <a data-i-vindu href="…">                  inne i deltakervinduet: siden lastes i vinduet (f.eks. én e-post)
- *   <select data-vis-signatur>                 e-post i deltakervinduet: valgt signatur vises i [data-signaturvisning] i samme
+ *   <input data-live-sok="id">                 kurssøket på Oversikten: treffene i #id hentes og vises mens man skriver
+ *   <select data-vis-signatur>                e-post i deltakervinduet: valgt signatur vises i [data-signaturvisning] i samme
  *                                              skjema, hentet fra <template data-signaturmal="id"> (allerede renset av serveren);
  *                                              er feltet contenteditable, sendes innholdet med i input[name=signatur_html]
  *   <button type=button data-sett-inn="{fornavn}" data-felt="f-tekst">   flettefelt: setter teksten inn der markøren
@@ -850,6 +851,39 @@
       var data;
       try { data = new FormData(form, e.submitter || null); } catch (feil) { data = new FormData(form); }
       lastInn(form.action, { method: "POST", body: data, credentials: "same-origin" });
+    });
+  }
+
+  // Kurssøket på Oversikten (input[data-live-sok="<id>"]): treffene vises mens man skriver (Camilla 04.10.2026: «man trenger
+  // ikke trykke på søk-knappen»). Skjemaet (filtre og søk) hentes på nytt med fetch litt etter siste tastetrykk, og bare
+  // elementet med id-en byttes ut. Søket starter alltid på side 1, og adressen oppdateres så en omlasting viser det samme.
+  // Uten JavaScript er det et vanlig søk med knappen.
+  if (window.fetch && window.DOMParser && window.URLSearchParams) {
+    var liveTimer = null, liveNr = 0;
+    document.addEventListener("input", function (e) {
+      var felt = e.target;
+      if (!(felt instanceof HTMLInputElement) || !felt.hasAttribute("data-live-sok") || !felt.form) return;
+      var maal = document.getElementById(felt.getAttribute("data-live-sok"));
+      if (!maal) return;
+      clearTimeout(liveTimer);
+      liveTimer = setTimeout(function () {
+        var parametre = new URLSearchParams(new FormData(felt.form));
+        parametre.delete("side");
+        if (!felt.value.trim()) parametre.delete("sok");
+        var url = felt.form.action.split("#")[0].split("?")[0] + (parametre.toString() ? "?" + parametre.toString() : "");
+        var nr = ++liveNr;
+        fetch(url, { credentials: "same-origin" })
+          .then(function (svar) { return svar.ok ? svar.text() : Promise.reject(svar.status); })
+          .then(function (html) {
+            if (nr !== liveNr) return;                  // et nyere tastetrykk har overtatt
+            var nytt = new DOMParser().parseFromString(html, "text/html").getElementById(maal.id);
+            if (!nytt) return;
+            // Kopier listen først: childNodes er «levende» og krymper når nodene flyttes over
+            maal.replaceChildren.apply(maal, Array.prototype.slice.call(nytt.childNodes));
+            if (window.history && history.replaceState) history.replaceState(null, "", url + "#" + (felt.form.action.split("#")[1] || ""));
+          })
+          .catch(function () { /* nettverksfeil: knappen virker fortsatt */ });
+      }, 250);
     });
   }
 

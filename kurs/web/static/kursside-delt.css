@@ -133,6 +133,10 @@ body.dp-forhandsvisning main { padding-top:12px; padding-bottom:28px; }
 .dp-samling { display:flex; flex-wrap:wrap; align-items:center; gap:0 8px; margin:8px 0 0; padding:4px 10px; background:var(--bla-lys); border-radius:8px; font-size:14px; font-weight:650; line-height:1.35; }
 .dp-dager .dp-liten-h + .dp-samling { margin-top:2px; }
 .dp-samling-periode { font-weight:400; font-size:13px; color:var(--dempet); }
+/* Samlingene på Min side: én linje per samling (1. samling  14.06.2027 – 15.06.2027) */
+.dp-samlingsliste li { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 12px; padding:8px 0; font-size:14.5px; }
+.dp-samlingsliste li > b { min-width:6.5em; font-weight:650; }
+.dp-samlingsliste li > .dp-idag-merke { margin-left:auto; }
 .dp-samling .dp-idag-merke { margin-left:auto; }
 .dp-meny { padding:14px 8px 8px; }
 .dp-meny ul { max-height:30vh; overflow-y:auto; }
@@ -256,6 +260,29 @@ body.dp-forhandsvisning main { padding-top:12px; padding-bottom:28px; }
 .dp-bilde { margin:0; }
 .dp-bilde img { display:block; max-width:100%; height:auto; border-radius:10px; background:var(--linje); }
 .dp-bilde-liten img { max-width:320px; }
+/* Bilde til høyre i toppen (plassering «topp_side»): tittelen i full bredde, så velkomsttekst og faktarad til venstre og bildet
+   til høyre; faktaraden blir smalere. Stables når siden er smal. */
+.dp-hero-side { display:grid; grid-template-columns:minmax(0, 1fr) minmax(220px, 36%); column-gap:28px;
+  grid-template-areas:"eyebrow eyebrow" "tittel tittel" "ingress bilde" "meta bilde" "merker merker"; }
+.dp-hero-side > .dp-eyebrow { grid-area:eyebrow; justify-self:start; }
+.dp-hero-side > h1 { grid-area:tittel; max-width:none; }
+.dp-hero-side > .dp-ingress { grid-area:ingress; }
+.dp-hero-side > .dp-meta { grid-area:meta; align-self:end; }
+.dp-hero-side > .dp-hero-merker { grid-area:merker; }
+.dp-hero-side > .dp-sidebilde { grid-area:bilde; margin:0; position:relative; min-height:200px; }
+.dp-hero-side > .dp-sidebilde img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:10px; }
+.dp-hero-side > .dp-sidebilde figcaption { position:absolute; right:10px; bottom:8px; font-size:12px; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.6); }
+@container dp (max-width: 720px) {
+  .dp-hero-side { grid-template-columns:1fr; grid-template-areas:"eyebrow" "tittel" "ingress" "bilde" "meta" "merker"; }
+  .dp-hero-side > .dp-sidebilde { min-height:0; margin:6px 0 14px; }
+  .dp-hero-side > .dp-sidebilde img { position:static; height:auto; max-height:260px; }
+}
+
+/* Bilde til høyre, tekst til venstre (plassering «hoyre»); stables når siden er smal (containerspørring, som resten) */
+.dp-bilde-side { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 300px); gap:22px; align-items:start; }
+.dp-bilde-sidetekst p { margin:0 0 10px; line-height:1.55; }
+.dp-bilde-sidetekst p:last-child { margin-bottom:0; }
+@container dp (max-width: 720px) { .dp-bilde-side { grid-template-columns:1fr; } .dp-bilde-hoyre img { max-width:320px; } }
 
 .dp-fot { margin:22px 0 0; font-size:13px; color:var(--dempet); text-align:center; }
 button.dp-skriv-ut { display:inline-flex; align-items:center; gap:5px; margin-left:8px; font-size:13px; color:var(--bla); }

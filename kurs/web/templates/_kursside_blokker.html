@@ -110,10 +110,18 @@
 {% endmacro %}
 
 {% macro bilde(d) %}
+{%- if d.plassering == 'hoyre' %}
+{#- Bildet til høyre og teksten til venstre (Camilla 04.10.2026); på mobil står teksten over bildet -#}
+<div class="dp-bilde-side">
+  {% if d.tekst %}<div class="dp-bilde-sidetekst">{% for avsnitt in d.tekst.splitlines() if avsnitt.strip() %}<p>{{ avsnitt }}</p>{% endfor %}</div>{% endif %}
+  <figure class="dp-bilde dp-bilde-hoyre"><img src="{{ d.url }}" alt="{{ d.alt }}" loading="lazy"{% if d.bredde and d.hoyde %} width="{{ d.bredde }}" height="{{ d.hoyde }}"{% endif %}></figure>
+</div>
+{%- else %}
 <figure class="dp-bilde dp-bilde-{{ d.plassering }}">
   <img src="{{ d.url }}" alt="{{ d.alt }}" loading="lazy"{% if d.bredde and d.hoyde %} width="{{ d.bredde }}" height="{{ d.hoyde }}"{% endif %}>
   {% if d.tekst %}<figcaption>{{ d.tekst }}</figcaption>{% endif %}
 </figure>
+{%- endif %}
 {% endmacro %}
 
 {% macro dagrad(d, forhandsvisning) %}

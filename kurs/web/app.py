@@ -1400,7 +1400,7 @@ def _kursliste() -> dict:
         sorterlenke=sorterlenke, admins=admins, kurs_statusverdier=KURS_STATUSVERDIER, status_navn=aktivitetsliste.STATUSNAVN,
         nullstill_lenke=url_for("admin", _anchor="kurs"), sortering=sortering, sorteringer=aktivitetsliste.SORTERINGER,
         sortering_tekst=aktivitetsliste.beskrivelse(sortering), dato_tekst=aktivitetsliste.dato_tekst,
-        formater=aktivitetsliste.FORMAT, sted_tekst=aktivitetsliste.sted_tekst)
+        formater=aktivitetsliste.FORMAT, sted_tekst=aktivitetsliste.sted_tekst, stedmerke=aktivitetsliste.stedmerke)
 
 
 @app.get("/admin/aktiviteter")
@@ -5394,7 +5394,8 @@ def _standardverdier() -> dict:
     Påmeldingsfristen foreslås ut fra datoene."""
     return {"navn": "", "type": "fysisk", "sted": "", "zoom_url": "", "kapasitet": "", "pris_nok": "0", "faktura": True,
             "fakturering": "person", "betaling": "deltaker_velger", "faktura_dager_for": "14", "notat": "",
-            "paameldingsfrist": "", "paameldingsfrist_manuell": "0", "ansvarlig_admin_id": str(session.get("admin_id") or "")}
+            "paameldingsfrist": "", "paameldingsfrist_manuell": "0", "ansvarlig_admin_id": str(session.get("admin_id") or ""),
+            "merke": "ipr"}
 
 
 def _binding_tekst(b: dict) -> str:
@@ -5419,14 +5420,14 @@ def _kursverdier(kurs) -> dict:
             "betaling": kurs["betaling"], "faktura_dager_for": str(kurs["faktura_dager_for"]), "notat": kurs["notat"] or "",
             "paameldingsfrist": kurs["paameldingsfrist"] or "",
             "paameldingsfrist_manuell": "1" if kurs["paameldingsfrist_manuell"] else "0",
-            "ansvarlig_admin_id": str(kurs["ansvarlig_admin_id"] or "")}
+            "ansvarlig_admin_id": str(kurs["ansvarlig_admin_id"] or ""), "merke": kurs["merke"] or "ipr"}
 
 
 def _innsendte_verdier(f) -> dict:
     """Det admin sendte inn, slik at skjemaet vises igjen etter en feil uten at noe går tapt."""
     v = {k: f.get(k, "") for k in ("navn", "type", "sted", "zoom_url", "kapasitet", "pris_nok", "fakturering", "betaling",
                                     "faktura_dager_for", "notat", "paameldingsfrist", "paameldingsfrist_manuell",
-                                    "ansvarlig_admin_id")}
+                                    "ansvarlig_admin_id", "merke")}
     v["faktura"] = "faktura" in f.getlist("betalingsmaate")
     return v
 
@@ -5453,6 +5454,8 @@ def _les_kursskjema(f, *, bare_innsendte: bool = False) -> tuple[dict, list[str]
     if kapasitet and felter["kapasitet"] is None:
         feil.append("Kapasitet må være et helt tall fra 1 og oppover (tom = ubegrenset).")
     felter["notat"] = f.get("notat", "").strip() or None
+    if "merke" in f:                                   # arrangør: Terapiakademiet eller IPR (NULL); eldre skjema uten feltet endrer det ikke
+        felter["merke"] = f.get("merke") if f.get("merke") in db.KURSMERKER and f.get("merke") != "ipr" else None
     okonomi, okonomifeil = _les_okonomi(f, bare_innsendte=bare_innsendte)
     return {**felter, **okonomi}, feil + okonomifeil
 

@@ -637,7 +637,8 @@ def _samlingsgrupper(dager: list[dict], kursdager: list[dict], idag: date) -> li
     ut = []
     for g in per_samling.values():
         forst, sist = min(g["datoer"]), max(g["datoer"])
-        ut.append({"navn": g["navn"], "periode": kursdatoer.datoliste(g["datoer"]) if len(g["datoer"]) > 1 else "",
+        fra_til = forst.strftime("%d.%m.%Y") + ("" if sist == forst else " – " + sist.strftime("%d.%m.%Y"))
+        ut.append({"navn": g["navn"], "periode": kursdatoer.datoliste(g["datoer"]) if len(g["datoer"]) > 1 else "", "fra_til": fra_til,
                    "tag": "Pågår nå" if forst <= idag <= sist else None, "dager": g["dager"], "_forst": forst})
     if ut and not any(g["tag"] for g in ut):
         neste = next((g for g in ut if g["_forst"] > idag), None)
@@ -673,7 +674,7 @@ def bygg_visning(con, kurs, dok: dict, *, deltaker_id: int | None, idag: date, f
     med_samling = len(samlinger) > 1        # kurs med flere samlinger: dagene, programmet og filene står under sin samling
 
     blokker: list[dict] = []
-    topp_bilde = None
+    topp_bilde = side_bilde = None
     for b in si.synlige_blokker(dok, idag):
         try:
             data = _blokkdata(con, kurs, b, filmeta, dager, idag, avsluttet, fil_url, sp_url, utenfor, med_samling)
@@ -684,7 +685,10 @@ def bygg_visning(con, kurs, dok: dict, *, deltaker_id: int | None, idag: date, f
         if b["type"] == "bilde" and data["plassering"] == "topp" and topp_bilde is None:
             topp_bilde = {"url": data["url"], "alt": data["alt"], "tekst": data["tekst"]}
             continue
-        if b["type"] == "bilde" and data["plassering"] == "topp":
+        if b["type"] == "bilde" and data["plassering"] == "topp_side" and side_bilde is None:
+            side_bilde = {"url": data["url"], "alt": data["alt"], "tekst": data["tekst"]}
+            continue
+        if b["type"] == "bilde" and data["plassering"] in ("topp", "topp_side"):    # bare ett av hver i toppen
             data["plassering"] = "bred"
         blokker.append({"id": b["id"], "type": b["type"], "tittel": b["tittel"] or si.STANDARDTITLER.get(b["type"], ""),
                         "i_meny": bool(b.get("i_meny", True)), "data": data})
@@ -726,11 +730,15 @@ def bygg_visning(con, kurs, dok: dict, *, deltaker_id: int | None, idag: date, f
                  "type_tekst": {"fysisk": "Fysisk kurs", "digital": "Nettkurs (Zoom)", "hybrid": "Hybrid (fysisk og Zoom)"}.get(kurs["type"], ""),
                  "sted": kurs["sted"] or "", "rom": dok.get("rom", ""), "periode": kursdatoer.datoliste(datoer) if datoer else "",
                  "tid": _felles_tid(dager),
+                 # Toppfeltet (Camilla 04.10.2026): «Oppstartsdato» (første dag), «… alle dager» når tiden er den samme hver dag,
+                 # og «Godkjent» (fra Min side) i stedet for formatet når det er fylt ut
+                 "oppstart": min(datoer).strftime("%d.%m.%Y") if datoer else "", "antall_dager": len(dager),
+                 "godkjent": dok.get("godkjent", ""),
                  "kart_url": ("https://www.openstreetmap.org/search?query=" + quote(kurs["sted"])) if kurs["sted"] and kurs["type"] != "digital" else None},
         "forhandsvisning": forhandsvisning, "forh_tekst": forh_tekst or ("Forhåndsvisning – deltakerne ser ikke dette" if forhandsvisning else None),
         "pillene": pillene,
         "melding": {"tekst": melding["tekst"], "niva": melding.get("niva", "info")} if melding.get("tekst") else None,
-        "topp_bilde": topp_bilde, "i_dag": i_dag, "neste_dag": neste_dag, "avsluttet": avsluttet, "kursdager": kursdager,
+        "topp_bilde": topp_bilde, "side_bilde": None if topp_bilde else side_bilde, "i_dag": i_dag, "neste_dag": neste_dag, "avsluttet": avsluttet, "kursdager": kursdager,
         "samlinger": _samlingsgrupper(dager, kursdager, idag) if med_samling else [],
         "apen_tekst": apen_tekst(sidelager.effektiv_stenges(con, kurs["id"], side)),
         "blokker": blokker, "meny": [{"id": b["id"], "tittel": b["tittel"], "type": b["type"]} for b in blokker if b["i_meny"]],

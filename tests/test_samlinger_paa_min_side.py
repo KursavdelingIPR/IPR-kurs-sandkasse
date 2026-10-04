@@ -15,6 +15,10 @@ from kurs import sideinnhold as si
 IDAG_FOER = date(2031, 10, 1)
 
 
+def _tekst_uten_tagger(html: str) -> str:
+    return re.sub(r"<[^>]+>", "", html).strip()
+
+
 @pytest.fixture
 def con(tmp_path, monkeypatch):
     c = ny_database(tmp_path, monkeypatch)
@@ -171,22 +175,19 @@ def test_siden_viser_alle_samlingene_med_sine_dager_og_ingen_samling_n_av_m(con,
     html = _side(con, monkeypatch, kid, _did(con, pid), date(2031, 10, 16))
     assert "Samling 1 av" not in html and "Samling 2 av" not in html and "av 3</span>" not in html
     kort = html.split('class="dp-dager"')[1].split("</section>")[0]
-    assert "Samlinger og kursdager" in kort
-    assert re.findall(r'<span class="dp-samling-navn">([^<]+)</span>', kort) == ["Samling 1", "Samling 2", "Samling 3"]
-    assert kort.count("<li") == 5 and 'class="dp-samling-periode">16.–17.10.2031<' in kort and 'class="dp-idag-merke">Pågår nå<' in kort
-    assert re.findall(r"<b>(Dag \d)</b>", kort) == ["Dag 1", "Dag 2", "Dag 3", "Dag 4", "Dag 5"]
-    assert "Varierer – se kursdagene" in html                                                                  # toppfeltet
-    assert "tor 16. okt. · 09:00–16:00" in kort and "tor 13. nov. · 09:00–16:00" in kort and "4. des. · 10:00–15:00" in kort      # én linje per dag, måneden forkortet
-    assert "oktober" not in kort and "november" not in kort and "desember" not in kort
+    # Camilla 04.10.2026: én enkel linje per samling, «1. samling» og datoene fra og til - ingen dagslinjer
+    assert ">Samlinger</h2>" in kort and "Dag 1" not in kort
+    linjer = [_tekst_uten_tagger(li) for li in re.findall(r"<li>(.*?)</li>", kort, re.S)]
+    assert linjer[0].startswith("1. samling16.10.2031 – 17.10.2031") and "Pågår nå" in linjer[0]
+    assert [l[:10] for l in linjer] == ["1. samling", "2. samling", "3. samling"]
 
 
-def test_korte_manedsnavn_staar_som_de_er_og_lange_forkortes(con, monkeypatch):
-    mnd = [(1, "jan."), (2, "feb."), (3, "mars"), (4, "apr."), (5, "mai"), (6, "juni"), (7, "juli"), (8, "aug."), (9, "sep.")]
-    kid = kurs_med_samlinger(con, "MND", samlinger=[S(date(2031, m, 10), None, "09:00", "16:00", 6.0) for m, _ in mnd])
+def test_en_samling_paa_en_dag_har_bare_en_dato(con, monkeypatch):
+    kid = kurs_med_samlinger(con, "EN", samlinger=[S(date(2031, 1, 10), None, "09:00", "16:00", 6.0),
+                                                    S(date(2031, 2, 10), date(2031, 2, 11), "09:00", "16:00", 6.0)])
     html = _side(con, monkeypatch, kid, _did(con, meld(con, kid, "Ola")), date(2031, 1, 1))
     kort = html.split('class="dp-dager"')[1].split("</section>")[0]
-    for _, forventet in mnd:
-        assert re.search(r"\d+\. " + re.escape(forventet) + r" · 09:00–16:00", kort), forventet
+    assert "<b>1. samling</b><span>10.01.2031</span>" in kort and "<b>2. samling</b><span>10.02.2031 – 11.02.2031</span>" in kort
 
 
 def test_programmet_har_en_overskrift_foer_hver_samling(con, monkeypatch):
@@ -215,8 +216,7 @@ def test_kursdagens_merknad_vises_i_kortet_og_escapes(con, monkeypatch):
                                                       S(date(2031, 11, 13), None, "09:00", "16:00", 6.0)])
     html = _side(con, monkeypatch, kid, _did(con, meld(con, kid, "Ola")), IDAG_FOER)
     kort = html.split('class="dp-dager"')[1].split("</section>")[0]
-    assert 'class="dp-merknad">Veiledningsdag &lt;b&gt;fet&lt;/b&gt;</small>' in kort and "<b>fet</b>" not in kort
-    assert kort.count('class="dp-merknad"') == 1
+    assert "<b>fet</b>" not in html and "Veiledningsdag" not in kort      # kortet viser bare samlingene (04.10.2026); merknaden escapes der den står
 
 
 def test_forhandsvisningen_av_siden_i_admin_viser_samlingene_uten_oppmoetemerker(con):
@@ -227,7 +227,7 @@ def test_forhandsvisningen_av_siden_i_admin_viser_samlingene_uten_oppmoetemerker
     assert r.status_code == 200
     html = r.get_data(as_text=True)
     kort = html.split('class="dp-dager"')[1].split("</section>")[0]
-    assert re.findall(r'<span class="dp-samling-navn">([^<]+)</span>', kort) == ["Samling 1", "Samling 2", "Samling 3"]
+    assert re.findall(r"<b>(\d\. samling)</b>", kort) == ["1. samling", "2. samling", "3. samling"]
     assert "Møtt" not in kort and "Kommer" not in kort                                                        # merkene gjelder en innlogget deltaker
 
 

@@ -395,7 +395,7 @@ def test_oversikt_og_aktiviteter_viser_paameldte_og_ekstradeltakere_hver_for_seg
     assert "2 / 3 + 2 ekstradeltakere" in oversikt                                                            # tall + ekstra ved siden av
     assert re.search(r"Påmeldte \(åpne kurs\) 2 ", oversikt) and re.search(r"Ekstradeltakere \(åpne kurs\) 2 ", oversikt)
     aktiviteter = synlig_tekst(k.get("/admin").get_data(as_text=True))
-    assert "2 / 3 + 2 ekstradeltakere" in aktiviteter and "4 registrert" in aktiviteter                     # «registrert» teller alle rader
+    assert "2 / 3 + 2 ekstradeltakere" in aktiviteter and "registrert" not in aktiviteter          # «registrert»-linjen er fjernet (04.10.2026)
     ett = kurs_med_samlinger(con, "ETT")
     meld(con, ett, "Kari")
     ekstra(con, ett, "Tor")

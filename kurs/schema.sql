@@ -48,7 +48,10 @@ CREATE TABLE IF NOT EXISTS kurs (
     -- versjon (renset HTML med flettefelt, kurs/kursbevismal.py); NULL = standardbeviset. kursbevis_ramme: fargen på
     -- rammen (kursbevismal.RAMMER), NULL = blå.
     kursbevis_html  TEXT,
-    kursbevis_ramme TEXT
+    kursbevis_ramme TEXT,
+    -- Arrangør (migrering 26 «kursmerke»): 'terapiakademiet' eller NULL = IPR. Skiller kursene i kurslisten (svak rosa
+    -- bakgrunn) og skal senere styre avsenderadresse og utseende per kurs.
+    merke           TEXT
 );
 
 -- Samlinger (migrering 9): kursdagene gruppert, f.eks. «Samling 1» over fire dager eller en enkelt veiledningsdag. Kursets

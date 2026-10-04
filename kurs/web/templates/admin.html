@@ -4,26 +4,31 @@
 {% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='planlegging.css') }}">{% endblock %}
 {% block innhold %}
 {% from "_sokefelt.html" import sokefelt, kurssokefelt %}
+{% macro handlingsikon(navn) -%}
+<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+{%- if navn == 'ekstern' %}<path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>
+{%- elif navn == 'kopi' %}<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>
+{%- elif navn == 'penn' %}<path d="M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/><path d="M18.4 2.6a2 2 0 0 1 2.9 2.9L12 14.8l-3.8.9.9-3.8z"/>
+{%- elif navn == 'minside' %}<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="10" r="3"/><path d="M7 20a5.5 5.5 0 0 1 10 0"/>
+{%- endif %}</svg>
+{%- endmacro %}
 <div class="verktoylinje" style="align-items:flex-start">
-  <div><h1>Oversikt</h1><p class="sub" style="margin-bottom:0">Finn deltakere og kurs, og se det som trenger deg.</p></div>
+  <div><h1>Oversikt</h1></div>
 </div>
 
 <div class="sokepanel">
   <div>
-    {{ sokefelt('sok-deltaker', etikett='Søk etter deltaker', plassholder='Navn, e-post, telefon eller påmeldingsnr.') }}
-    <p class="sok-hjelp">Finner personen på tvers av alle kurs, med påmeldinger, oppmøte og kursbevis. Trykk <kbd class="tast">/</kbd> på hvilken som helst side for å hoppe hit.</p>
+    {{ sokefelt('sok-deltaker', etikett='Søk etter deltaker', plassholder='Navn, e-post, telefon eller påmeldingsnr.',
+                info='Trykk / på hvilken som helst side for å hoppe hit.') }}
   </div>
   <div>
-    {{ kurssokefelt('sok-kurs', 'kursfilter', verdi=sok) }}
-    <p class="sok-hjelp">Kursnummer eller deler av kursnavnet. Treffene vises i kurslisten under, og søket leter også i avsluttede kurs.</p>
+    {{ kurssokefelt('sok-kurs', 'kursfilter', verdi=sok, live='kursliste-treff') }}
   </div>
 </div>
 
-{#- «Nytt kurs +» står i overskriftsraden til kurslisten, til høyre (Camilla 02.10.2026: «kan du flytte nytt kurs-knappen ned»), på linje med
-    høyrekanten til søkekortene over. Teksten i knappen og lenken er uendret. -#}
+{#- Tettere oppsett (Camilla 04.10.2026): «Nytt kurs +» står nå til høyre på linjen med «Bruk filtre» under filtrene. -#}
 <div class="verktoylinje kursrad">
   <h2 id="kurs">Kurs</h2>
-  {% if admin_rolle != 'lese' %}<a class="knapp plass" href="{{ url_for('admin_ny_kurs') }}">Nytt kurs +</a>{% endif %}
 </div>
 {#- Filterskjemaet. Kurssøket øverst på siden (feltet «sok») hører til dette skjemaet via form="kursfilter". -#}
 <form method="get" id="kursfilter" action="{{ url_for('admin') }}#kurs" class="filterlinje">
@@ -60,15 +65,18 @@
     <label class="avkrysning"><input type="checkbox" name="mine" value="1" {{ 'checked' if mine }} data-send-ved-endring> Vis bare mine kurs</label>
     <button class="sekundar">Bruk filtre</button>
     <a class="liten" href="{{ nullstill_lenke }}">Nullstill filtre</a>
+    {% if admin_rolle != 'lese' %}<a class="knapp nytt-kurs" href="{{ url_for('admin_ny_kurs') }}">Nytt kurs +</a>{% endif %}
   </div>
 </form>
 
+{#- Kurslisten oppdateres mens man skriver i kurssøket (static/app.js, data-live-sok): bare innholdet her byttes ut. -#}
+<div id="kursliste-treff">
 <div class="tabellboks kortliste"><table class="aktivitetstabell">
   <thead><tr>
     <th scope="col">{{ sorterlenke('kursnr', 'Kursnr') }}</th>
     <th scope="col">{{ sorterlenke('navn', 'Tittel') }}</th>
     <th scope="col">{{ sorterlenke('start', 'Start') }}</th>
-    <th scope="col">Sted / online</th>
+    <th scope="col">Sted</th>
     <th scope="col">{{ STATUS_FLERTALL.paameldt }} / kapasitet</th>
     <th scope="col">{{ sorterlenke('status', 'Status') }}</th>
     <th scope="col">{{ sorterlenke('ansvarlig', 'Ansvarlig') }}</th>
@@ -76,25 +84,27 @@
   </tr></thead>
   <tbody>
   {% for k in kurs %}
-  <tr class="{{ 'avlyst' if k.status == 'avlyst' }}">
+  <tr class="{{ 'avlyst' if k.status == 'avlyst' }}{{ ' merke-ta' if k.merke == 'terapiakademiet' }}">
     <td data-etikett="Kursnr">{{ k.kursnr }}</td>
     <td class="tittel"><a href="{{ url_for('admin_kurs_deltakere', kurs_id=k.id) }}"><strong>{{ k.navn }}</strong></a>
       {%- if k.idag_dag_id and k.status in ('aapen', 'full', 'aktiv') %}<div class="oppmote-idag"><a class="knapp liten" href="{{ url_for('admin_kurs_oppmote', kurs_id=k.id, dag_id=k.idag_dag_id) }}">{{ 'Se oppmøteliste i dag' if admin_rolle == 'lese' else 'Ta opp oppmøte i dag' }}</a></div>{% endif %}</td>
-    <td class="dato" data-etikett="Start"><span>{{ dato_tekst(k.start) or '–' }}{% if k.start and k.start_kl %} kl. {{ k.start_kl }}{% endif %}
-      {%- if k.antall_dager > 1 %}<span class="liten dempet" style="display:block">{{ k.antall_dager }} kursdager, til {{ dato_tekst(k.slutt) }}</span>{% endif %}</span></td>
-    <td class="sted" data-etikett="Sted"><span><span class="format {{ k.type }}">{{ formater.get(k.type, k.type) }}</span>
-      {%- if sted_tekst(k) %}<span class="stedsnavn">{{ sted_tekst(k) }}</span>{% endif %}</span></td>
+    {#- Ryddigere liste (Camilla 04.10.2026): bare startdato og klokkeslett, og bare påmeldte/kapasitet -#}
+    <td class="dato" data-etikett="Start"><span>{{ dato_tekst(k.start) or '–' }}{% if k.start and k.start_kl %} kl. {{ k.start_kl }}{% endif %}</span></td>
+    {#- Ett merke: Oslo, Bergen, Zoom eller Hybrid i fast farge (Camilla 04.10.2026); hele stedet står i verktøytipset -#}
+    {% set merke = stedmerke(k) %}
+    <td class="sted" data-etikett="Sted"><span class="format {{ merke[1] }}"{% if k.sted %} title="{{ k.sted }}"{% endif %}>{{ merke[0] }}</span></td>
     <td class="tall" data-etikett="{{ STATUS_FLERTALL.paameldt }}"><span>{{ k.bekreftet }}{% if k.kapasitet %} / {{ k.kapasitet }}{% endif %}
       {%- if k.ekstra_antall %}<span class="liten dempet delinje">+ {{ k.ekstra_antall }} {{ (STATUS.ekstradeltaker if k.ekstra_antall == 1 else STATUS_FLERTALL.ekstradeltaker)|lower }}</span>{% endif %}
-      {%- if k.venteliste %}<span class="liten dempet delinje">{{ k.venteliste }} på venteliste</span>{% endif %}
-      <span class="liten dempet delinje">{{ k.totalt_registrert }} registrert · {% if k.fakturering == 'person' %}{{ k.fakturert }} fakturert{% elif k.fakturering == 'organisasjon' %}faktureres samlet{% else %}gratis kurs{% endif %}</span></span></td>
+</span></td>
     <td data-etikett="Status"><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','avlyst':'feil','utkast':'gra'}.get(k.status,'gra') }}">{{ status_navn.get(k.status, k.status) }}</span></td>
     <td class="ansvarlig" data-etikett="Ansvarlig">{{ k.ansvarlig_navn or '–' }}</td>
     <td class="handling">
-      <div class="knapper">
-        <a class="knapp liten sekundar" href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}">Rediger</a>
-        <a class="knapp liten sekundar" href="{{ url_for('admin_kursside', kurs_id=k.id) }}" title="Siden deltakerne ser etter innlogging: program, presentasjoner, grupper og litteratur">Min side</a>
-        {% if admin_rolle != 'lese' %}<a class="knapp liten sekundar" href="{{ url_for('admin_ny_kurs', fra=k.id) }}" title="Dupliser «{{ k.navn }}»">Dupliser</a>{% endif %}
+      {#- Ikoner i stedet for tekstknapper, som i Pindena (Camilla 04.10.2026). Teksten står i title og aria-label. -#}
+      <div class="ikonknapper">
+        <a class="ikonknapp" href="{{ url_for('admin_forhandsvis_paamelding', kurs_id=k.id) }}" target="_blank" rel="noopener" title="Forhåndsvis påmeldingsskjemaet (ny fane)" aria-label="Forhåndsvis påmeldingsskjemaet for «{{ k.navn }}» (åpnes i ny fane)">{{ handlingsikon('ekstern') }}</a>
+        <a class="ikonknapp" href="{{ url_for('admin_kursside', kurs_id=k.id) }}" title="Min side: siden deltakerne ser etter innlogging" aria-label="Min side for «{{ k.navn }}»">{{ handlingsikon('minside') }}</a>
+        {% if admin_rolle != 'lese' %}<a class="ikonknapp" href="{{ url_for('admin_ny_kurs', fra=k.id) }}" title="Dupliser kurset" aria-label="Dupliser «{{ k.navn }}»">{{ handlingsikon('kopi') }}</a>{% endif %}
+        <a class="ikonknapp" href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}" title="Rediger kurset" aria-label="Rediger «{{ k.navn }}»">{{ handlingsikon('penn') }}</a>
       </div>
     </td>
   </tr>
@@ -102,13 +112,14 @@
   </tbody>
 </table></div>
 
-<p class="liten dempet" style="margin-top:10px">
+<p class="liten dempet" style="margin-top:10px" role="status">
   Viser {{ kurs|length }} av {{ totalt }} kurs · sortert: {{ sortering_tekst|lower }}.
   {% if side > 1 %}<a href="{{ sidelenke(side - 1) }}">« Forrige</a>{% endif %}
   Side {{ side }} av {{ siste_side }}
   {% if side < siste_side %}<a href="{{ sidelenke(side + 1) }}">Neste »</a>{% endif %}
 </p>
 {% if not status %}<p class="liten dempet" style="margin-top:-4px">Avsluttede og avlyste kurs er skjult her. Velg «Alle kurs» under Status, eller søk etter kurset, for å se dem.</p>{% endif %}
+</div>
 
 <h2>Status</h2>
 <div class="statkort">

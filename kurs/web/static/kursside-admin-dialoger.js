@@ -436,7 +436,7 @@
   function sokeFelter() {
     var ut = [];
     function f(obj, nokkel, id, html) { ut.push({ id: id, html: !!html, hent: function () { return obj[nokkel] || ""; }, sett: function (v) { obj[nokkel] = v; } }); }
-    f(S.dok, "tittel", null); f(S.dok, "ingress", null); f(S.dok, "rom", null); f(S.dok.melding, "tekst", null);
+    f(S.dok, "tittel", null); f(S.dok, "ingress", null); f(S.dok, "rom", null); f(S.dok, "godkjent", null); f(S.dok.melding, "tekst", null);
     S.dok.blokker.forEach(function (b) {
       var d = b.data;
       f(b, "tittel", b.id);

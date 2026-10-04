@@ -22,6 +22,14 @@
     <p class="liten dempet" id="f-zoom_url-hjelp" style="margin:4px 0 0">Tom = opprettes automatisk 8 dager før start.</p>
   </div>
   {% endif %}
+  {#- Arrangør (Camilla 04.10.2026): skiller IPR-kurs og Terapiakademiet-kurs; Terapiakademiet får svak rosa bakgrunn i kurslisten -#}
+  <div>
+    <label for="f-merke">Arrangør</label>
+    <select id="f-merke" name="merke" style="width:auto">
+      <option value="ipr" {{ 'selected' if (v.merke or 'ipr') == 'ipr' }}>IPR</option>
+      <option value="terapiakademiet" {{ 'selected' if v.merke == 'terapiakademiet' }}>Terapiakademiet</option>
+    </select>
+  </div>
 </div>
 {% endmacro %}
 

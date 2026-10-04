@@ -17,16 +17,20 @@
   {% if forhandsvisning %}<div class="dp-forh" role="note">{{ bl.ikon('oye') }}<span>{{ v.forh_tekst }}</span></div>
   {% else %}<a class="dp-brod" href="{{ v.min_side_url }}">{{ bl.ikon('tilbake') }}Mine kurs</a>{% endif %}
 
-  <header class="dp-hero{{ ' dp-hero-bilde' if v.topp_bilde }}">
+  <header class="dp-hero{{ ' dp-hero-bilde' if v.topp_bilde }}{{ ' dp-hero-side' if v.side_bilde }}">
     {% if v.topp_bilde %}<figure class="dp-toppbilde"><img src="{{ v.topp_bilde.url }}" alt="{{ v.topp_bilde.alt }}">{% if v.topp_bilde.tekst %}<figcaption>{{ v.topp_bilde.tekst }}</figcaption>{% endif %}</figure>{% endif %}
+    {#- Bilde til høyre i toppen (plassering «topp_side», Camilla 04.10.2026): ved velkomstteksten og faktaraden, som blir smalere -#}
+    {% if v.side_bilde %}<figure class="dp-sidebilde"><img src="{{ v.side_bilde.url }}" alt="{{ v.side_bilde.alt }}">{% if v.side_bilde.tekst %}<figcaption>{{ v.side_bilde.tekst }}</figcaption>{% endif %}</figure>{% endif %}
     <span class="dp-eyebrow">{{ bl.ikon('las') }}Min side · bare for påmeldte</span>
     <h1>{{ v.kurs.tittel }}</h1>
     {% if v.kurs.ingress %}<p class="dp-ingress">{{ v.kurs.ingress }}</p>{% endif %}
     <ul class="dp-meta">
       {% if v.kurs.sted or v.kurs.rom %}<li data-etikett="Sted">{{ bl.ikon('sted') }}<span>{{ v.kurs.sted }}{% if v.kurs.sted and v.kurs.rom %} · {% endif %}{{ v.kurs.rom }}{% if v.kurs.kart_url %} <a href="{{ v.kurs.kart_url }}" target="_blank" rel="noopener noreferrer">Vis på kart</a>{% endif %}</span></li>{% endif %}
-      {% if v.kurs.periode %}<li data-etikett="Datoer">{{ bl.ikon('kal') }}<span>{{ v.kurs.periode }}</span></li>{% endif %}
-      {% if v.kurs.tid %}<li data-etikett="Tid">{{ bl.ikon('klokke') }}<span>{{ v.kurs.tid }}</span></li>{% endif %}
-      {% if v.kurs.type_tekst %}<li data-etikett="Format">{{ bl.ikon('info') }}<span>{{ v.kurs.type_tekst }}</span></li>{% endif %}
+      {% if v.kurs.antall_dager > 1 and v.kurs.oppstart %}<li data-etikett="Oppstartsdato">{{ bl.ikon('kal') }}<span>{{ v.kurs.oppstart }}</span></li>
+      {% elif v.kurs.periode %}<li data-etikett="Dato">{{ bl.ikon('kal') }}<span>{{ v.kurs.periode }}</span></li>{% endif %}
+      {% if v.kurs.tid %}<li data-etikett="Tid">{{ bl.ikon('klokke') }}<span>{{ v.kurs.tid }}{% if v.kurs.antall_dager > 1 and ':' in v.kurs.tid and not v.kurs.tid.startswith('Varierer') %} alle dager{% endif %}</span></li>{% endif %}
+      {% if v.kurs.godkjent %}<li data-etikett="Godkjent">{{ bl.ikon('hake') }}<span>{{ v.kurs.godkjent }}</span></li>
+      {% elif v.kurs.type_tekst %}<li data-etikett="Format">{{ bl.ikon('info') }}<span>{{ v.kurs.type_tekst }}</span></li>{% endif %}
     </ul>
     {% if v.pillene %}<div class="dp-hero-merker">{% for p in v.pillene %}<span class="dp-pille dp-pille-{{ p.stil }}">{% if p.stil == 'ok' %}{{ bl.ikon('hake') }}{% endif %}{{ p.tekst }}</span>{% endfor %}</div>{% endif %}
   </header>
@@ -77,12 +81,14 @@
 
       {% if v.kursdager %}
       <section class="dp-dager" aria-labelledby="dp-dager-h">
-        <h2 class="dp-liten-h" id="dp-dager-h">{{ 'Samlinger og kursdager' if v.samlinger else 'Kursdager' }}</h2>
-        {% if v.samlinger %}{#- Kurs med flere samlinger: ALLE samlingene står her, hver med sine dager -#}
+        <h2 class="dp-liten-h" id="dp-dager-h">{{ 'Samlinger' if v.samlinger else 'Kursdager' }}</h2>
+        {% if v.samlinger %}{#- Kurs med flere samlinger: én enkel linje per samling, «1. samling» og datoene fra og til
+            (Camilla 04.10.2026: «Det var IKKE oversiktlig … En veldig enkel oversikt») -#}
+        <ul class="dp-samlingsliste">
         {% for g in v.samlinger %}
-        <h3 class="dp-samling"><span class="dp-samling-navn">{{ g.navn }}</span>{% if g.periode %}<span class="dp-samling-periode">{{ g.periode }}</span>{% endif %}{% if g.tag %}<span class="dp-idag-merke">{{ g.tag }}</span>{% endif %}</h3>
-        <ul>{% for d in g.dager %}{{ bl.dagrad(d, forhandsvisning) }}{% endfor %}</ul>
+          <li><b>{{ loop.index }}. samling</b><span>{{ g.fra_til }}</span>{% if g.tag %}<span class="dp-idag-merke">{{ g.tag }}</span>{% endif %}</li>
         {% endfor %}
+        </ul>
         {% else %}
         <ul>{% for d in v.kursdager %}{{ bl.dagrad(d, forhandsvisning) }}{% endfor %}</ul>
         {% endif %}

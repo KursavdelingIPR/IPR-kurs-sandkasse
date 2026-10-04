@@ -282,6 +282,12 @@
   .sokefelt.stor .sok-ikon { left:15px; width:20px; height:20px; margin-top:-10px; }
   .sokefelt.stor button.sok-knapp { padding:0 24px; font-size:16px; }
   .sok-etikett { display:block; font-size:14px; font-weight:600; margin:0 0 6px; }
+  /* (i) med forklaring når man holder over eller tabber til den (data-tips); står rett etter etiketten */
+  .sok-etikett:has(+ .info-tips) { display:inline-block; }
+  .info-tips { position:relative; display:inline-flex; align-items:center; justify-content:center; width:17px; height:17px; margin-left:6px; border:1.5px solid var(--dempet); border-radius:50%; color:var(--dempet); font:italic 600 11px/1 Georgia, serif; cursor:help; vertical-align:1px; }
+  .info-tips:hover, .info-tips:focus-visible { color:var(--bla); border-color:var(--bla); outline:none; }
+  .info-tips::after { content:attr(data-tips); position:absolute; left:50%; bottom:calc(100% + 8px); transform:translateX(-50%); width:max-content; max-width:260px; padding:7px 10px; border-radius:7px; background:#1d2a33; color:#fff; font:400 13px/1.4 inherit; font-family:system-ui, "Segoe UI", sans-serif; font-style:normal; white-space:normal; box-shadow:0 4px 14px rgba(0,0,0,.2); opacity:0; pointer-events:none; transition:opacity .12s; z-index:20; }
+  .info-tips:hover::after, .info-tips:focus-visible::after { opacity:1; }
   .sok-liste { position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:50; background:#fff; border:1px solid #b5c2c8; border-radius:8px; box-shadow:0 10px 28px rgba(15,30,38,.22); max-height:min(70vh, 480px); overflow-y:auto; text-align:left; }
   .sok-liste a[role=option] { display:block; padding:8px 12px; border-bottom:1px solid var(--linje); color:var(--tekst); text-decoration:none; }
   .sok-liste a[role=option]:last-child { border-bottom:0; }

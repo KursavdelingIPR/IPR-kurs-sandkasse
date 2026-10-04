@@ -320,8 +320,9 @@ def test_etikettene_i_den_morke_stripen_staar_i_min_side(con):
     skriv_side(con, kid, dokument(tekstblokk("Velkommen", "<p>Hei</p>")))
     did, pid = lag_deltaker(con, kid)
     html = _html(deltaker_klient(did).get("/kurs/K1/deltakerside"))
-    for etikett in ("Sted", "Datoer", "Format"):
-        assert f'<li data-etikett="{etikett}">' in html, etikett
+    # Camilla 04.10.2026: «Oppstartsdato» (flere dager) eller «Dato» (én dag) i stedet for «Datoer»
+    assert '<li data-etikett="Sted">' in html and '<li data-etikett="Format">' in html
+    assert '<li data-etikett="Oppstartsdato">' in html or '<li data-etikett="Dato">' in html
 
 
 # ============================ logoen er valgfri ============================
@@ -369,3 +370,17 @@ def test_logoen_i_bunnen_strekkes_ikke_over_hele_bredden():
 
 def test_logo_funksjonen_kjenner_bare_de_to_plassene(con):
     assert tema.logo("topp") is None and tema.logo("bunn") is None and tema.logo("annet") is None          # (LOGO_MAPPE peker på en tom mappe i testen)
+
+
+def test_toppfeltet_har_oppstartsdato_tid_alle_dager_og_godkjent_i_stedet_for_format(con):
+    """Camilla 04.10.2026: Sted, Oppstartsdato, «09:00–16:00 alle dager», og «Godkjent: 64 timer vedlikeholdsaktivitet» i stedet
+    for «Fysisk kurs»."""
+    kid = lag_kurs(con, "K2")                                          # to kursdager
+    dok = dokument(tekstblokk("Velkommen", "<p>Hei</p>"))
+    dok["godkjent"] = "64 timer vedlikeholdsaktivitet"
+    skriv_side(con, kid, dok)
+    did, pid = lag_deltaker(con, kid)
+    html = _html(deltaker_klient(did).get("/kurs/K2/deltakerside"))
+    stripe = html.split('<ul class="dp-meta">')[1].split("</ul>")[0]
+    assert 'data-etikett="Oppstartsdato"' in stripe and "alle dager</span>" in stripe
+    assert 'data-etikett="Godkjent"' in stripe and "64 timer vedlikeholdsaktivitet" in stripe and 'data-etikett="Format"' not in stripe

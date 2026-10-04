@@ -411,6 +411,13 @@ def _m25_kursbevis_per_kurs(con) -> None:
             con.execute(f"ALTER TABLE kurs ADD COLUMN {kolonne} TEXT")
 
 
+def _m26_kursmerke(con) -> None:
+    """Arrangør per kurs (Camilla 04.10.2026: «skille på kurs av IPR og kurs via Terapiakademiet»): ny kolonne kurs.merke,
+    NULL (= IPR) for alle kurs som finnes. Ingen eksisterende kolonne endres."""
+    if not db.har_kolonne(con, "kurs", "merke"):
+        con.execute("ALTER TABLE kurs ADD COLUMN merke TEXT")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
@@ -437,6 +444,7 @@ MIGRERINGER = [
     (23, "sjekkliste_for_kurs", _m23_sjekkliste_for_kurs),
     (24, "booking_og_notat", _m24_booking_og_notat),
     (25, "kursbevis_per_kurs", _m25_kursbevis_per_kurs),
+    (26, "kursmerke", _m26_kursmerke),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

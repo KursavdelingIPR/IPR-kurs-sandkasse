@@ -84,17 +84,18 @@ def test_nytt_kurs_knapp_paa_oversikten_men_ikke_i_toppmenyen(con):
     html = _admin().get("/admin").get_data(as_text=True)
     nav = html.split("<nav>")[1].split("</nav>")[0]
     assert "Nytt kurs" not in nav
-    assert 'class="knapp plass" href="/admin/kurs/ny">Nytt kurs +</a>' in html
+    assert 'class="knapp nytt-kurs" href="/admin/kurs/ny">Nytt kurs +</a>' in html
 
 
-def test_nytt_kurs_knappen_staar_i_overskriftsraden_til_kurslisten_under_soekekortene(con):
-    """Camilla (02.10.2026): «kan du flytte nytt kurs-knappen ned» - fra toppen av siden til høyre i raden med overskriften «Kurs»."""
+def test_nytt_kurs_knappen_staar_paa_linjen_med_bruk_filtre(con):
+    """Camilla (04.10.2026): tettere oppsett - «Nytt kurs +» til høyre på linjen med «Vis bare mine kurs» og «Bruk filtre»,
+    under filtrene (før: i overskriftsraden «Kurs», 02.10.2026)."""
     html = _admin().get("/admin").get_data(as_text=True)
-    topp, soek, kurs, knapp, filter_ = (html.index(x) for x in ('<h1>Oversikt</h1>', 'class="sokepanel"', '<h2 id="kurs">Kurs</h2>',
-                                                                 'class="knapp plass" href="/admin/kurs/ny">Nytt kurs +</a>', 'id="kursfilter"'))
-    assert topp < soek < kurs < knapp < filter_
-    rad = html[html.rindex("<div", 0, kurs):knapp]                                           # raden som inneholder overskriften og knappen
-    assert 'class="verktoylinje kursrad"' in rad and "<h1>" not in rad
+    topp, soek, kurs, filter_, knapp = (html.index(x) for x in ('<h1>Oversikt</h1>', 'class="sokepanel"', '<h2 id="kurs">Kurs</h2>',
+                                                                 'id="kursfilter"', 'class="knapp nytt-kurs" href="/admin/kurs/ny">Nytt kurs +</a>'))
+    assert topp < soek < kurs < filter_ < knapp
+    rad = html[html.rindex('<div class="handlinger">', 0, knapp):knapp]
+    assert "Bruk filtre" in rad and "Nullstill filtre" in rad
 
 
 def test_lesetilgang_ser_ikke_nytt_kurs_knappen(con):

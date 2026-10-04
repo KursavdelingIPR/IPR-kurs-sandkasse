@@ -88,6 +88,20 @@ FORMAT = {"fysisk": "Fysisk", "digital": "Online", "hybrid": "Hybrid"}
 STATUSNAVN = {"utkast": "Utkast", "aapen": "Åpen", "full": "Full", "aktiv": "Aktiv", "avsluttet": "Avsluttet", "avlyst": "Avlyst"}
 
 
+def stedmerke(r) -> tuple[str, str]:
+    """Merket i Sted-kolonnen på Oversikten (Camilla 04.10.2026): «Oslo» (blå), «Bergen» (grønn), «Zoom» (lilla, nettkurs) og
+    «Hybrid» (oransje) - samme farge hver gang. Et fysisk kurs et annet sted får stedsnavnet i grått. (tekst, CSS-klasse)."""
+    if r["type"] == "digital":
+        return "Zoom", "zoom"
+    if r["type"] == "hybrid":
+        return "Hybrid", "hybrid"
+    sted = (r["sted"] or "").strip()
+    for by in ("Oslo", "Bergen"):
+        if by.lower() in sted.lower():
+            return by, by.lower()
+    return (sted.split(",")[-1].strip() or "Fysisk"), "annet"
+
+
 def sted_tekst(r) -> str:
     """Sted for fysiske kurs og hybridkurs (tomt for online)."""
     return (r["sted"] or "") if r["type"] != "digital" else ""

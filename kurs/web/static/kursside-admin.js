@@ -126,7 +126,7 @@
   };
   function normaliserDok(dok) {
     dok = dok && typeof dok === "object" ? dok : {};
-    dok.v = 1; dok.tittel = dok.tittel || ""; dok.ingress = dok.ingress || ""; dok.rom = dok.rom || "";
+    dok.v = 1; dok.tittel = dok.tittel || ""; dok.ingress = dok.ingress || ""; dok.rom = dok.rom || ""; dok.godkjent = dok.godkjent || "";
     dok.melding = dok.melding && typeof dok.melding === "object" ? dok.melding : {};
     dok.melding.tekst = dok.melding.tekst || ""; dok.melding.niva = dok.melding.niva === "viktig" ? "viktig" : "info";
     dok.blokker = Array.isArray(dok.blokker) ? dok.blokker : [];
@@ -416,7 +416,7 @@
   KS.tellEndringer = function () {
     if (!S.publisert) { return null; }
     var n = 0, dok = S.dok, p = S.publisert;
-    if (!likeBlokker({ t: dok.tittel, i: dok.ingress, r: dok.rom }, { t: p.tittel, i: p.ingress, r: p.rom })) { n++; }
+    if (!likeBlokker({ t: dok.tittel, i: dok.ingress, r: dok.rom, g: dok.godkjent || "" }, { t: p.tittel, i: p.ingress, r: p.rom, g: p.godkjent || "" })) { n++; }
     if (!likeBlokker(dok.melding, p.melding)) { n++; }
     var pIder = p.blokker.map(function (b) { return b.id; }), dIder = dok.blokker.map(function (b) { return b.id; });
     dok.blokker.forEach(function (b) {

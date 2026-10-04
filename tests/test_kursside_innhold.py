@@ -116,7 +116,7 @@ def test_id_regenereres_naar_den_mangler_er_ugyldig_eller_duplisert():
 def test_ukjente_noekler_kastes_og_standardverdier_fylles_inn():
     ren = _valider({"v": 1, "hemmelig": 1, "blokker": [{"type": "tekst", "ekstra": True, "data": {"html": "<p>x</p>", "annet": 1}}]})[0]
     b = ren["blokker"][0]
-    assert set(ren) == {"v", "tittel", "ingress", "rom", "melding", "blokker"}
+    assert set(ren) == {"v", "tittel", "ingress", "rom", "godkjent", "melding", "blokker"}     # «godkjent»: 04.10.2026
     assert set(b) == {"id", "type", "tittel", "skjult", "vis_fra", "i_meny", "data"} and set(b["data"]) == {"html"}
     assert (b["tittel"], b["skjult"], b["vis_fra"], b["i_meny"]) == ("", False, None, True)
 

@@ -37,6 +37,7 @@ MAKS_DOK_BYTES = 300_000
 MAKS_KROPP_BYTES = 400_000
 MAKS_INGRESS = 300
 MAKS_ROM = 80
+MAKS_GODKJENT = 120          # «Godkjent» i toppfeltet, f.eks. «64 timer vedlikeholdsaktivitet» (Camilla 04.10.2026)
 MAKS_MELDING = 400
 MAKS_VIKTIG = 1000
 MAKS_LISTE = 40
@@ -56,20 +57,22 @@ MAKS_PERSONER = 20
 MAKS_NAVN_ROLLE = 80
 MAKS_ALT = 200
 MAKS_BILDETEKST = 300
+MAKS_SIDETEKST = 1200          # teksten til venstre for et bilde plassert til høyre (Camilla 04.10.2026)
 MAKS_HTML_RA = MAKS_TEKST_TEGN * 4          # råtekst som gis til rensen (markup og innlimt søppel kan være mye lengre enn resultatet)
 
 GRENSER = {   # sendes til redigeringsvisningen (maxlength på feltene)
-    "blokker": MAKS_BLOKKER, "tittel": MAKS_TITTEL, "tekst_tegn": MAKS_TEKST_TEGN, "ingress": MAKS_INGRESS, "rom": MAKS_ROM,
+    "blokker": MAKS_BLOKKER, "tittel": MAKS_TITTEL, "tekst_tegn": MAKS_TEKST_TEGN, "ingress": MAKS_INGRESS, "rom": MAKS_ROM, "godkjent": MAKS_GODKJENT,
     "melding": MAKS_MELDING, "viktig": MAKS_VIKTIG, "liste": MAKS_LISTE, "filer_per_blokk": MAKS_FILER_PER_BLOKK,
     "kolonner": MAKS_KOLONNER, "kolonne_tekst": MAKS_KOLONNE_TEKST, "rader": MAKS_RADER, "celle": MAKS_CELLE,
     "dager": MAKS_DAGER, "punkter": MAKS_PUNKTER, "dagtittel": MAKS_DAGTITTEL, "tema": MAKS_TEMA, "sted_hvem": MAKS_STED_HVEM,
     "lenke_tekst": MAKS_LENKE_TEKST, "url": MAKS_URL, "personer": MAKS_PERSONER, "navn_rolle": MAKS_NAVN_ROLLE,
-    "alt": MAKS_ALT, "bildetekst": MAKS_BILDETEKST, "dok_bytes": MAKS_DOK_BYTES, "kropp_bytes": MAKS_KROPP_BYTES,
+    "alt": MAKS_ALT, "bildetekst": MAKS_BILDETEKST, "sidetekst": MAKS_SIDETEKST, "dok_bytes": MAKS_DOK_BYTES, "kropp_bytes": MAKS_KROPP_BYTES,
 }
 
 NIVAER = ("info", "viktig", "advarsel")
 MELDING_NIVAER = ("info", "viktig")
-PLASSERINGER = ("topp", "bred", "liten")
+PLASSERINGER = ("topp", "bred", "liten", "hoyre", "topp_side")   # hoyre: bildet til høyre, teksten (d.tekst) til venstre;
+# topp_side: bildet til høyre i toppen, ved velkomstteksten og faktaraden (Camilla 04.10.2026)
 LENKE_NIVAER = ("obligatorisk", "anbefalt")
 
 _BLOKK_ID = re.compile(r"^b_[a-z0-9]{4,12}$")
@@ -96,7 +99,7 @@ class Sidefeil(ValueError):
 # ============================ dokumentet ============================
 
 def tomt_dokument() -> dict:
-    return {"v": SKJEMA_VERSJON, "tittel": "", "ingress": "", "rom": "", "melding": {"tekst": "", "niva": "info"}, "blokker": []}
+    return {"v": SKJEMA_VERSJON, "tittel": "", "ingress": "", "rom": "", "godkjent": "", "melding": {"tekst": "", "niva": "info"}, "blokker": []}
 
 
 def ny_blokk_id() -> str:
@@ -133,7 +136,7 @@ def les(json_tekst: str | None) -> dict:
     if not isinstance(rå, dict) or rå.get("v") != SKJEMA_VERSJON:
         return tomt_dokument()
     dok = tomt_dokument()
-    for felt in ("tittel", "ingress", "rom"):
+    for felt in ("tittel", "ingress", "rom", "godkjent"):
         if isinstance(rå.get(felt), str):
             dok[felt] = rå[felt]
     melding = rå.get("melding")
@@ -719,9 +722,10 @@ def _valider_bilde(d: dict, ctx: _Ctx, tittel: str) -> dict:
         if info is None or info.get("type") != "bilde":
             ctx.merk(f"Bildet i «{tittel or 'Bilde'}» finnes ikke lenger og ble fjernet fra siden.")
             fid = None
-    return {"fil_id": fid, "alt": _tekst(d.get("alt"), MAKS_ALT, "Alternativ tekst"),
-            "tekst": _tekst(d.get("tekst"), MAKS_BILDETEKST, "Bildetekst"),
-            "plassering": d.get("plassering") if d.get("plassering") in PLASSERINGER else "bred"}
+    plassering = d.get("plassering") if d.get("plassering") in PLASSERINGER else "bred"
+    tekst = (_tekst(d.get("tekst"), MAKS_SIDETEKST, "Teksten ved siden av bildet", linjeskift=True) if plassering == "hoyre"
+             else _tekst(d.get("tekst"), MAKS_BILDETEKST, "Bildetekst"))
+    return {"fil_id": fid, "alt": _tekst(d.get("alt"), MAKS_ALT, "Alternativ tekst"), "tekst": tekst, "plassering": plassering}
 
 
 _VALIDERERE = {"tekst": _valider_tekst, "viktig": _valider_viktig, "program": _valider_program, "filer": _valider_filer,
@@ -743,6 +747,7 @@ def valider(dok, *, fil_ider: dict[int, dict] | None, kursdag_ider: set[int] | N
           "tittel": _tekst(dok.get("tittel"), MAKS_TITTEL, "Tittel"),
           "ingress": _tekst(dok.get("ingress"), MAKS_INGRESS, "Ingress"),
           "rom": _tekst(dok.get("rom"), MAKS_ROM, "Rom"),
+          "godkjent": _tekst(dok.get("godkjent"), MAKS_GODKJENT, "Godkjent"),
           "melding": {"tekst": _tekst(melding.get("tekst"), MAKS_MELDING, "Melding øverst", linjeskift=True),
                       "niva": melding.get("niva") if melding.get("niva") in MELDING_NIVAER else "info"},
           "blokker": []}
@@ -1031,14 +1036,14 @@ def diff(gammel: dict | None, ny: dict) -> list[dict]:
     ut: list[dict] = []
     gammel_blokker = {b["id"]: b for b in (gammel or {}).get("blokker", [])}
     if gammel is not None:
-        if any(gammel.get(f) != ny.get(f) for f in ("tittel", "ingress", "rom")):
+        if any(gammel.get(f) != ny.get(f) for f in ("tittel", "ingress", "rom", "godkjent")):
             ut.append({"id": "_side", "tittel": "Sidens topp", "type": "side", "art": "endret",
                        "tekst": "Tittel, ingress eller rom er endret"})
         if gammel.get("melding") != ny.get("melding"):
             g, n = (gammel.get("melding") or {}).get("tekst"), (ny.get("melding") or {}).get("tekst")
             ut.append({"id": "_melding", "tittel": "Melding øverst", "type": "melding", "art": "endret",
                        "tekst": "Meldingen er lagt til" if (n and not g) else "Meldingen er fjernet" if (g and not n) else "Meldingen er endret"})
-    elif ny.get("tittel") or ny.get("ingress") or ny.get("rom"):
+    elif ny.get("tittel") or ny.get("ingress") or ny.get("rom") or ny.get("godkjent"):
         ut.append({"id": "_side", "tittel": "Sidens topp", "type": "side", "art": "ny", "tekst": "Tittel, ingress eller rom er lagt inn"})
     flyttet = _flyttede([b["id"] for b in (gammel or {}).get("blokker", [])], [b["id"] for b in ny.get("blokker", [])])
     for b in ny.get("blokker", []):
@@ -1116,7 +1121,7 @@ def publiseringssjekk(dok: dict, *, filer: dict[int, dict], bekreftede_epost: se
     def a(blokk_id, tekst):
         advarsler.append({"blokk_id": blokk_id, "tekst": tekst})
 
-    toppfelt = [dok.get("tittel", ""), dok.get("ingress", ""), dok.get("rom", ""), (dok.get("melding") or {}).get("tekst", "")]
+    toppfelt = [dok.get("tittel", ""), dok.get("ingress", ""), dok.get("rom", ""), dok.get("godkjent", ""), (dok.get("melding") or {}).get("tekst", "")]
     for t in toppfelt:
         if isinstance(t, str) and any(e.lower() in epost_set for e in _EPOST_I_TEKST.findall(t)):
             f(None, "E-postadressen til en deltaker står i sidens topp. Fjern den før du publiserer.")

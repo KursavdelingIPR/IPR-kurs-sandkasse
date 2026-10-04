@@ -75,14 +75,14 @@ def test_c_dupliser_vises_som_knapp_med_eksisterende_knappestil(con):
     kid = _kurs(con)
     con.commit()
     html = _innlogget().get("/admin").get_data(as_text=True)
-    assert f'class="knapp liten sekundar" href="/admin/kurs/ny?fra={kid}"' in html
+    assert f'class="ikonknapp" href="/admin/kurs/ny?fra={kid}"' in html                       # ikon (to ark) siden 04.10.2026
 
 
 def test_redigeringshandlingen_er_beholdt_som_rediger_knapp_til_kursoppsett(con):
     kid = _kurs(con)
     con.commit()
     html = _innlogget().get("/admin").get_data(as_text=True)
-    assert f'class="knapp liten sekundar" href="/admin/kurs/{kid}/oppsett">Rediger</a>' in html
+    assert f'class="ikonknapp" href="/admin/kurs/{kid}/oppsett" title="Rediger kurset"' in html   # penn-ikon siden 04.10.2026
     assert "✎" not in html
 
 

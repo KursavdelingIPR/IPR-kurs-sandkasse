@@ -93,12 +93,16 @@ body[data-tema="ta"] .dp-brod:hover { color:var(--ta-plomme); }
 body[data-tema="ta"] .dp-hero { background:none; color:var(--ta-plomme); border:0; border-radius:0; padding:6px 0 0; margin-bottom:34px; overflow:visible; }     /* border:0 fjerner streken fra «header» i base.html */
 body[data-tema="ta"] .dp-hero::before, body[data-tema="ta"] .dp-hero::after { display:none; }
 body[data-tema="ta"] .dp-eyebrow { background:none; border:0; border-radius:0; padding:0; color:var(--ta-baer); font-size:13px; font-weight:600; letter-spacing:.14em; }
-body[data-tema="ta"] .dp-hero h1 { color:var(--ta-plomme); font-size:clamp(33px, 5.4vw, 52px); font-weight:500; line-height:1.08; letter-spacing:0; max-width:21ch; margin:16px 0 18px; }
+body[data-tema="ta"] .dp-hero h1 { color:var(--ta-plomme); font-size:clamp(33px, 5.4vw, 52px); font-weight:500; line-height:1.08; letter-spacing:0; max-width:none; margin:16px 0 18px; }     /* hele bredden (Camilla 04.10.2026) */
 body[data-tema="ta"] .dp-ingress { color:var(--ta-mauve); font-size:20px; font-weight:300; line-height:1.5; max-width:62ch; margin:0 0 6px; }
-body[data-tema="ta"] .dp-meta { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:18px 30px; margin:26px 0 0; padding:22px 28px; background:var(--ta-plomme); color:var(--ta-krem); font-size:17px; font-weight:500; }
-body[data-tema="ta"] .dp-meta li { display:flex; flex-direction:column; gap:5px; }
+body[data-tema="ta"] .dp-meta { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px 30px; margin:22px 0 0; padding:12px 24px; background:var(--ta-plomme); color:var(--ta-krem); font-size:16px; font-weight:500; }     /* tynnere (Camilla 04.10.2026) */
+body[data-tema="ta"] .dp-meta li { display:flex; flex-direction:column; gap:2px; }
 body[data-tema="ta"] .dp-meta li::before { content:attr(data-etikett); font-size:12px; font-weight:400; letter-spacing:.12em; text-transform:uppercase; color:var(--ta-etikett-pa-plomme); }
 body[data-tema="ta"] .dp-meta .ik { display:none; }
+/* Bilde til høyre i toppen (dp-hero-side): rette hjørner som resten av drakten, og en tettere faktarad ved siden av bildet */
+body[data-tema="ta"] .dp-hero-side > .dp-sidebilde img { border-radius:0; }
+body[data-tema="ta"] .dp-hero-side > .dp-meta { gap:14px 24px; padding:18px 22px; font-size:16px; }
+body[data-tema="ta"] .dp-hero-side > .dp-ingress { margin-bottom:0; }
 body[data-tema="ta"] .dp-meta a { color:var(--ta-lenke-pa-plomme); font-weight:600; }
 body[data-tema="ta"] .dp-hero-merker { margin-top:22px; }
 body[data-tema="ta"] .dp-pille { background:var(--ta-glass); color:var(--ta-plomme); border-radius:0; padding:6px 14px; font-size:14px; font-weight:600; }

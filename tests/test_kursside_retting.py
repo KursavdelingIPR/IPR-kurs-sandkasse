@@ -1103,3 +1103,31 @@ def test_dokumentasjonen_beskriver_innsjekkbryteren_og_de_rettede_svakhetene():
     drift = (rot / "OPERATIONS.md").read_text(encoding="utf-8")
     assert "alle **avvisninger**" in drift and "(kl. 08:47)»" not in drift.split("**Bare én gang per dag:**")[1].split("Første registrering")[0].split("Er hun innlogget")[0]
     assert "SharePoint-filer stengt" in drift
+
+
+# ===================== (14b) bilde til høyre i toppen, og bilde til høyre med tekst (Camilla 04.10.2026) =====================
+
+def test_14b_bilde_til_hoeyre_i_toppen_ligger_i_toppfeltet_ved_teksten(con, kid):
+    did, _ = lag_deltaker(con, kid, "kari@example.no")
+    fil_id, _ = sidelager.lagre_fil(con, kid, "rom.png", png(), "admin:test")
+    skriv_side(con, kid, dokument({"id": "", "type": "bilde", "tittel": "Bilde", "data": {"fil_id": fil_id, "alt": "Kursrommet", "tekst": "", "plassering": "topp_side"}},
+                                  tekstblokk()))
+    html = _side_html(con, kid, did)
+    topp = html.index('<header class="dp-hero dp-hero-side">')
+    slutt = html.index("</header>", topp)
+    assert topp < html.index('<figure class="dp-sidebilde">') < slutt and 'alt="Kursrommet"' in html[topp:slutt]
+    assert html.count('class="dp-sidebilde"') == 1 and "dp-toppbilde" not in html
+
+
+def test_14b_bilde_til_hoeyre_med_tekst_til_venstre_og_lengre_tekst(con, kid):
+    did, _ = lag_deltaker(con, kid, "kari@example.no")
+    fil_id, _ = sidelager.lagre_fil(con, kid, "rom.png", png(), "admin:test")
+    tekst = "Velkommen!\nVi møtes i Bergen. " + "x" * 500                         # lengre enn en vanlig bildetekst (300)
+    skriv_side(con, kid, dokument({"id": "", "type": "bilde", "tittel": "Bilde", "data": {"fil_id": fil_id, "alt": "Rommet", "tekst": tekst, "plassering": "hoyre"}}))
+    html = _side_html(con, kid, did)
+    side = html[html.index('<div class="dp-bilde-side">'):]
+    assert side.index('<div class="dp-bilde-sidetekst"><p>Velkommen!</p><p>Vi møtes i Bergen.') < side.index('<figure class="dp-bilde dp-bilde-hoyre">')
+    for plass in ("bred", "liten"):                                                 # andre plasseringer: fortsatt maks 300 tegn
+        with pytest.raises(si.Sidefeil):
+            si.valider(dokument({"id": "", "type": "bilde", "tittel": "B", "data": {"fil_id": None, "alt": "a", "tekst": "y" * 301, "plassering": plass}}),
+                       fil_ider=None, kursdag_ider=None)

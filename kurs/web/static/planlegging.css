@@ -23,6 +23,11 @@
 .format.fysisk { color:var(--fysisk); background:var(--fysisk-lys); }
 .format.digital { color:var(--online); background:var(--online-lys); }
 .format.hybrid { color:var(--hybrid); background:var(--hybrid-lys); }
+/* Sted-merkene på Oversikten (aktivitetsliste.stedmerke): fast farge per sted */
+.format.oslo { color:var(--fysisk); background:var(--fysisk-lys); }
+.format.bergen { color:#2e7d4f; background:#e3f1e8; }
+.format.zoom { color:var(--online); background:var(--online-lys); }
+.format.annet { color:#55626b; background:#eceff1; }
 
 /* Verktøylinje over listene: søk, filtre og sortering på én rad når det er plass */
 .filterlinje { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:0 14px; align-items:end;
@@ -34,8 +39,18 @@
 table.aktivitetstabell td { vertical-align:middle; }
 table.aktivitetstabell td.dato { white-space:nowrap; }
 table.aktivitetstabell td.tittel { min-width:16em; }
-table.aktivitetstabell td.tittel a { font-weight:600; text-decoration:none; }
-table.aktivitetstabell td.tittel a:hover { text-decoration:underline; }
+/* Kursnavnet lysere, som i Pindena (Camilla 04.10.2026): turkisblå med understreking; #15809a gir kontrast 4,6:1 mot hvitt */
+table.aktivitetstabell td.tittel > a { color:#15809a; font-weight:500; text-decoration:underline; text-underline-offset:3px; text-decoration-thickness:1px; }
+table.aktivitetstabell td.tittel > a strong { font-weight:inherit; }
+table.aktivitetstabell td.tittel > a:hover { color:#0f6378; text-decoration:underline; }
+/* Terapiakademiet-kurs (kurs.merke): kursnavnet i Terapiakademiets plommefarge, hvit bakgrunn (Camilla 04.10.2026) */
+table.aktivitetstabell tr.merke-ta td.tittel > a { color:#562a3e; }
+table.aktivitetstabell tr.merke-ta td.tittel > a:hover { color:#8a334e; }
+/* Handlingene som ikoner (admin.html, handlingsikon) */
+.ikonknapper { display:flex; gap:2px; justify-content:flex-end; }
+.ikonknapp { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:8px; color:#1d2a33; }
+.ikonknapp:hover { background:var(--bla-lys); color:var(--bla); }
+.ikonknapp:focus-visible { outline:2px solid var(--bla); outline-offset:1px; }
 table.aktivitetstabell td.sted .stedsnavn { display:block; font-size:13px; color:var(--tekst); margin-top:2px; }
 table.aktivitetstabell .tall { white-space:nowrap; }
 table.aktivitetstabell .delinje { display:block; }
@@ -45,10 +60,10 @@ table.aktivitetstabell .knapper { display:flex; justify-content:flex-end; gap:8p
 table.aktivitetstabell tr.avlyst td.tittel a { color:var(--avlyst); text-decoration:line-through; }
 
 /* Oversikten: søkepanelet (deltakersøk og kurssøk side ved side), statuskortene og kurslisten under */
-.sokepanel { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:20px; max-width:1040px; margin:18px 0 4px; }
+.sokepanel { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:20px; max-width:1040px; margin:14px 0 0; }
 .sokepanel > div { padding:16px 20px 14px; min-width:0; background:#fff; border:1px solid var(--linje); border-radius:12px; }
 /* Overskriftsraden til kurslisten: «Kurs» til venstre og «Nytt kurs +» til høyre, like bred som søkekortene over (Camilla 02.10.2026) */
-.verktoylinje.kursrad { max-width:1040px; margin:32px 0 10px; }
+.verktoylinje.kursrad { max-width:1040px; margin:18px 0 6px; }
 .verktoylinje.kursrad h2 { margin:0; }
 .sokepanel .sokefelt { flex:none; max-width:none; margin:0; }
 .sokepanel .sokefelt input[type=search] { padding:10px 36px 10px 36px; font-size:15px; }
@@ -75,7 +90,9 @@ table.aktivitetstabell tr.avlyst td.tittel a { color:var(--avlyst); text-decorat
 #kursfilter > .f-bred { flex-basis:235px; max-width:290px; }
 #kursfilter > .f-middels { flex-basis:195px; }
 #kursfilter > .f-minst { flex-basis:100px; min-width:100px; max-width:130px; }
-#kursfilter > .handlinger { flex:0 0 auto; max-width:none; }
+/* Knappene på egen linje under filtrene, «Nytt kurs +» helt til høyre under «Antall rader» (Camilla 04.10.2026) */
+#kursfilter > .handlinger { flex:1 1 100%; max-width:none; padding-top:4px; }
+#kursfilter > .handlinger .nytt-kurs { margin-left:auto; }
 @media (max-width: 1100px) {
   .statkort { grid-template-columns:repeat(2, minmax(0, 1fr)); }
 }
