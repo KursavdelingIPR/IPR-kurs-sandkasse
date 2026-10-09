@@ -23,13 +23,13 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 from . import skjemafelt
-from .skjemafelt import BETALER, EKSTRA_REF, OM_DEG, ORGANISASJON, PERSON, TIL_SLUTT
+from .skjemafelt import BETALER, EKSTRA_REF, NEDERST, OM_DEG, ORGANISASJON, PERSON, TIL_SLUTT
 
 TYPER = MappingProxyType({"tekst": "Kort tekst", "langtekst": "Lang tekst", "avkrysning": "Avkrysning",
                           "envalg": "Envalg", "flervalg": "Flervalg", "nedtrekk": "Nedtrekksliste"})
 MED_VALG = frozenset({"envalg", "flervalg", "nedtrekk"})       # svaralternativene skrives av admin
 KAN_STYRE = frozenset({"avkrysning", *MED_VALG})              # kan brukes i «vis bare naar»
-PLASSERINGER = MappingProxyType({OM_DEG: "Om deg", TIL_SLUTT: "Til slutt"})
+PLASSERINGER = MappingProxyType({OM_DEG: "Om deg", TIL_SLUTT: "Til slutt", NEDERST: "Nederst (over Meld på-knappen)"})
 BETALER_NAVN = "Betale privat / firma"
 BETALER_VALG = MappingProxyType({PERSON: "Betale privat", ORGANISASJON: "Firma betaler"})
 AVKRYSSET = "Ja"                    # verdien en avkrysset boks sender (og lagres som)
@@ -438,5 +438,5 @@ MALER = MappingProxyType({
                        "Det gjør det lettere å komme i dialog med hverandre, organisere egne veiledningsgrupper og "
                        "andre grupper på sosiale medier."}),
     "nyhetsbrev": ("Nyhetsbrev", {"type": "avkrysning", "label": "Nyhetsbrev",
-                                  "valg": ("Ja takk, jeg vil gjerne få nyhetsbrev fra IPR",), "plassering": TIL_SLUTT}),
+                                  "valg": ("Ja takk, jeg vil gjerne få nyhetsbrev fra IPR",), "plassering": NEDERST}),
 })

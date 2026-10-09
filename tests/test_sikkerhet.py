@@ -1,8 +1,9 @@
 """Sikkerhetsvern i webappen (kurs/web/sikkerhet.py + herding i app.py).
 
 CSRF, sikkerhetshoder/CSP, ingen inline-JS, takbegrensning, admin-oektens levetid og deaktivering, viderekoblinger,
-signerte opplastingslenker, filnavn/sti, lenkevalidering, CSV-injeksjon, kontrollerte feilsider, webhook-herding,
+filnavn/sti, lenkevalidering, CSV-injeksjon, kontrollerte feilsider, webhook-herding,
 KI-assistentens brytere og produksjonskontroll av konfigurasjonen.
+(06.10.2026: kursholder-lenken og SharePoint er tatt bort, og med dem testene av opplastingslenken og nedlasting av kursholders filer.)
 """
 import re
 import time
@@ -12,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from adressehjelp import ADRESSE
-from kurs import config, db, lenker
+from kurs import config, db
 from kurs.integrasjoner import epost, visma
 from kurs.web import sikkerhet
 
@@ -93,7 +94,7 @@ def test_offentlig_paamelding_krever_ogsaa_csrf(con):
     _kurs(con)
     k = _klient()
     k.injiser_csrf = False
-    r = k.post("/kurs/S1", data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "samtykke": "on", **ADRESSE})
+    r = k.post("/kurs/S1", data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     assert r.status_code == 400
     assert con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0] == 0
 
@@ -316,56 +317,7 @@ def test_sporsmal_takbegrenses_og_kan_slaas_av(con, monkeypatch):
     assert _klient().get("/sporsmal").status_code == 404
 
 
-# ============================ signerte lenker og filer ============================
-
-def _krav(con, kid):
-    return db.sett_inn(con, "INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
-                       (kid, "K", "k@x.no", "2027-01-01"))
-
-
-def test_opplastingslenke_krever_gyldig_signatur(con):
-    kid = _kurs(con)
-    krav = _krav(con, kid)
-    con.commit()
-    k = _klient()
-    assert k.get(f"/lever/{krav}").status_code == 404
-    assert k.get(f"/lever/{krav}/feilsignatur").status_code == 404
-    assert k.get(f"/lever/{krav}/{lenker.signatur('lever', krav + 1)}").status_code == 404   # signatur for et annet krav
-    assert k.get(lenker.lever_lenke(krav).replace(config.BASE_URL, "")).status_code == 200
-
-
-def test_opplasting_renser_filnavn_og_avviser_ukjent_filtype(con, tmp_path, monkeypatch):
-    from io import BytesIO
-    from kurs.integrasjoner import sharepoint
-    monkeypatch.setattr(sharepoint, "DEMO_ROT", tmp_path / "sp")
-    kid = _kurs(con)
-    krav = _krav(con, kid)
-    con.commit()
-    url = lenker.lever_lenke(krav).replace(config.BASE_URL, "")
-    k = _klient()
-    r = k.post(url, data={"fil": (BytesIO(b"x"), "../../.env")}, content_type="multipart/form-data")
-    assert r.status_code == 200 and "støttes ikke" in r.get_data(as_text=True)
-    r = k.post(url, data={"fil": (BytesIO(b"x"), "skript.exe")}, content_type="multipart/form-data")
-    assert "støttes ikke" in r.get_data(as_text=True)
-    r = k.post(url, data={"fil": (BytesIO(b"%PDF"), "../../Presentasjon dag 1.pdf")}, content_type="multipart/form-data")
-    assert r.status_code == 302
-    lagret = list((tmp_path / "sp").rglob("*.pdf"))
-    assert len(lagret) == 1 and lagret[0].name == "Presentasjon_dag_1.pdf"
-    assert (tmp_path / "sp" / "Kurs" / "S1" / "Presentasjoner") in lagret[0].parents
-    aktor = con.execute("SELECT aktor FROM hendelse WHERE handling='materiell_levert'").fetchone()[0]
-    assert aktor == f"materiell:{krav}"
-
-
-def test_materiell_avviser_sti_i_filnavn(con):
-    kid = _kurs(con)
-    pid, _ = db.meld_paa(con, kid, epost="d@x.no", fornavn="D", etternavn="Test")
-    con.commit()
-    k = _klient()
-    with k.session_transaction() as s:
-        s["deltaker_id"] = con.execute("SELECT deltaker_id FROM paamelding WHERE id=?", (pid,)).fetchone()[0]
-    assert k.get(f"/materiell/{kid}/..%2F..%2F.env").status_code == 404
-    assert k.get(f"/materiell/{kid}/../.env").status_code == 404
-
+# ============================ lenker og filer ============================
 
 def test_lokalt_dokument_kun_under_data(con):
     did = db.finn_eller_opprett_deltaker(con, "d@x.no", "D", "Test")

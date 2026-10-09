@@ -353,7 +353,7 @@ def test_firma_som_betaler_fritar_ikke_for_privat_adresse(con, monkeypatch, vei)
     monkeypatch.setattr(config, "ADRESSE_KREVES_I_CSV", True)
     kid = _kurs(con)
     if vei == "skjema":
-        r = _klient().post("/kurs/A1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": EPOST, "samtykke": "on",
+        r = _klient().post("/kurs/A1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": EPOST, "samtykke": "on", "samtykke_lagring": "on",
                                              "betaler": "organisasjon", "org_nr": FIRMA})
         tatt_imot = r.status_code == 200
     elif vei == "bedriftspaamelding":

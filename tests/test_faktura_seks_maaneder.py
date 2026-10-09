@@ -85,7 +85,7 @@ def _meld_paa(vei: str, idag: date, nr: int, kode="A1"):
     epost = f"person{nr}@eksempel.no"
     if vei == "skjema":
         r = _klient(idag).post(f"/kurs/{kode}", data={"fornavn": "Test", "etternavn": _etternavn(nr), "epost": epost,
-                                                       "samtykke": "on", **ADRESSE})
+                                                       "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
         assert r.status_code == 200 and "påmeldt" in r.get_data(as_text=True).lower(), r.get_data(as_text=True)[:300]
     else:
         body = json.dumps({"fornavn": "Test", "etternavn": _etternavn(nr), "epost": epost, "kurs": kode, **ADRESSE}).encode()

@@ -1,0 +1,54 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{#- Rabatter som venter på godkjenning (Camilla 09.10.2026, kurs/rabatter.py). Fakturaen er holdt tilbake til rabatten er avgjort:
+    «Godkjent» = rabattprisen, «Ikke godkjent» = ordinær pris. Studentbeviset kan bare kursadministrasjonen åpne (ikke lesetilgang),
+    og det slettes når rabatten er avgjort. -#}
+<h1>Rabatter som venter</h1>
+<p class="sub">Påmeldinger med rabattpris som må sjekkes. Fakturaen sendes når dere har trykket «Godkjent» (rabattprisen) eller
+  «Ikke godkjent» (ordinær pris).</p>
+
+{% if psyflix_tekst %}
+<div class="kort">
+  <h2 style="margin-top:0">Liste til Psyflix</h2>
+  <p class="liten dempet">Lim listen inn i én e-post til Psyflix, og be dem bekrefte hvem som er medlemmer. Deltakerne har samtykket
+    til sjekken i påmeldingen.</p>
+  <label for="psyflix-liste" class="skjul-visuelt">Liste til Psyflix</label>
+  <textarea id="psyflix-liste" rows="{{ [psyflix_tekst.count('\n') + 1, 10] | min }}" readonly style="width:100%">{{ psyflix_tekst }}</textarea>
+  <p style="margin:8px 0 0"><button type="button" class="sekundar liten" data-kopier="psyflix-liste">Kopier liste</button></p>
+</div>
+{% endif %}
+
+{% for g in grupper %}
+<div class="kort">
+  <h2 style="margin-top:0">{{ g.kurs.kursnr }} {{ g.kurs.navn }}</h2>
+  <div class="tabellboks"><table class="liten">
+    <thead><tr><th scope="col">Deltaker</th><th scope="col">Pris</th><th scope="col">Hva må sjekkes</th>{% if admin_rolle != 'lese' %}<th scope="col"><span class="skjul-visuelt">Avgjørelse</span></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for r in g.rader %}
+    <tr>
+      <td><a href="{{ url_for('admin_deltaker', kurs_id=g.kurs.id, paamelding_id=r.p.id) }}"><strong>{{ r.p.navn }}</strong></a><br><span class="dempet">{{ r.p.epost }}</span>
+        {% if r.p.status == 'venteliste' %}<br><span class="merke">{{ STATUS.venteliste }}</span>{% endif %}</td>
+      <td class="ikke-brudd">{{ r.prisnavn }}<br>{{ r.pris | kr }}</td>
+      <td>{{ r.merke }}
+        {%- if r.p.priskategori == 'student' %}<br>
+          {%- if r.p.har_bevis %}{% if admin_rolle != 'lese' %}<a href="{{ url_for('admin_rabatt_bevis', paamelding_id=r.p.id) }}" target="_blank" rel="noopener">Åpne studentbeviset</a>{% else %}<span class="dempet">Studentbeviset er lastet opp (bare kursadministrasjonen kan åpne det).</span>{% endif %}
+          {%- else %}<strong>Studentbeviset mangler.</strong>{% endif %}
+        {%- elif r.p.priskategori == 'nieft' %}<br><span class="dempet">Sjekk e-posten mot medlemsoversikten (ellers navnet).</span>
+        {%- elif r.p.priskategori == 'psyflix' %}<br><span class="dempet">{{ r.p.psyflix_org or 'Organisasjon ikke oppgitt' }}{% if r.p.psyflix_epost %} · {{ r.p.psyflix_epost }}{% endif %}</span>
+          {%- if r.psyflix_aar %}<br><span class="merke gul">Har fått Psyflix-rabatt de siste 12 månedene</span>{% endif %}
+        {%- endif %}</td>
+      {% if admin_rolle != 'lese' %}
+      <td><form method="post" action="{{ url_for('admin_rabatt_avgjor', paamelding_id=r.p.id) }}" style="margin:0; display:flex; gap:6px; flex-wrap:wrap">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button name="beslutning" value="godkjent" class="liten">Godkjent</button>
+          <button name="beslutning" value="avvist" class="liten sekundar">Ikke godkjent</button></form></td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% else %}
+<p class="dempet">Ingen rabatter venter på godkjenning.</p>
+{% endfor %}
+{% endblock %}

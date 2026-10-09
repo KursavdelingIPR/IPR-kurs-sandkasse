@@ -35,7 +35,7 @@ def _kurs(con, kode="H1", **kw):
 
 
 EPOST = "test.person@eksempel.no"
-BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": EPOST, "samtykke": "on", **ADRESSE}
+BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": EPOST, "samtykke": "on", "samtykke_lagring": "on", **ADRESSE}
 
 
 def _person(con, epost=EPOST):

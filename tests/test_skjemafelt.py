@@ -42,12 +42,14 @@ def test_om_deg_feltene_er_konfigurerbare_med_alle_egenskaper():
     assert [sf.REGISTER[n].rekkefolge for n in sf.KONFIGURERBAR_GRUPPE] == [1, 2, 3]
 
 
-def test_yrkestittel_er_skjult_som_standard():
+def test_yrkestittel_vises_som_standard():
+    # yrkestittel vises som standard, men er ikke obligatorisk (Camilla 05.10.2026)
     y = sf.REGISTER["yrkestittel"]
-    assert (y.label, y.synlig, y.obligatorisk) == ("Yrkestittel", False, False)
-    assert _felt(sf.effektivt_skjema(_kurs()), "yrkestittel") is None
-    vist = sf.effektivt_skjema(_kurs(), {"yrkestittel": sf.Overstyring(synlig=True)})
-    assert [f.nokkel for f in vist.deltakerfelt] == ["telefon", "arbeidssted", "yrkestittel"]
+    assert (y.label, y.synlig, y.obligatorisk) == ("Yrkestittel", True, False)
+    assert _felt(sf.effektivt_skjema(_kurs()), "yrkestittel") == sf.EffektivtFelt("yrkestittel", "Yrkestittel", False)
+    assert [f.nokkel for f in sf.effektivt_skjema(_kurs()).deltakerfelt] == ["telefon", "arbeidssted", "yrkestittel"]
+    skjult = sf.effektivt_skjema(_kurs(), {"yrkestittel": sf.Overstyring(synlig=False)})
+    assert [f.nokkel for f in skjult.deltakerfelt] == ["telefon", "arbeidssted"]     # kan fortsatt skjules per kurs
 
 
 def test_navn_epost_adresse_samtykke_er_laast_synlige_obligatoriske_og_uten_overstyring():
@@ -133,7 +135,10 @@ def test_fakturafeltene_tilhorer_riktig_betaler():
     assert "obligatorisk" not in sf.REGISTER["ehf"].overstyrbart and sf.REGISTER["ehf"].type == "avkrysning"
     s = sf.effektivt_skjema(_kurs())
     assert [f.nokkel for f in s.adressefelt] == ["adresse", "postnr", "poststed"]
-    assert [f.nokkel for f in s.firmafelt] == ["faktura_ref", "faktura_epost", "faktura_kommentar", "ehf"]
+    # EHF er skjult som standard (Camilla 05.10.2026), men kan vises per kurs
+    assert [f.nokkel for f in s.firmafelt] == ["faktura_ref", "faktura_epost", "faktura_kommentar"]
+    med_ehf = sf.effektivt_skjema(_kurs(), {"ehf": sf.Overstyring(synlig=True)})
+    assert [f.nokkel for f in med_ehf.firmafelt] == ["faktura_ref", "faktura_epost", "faktura_kommentar", "ehf"]
     assert s.firmafelt[0] == sf.EffektivtFelt("faktura_ref", "Faktura merkes med", False,
                                               "NB! Bruk bare tall for ressurs nr. / merida nr. / avdelings nr.")
     uten = sf.effektivt_skjema(_kurs(pris_nok=0), {n: sf.Overstyring(synlig=True) for n in sf.FAKTURAFELT})
@@ -170,9 +175,10 @@ def test_visningsbetingelsene_er_uavhengige_av_hverandre():
 # ============================ 6: rekkefolge ============================
 
 def test_stabil_standardrekkefolge():
-    assert [f.nokkel for f in sf.effektivt_skjema(_kurs()).deltakerfelt] == ["telefon", "arbeidssted"]
+    # yrkestittel vises som standard (Camilla 05.10.2026); HPR kommer fortsatt sist
+    assert [f.nokkel for f in sf.effektivt_skjema(_kurs()).deltakerfelt] == ["telefon", "arbeidssted", "yrkestittel"]
     assert [f.nokkel for f in sf.effektivt_skjema(_kurs(spesialistlop="EFT")).deltakerfelt] == [
-        "telefon", "arbeidssted", "hpr_nr"]
+        "telefon", "arbeidssted", "yrkestittel", "hpr_nr"]
     # Samme input -> samme resultat, hver gang
     assert len({sf.effektivt_skjema(_kurs(spesialistlop="EFT")) for _ in range(20)}) == 1
 

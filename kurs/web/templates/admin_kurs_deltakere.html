@@ -22,6 +22,7 @@
   <a class="knapp liten" href="{{ url_for('admin_deltaker_ny', kurs_id=kurs.id) }}">+ Legg til deltaker</a>
   <a class="knapp sekundar liten" href="{{ url_for('admin_import_deltakere', kurs_id=kurs.id) }}">Importer deltakere</a>
   <a class="knapp sekundar liten" href="{{ url_for('admin_deltakerliste', kurs_id=kurs.id) }}">Deltakerliste (utskrift/PDF)</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_qr_utskrift', kurs_id=kurs.id) }}" target="_blank">QR-koder for innsjekk (utskrift/PDF)</a>
   <a class="knapp sekundar liten" id="eksporter-treff" data-grunnadresse="{{ url_for('admin_csv', kurs_id=kurs.id) }}"
      href="{{ url_for('admin_csv', kurs_id=kurs.id, sok=sok or None, status=statuser or None) }}">Eksporter {{ 'treff (Excel)' if (sok or statuser) else 'deltakerliste (Excel)' }}</a>
   {% if kurs.type != 'digital' %}<a class="knapp sekundar liten" href="{{ url_for('admin_allergiliste', kurs_id=kurs.id) }}">Allergi-/tilretteleggingsliste</a>{% endif %}
@@ -86,7 +87,7 @@
   {% for p in deltakere %}
   <tr data-filtrer="deltaker" data-status="{{ p.statusnokkel }}" data-sok="{{ p.sokbar }}" {{ 'hidden' if not p.synlig }}{% if p.status == 'avmeldt' %} class="inaktiv"{% endif %} id="rad-{{ p.id }}">
     <td><input type="checkbox" class="valgt-deltaker" name="paamelding_id" value="{{ p.id }}" form="valgte-deltakere" aria-label="Velg {{ p.navn }}"></td>
-    <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}" data-deltaker-vindu><strong>{{ p.navn }}</strong></a>{% if p.firma_mangler %}<div><span class="merke gul">{{ FIRMA_MERKE }}</span></div>{% endif %}{% if p.adresse_merke %}<div><span class="merke gul" title="{{ 'Bare en del av den private adressen er lagt inn. Åpne deltakeren og fyll inn det som mangler under Personopplysninger.' if p.adresse_merke == ADRESSE_UFULLSTENDIG_MERKE else 'Privat adresse er ikke lagt inn. Åpne deltakeren og fyll den inn under Personopplysninger.' }}{% if p.faktura_venter_adresse %} Fakturaen holdes tilbake til alle tre feltene er lagt inn.{% endif %}">{{ p.adresse_merke }}</span></div>{% endif %}</td>
+    <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}" data-deltaker-vindu><strong>{{ p.navn }}</strong></a>{% if p.kontroll %}<div><span class="merke gul" title="{% for f in p.kontroll %}{{ f.felt }}: {{ f.tekst }}{{ ' ' if not loop.last }}{% endfor %}">Sjekk opplysningene</span></div>{% endif %}{% if rabatt_merke(p) %}<div><span class="merke gul">{{ rabatt_merke(p) }}</span></div>{% elif rabatt_prisnavn(p) %}<div><span class="merke">{{ rabatt_prisnavn(p) }}</span></div>{% endif %}{% if p.firma_mangler %}<div><span class="merke gul">{{ FIRMA_MERKE }}</span></div>{% endif %}{% if p.adresse_merke %}<div><span class="merke gul" title="{{ 'Bare en del av den private adressen er lagt inn. Åpne deltakeren og fyll inn det som mangler under Personopplysninger.' if p.adresse_merke == ADRESSE_UFULLSTENDIG_MERKE else 'Privat adresse er ikke lagt inn. Åpne deltakeren og fyll den inn under Personopplysninger.' }}{% if p.faktura_venter_adresse %} Fakturaen holdes tilbake til alle tre feltene er lagt inn.{% endif %}">{{ p.adresse_merke }}</span></div>{% endif %}</td>
     <td class="liten">{{ p.epost }}</td>
     <td class="liten">{{ p.telefon or '' }}</td>
     <td class="liten">{{ p.arbeidssted or '' }}</td>

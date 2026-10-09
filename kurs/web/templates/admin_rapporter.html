@@ -18,13 +18,13 @@
   <div class="kort"><div class="liten dempet">Kurs</div><div class="stat">{{ kurstotalt.kurs }}</div></div>
   <div class="kort"><div class="liten dempet">{{ STATUS_FLERTALL.paameldt }} på kursene</div><div class="stat">{{ kurstotalt.paameldte }}</div>
     {% if kurstotalt.ekstra %}<div class="liten dempet">+ {{ kurstotalt.ekstra }} {{ (STATUS.ekstradeltaker if kurstotalt.ekstra == 1 else STATUS_FLERTALL.ekstradeltaker)|lower }}</div>{% endif %}</div>
-  <div class="kort"><div class="liten dempet">Inntekt (pris × {{ STATUS_FLERTALL.paameldt|lower }})</div><div class="stat">{{ kr(kurstotalt.forventet) }}</div></div>
+  <div class="kort"><div class="liten dempet">Inntekt (prisene til {{ STATUS_FLERTALL.paameldt|lower }})</div><div class="stat">{{ kr(kurstotalt.forventet) }}</div></div>
   <div class="kort"><div class="liten dempet">Fakturert på kursene</div><div class="stat">{{ kr(kurstotalt.fakturert) }}</div></div>
 </div>
 <div class="tabellboks"><table>
   <tr><th scope="col">Kursnr</th><th scope="col">Kurs</th><th scope="col">Periode</th><th scope="col">Status</th>
     <th scope="col">{{ STATUS_FLERTALL.paameldt }}</th><th scope="col">{{ STATUS.venteliste }}</th><th scope="col">Pris</th>
-    <th scope="col">Inntekt</th><th scope="col">Fakturert</th></tr>
+    <th scope="col">Rabatt</th><th scope="col">Inntekt</th><th scope="col">Fakturert</th></tr>
   {% for k in kursoversikt %}
   <tr>
     <td>{{ k.kursnr }}</td>
@@ -34,18 +34,21 @@
     <td>{{ k.paameldte }}{% if k.kapasitet %} / {{ k.kapasitet }}{% endif %}{% if k.ekstra %} <span class="liten dempet">+ {{ k.ekstra }}</span>{% endif %}</td>
     <td>{{ k.venteliste }}</td>
     <td class="ikke-brudd">{{ kr(k.pris_nok) }}</td>
+    <td class="ikke-brudd">{% if k.rabatt %}{{ kr(k.rabatt) }} <span class="liten dempet">({{ k.med_rabatt }})</span>{% else %}–{% endif %}</td>
     <td class="ikke-brudd">{{ kr(k.forventet) }}</td>
     <td class="ikke-brudd">{{ kr(k.fakturert) }}</td>
   </tr>
-  {% else %}<tr><td colspan="9" class="dempet">Ingen kurs i perioden.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="10" class="dempet">Ingen kurs i perioden.</td></tr>{% endfor %}
   {% if kursoversikt|length > 1 %}
   <tr style="font-weight:600"><td></td><td>Totalt</td><td></td><td></td><td>{{ kurstotalt.paameldte }}</td><td>{{ kurstotalt.venteliste }}</td><td></td>
+    <td class="ikke-brudd">{{ kr(kurstotalt.rabatt) if kurstotalt.rabatt else '–' }}</td>
     <td class="ikke-brudd">{{ kr(kurstotalt.forventet) }}</td><td class="ikke-brudd">{{ kr(kurstotalt.fakturert) }}</td></tr>
   {% endif %}
 </table></div>
-<p class="liten dempet" style="margin:6px 0 26px">«Inntekt» er kursets pris × {{ STATUS_FLERTALL.paameldt|lower }} (avlyste kurs regnes som 0).
+<p class="liten dempet" style="margin:6px 0 26px">«Inntekt» er summen av prisene til {{ STATUS_FLERTALL.paameldt|lower }}: kursets pris, eller rabattprisen
+  (avlyste kurs regnes som 0). «Rabatt» er det som er gitt i rabatt, med antallet med rabattpris i parentes.
   {{ STATUS_FLERTALL.ekstradeltaker }} er ikke med i inntekten, men det de er fakturert for, står under «Fakturert».
-  Priskategorier (ordinær, NIEFT, student …) og utgifter (honorar, lokaler, lunsj …) kommer senere.</p>
+  Utgifter (honorar, lokaler, lunsj …) kommer senere.</p>
 
 <h2>Annet i perioden</h2>
 <div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); margin-bottom:24px">

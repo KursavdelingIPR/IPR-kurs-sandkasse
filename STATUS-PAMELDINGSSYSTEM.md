@@ -29,7 +29,7 @@ må gjøres utenfor koden (Azure-ressurser, app-registreringer, Visma-produkt, p
 | Admin-UI | «Nytt kurs +», ingen duplisert meny, markert aktiv side, hover/fokus, hopp-til-innhold, ledetekster på alle felt, oversikt med kurs øverst | `0e30fe5` |
 | Deltakerliste | Kolonnevalg (standard bare nr. og navn), utskrift/PDF via nettleseren, CSV, oppmøte/signatur-kolonner, norsk sortering. Allergier kan aldri velges | `33ffd4c` |
 | Årsplan | Hele året, kurs automatisk, planlagte aktiviteter og notater, overlapp, ledige perioder | `5ae8229` |
-| Integrasjoner | SharePoint (nivåvis, idempotent, etter lagring, «Lag mappe»-knapp), Zoom (lenke lagres straks), kursbevis i databasen, Visma (roterende token lagres; trygg feilklasse) | `daf064f` |
+| Integrasjoner | SharePoint (tatt bort 06.10.2026: filene ligger i kurssystemet), Zoom (lenke lagres straks), kursbevis i databasen, Visma (roterende token lagres; trygg feilklasse) | `daf064f` |
 | Samtidighet | Optimistisk kontroll på redigering, manuelle utsendelser og avlysning via claim-motoren, morgenjobben isolert per steg/kurs med sendestopp, side for **uavklarte operasjoner** | `dbcfea9` |
 | Fase 14 | Økonomi: fakturert per måned/kurs, fakturaliste, CSV, fakturaer per person | `9a84edf` |
 | Fase 17 | «Avslå påmelding» med arbeidsflyt (plass frigjøres, venteliste rykker opp, avslag på e-post, kan ikke melde seg på igjen selv, gjenopprettes av admin) | `9a84edf` |
@@ -78,7 +78,7 @@ innloggingssiden som legges på terapiakademiet.no.
 
 | Tema | Beslutning | Begrunnelse |
 |---|---|---|
-| Fase 15 – produkt/rabatt | **Ikke bygget** | Ingen dokumentert behov (én pris per kurs dekker dagens kurs). Kolonnen `paamelding.rabattkode` er ubrukt og **beholdes urørt** – å fjerne den er en endring av en eksisterende kolonne (krever Jan, CLAUDE.md regel 7). Bygg først når IPR har et konkret rabattopplegg |
+| Fase 15 – produkt/rabatt | **Bygget 09.10.2026 (rabattpriser)** | Rabatter per kurs (NIEFT, IPR-terapeut, student, Psyflix) med godkjenning, studentbevis og faktura med deltakerens pris: `kurs/rabatter.py`, migrering 32, OPERATIONS.md §2i. Kolonnen `paamelding.rabattkode` er fortsatt ubrukt og **beholdes urørt** (regel 7). |
 | Fase 16 – spørreundersøkelser | **Ikke bygget** | Står som «vurder hvis behov bekreftes» i gap-analysen og som åpent spørsmål i kartleggingen. Anbefaling ved behov: lenke til Microsoft Forms i kursbevis-e-posten (malteksten kan redigeres) i stedet for et eget delsystem |
 | Fase 17 – avslått | Ny kolonne `avslatt_ts`, status forblir `avmeldt` | Endrer ikke eksisterende kolonne/CHECK (regel 7) og gjenbruker all avmeldingslogikk (plass, faktura, e-post) |
 | Venstremeny | **Ikke bygget** | Toppmenyen har åtte punkter og markerer aktiv side; kurssidene har faner. En venstremeny ville duplisert navigasjonen uten å forbedre den |

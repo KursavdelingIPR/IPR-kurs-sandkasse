@@ -221,3 +221,12 @@ def _nullstill_takbegrensning():
     sikkerhet.takbegrenser.nullstill()
     yield
     sikkerhet.takbegrenser.nullstill()
+
+
+@pytest.fixture(autouse=True)
+def _epostgodkjenning_av_i_eldre_tester(monkeypatch):
+    """«Klar til sending» (kurs/godkjenning.py) er på i drift, men de eldre testene handler om selve utsendingen: der går alt
+    automatisk, slik det gjorde før godkjenningen kom (05.10.2026). tests/test_klar_til_sending.py slår den på igjen."""
+    from kurs import config
+    monkeypatch.setattr(config, "GODKJENN_EPOSTER", False)
+    yield

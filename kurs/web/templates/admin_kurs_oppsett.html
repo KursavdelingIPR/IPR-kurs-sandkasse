@@ -8,54 +8,22 @@
   {% if kurs.zoom_url %}<a class="knapp sekundar liten" href="{{ kurs.zoom_url }}" target="_blank">Zoom</a>{% endif %}
 </div>
 
-<div class="rutenett" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); margin-bottom:18px">
-  <div class="kort">
-    <div class="liten dempet">Status</div>
-    <p style="margin:6px 0 10px"><span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','avlyst':'feil','utkast':'gra'}.get(kurs.status,'gra') }}">{{ kurs.status }}</span></p>
-    {% if kurs_statusvalg %}
-    <form method="post" action="{{ url_for('admin_kurs_status', kurs_id=kurs.id) }}"
-          data-status-bekreft>
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <select name="status" required aria-label="Ny status">
-        <option value="" selected disabled>Velg ny status</option>
-        {% for s in kurs_statusvalg %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
-      </select>
-      <p style="margin-top:8px"><button class="liten sekundar">Endre status</button></p>
-    </form>
-    {% endif %}
-    {% if kurs.status == 'avlyst' and uvarslede %}
-    <div class="flash feil" role="alert" style="margin-top:8px">{{ uvarslede }} deltaker(e) har ikke fått avlysningsvarselet.
-      {% if admin_rolle != 'lese' %}<form method="post" action="{{ url_for('admin_avlysning_varsle', kurs_id=kurs.id) }}" style="margin:8px 0 0">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten">Send avlysningsvarsel til dem</button></form>{% endif %}</div>
-    {% endif %}
-    {% if kurs.status == 'avlyst' %}
-    <form method="post" action="{{ url_for('admin_gjenaapne_kurs', kurs_id=kurs.id) }}"
-          data-bekreft="Gjenåpne dette kurset? Deltakerne varsles ikke automatisk om dette.">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <p style="margin-top:8px"><button class="liten sekundar">Gjenåpne</button></p>
-    </form>
-    {% elif kurs.status != 'avsluttet' %}
-    <form method="post" action="{{ url_for('admin_avlys_kurs', kurs_id=kurs.id) }}"
-          data-bekreft="Avlyse «{{ kurs.navn }}»? Alle {{ STATUS_FLERTALL.paameldt|lower }}{% if ekstra_antall %}, {{ STATUS_FLERTALL.ekstradeltaker|lower }}{% endif %} og de på venteliste varsles på e-post med én gang. Fakturaer krediteres ikke automatisk – det må gjøres manuelt i Visma.">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <p style="margin-top:8px"><button class="liten fare">Avlys kurs</button></p>
-    </form>
-    {% endif %}
-  </div>
-
-  <div class="kort">
-    <strong>Ansvarlig</strong>
-    <p class="liten dempet" style="margin:4px 0 10px">Brukes til «Vis bare mine kurs» på Oversikten.</p>
-    <form method="post" action="{{ url_for('admin_sett_ansvarlig', kurs_id=kurs.id) }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <select name="ansvarlig_admin_id" aria-label="Ansvarlig">
-        <option value="">– Ikke satt –</option>
-        {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if kurs.ansvarlig_admin_id == a.id }}>{{ a.navn }}</option>{% endfor %}
-      </select>
-      <p style="margin-top:10px"><button class="liten">Lagre</button></p>
-    </form>
-  </div>
-</div>
+{#- Status og Ansvarlig står i kursinnstillingene under Kapasitet (Camilla 05.10.2026: «De tar veldig mye plass nå»). Et skjema kan
+    ikke ligge inni et annet, så status-feltet og knappene der hører til disse egne skjemaene via form="…" og lagres med sin egen
+    knapp. Ansvarlig lagres med «Lagre kursinnstillinger». -#}
+{% if kurs_statusvalg %}<form id="statusskjema" method="post" action="{{ url_for('admin_kurs_status', kurs_id=kurs.id) }}" data-status-bekreft>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>{% endif %}
+{% if kurs.status == 'avlyst' %}<form id="gjenaapneskjema" method="post" action="{{ url_for('admin_gjenaapne_kurs', kurs_id=kurs.id) }}"
+      data-bekreft="Gjenåpne dette kurset? Deltakerne varsles ikke automatisk om dette.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
+{% elif kurs.status != 'avsluttet' %}<form id="avlysskjema" method="post" action="{{ url_for('admin_avlys_kurs', kurs_id=kurs.id) }}"
+      data-bekreft="Avlyse «{{ kurs.navn }}»? Alle {{ STATUS_FLERTALL.paameldt|lower }}{% if ekstra_antall %}, {{ STATUS_FLERTALL.ekstradeltaker|lower }}{% endif %} og de på venteliste varsles på e-post med én gang. Fakturaer krediteres ikke automatisk – det må gjøres manuelt i Visma.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>{% endif %}
+{% if kurs.status == 'avlyst' and uvarslede %}
+<div class="flash feil" role="alert">{{ uvarslede }} deltaker(e) har ikke fått avlysningsvarselet.
+  {% if admin_rolle != 'lese' %}<form method="post" action="{{ url_for('admin_avlysning_varsle', kurs_id=kurs.id) }}" style="margin:8px 0 0">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten">Send avlysningsvarsel til dem</button></form>{% endif %}</div>
+{% endif %}
 
 <h2>Kursinnstillinger</h2>
 <form id="kursform" method="post" action="{{ url_for('admin_kurs_oppsett_lagre', kurs_id=kurs.id) }}"
@@ -73,6 +41,30 @@
     <div><label for="f-kapasitet">Kapasitet</label><input id="f-kapasitet" name="kapasitet" type="number" min="1" value="{{ v.kapasitet }}">
       <p class="liten dempet" style="margin:4px 0 0">Tom = ubegrenset. Øker du kapasiteten, rykker ventelisten automatisk opp.</p></div>
     <div>{{ skjema.paameldingsfrist(v, idag, forste_kursdag, fristforslag) }}</div>
+  </div>
+  <div class="rad status-og-ansvarlig">
+    <div>
+      <label for="f-status">Status <span class="merke {{ {'aapen':'ok','full':'gul','aktiv':'','avsluttet':'gra','avlyst':'feil','utkast':'gra'}.get(kurs.status,'gra') }}">{{ kurs.status }}</span></label>
+      {% if kurs_statusvalg %}
+      <div class="innebygd-rad">
+        <select id="f-status" name="status" form="statusskjema" required>
+          <option value="" selected disabled>Velg ny status</option>
+          {% for s in kurs_statusvalg %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
+        </select>
+        <button class="liten sekundar" form="statusskjema">Endre status</button>
+      </div>
+      {% endif %}
+      {% if kurs.status == 'avlyst' %}<p style="margin:6px 0 0"><button class="liten sekundar" form="gjenaapneskjema">Gjenåpne</button></p>
+      {% elif kurs.status != 'avsluttet' %}<p style="margin:6px 0 0"><button class="liten fare" form="avlysskjema">Avlys kurs</button></p>{% endif %}
+    </div>
+    <div>
+      <label for="f-ansvarlig">Ansvarlig <span class="liten dempet">(brukes til «Vis bare mine kurs»)</span></label>
+      {#- Lagres med «Lagre kursinnstillinger» nederst, som feltene rundt (Camilla 05.10.2026). -#}
+      <select id="f-ansvarlig" name="ansvarlig_admin_id">
+        <option value="">– Ikke satt –</option>
+        {% for a in admins %}<option value="{{ a.id }}" {{ 'selected' if kurs.ansvarlig_admin_id == a.id }}>{{ a.navn }}</option>{% endfor %}
+      </select>
+    </div>
   </div>
 
   <h3 class="skjemadel">Betaling</h3>
@@ -107,6 +99,36 @@
   <p style="margin-top:16px"><button class="liten">Lagre kursinnstillinger</button></p>
 </form>
 
+{#- Rabattprisene (Camilla 09.10.2026, kurs/rabatter.py): hvilke rabatter kurset gir, prosenten og om retten til rabatten må godkjennes.
+    Lagres for seg (admin_kurs_rabatter_lagre) og gjelder nye påmeldinger. -#}
+<h2 id="rabatter">Priser og rabatter</h2>
+{% if not kurs.pris_nok %}
+<p class="dempet">Kurset er gratis. Rabatter kan settes opp når kurset har en pris.</p>
+{% else %}
+<form method="post" action="{{ url_for('admin_kurs_rabatter_lagre', kurs_id=kurs.id) }}" class="kort" data-rabattoppsett="{{ kurs.pris_nok }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <p class="liten dempet" style="margin-top:0">Ordinær pris: {{ kurs.pris_nok | kr }}. Kryss av for rabattene kurset gir. Én rabatt per person, og prisen
+    avrundes til hele kroner. Endringer gjelder nye påmeldinger: de som er påmeldt, beholder prisen de fikk.</p>
+  <div class="tabellboks"><table>
+    <thead><tr><th scope="col">Rabatt</th><th scope="col">Prosent</th><th scope="col">Pris</th><th scope="col">Må godkjennes</th></tr></thead>
+    <tbody>
+    {% for r in rabattoppsett %}
+    <tr>
+      <td><label class="valg" style="margin:0"><input type="checkbox" name="rabatt_{{ r.kategori }}" value="1"{{ ' checked' if r.aktiv }}> {{ r.navn }}</label></td>
+      <td class="ikke-brudd"><input name="prosent_{{ r.kategori }}" type="number" min="1" max="99" value="{{ r.prosent }}" style="max-width:6em" aria-label="Rabatt i prosent for {{ r.navn | lower }}" data-rabattprosent> %</td>
+      <td class="ikke-brudd" data-rabattpris>{{ r.pris | kr }}</td>
+      <td><label class="valg" style="margin:0"><input type="checkbox" name="godkjennes_{{ r.kategori }}" value="1"{{ ' checked' if r.maa_godkjennes }}> Ja</label></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="liten dempet">«Må godkjennes»: påmeldingen får et gult merke, og fakturaen venter til dere har trykket «Godkjent» eller «Ikke godkjent»
+    (siden <a href="{{ url_for('admin_rabatter') }}">Rabatter som venter</a>). Studenter laster opp studentbevis, NIEFT-medlemmer bruker
+    e-posten de er registrert med, og Psyflix-medlemmer oppgir organisasjonen avtalen går gjennom.</p>
+  {% if admin_rolle != 'lese' %}<p style="margin-top:12px"><button class="liten">Lagre rabatter</button></p>{% endif %}
+</form>
+{% endif %}
+
 <h2 id="kursgjennomforing">Kursgjennomføring</h2>
 {% if datofeil %}
 <div class="flash feil" role="alert"><strong>Datoene er ikke lagret.</strong>
@@ -122,7 +144,11 @@
   {% if admin_rolle != 'lese' %}<p style="margin-top:12px"><button class="liten">Lagre kursdatoer</button></p>{% endif %}
 </form>
 
-<h2>Kursdager og innsjekk</h2>
+<div class="verktoylinje" style="justify-content:space-between; margin:24px 0 8px">
+  <h2 style="margin:0">Kursdager og innsjekk</h2>
+  {#- Alle QR-kodene til utskrift, én A4-side per kursdag med logo (Camilla 05.10.2026) -#}
+  <a class="knapp liten" href="{{ url_for('admin_qr_utskrift', kurs_id=kurs.id) }}" target="_blank">Skriv ut QR-koder (PDF)</a>
+</div>
 <div class="tabellboks"><table>
   <thead><tr><th scope="col">Dato</th><th scope="col">Kode</th><th scope="col">Oppmøte</th><th scope="col"><span class="skjul-visuelt">Handlinger</span></th></tr></thead>
   {% for g, dagrader in dager_per_samling %}
@@ -144,45 +170,4 @@
   </tbody>
   {% endfor %}
 </table></div>
-
-{% if kurs.sharepoint_mappe %}<h2 id="kursmateriell">Kursmateriell (SharePoint: {{ kurs.sharepoint_mappe }}/Presentasjoner)</h2>
-{% else %}<h2 id="kursmateriell">Kursmateriell</h2>
-<div class="flash info" role="status">Kurset har ingen SharePoint-mappe ennå (den kunne ikke lages da kurset ble opprettet).
-  Kursholder kan likevel laste opp – mappen lages da automatisk.
-  {% if admin_rolle != 'lese' %}<form method="post" action="{{ url_for('admin_sharepoint_mappe', kurs_id=kurs.id) }}" style="margin:8px 0 0">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten">Lag SharePoint-mappe</button></form>{% endif %}</div>
-{% endif %}
-{% if filer %}<ul>{% for f in filer %}<li>{{ f.navn }} <span class="dempet liten">({{ (f.storrelse / 1024) | round(0) | int }} kB)</span></li>{% endfor %}</ul>
-{% else %}<p class="dempet">Ingen filer ennå. Kursholder laster opp via opplastingslenken i påminnelsen.</p>{% endif %}
-
-<h3 class="skjemadel">Presentasjon fra kursholder</h3>
-{% if materiell %}
-<ul class="materielliste">
-  {% for m in materiell %}
-  <li>{{ m.beskrivelse }} fra {{ m.ansvarlig_navn }} ({{ m.ansvarlig_epost }}) · frist {{ m.frist|dagdato }} ·
-    {% if m.levert_ts %}<span class="merke ok">levert</span>{% elif m.frist < idag %}<span class="merke feil">ikke levert – fristen er passert</span>{% else %}<span class="merke gul">venter</span>{% endif %}
-    {% if not m.levert_ts and admin_rolle != 'lese' %}
-    <form method="post" action="{{ url_for('admin_fjern_materiell_krav', kurs_id=kurs.id, krav_id=m.id) }}" class="innebygd"
-          data-bekreft="Fjerne forespørselen til {{ m.ansvarlig_navn }}? Kursholderen får ingen flere påminnelser om den.">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten fare">Fjern</button></form>
-    {% endif %}
-  </li>
-  {% endfor %}
-</ul>
-{% else %}<p class="liten dempet">Ingen forespørsler om presentasjon.</p>{% endif %}
-{% if admin_rolle != 'lese' %}
-<details class="kort materiellforesporsel">
-  <summary>Be kursholder om presentasjon</summary>
-  <form method="post" action="{{ url_for('admin_be_om_materiell', kurs_id=kurs.id) }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="rad">
-      <div><label for="m-navn">Kursholderens navn *</label><input id="m-navn" name="ansvarlig_navn" required maxlength="200"></div>
-      <div><label for="m-epost">E-post *</label><input id="m-epost" name="ansvarlig_epost" type="email" required maxlength="200"></div>
-      <div><label for="m-frist">Frist for presentasjonen *</label><input id="m-frist" name="frist" type="date" required></div>
-    </div>
-    <p class="liten dempet">Kursholderen får e-post med opplastingslenke 7, 2 og 0 dager før fristen. Er ingenting levert når fristen er passert, varsles kursadministrasjonen.</p>
-    <p><button class="liten">Lagre forespørselen</button></p>
-  </form>
-</details>
-{% endif %}
 {% endblock %}

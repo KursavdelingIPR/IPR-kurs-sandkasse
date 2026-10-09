@@ -69,6 +69,10 @@
           {{ 'checked' if k in valg.kolonner }}{{ ' disabled' if k.laast }}{% if not k.laast %} data-send-ved-endring{% endif %}>
         {{ k.tittel }}{% if k.laast %} <span class="dempet">(alltid med)</span>{% elif k.personopplysning %} <span class="dempet">(personopplysning)</span>{% endif %}</label>
       {% endfor %}
+      {%- if gruppe == 'Kontaktinformasjon' %}<label class="valg"><input type="checkbox" name="vis" value="alle_epost"{{ ' checked' if valg.alle_epost }} data-send-ved-endring>
+        Vis alle e-postadresser <span class="dempet">(også de som ikke vil dele – bare til intern bruk)</span></label>{% endif %}
+      {%- if loop.first %}<label class="valg"><input type="checkbox" name="vis" value="kursnr"{{ ' checked' if valg.kursnr }} data-send-ved-endring>
+        Kursnummer <span class="dempet">(øverst på arket)</span></label>{% endif %}
     </fieldset>
     {% endfor %}
     <p class="liten dempet">Personopplysninger tas bare med når du krysser av for dem. Allergier og tilrettelegging tas
@@ -88,7 +92,7 @@
     {% if logo %}<img class="liste-logo" src="{{ url_for('static', filename=logo.fil) }}" alt="{{ logo.navn }}">{% endif %}
     <p class="ark-etikett">Deltakerliste</p>
     <h2>{{ kurs.navn }}</h2>
-    <p class="ark-info">{% if datoer %}{{ datoer }}{% endif %}{% if kurs.sted %}{{ ' · ' if datoer }}{{ kurs.sted }}{% endif %}{{ ' · ' if datoer or kurs.sted }}Kursnr. {{ kurs.kursnr }}</p>
+    <p class="ark-info">{% if datoer %}{{ datoer }}{% endif %}{% if kurs.sted %}{{ ' · ' if datoer }}{{ kurs.sted }}{% endif %}{% if valg.kursnr %}{{ ' · ' if datoer or kurs.sted }}Kursnr. {{ kurs.kursnr }}{% endif %}</p>
   </div>
   {%- set utfylling = 'merknad' in valg.nokler %}
   <div class="tabellboks"><table class="liste{{ ' mange' if tabell.overskrifter|length > 4 }}{{ ' utfylling' if utfylling }}">

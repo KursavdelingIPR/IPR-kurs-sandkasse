@@ -362,7 +362,8 @@ def test_kursbevis_krever_oppmoete_paa_alle_deres_dager_og_sier_hvilke_samlinger
     html = bevis[rad(con, eva)["deltaker_id"]]
     assert "har deltatt på samling 1 og 3 i" in html and "Samling 1 og 3 (av kursets 3)" in html
     assert "har gjennomført" not in html
-    assert all(d in html for d in ("2031-10-16", "2031-10-17", "2031-12-04")) and "2031-11-13" not in html
+    # norske datoer på kursbeviset (06.10.2026)
+    assert all(d in html for d in ("16.10.2031", "17.10.2031", "04.12.2031")) and "13.11.2031" not in html
     assert re.search(r"<td>Timer</td><td>17</td>", html)                                                      # 6 + 6 + 5 (samling 3 har 5 timer)
 
 
@@ -428,7 +429,7 @@ def _program(con, kid):
 def _visning(con, kid, did, idag, **kw):
     kurs = deltakerside.hent_kurs_for_side(con, con.execute("SELECT kode FROM kurs WHERE id=?", (kid,)).fetchone()[0])
     return deltakerside.bygg_visning(con, kurs, _program(con, kid), deltaker_id=did, idag=idag, forhandsvisning=kw.pop("forhandsvisning", False),
-                                     fil_url=lambda i: f"/fil/{i}", sp_url=lambda n: None, **kw)
+                                     fil_url=lambda i: f"/fil/{i}", **kw)
 
 
 def test_kursside_viser_bare_deres_dager_program_og_samlingsnummer(con):
@@ -470,12 +471,12 @@ def test_filer_knyttet_til_dager_utenfor_utvalget_vises_hverken_paa_dagen_eller_
     meta = {i: {"id": i, "filnavn": f"fil{i}.pdf", "type": "dokument", "storrelse": 2048, "opprettet": "2031-10-01 10:00:00"} for i in (1, 2, 3)}
     b = si._ny_blokk("filer", {"filer": [{"fil_id": 1, "tittel": "Bare samling 2", "gruppe": ute_id},
                                          {"fil_id": 2, "tittel": "Dag 1", "gruppe": inne_id},
-                                         {"fil_id": 3, "tittel": "Uten dag", "gruppe": None}], "sharepoint": False})
-    ut = deltakerside._filer_data(con, kurs, b, meta, egne, date(2031, 10, 1), lambda i: f"/fil/{i}", lambda n: None, frozenset(utenfor))
+                                         {"fil_id": 3, "tittel": "Uten dag", "gruppe": None}]})
+    ut = deltakerside._filer_data(con, kurs, b, meta, egne, date(2031, 10, 1), lambda i: f"/fil/{i}", frozenset(utenfor))
     tittel = [(g["tittel"], [f["tittel"] for f in g["filer"]]) for g in ut["grupper"]]
     assert [t for t in tittel if "Bare samling 2" in t[1]] == []                                              # aldri vist
     assert tittel[0][1] == ["Dag 1"] and tittel[0][0].startswith("Dag 1 · ") and tittel[-1] == ("Øvrige filer", ["Uten dag"])
-    alt = deltakerside._filer_data(con, kurs, b, meta, alle, date(2031, 10, 1), lambda i: f"/fil/{i}", lambda n: None)     # Påmeldt: alle
+    alt = deltakerside._filer_data(con, kurs, b, meta, alle, date(2031, 10, 1), lambda i: f"/fil/{i}")     # Påmeldt: alle
     assert "Bare samling 2" in [f["tittel"] for g in alt["grupper"] for f in g["filer"]]
 
 

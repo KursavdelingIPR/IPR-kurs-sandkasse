@@ -38,7 +38,6 @@ $py = ".\.venv\Scripts\python.exe"
 | `/min-side` | **Mine kurs**: deltakerens oversikt etter innlogging med e-post: ett kort per kurs (Åpne Min side, Registrer oppmøte i dag) og «Min konto» (fakturaer, kursbevis og dokumenter, timer i spesialistløp) |
 | `/innsjekk/<token>` | Innsjekk i kurslokalet: skann QR-koden (e-post, eller ett trykk når du er innlogget). Én registrering per kursdag. Skanning gir aldri innlogging. Reserve på nett: «Registrer oppmøte i dag» på Min side og under Mine kurs, med dagens kode (den gamle kodesiden `/innsjekk` er fjernet) |
 | `/sporsmal` | «Spør oss» – velger bare blant godkjente svar. **Av som standard** (`ASSISTENT_AKTIV=1` slår den på, sammen med Kunnskapsbase i admin) |
-| `/lever/<id>/<signatur>` | Kursholder laster opp materiell (signert lenke i purre-e-posten) |
 | `/api/paamelding` | Mottak fra eksterne skjema (HMAC-signert). Krever `fornavn`, `etternavn`, `epost` og `kurs`. Deltakerens private adresse (`adresse`, `postnr` og `poststed`, også når arbeidsgiver betaler) **må være med**: mangler den eller noe av den, svarer webhooken 400 med feltene som mangler, og ingenting registreres (`ADRESSE_KREVES_I_WEBHOOK=1`, standard). `0` er en midlertidig nødbrems for overgangsperioden (av som standard): da går påmeldingen ikke tapt, men tas inn selv om adressen mangler (en delvis adresse tas vare på som ufullstendige data) og merkes «Privat adresse mangler» eller «Privat adresse er ufullstendig», og fakturaen holdes tilbake til alle tre feltene er lagt inn. Før produksjon **må** ipr.no-skjemaet sende de tre feltene: se `OPERATIONS.md` 2f (med curl-test). Fullt navn i ett felt avvises. De gamle feltene `faktura_adresse`/`faktura_postnr`/`faktura_sted` leses ikke lenger: betaler deltakeren selv, faktureres `adresse`; betaler firma (`org_nr` er sendt), faktureres firmaets adresse fra Enhetsregisteret |
 
 **For administrasjonen** (`/admin`, roller: systemadministrator / kursadministrator / lesetilgang)
@@ -69,10 +68,9 @@ første kursdag ligger lenger enn seks kalendermåneder fram: fakturaen lages da
 4. Velkomst uka før + innkalling dagen før hver kursdag
 5. Setter kursstatus og importerer Zoom-oppmøte
 6. Kursbevis til dem som har møtt
-7. Purrer kursholdere på materiell og varsler admin ved fristbrudd
-8. Sletter allergi-/tilretteleggingsopplysninger 14 dager etter kurset
-9. Rydder utløpte import-forhåndsvisninger
-10. Tømmer gruppelister (tabeller med navn) på Min side 30 dager etter siste kursdag
+7. Sletter allergi-/tilretteleggingsopplysninger 14 dager etter kurset
+8. Rydder utløpte import-forhåndsvisninger
+9. Tømmer gruppelister (tabeller med navn) på Min side 30 dager etter siste kursdag
 
 Hvert steg og kurs kjøres for seg – en feil stopper aldri resten. All e-post og fakturering går gjennom en
 claim-/statusmodell: ingen får samme e-post to ganger, ingen påmelding faktureres to ganger, og uklare utfall prøves
@@ -95,7 +93,7 @@ kurs/
   tema.py                           Terapiakademiet-drakten for deltakersidene: logofiler (stilen: web/static/tema-terapiakademiet.css)
   lenker.py, feil.py, assistent.py, portsjekk.py, seed_demo.py
   integrasjoner/                    ALT som snakker med omverdenen – med demo-gren
-    epost.py, sharepoint.py, m365.py (Microsoft Graph), zoom.py, visma.py, brreg.py (Brønnøysundregistrene)
+    epost.py, m365.py (Microsoft Graph), zoom.py, visma.py, brreg.py (Brønnøysundregistrene)
   maler/epost/                      e-posttekstene
   web/                              Flask-app, sikkerhet (CSRF/CSP/takbegrensning), Entra ID, maler, static/app.js,
                                     kursside_admin_ruter.py og deltakerside_ruter.py (Min side)

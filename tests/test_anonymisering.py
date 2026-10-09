@@ -95,8 +95,9 @@ def test_anonymisering_fjerner_personopplysningene_overalt(con, person):
     d = con.execute("SELECT navn, epost FROM deltaker WHERE id=?", (person["did"],)).fetchone()
     assert (d["navn"], d["epost"]) == (db.ANONYM_NAVN, f"anonymisert-{person['did']}@{db.ANONYM_DOMENE}")
     assert ut == {"paameldinger": 1, "sensitivt": 1, "skjemasvar": 1, "dokumenter": 1, "innloggingslenker": 1,
-                  "utsendingslogg": 1, "epostkopier": 1, "importforhandsvisninger": 0, "firmarader": 1, "firmakontakt": 1,
-                  "henvendelser": 1}
+                  "utsendingslogg": 1, "epostkopier": 1, "epostkoe": 0, "importforhandsvisninger": 0, "firmarader": 1,
+                  "firmakontakt": 1,
+                  "henvendelser": 1, "datakontroll": 0, "rabattbevis": 0}
     logg = con.execute("SELECT detaljer FROM hendelse WHERE handling='deltaker_anonymisert'").fetchone()["detaljer"]
     assert json.loads(logg) == {"deltaker_id": person["did"], **ut}
 

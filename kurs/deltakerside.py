@@ -15,8 +15,6 @@ allergier/tilrettelegging, aldri innsjekk-kode eller -token, aldri deltakerens a
 """
 import hmac
 import re
-import threading
-import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Callable
@@ -26,14 +24,13 @@ from markupsafe import Markup
 
 from . import config, db, kursdatoer, norsk_tid, sidelager
 from . import sideinnhold as si
-from .integrasjoner import sharepoint
 
 TEKST_IKKE_PUBLISERT = "Min side er ikke åpnet ennå. Du får beskjed fra kursadministrasjonen når den er klar."
 TEKST_IKKE_APEN = "Min side er ikke åpen for dette kurset"        # kurskortet i Mine kurs når siden ikke er publisert, er tatt ned eller er stengt (stemmer i alle tre tilfellene)
 TEKST_IKKE_PAA_SAMLINGEN = "Du er ikke satt opp på denne samlingen. Snakk med kursansvarlig."
 OK_KURSSTATUS = ("aapen", "full", "aktiv", "avsluttet")     # kursstatuser som kan gi tilgang til siden (ikke utkast/avlyst)
 ANONYM_DOMENE = "@" + db.ANONYM_DOMENE                      # anonymiserte personer har aldri tilgang
-_KURS_KOLONNER = ("id, kursnr, kode, navn, type, status, sted, start_kl, slutt_kl, zoom_url, zoom_id, sharepoint_mappe")   # aldri notat
+_KURS_KOLONNER = ("id, kursnr, kode, navn, type, status, sted, start_kl, slutt_kl, zoom_url, zoom_id")   # aldri notat
 
 
 @dataclass(frozen=True)
@@ -76,18 +73,6 @@ def har_side(con, kurs_id: int, idag: date | None = None) -> bool:
     kurs = con.execute("SELECT status FROM kurs WHERE id=?", (kurs_id,)).fetchone()
     side = sidelager.hent(con, kurs_id)
     if not kurs or kurs["status"] not in OK_KURSSTATUS or not side or not side["publisert"] or not side["aktiv"]:
-        return False
-    stenges = sidelager.effektiv_stenges(con, kurs_id, side)
-    return stenges is None or (idag or date.today()) <= stenges
-
-
-def materiell_apent(con, kurs_id: int, idag: date | None = None) -> bool:
-    """Kan deltakerne hente kursholders filer (SharePoint) via Min side og /materiell? Ja, unntatt når kurssiden er publisert og siden tatt
-    ned (nødbrems) eller stengt: da er hele kurset stengt for deltakerne, ikke bare siden. Kurs uten publisert side: som før (åpent)."""
-    side = sidelager.hent(con, kurs_id)
-    if not side or not side["publisert"]:
-        return True
-    if not side["aktiv"]:
         return False
     stenges = sidelager.effektiv_stenges(con, kurs_id, side)
     return stenges is None or (idag or date.today()) <= stenges
@@ -441,36 +426,6 @@ def min_side_info(con, deltaker_id: int, paameldinger, idag: date) -> dict[int, 
     return ut
 
 
-# ============================ kursholders filer (SharePoint) ============================
-
-_SP_CACHE: dict[str, tuple[float, tuple[list[dict], bool]]] = {}
-_SP_LAAS = threading.Lock()
-SP_CACHE_SEKUNDER = 60
-
-
-def nullstill_sp_cache() -> None:
-    with _SP_LAAS:
-        _SP_CACHE.clear()
-
-
-def list_sharepoint(kurs) -> tuple[list[dict], bool]:
-    """(filer, ok) for «Fra kursholder»: filene i Kurs/<kode>/Presentasjoner, med 60 sekunders cache per mappe. ok=False betyr at
-    henting feilet (siden viser da en vennlig tekst, ikke «ingen filer»). Bare kurs med SharePoint-mappe; aldri direkte tilgang
-    for deltakerne (filene hentes via appen, som sjekker påmeldingen)."""
-    if not kurs["sharepoint_mappe"]:
-        return [], True
-    mappe = f"{kurs['sharepoint_mappe']}/Presentasjoner"
-    naa = time.monotonic()
-    with _SP_LAAS:
-        treff = _SP_CACHE.get(mappe)
-        if treff and naa - treff[0] < SP_CACHE_SEKUNDER:
-            return treff[1]
-    filer, ok = sharepoint.list_filer_med_status(mappe)
-    with _SP_LAAS:
-        _SP_CACHE[mappe] = (naa, (filer, ok))
-    return filer, ok
-
-
 # ============================ visningsdata ============================
 
 def _lagt_ut_tekst(dato: date | None, tid: datetime | None, idag: date) -> tuple[str, bool]:
@@ -534,7 +489,7 @@ def _program_data(b: dict, dager: list[dict], idag: date, utenfor=frozenset(), m
     return {"undertittel": f"{antall} kursdag{'er' if antall != 1 else ''}" if antall else "", "dager": ut}
 
 
-def _filer_data(con, kurs, b: dict, filmeta: dict[int, dict], dager: list[dict], idag: date, fil_url, sp_url,
+def _filer_data(con, kurs, b: dict, filmeta: dict[int, dict], dager: list[dict], idag: date, fil_url,
                 utenfor=frozenset(), med_samling: bool = False) -> dict | None:
     d = b["data"]
     per_id = {kd["id"]: (i + 1, kd) for i, kd in enumerate(dager)}
@@ -561,15 +516,9 @@ def _filer_data(con, kurs, b: dict, filmeta: dict[int, dict], dager: list[dict],
     ut = list(dagsgrupper)
     if None in grupper:      # filer uten dag kommer sist, men med egen overskrift når det finnes dagsgrupper: ellers ser de ut til å høre til siste dag
         ut.append({"tittel": "Øvrige filer" if dagsgrupper else None, "filer": grupper[None]})
-    sp = None
-    if d.get("sharepoint") and kurs["sharepoint_mappe"]:
-        filer, ok = list_sharepoint(kurs)
-        sp = {"filer": [{"navn": f["navn"], "url": sp_url(f["navn"])} for f in filer], "ok": ok}
-        if ok and not filer:
-            sp = None                                     # ingenting å vise (og ingen feil)
-    if not ut and sp is None:
+    if not ut:
         return None
-    return {"grupper": ut, "sharepoint": sp}
+    return {"grupper": ut}
 
 
 def _lenker_data(kurs, b: dict, avsluttet: bool) -> dict | None:
@@ -587,7 +536,7 @@ def _lenker_data(kurs, b: dict, avsluttet: bool) -> dict | None:
     return {"grupper": ut} if ut else None
 
 
-def _blokkdata(con, kurs, b: dict, filmeta: dict, dager: list[dict], idag: date, avsluttet: bool, fil_url, sp_url,
+def _blokkdata(con, kurs, b: dict, filmeta: dict, dager: list[dict], idag: date, avsluttet: bool, fil_url,
                utenfor=frozenset(), med_samling: bool = False) -> dict | None:
     """Ferdig data til malen for én blokk, eller None hvis blokken viser seg tom (filer som mangler, lenker uten adresse ...)."""
     typ, d = b["type"], b["data"]
@@ -599,7 +548,7 @@ def _blokkdata(con, kurs, b: dict, filmeta: dict, dager: list[dict], idag: date,
         data = _program_data(b, dager, idag, utenfor, med_samling)
         return data if any(dag["punkter"] for dag in data["dager"]) else None
     if typ == "filer":
-        return _filer_data(con, kurs, b, filmeta, dager, idag, fil_url, sp_url, utenfor, med_samling)
+        return _filer_data(con, kurs, b, filmeta, dager, idag, fil_url, utenfor, med_samling)
     if typ == "lenker":
         return _lenker_data(kurs, b, avsluttet)
     if typ == "tabell":
@@ -660,7 +609,7 @@ def _felles_tid(dager: list[dict]) -> str:
 
 
 def bygg_visning(con, kurs, dok: dict, *, deltaker_id: int | None, idag: date, forhandsvisning: bool,
-                 fil_url: Callable[[int], str], sp_url: Callable[[str], str | None],
+                 fil_url: Callable[[int], str],
                  simuler_kursdag_id: int | None = None, sist_publisert: str | None = None,
                  forh_tekst: str | None = None) -> dict:
     """Malkonteksten (SPEC §7.2) til kursside_deltaker.html. Filtrerer og slår opp alt: malen får bare ferdige, ufarlige tekster
@@ -681,7 +630,7 @@ def bygg_visning(con, kurs, dok: dict, *, deltaker_id: int | None, idag: date, f
     topp_bilde = side_bilde = None
     for b in si.synlige_blokker(dok, idag):
         try:
-            data = _blokkdata(con, kurs, b, filmeta, dager, idag, avsluttet, fil_url, sp_url, utenfor, med_samling)
+            data = _blokkdata(con, kurs, b, filmeta, dager, idag, avsluttet, fil_url, utenfor, med_samling)
         except (TypeError, AttributeError, KeyError, ValueError, IndexError):     # innhold som er endret utenom siden: blokken vises ikke
             data = None
         if data is None:
@@ -734,6 +683,7 @@ def bygg_visning(con, kurs, dok: dict, *, deltaker_id: int | None, idag: date, f
     melding = dok.get("melding") or {}
     return {
         "kurs": {"id": kurs["id"], "kode": kurs["kode"], "navn": kurs["navn"], "tittel": dok.get("tittel") or kurs["navn"],
+                 "merke": kurs["merke"] if "merke" in kurs.keys() else None,     # arrangøren: utseendet på Min side (IPR / Terapiakademiet)
                  "ingress": dok.get("ingress", ""), "type": kurs["type"],
                  "type_tekst": {"fysisk": "Fysisk kurs", "digital": "Nettkurs (Zoom)", "hybrid": "Hybrid (fysisk og Zoom)"}.get(kurs["type"], ""),
                  "sted": kurs["sted"] or "", "rom": dok.get("rom", ""), "periode": kursdatoer.datoliste(datoer) if datoer else "",

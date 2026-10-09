@@ -12,7 +12,7 @@ Oppsett av selve Azure-ressursene (for IT) står i `AZURE-SETUP.md`, drift i `OP
 | `MODUS` | `demo` | `prod` | `prod` |
 | Database | SQLite `data/kurs.db` (`DATABASE_URL` tom) | Azure Database for PostgreSQL i `pameldingssystem-sandbox-rg` | PostgreSQL i `pameldingssystem-prod-rg` |
 | Webserver | `kjor.py` / `start.bat` (Flask, kun 127.0.0.1) | App Service Linux, gunicorn | App Service Linux, gunicorn |
-| E-post / faktura / Zoom / SharePoint | Liksom (utboks, demo-grener) | Ekte, **mot testkonto/testpostboks/Visma-sandbox** | Ekte |
+| E-post / faktura / Zoom | Liksom (utboks, demo-grener) | Ekte, **mot testkonto/testpostboks/Visma-sandbox** | Ekte |
 | Admin-innlogging | Brukernavn/passord (`admin`/`demo`) | Microsoft Entra ID (+ ev. nødbruker) | Microsoft Entra ID (+ ev. nødbruker) |
 | Data | Oppdiktet (`kurs.seed_demo`) | Oppdiktet / testpersoner | Ekte |
 
@@ -36,14 +36,16 @@ I Azure settes alt som App Settings på web-appen. Hemmelige verdier legges i Ke
 | `ADMIN_BRUKERNAVN`, `ADMIN_PASSORD` | `admin`/`demo` | Første nødbruker, passord ≥ 12 tegn | ✔ (passord) | Brukes **bare** når databasen ikke har noen admin-brukere (første migrering) |
 | `ADMIN_LOKAL_INNLOGGING` | `1` | `0` (anbefalt) eller `1` for nødbruker | | `0` = kun Microsoft-innlogging |
 | `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID` | – | **påkrevd** hvis Entra | | App-registreringen for admin-innlogging |
-| `ENTRA_CLIENT_SECRET` | – | **påkrevd** hvis Entra | ✔ | |
+| `ENTRA_CLIENT_SECRET` | – | påkrevd hvis Entra uten sertifikat | ✔ | |
 | `ENTRA_ROLLER` | standard | valgfri | | App-rolle → rolle, standard `ipr.system=system,ipr.kursadmin=kursadmin,ipr.lese=lese` |
 | `ENTRA_GRUPPER` | – | valgfri | | Alternativ: `<gruppe-objekt-id>=rolle,…` |
-| `M365_TENANT_ID`, `M365_CLIENT_ID` | – | **påkrevd** | | App-registreringen for e-post og SharePoint (Graph, applikasjonstillatelser) |
-| `M365_CLIENT_SECRET` | – | **påkrevd** | ✔ | |
-| `SHAREPOINT_SITE_ID` | – | **påkrevd** | | Kurs-siten (Sites.Selected) |
+| `M365_TENANT_ID`, `M365_CLIENT_ID` | – | **påkrevd** | | App-registreringen for e-post (Graph, applikasjonstillatelser) |
+| `M365_CLIENT_SECRET` | – | påkrevd uten sertifikat | ✔ | Erstattes av `M365_SERTIFIKAT` (anbefalt) |
+| `M365_SERTIFIKAT` | – | **påkrevd** (anbefalt framfor secret) | ✔ | Key Vault-referanse til sertifikatet (PEM eller base64 PFX). Brukes framfor `M365_CLIENT_SECRET` når satt. `AZURE-SETUP.md` 5a |
+| `M365_SERTIFIKAT_PASSORD` | – | valgfri | ✔ | Bare for en PFX med passord (Key Vault lager dem uten) |
+| `ENTRA_SERTIFIKAT`, `ENTRA_SERTIFIKAT_PASSORD` | – | valgfri | ✔ | Sertifikat for innloggingen. Tom = M365-sertifikatet når innloggingen bruker samme registrering (ingen egen `ENTRA_CLIENT_ID`) |
 | `AVSENDER_EPOST`, `AVSENDER_NAVN` | standard | **påkrevd** | | Postboksen e-post sendes fra (kurs@ipr.no i prod, en testpostboks i sandbox) |
-| `ADMIN_EPOST` | standard | **påkrevd** | | Mottaker av eskaleringer og «til adm»-henvendelser |
+| `ADMIN_EPOST` | standard | **påkrevd** | | Mottaker av «til adm»-henvendelser |
 | `SJEKKLISTE_EPOST` | standard | valgfri | | Mottaker av morgen-e-posten om sjekklistene for planlagte kurs, standard `kurs@ipr.no` |
 | `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID` | – | påkrevd for digitale kurs | | Zoom Server-to-Server OAuth |
 | `ZOOM_CLIENT_SECRET` | – | påkrevd for digitale kurs | ✔ | |
@@ -75,7 +77,7 @@ ikke er https, det ikke finnes noen innloggingsvei for admin, eller databasen ha
 - `requirements.txt` installeres av App Service ved utrulling (Oryx). `gunicorn` og `psycopg[binary]` er med.
 - HTTPS og TLS-terminering gjøres av App Service. Appen bruker `ProxyFix`, så `BASE_URL` må være den offentlige
   https-adressen.
-- Lokal disk brukes ikke til varige data i drift: kursbevis ligger i databasen, kursmateriell i SharePoint.
+- Lokal disk brukes ikke til varige data i drift: kursbevis og filene på Min side ligger i databasen.
 
 ## 4. Rekkefølge ved utrulling
 

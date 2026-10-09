@@ -88,6 +88,13 @@ def test_bruken_av_kursdager_bekreftes_av_innsjekk_og_kursbevis_selv_om_raden_ma
 # det er riktig. Nye bruk som gjelder en bestemt deltaker, skal bruke db.paameldingens_kursdager (eller kursdager_for med påmelding):
 # ellers får en ekstradeltaker påminnelser, e-post, innsjekk, kursside og kursbevis for ALLE dagene.
 KURSNIVAA = {
+    ("kurs/web/app.py", "admin_qr_utskrift"): "QR-arkene til utskrift: én side per kursdag i hele kurset (05.10.2026)",
+    ("kurs/evaluering.py", "runder"): "evalueringens runder: hele kurset eller hver samling; mottakerne på en samling filtreres per "
+                                       "deltaker med db.paameldingens_kursdager (_er_paa_samling) (09.10.2026)",
+    ("kurs/sveiper.py", "bekreftelse_eksempel"): "forhåndsvisningen av påmeldingsbekreftelsen i fanen Kommunikasjon: kursets dager med en "
+                                                 "oppdiktet, vanlig deltaker (09.10.2026)",
+    ("kurs/godkjenning.py", "_forste_dag"): "henter alle dagene og filtrerer for deltakeren med db.paameldingens_kursdager(..., alle): "
+                                            "fristen for påminnelsen uka før i «Klar til sending» (05.10.2026)",
     ("kurs/daglig.py", "_kurs"): "morgenjobben: kursets første og siste dag (status, Zoom); mottakerne får sine egne dager via _mottakere",
     ("kurs/daglig.py", "_importer_zoom"): "henter alle dagene, og filtrerer per deltaker med db.paameldingens_kursdager(..., alle)",
     ("kurs/db.py", "kursets_samlinger"): "samlingene i hele kurset (utvalget velges blant dem)",

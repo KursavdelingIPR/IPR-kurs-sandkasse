@@ -31,6 +31,17 @@ skjemaet og ingen statuskoder er endret.
 Senere samme kveld ba Camilla om at administratorbanneret «Dette er det ekte påmeldingsskjemaet» (lenke, «Kopier lenke», «Rediger skjemaet») skulle bort
 fra påmeldingssiden. Bildet ble laget på nytt (igjen inne i pytest); eneste forskjell er at banneret er borte i scenarioet «forhandsvisning» (en administrator
 som ser et åpent kurs). Banneret for et kurs som ikke er åpent («forhandsvisning_utkast») står fortsatt.
+
+05.10.2026 (Camilla) ble bildet laget på nytt (inne i pytest) for fire tilsiktede endringer: «Bekreft e-post» etter e-post, lagrings-samtykket
+(«Jeg aksepterer at Institutt for Psykologisk Rådgivning lagrer …») etter vilkårene, Yrkestittel synlig som standard, EHF-avkrysningen skjult som
+standard, og kursdagene som «1. samling: dato» med ett felles «Tidspunkt: 09.00–16.00 alle dager». Ingen statuskoder er endret.
+07.10.2026 (Camilla: «fange opp ting som kan virke feil, som feks hvis noen skriver gmal.com») ble bildet laget på nytt (inne i pytest, med
+HPR slått på som i testene). Eneste forskjell, i 14 av 15 scenarier: e-postfeltet og (der fakturadelen finnes) «E-post for faktura» har fått
+attributtet `data-epost-sjekk` (domenelistene til «Mente du …?», kurs/datakontroll.py). Ingenting annet i skjemaet og ingen statuskoder er endret.
+
+09.10.2026 (Camilla: kvitteringen skal si at bekreftelsen er sendt til e-postadressen som ble registrert, og hvem de kontakter hvis den ikke
+kommer) ble bildet laget på nytt (inne i pytest, med HPR). Eneste forskjell: kvitteringsteksten i scenarioet
+«post_skjult_fakturablokk_ignorerer_manipulerte_felt» (det eneste som viser kvitteringen). Påmeldingsskjemaet og statuskodene er uendret.
 """
 import json
 from datetime import date
@@ -196,12 +207,12 @@ def lag_sider(con) -> dict[str, tuple[int, str]]:
     r = _klient().post("/kurs/PF1", data=INNSENDT)
     sider["post_feil_mangler_samtykke"] = (r.status_code, r.get_data(as_text=True))
     # POST-feil 2: Paameldingsfeil fra meld_paa (allerede paameldt) - andre feilsti i kursside()
-    r = _klient().post("/kurs/PF2", data={**INNSENDT, "samtykke": "on", "betaling": "samlet"})
+    r = _klient().post("/kurs/PF2", data={**INNSENDT, "samtykke": "on", "samtykke_lagring": "on", "betaling": "samlet"})
     sider["post_feil_allerede_paameldt"] = (r.status_code, r.get_data(as_text=True))
     # Manipulert POST mot et digitalt kurs UTEN synlig fakturablokk: betaler=organisasjon uten org.nr. (+ alle andre
     # faktura-/sensitive felt). Fram til 12C3 het dette scenariet "post_feil_org_uten_blokk" og ga 400 (org.nr.-krav).
     # 12C3 (tilsiktet sikkerhetsherding, godkjent): hele den skjulte blokken ignoreres server-side -> normal kvittering.
-    r = _klient().post("/kurs/PF3", data={**INNSENDT, "samtykke": "on", "org_nr": ""})
+    r = _klient().post("/kurs/PF3", data={**INNSENDT, "samtykke": "on", "samtykke_lagring": "on", "org_nr": ""})
     sider[SKJULT_FAKTURABLOKK] = (r.status_code, r.get_data(as_text=True))
     return sider
 
@@ -291,31 +302,35 @@ def test_gullstandarden_fanger_endret_blokkbetingelse(con, monkeypatch):
 # firma betaler - deretter ev. valg av betalingsmåte. Betaler deltakeren selv, er fakturaadressen hans egen adresse
 # (ADRESSE under «Om deg»), så den har ingen egne felt her.
 FAKTURA = ["betaler", "betaler", "org_nr", "org_navn",
-           "org_adresse", "org_postnr", "org_sted", "faktura_ref", "faktura_epost", "faktura_kommentar", "ehf"]
+           "org_adresse", "org_postnr", "org_sted", "faktura_ref", "faktura_epost", "faktura_kommentar"]
 FAKTURA_VELGER = FAKTURA + ["betaling", "betaling"]
 SENSITIVT = ["allergier", "tilrettelegging"]
 
 
 NAVN = ["fornavn", "etternavn"]       # egne felt (migrering 7) - tidligere ett "navn"-felt
 ADRESSE = ["adresse", "postnr", "poststed"]     # deltakerens private adresse: alltid med, rett etter e-post
+# 05.10.2026 (Camilla): «Bekreft e-post» rett etter e-post, lagrings-samtykket rett etter vilkårene, og yrkestittel vises
+# som standard. EHF-avkrysningen er skjult som standard (sendes automatisk når mottakeren kan ta imot EHF).
+EPOST = ["epost", "epost_bekreft"]
+SAMTYKKE = ["samtykke", "samtykke_lagring"]
 
 
 @pytest.mark.parametrize("scenario,forventet", [
-    ("fysisk_uten_spesialistlop", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
-    ("fysisk_med_spesialistlop", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", "hpr_nr", *FAKTURA, *SENSITIVT,
-                                  "samtykke"]),
-    ("digitalt", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *FAKTURA, "samtykke"]),
-    ("hybrid", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
-    ("person_pris_deltaker_velger", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *FAKTURA_VELGER, *SENSITIVT,
-                                     "samtykke"]),
-    ("person_pris_per_samling", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *FAKTURA, *SENSITIVT, "samtykke"]),
-    ("uten_fakturablokk_organisasjon", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
-    ("uten_fakturablokk_ingen", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
-    ("uten_fakturablokk_gratis", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", *SENSITIVT, "samtykke"]),
-    ("forhandsvisning", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", "hpr_nr", *FAKTURA_VELGER, *SENSITIVT,
-                         "samtykke"]),
-    ("forhandsvisning_utkast", [*NAVN, "epost", *ADRESSE, "telefon", "arbeidssted", "hpr_nr", *FAKTURA_VELGER, *SENSITIVT,
-                                "samtykke"]),
+    ("fysisk_uten_spesialistlop", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", *FAKTURA, *SENSITIVT, *SAMTYKKE]),
+    ("fysisk_med_spesialistlop", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", "hpr_nr", *FAKTURA, *SENSITIVT,
+                                  *SAMTYKKE]),
+    ("digitalt", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", *FAKTURA, *SAMTYKKE]),
+    ("hybrid", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", *FAKTURA, *SENSITIVT, *SAMTYKKE]),
+    ("person_pris_deltaker_velger", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", *FAKTURA_VELGER, *SENSITIVT,
+                                     *SAMTYKKE]),
+    ("person_pris_per_samling", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", *FAKTURA, *SENSITIVT, *SAMTYKKE]),
+    ("uten_fakturablokk_organisasjon", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", *SENSITIVT, *SAMTYKKE]),
+    ("uten_fakturablokk_ingen", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", *SENSITIVT, *SAMTYKKE]),
+    ("uten_fakturablokk_gratis", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", *SENSITIVT, *SAMTYKKE]),
+    ("forhandsvisning", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", "hpr_nr", *FAKTURA_VELGER, *SENSITIVT,
+                         *SAMTYKKE]),
+    ("forhandsvisning_utkast", [*NAVN, *EPOST, *ADRESSE, "telefon", "arbeidssted", "yrkestittel", "hpr_nr", *FAKTURA_VELGER, *SENSITIVT,
+                                *SAMTYKKE]),
 ])
 def test_feltrekkefolge_per_kursoppsett(sider, scenario, forventet):
     assert [n for n, _ in skjemafelt_i_rekkefolge(sider[scenario][1])] == forventet
@@ -331,7 +346,7 @@ def test_kun_navn_epost_adresse_betaler_og_samtykke_er_required(sider):
         felt = skjemafelt_i_rekkefolge(sider[scenario][1])
         betaler = ["betaler", "betaler"] if any(n == "betaler" for n, _ in felt) else []
         required = [n for n, a in felt if "required" in a]
-        assert required == [*NAVN, "epost", *ADRESSE, *betaler, "samtykke"], scenario
+        assert required == [*NAVN, *EPOST, *ADRESSE, *betaler, *SAMTYKKE], scenario
 
 
 def test_skjult_fakturablokk_ignorerer_manipulerte_felt_og_gir_normal_kvittering(sider):

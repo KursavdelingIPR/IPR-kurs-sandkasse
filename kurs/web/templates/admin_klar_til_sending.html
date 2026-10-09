@@ -1,0 +1,72 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{#- «Klar til sending» (Camilla 05.10.2026, kurs/godkjenning.py): automatiske e-poster som venter på godkjenning, gruppert per kurs og
+    type. Bekreftelse og venteliste sendes automatisk og står aldri her. Send gjelder hele gruppen, Ikke send én e-post eller hele gruppen. -#}
+<h1>Klar til sending</h1>
+<p class="sub">E-poster systemet har laget, men som ikke sendes før du godkjenner dem. Bekreftelse og venteliste sendes automatisk og står ikke her.</p>
+{% if not aktiv %}<div class="flash info" role="status">Godkjenning er slått av: alle e-poster sendes automatisk med en gang.</div>{% endif %}
+
+{% for g in grupper %}
+<div class="kort klargruppe">
+  <h2 style="margin-top:0">{{ g.navn }}</h2>
+  <p class="liten dempet" style="margin-top:-6px">{% if g.kursnr %}Kurs {{ g.kursnr }} – {% endif %}{{ g.kursnavn or 'Uten kurs' }} · {{ g.rader | length }} e-post{{ 'er' if g.rader | length != 1 }}</p>
+  <table class="liten">
+    <thead><tr><th scope="col">Mottaker</th><th scope="col">Emne</th><th scope="col">Status</th>{% if admin_rolle != 'lese' %}<th scope="col" aria-label="Handling"></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for r in g.rader %}
+    <tr>
+      <td>{% if r.deltaker_navn %}{{ r.deltaker_navn }}<br>{% endif %}<span class="dempet">{{ r.mottaker }}</span></td>
+      <td><a href="{{ url_for('admin_klar_til_sending_epost', godkjenning_id=r.id) }}">{{ r.emne }}</a></td>
+      <td>{% if r.grunn %}<span class="merke gul brytes">Kan ikke sendes: {{ r.grunn }}</span>
+          {% else %}<span class="merke">Venter</span>{% if r.utloper %}<br><span class="dempet">Kan sendes til og med {{ r.utloper | dagdato }}</span>{% endif %}{% endif %}</td>
+      {% if admin_rolle != 'lese' %}
+      <td><form method="post" action="{{ url_for('admin_klar_til_sending_avvis') }}" style="margin:0" data-bekreft="Ikke sende denne e-posten? Den blir aldri sendt.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="id" value="{{ r.id }}">
+          <button class="liten sekundar">Ikke send</button></form></td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if admin_rolle != 'lese' %}
+  <div class="klarknapper">
+    <form method="post" action="{{ url_for('admin_klar_til_sending_send') }}" style="margin:0"
+          data-bekreft="Sende {{ g.kan_sendes }} e-post{{ 'er' if g.kan_sendes != 1 }} nå? Mottakerne får dem med en gang.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% for r in g.rader %}{% if not r.grunn %}<input type="hidden" name="id" value="{{ r.id }}">{% endif %}{% endfor %}
+      <button{{ ' disabled' if not g.kan_sendes }}>{{ 'Send alle' if g.kan_sendes > 1 else 'Send' }} ({{ g.kan_sendes }})</button>
+    </form>
+    {% if g.rader | length > 1 %}
+    <form method="post" action="{{ url_for('admin_klar_til_sending_avvis') }}" style="margin:0"
+          data-bekreft="Ikke sende noen av disse {{ g.rader | length }} e-postene? De blir aldri sendt.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% for r in g.rader %}<input type="hidden" name="id" value="{{ r.id }}">{% endfor %}
+      <button class="sekundar">Ikke send noen</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% else %}
+<p class="dempet">Ingen e-poster venter på godkjenning.</p>
+{% endfor %}
+
+{% if behandlet %}
+<h2>Sist behandlet</h2>
+<table class="liten">
+  <thead><tr><th scope="col">Når</th><th scope="col">E-post</th><th scope="col">Kurs</th><th scope="col">Mottaker</th><th scope="col">Utfall</th></tr></thead>
+  <tbody>
+  {% for r in behandlet %}
+  <tr>
+    <td>{{ r.tid }}</td>
+    <td>{{ typenavn(r.type) }}</td>
+    <td>{{ r.kursnr or '' }}</td>
+    <td>{{ r.deltaker_navn or r.mottaker }}</td>
+    <td><span class="merke {{ {'sendt': 'ok', 'avvist': 'gra', 'utgaatt': 'gul', 'uavklart': 'feil'}.get(r.status, '') }}">{{ statusnavn[r.status] }}</span>
+      {% if r.merknad %}<span class="dempet">{{ r.merknad }}</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

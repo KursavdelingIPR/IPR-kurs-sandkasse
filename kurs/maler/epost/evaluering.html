@@ -1,0 +1,6 @@
+Emne: {{ maltekst.emne }}
+{% extends "_ramme.html" %}{% block innhold %}
+{{ maltekst.tekst }}
+<p style="margin:20px 0"><a href="{{ evaluering_url }}" style="background:#1f5c73;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Svar på evalueringen</a></p>
+<p style="font-size:13px;color:#555">Det tar et par minutter. Svarene er anonyme: vi ser ikke hvem som har svart hva. Lenken er personlig og kan brukes én gang.</p>
+{% endblock %}

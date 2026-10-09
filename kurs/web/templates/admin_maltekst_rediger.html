@@ -8,6 +8,11 @@
   <a href="{{ url_for('admin_maltekst_forhandsvis', mal=mal) }}">Forhåndsvis hele e-posten →</a>
 </p>
 
+{% if mal == 'bekreftelse' %}
+<div class="varselboks" style="max-width:640px">Dette er fellesteksten. Hvert kurs kan ha sin egen tekst under fanen <strong>Kommunikasjon</strong> på kurset.
+  Et kurs som ikke har fått sin egen tekst, bruker denne.</div>
+{% endif %}
+
 {% if mal_feilmelding %}
 <div class="flash feil" style="max-width:640px">{{ mal_feilmelding }}</div>
 {% endif %}

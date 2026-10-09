@@ -130,11 +130,10 @@ def _tillegg(navn, standard, koder) -> Felt:
 
 
 # Standardhilsen i malene til deltakere (og kontaktpersoner): fornavnet. Den er vanlig, redigerbar tekst - admin bestemmer
-# selv om og hvor {fornavn} skal staa. Kursholdere (purring) har bare ett navnefelt og faar fullt navn.
+# selv om og hvor {fornavn} skal staa.
 _D = "Hei {fornavn},\n\n"
 _PAAMELDTE = db.PAAMELDINGSSTATUSER_FLERTALL["paameldt"].lower()      # de som har plass (beskrivelsene av malene)
 _EKSTRA = db.PAAMELDINGSSTATUSER_FLERTALL["ekstradeltaker"]           # er på kurset, men bare på samlingene de er satt opp på
-_D_KURSHOLDER = "Hei {navn},\n\n"
 _P = {"fornavn", "navn"}            # mottakerens navnekoder i alle maler til deltakere/kontaktpersoner
 
 MALER: dict[str, Mal] = {
@@ -190,6 +189,13 @@ MALER: dict[str, Mal] = {
         {"emne": _emne("Emne", "Kursbevis: {kursnavn}", _P | {"kursnavn"}),
          "tekst": _hoved("Tekst", _D + "Takk for deltakelsen på {kursnavn}. Kursbeviset ditt ligger nå på {min_side}.",
                          _P | {"kursnavn"})}),
+    "evaluering": Mal(
+        "Evaluering etter kurset", "Sendes dagen etter siste kursdag til alle med plass på kurset, med en personlig lenke til "
+        "et kort, anonymt spørreskjema.",
+        {"emne": _emne("Emne", "Hva syntes du om {kursnavn}?", _P | {"kursnavn"}),
+         "tekst": _hoved("Tekst", _D + "Takk for at du deltok på {kursnavn}. Vi blir glade om du bruker et par minutter på å "
+                                       "fortelle oss hva du syntes. Svarene er anonyme og hjelper oss å gjøre kursene bedre.",
+                         _P | {"kursnavn"})}),
     "firmapaamelding_kvittering": Mal(
         "Kvittering bedriftspåmelding", "Sendes til kontaktpersonen når en bedrift har meldt på flere deltakere.",
         {"emne": _emne("Emne", "Bedriftspåmelding til {kursnavn} – kvittering",
@@ -197,20 +203,6 @@ MALER: dict[str, Mal] = {
          "innledning": _hoved("Innledning", _D + "Takk for påmeldingen av {antall_deltakere} fra {firmanavn} til {kursnavn}.",
                               _P | {"kursnavn", "firmanavn", "antall_deltakere"}),
          "avslutning": _tillegg("Avslutning", "", _P | {"kursnavn", "firmanavn", "antall_deltakere"})}),
-    "purring": Mal(
-        "Purring på materiell", "Sendes til kursholder/ansvarlig som ikke har levert materiell innen fristen nærmer seg.",
-        {"emne_frist_om_dager": _emne("Emne – frist om noen dager",
-                                      "Påminnelse: {beskrivelse} til {kursnavn} – frist om {dager_igjen_tekst}",
-                                      {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
-                                       "dager_igjen_tekst"}),
-         "emne_frist_i_dag": _emne("Emne – frist i dag", "Frist i dag: {beskrivelse} til {kursnavn}",
-                                   {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
-                                    "dager_igjen_tekst"}),
-         "innledning": _hoved("Innledning", _D_KURSHOLDER + "Vi minner om at {beskrivelse_liten} til {kursnavn} skal leveres innen {frist}.",
-                              {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
-                               "dager_igjen_tekst"}),
-         "avslutning": _tillegg("Avslutning", "", {"navn", "kursnavn", "beskrivelse", "beskrivelse_liten", "frist",
-                                                    "dager_igjen", "dager_igjen_tekst"})}),
 }
 # avlysning tillater i tillegg {sporsmal_url}; ingen av de andre malene gjor det.
 
@@ -456,10 +448,14 @@ def hent_overstyringer(con, mal: str) -> dict:
     return ut
 
 
-def effektive_tekster(con, mal: str) -> dict:
-    """{felt: tekst} for ALLE felt i malen: overstyring hvis den finnes og er gyldig, ellers standardtekst."""
+def effektive_tekster(con, mal: str, kurs_id: int | None = None) -> dict:
+    """{felt: tekst} for ALLE felt i malen: kursets egen tekst (kurs_maltekst, når `kurs_id` er gitt og malen kan tilpasses per kurs),
+    ellers fellesteksten (overstyring under E-postmaler), ellers standardteksten."""
     over = hent_overstyringer(con, mal)
-    return {felt: over.get(felt, f.standard) for felt, f in MALER[mal].felt.items()}
+    tekster = {felt: over.get(felt, f.standard) for felt, f in MALER[mal].felt.items()}
+    if kurs_id and mal in KURSVISE_MALER:
+        tekster |= hent_kurstekster(con, kurs_id, mal)
+    return tekster
 
 
 def effektiv_tekst(con, mal: str, felt: str) -> str:
@@ -488,15 +484,90 @@ def tilbakestill_maltekst(con, mal: str, felt: str, aktor: str = "system") -> bo
     return db.slett_maltekst(con, mal, felt, aktor=aktor)
 
 
+# ============================ kursets egne tekster (Camilla 09.10.2026) ============================
+# «Veldig mange av kursene er forskjellige, med ulike tekster, ulike regler» (f.eks. godkjent som vedlikeholdsaktivitet eller ikke):
+# påmeldingsbekreftelsen kan tilpasses per kurs i fanen Kommunikasjon. Et kurs uten egen tekst følger fellesteksten (et utkast som er
+# klart fra kurset er opprettet). Bare felt som er ULIKE fellesteksten lagres, så et kurs som ikke er tilpasset, følger endringer i
+# fellesteksten. Samme regler og flettefelt som fellesteksten (valider).
+
+KURSVISE_MALER = ("bekreftelse",)
+
+
+def _kursmal(mal: str) -> None:
+    if mal not in KURSVISE_MALER:
+        raise MalFeil(UKJENT_MAL, mal, None, "Denne malen kan ikke tilpasses per kurs.")
+
+
+def hent_kurstekster(con, kurs_id: int, mal: str) -> dict:
+    """{felt: tekst} for feltene kurset har tilpasset (validert). Ugyldig lagret tekst eller DB-feil gir MalFeil."""
+    _kursmal(mal)
+    try:
+        with db.isolert(con, "kursmal_les"):
+            rader = con.execute("SELECT felt, tekst FROM kurs_maltekst WHERE kurs_id=? AND mal=?", (kurs_id, mal)).fetchall()
+    except db.DatabaseFeil as e:
+        raise MalFeil(DB_LESEFEIL, mal, None, "Kunne ikke lese kursets tekster fra databasen.") from e
+    return {r["felt"]: valider(mal, r["felt"], r["tekst"]) for r in rader}
+
+
+def lagre_kurstekster(con, kurs_id: int, mal: str, tekster: dict, aktor: str = "system") -> list[str]:
+    """Lagrer kursets tekster for malen (validert FØR noe skrives). Et felt som er likt fellesteksten, lagres ikke (raden fjernes):
+    kurset følger da fellesteksten videre. Returnerer feltene som ble endret. Logger kursmal_endret (aldri teksten). Committer ikke."""
+    _kursmal(mal)
+    felles = effektive_tekster(con, mal)
+    rene = {}
+    for felt in MALER[mal].felt:
+        if felt in tekster:
+            rene[felt] = valider(mal, felt, tekster[felt])           # MalFeil før noe er skrevet
+    naa = hent_kurstekster(con, kurs_id, mal)
+    endret = []
+    for felt, ren in rene.items():
+        if ren == felles[felt]:
+            if felt in naa:
+                con.execute("DELETE FROM kurs_maltekst WHERE kurs_id=? AND mal=? AND felt=?", (kurs_id, mal, felt))
+                endret.append(felt)
+        elif naa.get(felt) != ren:
+            con.execute("DELETE FROM kurs_maltekst WHERE kurs_id=? AND mal=? AND felt=?", (kurs_id, mal, felt))
+            con.execute("""INSERT INTO kurs_maltekst (kurs_id, mal, felt, tekst, oppdatert, av) VALUES (?,?,?,?,?,?)""",
+                        (kurs_id, mal, felt, ren, db.naa_utc(), aktor))
+            endret.append(felt)
+    if endret:
+        db.logg(con, "kursmal_endret", {"kurs_id": kurs_id, "mal": mal, "felt": endret}, aktor=aktor)
+    return endret
+
+
+def tilbakestill_kurstekster(con, kurs_id: int, mal: str, aktor: str = "system") -> bool:
+    """Kurset følger fellesteksten igjen. Logger kursmal_tilbakestilt bare når noe faktisk var tilpasset. Committer ikke."""
+    _kursmal(mal)
+    antall = con.execute("DELETE FROM kurs_maltekst WHERE kurs_id=? AND mal=?", (kurs_id, mal)).rowcount
+    if antall:
+        db.logg(con, "kursmal_tilbakestilt", {"kurs_id": kurs_id, "mal": mal}, aktor=aktor)
+    return bool(antall)
+
+
+def kopier_kurstekster(con, fra_kurs_id: int, til_kurs_id: int, aktor: str = "system") -> None:
+    """Kursets egne tekster følger med når kurset dupliseres (samme transaksjon som kopien)."""
+    for r in con.execute("SELECT mal, felt, tekst FROM kurs_maltekst WHERE kurs_id=?", (fra_kurs_id,)).fetchall():
+        con.execute("""INSERT INTO kurs_maltekst (kurs_id, mal, felt, tekst, oppdatert, av) VALUES (?,?,?,?,?,?)""",
+                    (til_kurs_id, r["mal"], r["felt"], r["tekst"], db.naa_utc(), aktor))
+
+
+def _kurs_id(data) -> int | None:
+    """Kursets id fra dataene til en utsending (eksempeldataene i forhåndsvisningen av fellesmalen har ingen)."""
+    try:
+        return int(data["kurs"]["id"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
 # ============================ kobling til utsending (12B2A) ============================
 
 # Alle 8 redigerbare maler er koblet til den faktiske utsendingen (fase 12B2A-12B2C-5). Kun de LAASTE malene
-# (innlogging, eskalering, admin_melding) rendres utenfor dette systemet. EKSPLISITT liste (IKKE frozenset(MALER)):
+# (innlogging, admin_melding) rendres utenfor dette systemet. EKSPLISITT liste (IKKE frozenset(MALER)):
 # en fremtidig ny mal i MALER-registeret skal ALDRI bli automatisk aktivert bare fordi den er registrert - den
 # maa faa sin egen verdibygger og eksplisitt legges til her foerst (fail-closed). lagre_maltekst() nekter
 # fortsatt aa lagre for enhver mal som ikke staar i denne listen, slik at en override aldri blir stille ignorert.
 AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor", "kursbevis_klar",
-                          "firmapaamelding_kvittering", "purring"})
+                          "firmapaamelding_kvittering", "evaluering"})
 
 
 def _person(rad) -> dict:
@@ -557,20 +628,10 @@ def _kursbevis_klar_verdier(data) -> dict:
     return {**_person(data), "kursnavn": data["kurs"]["navn"]}
 
 
-def _purring_verdier(data) -> dict:
-    """KUN det registeret tillater: ansvarliges navn, kursnavn, hva som skal leveres (og liten variant), frist og
-    dager igjen. ALDRI e-post/telefon. Opplastingslenken (/lever/<id>) er en LAAST systemblokk i malfilen - materiell-
-    kravets id er ikke hemmelig (star allerede i denne lenken i dag), men er likevel aldri en kode her.
-
-    `dager_igjen` er UENDRET (ren tallverdi, som foer - bakoverkompatibel med en evt. eksisterende override).
-    `dager_igjen_tekst` er en NY, egen kode med riktig norsk entall/flertall ("1 dag" / "2 dager" / ...): siden
-    12B2C-5s rettelse av retry-vinduet (se daglig._purring) faktisk kan la purring-2 rendres med igjen==1, ikke
-    bare igjen==2, matte standard-emnet faa en tekst som er riktig i begge tilfeller."""
-    m = data["m"]
-    igjen = data["igjen"]
-    return {"navn": m["ansvarlig_navn"], "kursnavn": m["kursnavn"], "beskrivelse": m["beskrivelse"],
-            "beskrivelse_liten": m["beskrivelse"].lower(), "frist": m["frist"], "dager_igjen": igjen,
-            "dager_igjen_tekst": f"{igjen} dag" if igjen == 1 else f"{igjen} dager"}
+def _evaluering_verdier(data) -> dict:
+    """KUN det registeret tillater: mottakerens navn og kursnavn. Lenken til spørreskjemaet er en LAAST systemblokk i malfilen
+    (personlig og signert, evaluering.lenke) - aldri en kode."""
+    return {**_person(data["d"]), "kursnavn": data["kurs"]["navn"]}
 
 
 def _firmapaamelding_kvittering_verdier(data) -> dict:
@@ -587,7 +648,8 @@ def _firmapaamelding_kvittering_verdier(data) -> dict:
 
 _VERDIER = {"venteliste": _venteliste_verdier, "avlysning": _avlysning_verdier, "bekreftelse": _bekreftelse_verdier,
             "ukefor": _ukefor_verdier, "dagfor": _dagfor_verdier, "kursbevis_klar": _kursbevis_klar_verdier,
-            "firmapaamelding_kvittering": _firmapaamelding_kvittering_verdier, "purring": _purring_verdier,
+            "firmapaamelding_kvittering": _firmapaamelding_kvittering_verdier,
+            "evaluering": _evaluering_verdier,
             }    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
 
 
@@ -618,4 +680,4 @@ def maltekst_for_utsending(con, mal: str, data):
     og DB-feil gir MalFeil - aldri stille fallback til standard. Leser kun; committer/ruller aldri tilbake."""
     if mal not in AKTIVE_MALER:
         return None
-    return _bygg(mal, effektive_tekster(con, mal), data)
+    return _bygg(mal, effektive_tekster(con, mal, _kurs_id(data)), data)

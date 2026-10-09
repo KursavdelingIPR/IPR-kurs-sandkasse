@@ -12,7 +12,7 @@ Rekkefolge:
   3. Innkallinger: uka for + dagen for hver kursdag
   4. Kursstatus (aktiv / avsluttet) + oppmoteimport fra Zoom
   5. Kursbevis til de som har mott
-  6. Purring paa materiell fra kursholdere
+  5b. Evaluering: spørreskjemaet dagen etter siste kursdag (kurs/evaluering.py)
   7. Sletting av sensitive opplysninger
   8. Rydding av utlopte import-forhaandsvisninger (fase 10)
   9. Min side: gruppelister (tabeller med navn) tommes KURSSIDE_TOM_TABELLER_ETTER_DAGER dager etter siste kursdag
@@ -21,8 +21,8 @@ Rekkefolge:
 import argparse
 from datetime import date, timedelta
 
-from . import (config, db, firmaopplysninger, import_deltakere, kursbevis, lenker, maltekster, privatadresse, sidelager,
-               sjekklister, sveiper)
+from . import (config, db, evaluering, firmaopplysninger, godkjenning, import_deltakere, kursbevis, maltekster,
+               privatadresse, rabatter, sidelager, sjekklister, sveiper)
 from .integrasjoner import zoom
 from .feil import sikker_feiltekst
 from .kjoring import Kjoring
@@ -31,7 +31,7 @@ from .kjoring import Kjoring
 def _steg(k: Kjoring, navn: str, funksjon, *args, **logg) -> None:
     """Kjoerer ett steg med feilisolering. Hvert vellykket steg lagres (commit) for seg; feiler et steg, rulles bare
     DETS ulagrede arbeid tilbake, feilen logges PII-fritt, og resten av morgenjobben fortsetter - en feil hos Microsoft
-    Graph i ett kurs skal aldri stoppe de andre kursene, kursbevis, purringer eller slettingen av sensitive data.
+    Graph i ett kurs skal aldri stoppe de andre kursene, kursbevis eller slettingen av sensitive data.
     Allerede reserverte/sendte e-poster er committet av claim-motoren og roeres ikke."""
     try:
         funksjon(*args)
@@ -106,16 +106,18 @@ def kjor(k: Kjoring) -> None:
 
     k.si("5. Kursbevis")
     _steg(k, "kursbevis", kursbevis.kjor, k)
-    k.si("6. Purring på materiell")
-    _steg(k, "purring", _purring, k)
+    _steg(k, "evaluering", evaluering.kjor, k)          # spørreskjemaet dagen etter siste kursdag (Camilla 05.10.2026)
     k.si("7. Personvern")
     _steg(k, "personvern", _slett_sensitivt, k)
+    _steg(k, "studentbevis", _rydd_rabattbevis, k)      # rabattpriser: bevis som ikke trengs lenger (Camilla 09.10.2026)
     k.si("8. Import-forhåndsvisninger")
     _steg(k, "importrydding", _rydd_import_forhaandsvisninger, k)
     k.si("9. Min side")
     _steg(k, "kursside", _kursside, k)
     k.si("10. Sjekklister")
     _steg(k, "sjekklister", _sjekklister, k)
+    k.si("11. Klar til sending")
+    _steg(k, "klar til sending", godkjenning.rydd, k)     # ventende e-poster som ikke lenger gir mening: «utgått»
     if k.sending_stanset:
         k.si("OBS: e-posttjenesten feilet flere ganger på rad - resten av dagens e-poster sendes ved neste kjøring.")
     if k.feil:
@@ -297,42 +299,6 @@ def _importer_zoom(k, kurs, dag, min_minutter: int = 30):
     k.si(f"  Zoom-oppmøte {dag['dato']}: {treff} registrert av {len(liste)} i Zoom")
 
 
-def _purring(k):
-    """Purrer paa materiell inntil frist (tre trinn: 7/2/0 dager igjen), deretter eskalerer til admin hver dag etter frist.
-
-    Kandidatregel (RETTET 12B2C-5 - se dokumentasjon/audit): et trinn er kandidat HVER dag fra igjen==7 ned til
-    igjen==0, men bare naar NOEYAKTIG DET trinnets type (purring-7/-2/-0) IKKE allerede er sendt. Foer denne
-    rettelsen sjekket koden kun om purring-7 var sendt, ogsaa naar dagens trinn var purring-2/-0 - en render-/
-    malfeil noeyaktig paa igjen==2 eller igjen==0 (naar purring-7 alt var sendt tidligere) hadde da INGEN
-    retry-mulighet og gikk permanent tapt. Naa faar hvert trinn sitt eget, flerdagers retry-vindu paa samme
-    maate som purring-7 alt hadde (igjen==0 er fortsatt siste sjanse for TRINN 0 spesifikt, siden frist da er
-    passert dagen etter - kjent, akseptert begrensning, samme kategori som dagfor sitt endagsvindu).
-    Ingen dobbeltsending: claim/status-motoren (fase 11) hindrer det uansett, og guarden under unngaar i tillegg
-    unoedvendig re-rendring naar trinnet alt er sendt.
-
-    En MalFeil (ugyldig lagret mal) isoleres PER MATERIELLKRAV: den aktuelle paaminnelsen feiler lukket (ingen
-    claim, ingen mail), mens andre materiellkrav og resten av daglig.kjor() fortsetter uendret."""
-    krav = k.con.execute(
-        """SELECT m.*, k.navn AS kursnavn, k.kursnr, k.kode FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id
-           WHERE m.levert_ts IS NULL AND k.status!='avlyst'""").fetchall()
-    for m in krav:
-        igjen = (date.fromisoformat(m["frist"]) - k.idag).days
-        nokkel = f"materiell:{m['id']}"
-        if 0 <= igjen <= 7:
-            type_ = "purring-7" if igjen > 2 else ("purring-2" if igjen > 0 else "purring-0")
-            if not db.allerede_sendt(k.con, nokkel, m["ansvarlig_epost"], type_):
-                try:
-                    # Personlig opplastingslenke (token): ingen kopi i e-posthistorikken
-                    k.send_en_gang(nokkel, m["ansvarlig_epost"], type_, "purring", kurs_id=m["kurs_id"],
-                                   lagre_kopi=False, m=m, igjen=igjen,
-                                   lever_lenke=lenker.lever_lenke(m["id"]))
-                except maltekster.MalFeil as e:
-                    db.logg(k.con, "purring_mal_feil", {"kurs_id": m["kurs_id"], "materiell_id": m["id"], **e.detaljer()})
-                    k.si(f"  FEIL purring ({type_}): {e} - materiellkrav {m['id']} fikk ikke påminnelsen")
-        elif igjen < 0:
-            k.send_en_gang(nokkel, config.ADMIN_EPOST, "eskalering", "eskalering", kurs_id=m["kurs_id"], m=m, igjen=igjen)
-
-
 def _slett_sensitivt(k):
     grense = (k.idag - timedelta(days=config.SLETT_SENSITIVT_ETTER_DAGER)).isoformat()
     cur = k.con.execute(
@@ -342,6 +308,15 @@ def _slett_sensitivt(k):
     if cur.rowcount:
         db.logg(k.con, "sensitivt_slettet", {"antall": cur.rowcount})
         k.si(f"  slettet sensitive opplysninger for {cur.rowcount} påmeldinger")
+
+
+def _rydd_rabattbevis(k):
+    """Studentbevis til påmeldinger som er avmeldt, og til kurs som er avsluttet eller avlyst, slettes (kurs/rabatter.py): de skal bare
+    ligge her til rabatten er avgjort. Idempotent."""
+    antall = rabatter.rydd(k.con)
+    if antall:
+        db.logg(k.con, "rabattbevis_slettet", {"antall": antall})
+        k.si(f"  slettet {antall} studentbevis som ikke trengs lenger")
 
 
 def _rydd_import_forhaandsvisninger(k):

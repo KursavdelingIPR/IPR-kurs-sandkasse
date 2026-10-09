@@ -1,9 +1,8 @@
-"""Signerte lenker som skal virke UTEN innlogging (f.eks. kursholders opplasting av materiell).
+"""Signerte lenker som skal virke UTEN innlogging (f.eks. den personlige lenken til Min side og evalueringen).
 
 Ren modul (ingen Flask): brukes baade av webappen og av e-postutsendingen i daglig.py. Signaturen er en kort HMAC av
-HEMMELIG_NOKKEL over formaal + id - den kan ikke gjettes eller forfalskes uten noekkelen, og en lenke for ett
-materiellkrav gir aldri tilgang til et annet. Bytter man HEMMELIG_NOKKEL, slutter gamle lenker aa virke (ny purring
-sender ny lenke).
+HEMMELIG_NOKKEL over formaal + id - den kan ikke gjettes eller forfalskes uten noekkelen, og en lenke for én påmelding
+gir aldri tilgang til en annen. Bytter man HEMMELIG_NOKKEL, slutter gamle lenker aa virke.
 """
 import hashlib
 import hmac
@@ -19,11 +18,6 @@ def signatur(formaal: str, *deler) -> str:
 
 def signatur_ok(mottatt, formaal: str, *deler) -> bool:
     return bool(mottatt) and isinstance(mottatt, str) and hmac.compare_digest(mottatt, signatur(formaal, *deler))
-
-
-def lever_lenke(krav_id: int) -> str:
-    """Kursholders opplastingslenke for et materiellkrav."""
-    return f"{config.BASE_URL}/lever/{int(krav_id)}/{signatur('lever', int(krav_id))}"
 
 
 _MIN_SIDE_TOKEN = re.compile(r"(0|[1-9][0-9]{0,11})\.(0|[1-9][0-9]{0,5})\.([0-9a-f]{32})")      # bare ASCII-sifre, ingen ledende nuller: én lenke har én skrivemåte

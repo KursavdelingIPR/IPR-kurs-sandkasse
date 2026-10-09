@@ -47,22 +47,35 @@ ADMIN_BRUKERNAVN = get("ADMIN_BRUKERNAVN", "admin")
 ADMIN_PASSORD = get("ADMIN_PASSORD", "demo")
 
 AVSENDER_EPOST = get("AVSENDER_EPOST", "kurs@ipr.no")
+# Kontaktadressen for Terapiakademiet-kurs (kurs.merke): deltakerne skal kontakte post@terapiakademiet.no, IPR-kurs kurs@ipr.no
+# (Camilla 02.10 og 09.10.2026, tema.kontakt_epost). Avsenderen av e-postene er fortsatt AVSENDER_EPOST.
+TERAPIAKADEMIET_EPOST = get("TERAPIAKADEMIET_EPOST", "post@terapiakademiet.no")
 AVSENDER_NAVN = get("AVSENDER_NAVN", "IPR Påmeldingssystem")
 ADMIN_EPOST = get("ADMIN_EPOST", "admin@ipr.no")
 # Morgen-e-posten om sjekklistene for planlagte kurs (daglig.py): alltid til kurspostboksen (Camilla 02.10.2026)
 SJEKKLISTE_EPOST = get("SJEKKLISTE_EPOST", "kurs@ipr.no")
+# «Klar til sending» (kurs/godkjenning.py, Camilla 05.10.2026): automatiske e-poster utenom bekreftelse og venteliste venter på
+# godkjenning før de sendes. 0 = alt går automatisk, slik det var før.
+GODKJENN_EPOSTER = get("GODKJENN_EPOSTER", "1") != "0"
 
 # Microsoft 365 (e-post via Graph + SharePoint) – én app-registrering i Entra ID
 M365_TENANT_ID = get("M365_TENANT_ID")
 M365_CLIENT_ID = get("M365_CLIENT_ID")
 M365_CLIENT_SECRET = get("M365_CLIENT_SECRET")
-SHAREPOINT_SITE_ID = get("SHAREPOINT_SITE_ID")
+# Sertifikat i stedet for client secret (Serit anbefaler det, 04.10.2026): Key Vault-referanse til sertifikatets
+# hemmelighet - PEM-tekst eller base64-kodet PFX. Brukes framfor M365_CLIENT_SECRET når det er satt.
+M365_SERTIFIKAT = get("M365_SERTIFIKAT")
+M365_SERTIFIKAT_PASSORD = get("M365_SERTIFIKAT_PASSORD")       # bare for en PFX med passord (Key Vault lager dem uten)
 
 # Admin-innlogging med Microsoft Entra ID (fase 13). Egen app-registrering anbefales (delegert: openid profile email),
 # men M365-registreringen kan gjenbrukes - tomme verdier faller tilbake til M365_*. Ingen verdier = Entra av.
 ENTRA_TENANT_ID = get("ENTRA_TENANT_ID") or M365_TENANT_ID
 ENTRA_CLIENT_ID = get("ENTRA_CLIENT_ID") or M365_CLIENT_ID
 ENTRA_CLIENT_SECRET = get("ENTRA_CLIENT_SECRET") or M365_CLIENT_SECRET
+# Sertifikat for innloggingen (som M365_SERTIFIKAT). Faller tilbake til M365-sertifikatet bare når innloggingen bruker
+# samme app-registrering (ingen egen ENTRA_CLIENT_ID): et sertifikat hører til én registrering.
+ENTRA_SERTIFIKAT = get("ENTRA_SERTIFIKAT") or ("" if get("ENTRA_CLIENT_ID") else M365_SERTIFIKAT)
+ENTRA_SERTIFIKAT_PASSORD = get("ENTRA_SERTIFIKAT_PASSORD") or ("" if get("ENTRA_CLIENT_ID") else M365_SERTIFIKAT_PASSORD)
 # App-roller (anbefalt) fra app-registreringen -> rolle i systemet. Format: "verdi=rolle,verdi=rolle".
 ENTRA_ROLLER = get("ENTRA_ROLLER", "ipr.system=system,ipr.kursadmin=kursadmin,ipr.lese=lese")
 # Alternativt/i tillegg: sikkerhetsgrupper (objekt-id) -> rolle. Format: "<gruppe-oid>=system,<gruppe-oid>=kursadmin".
@@ -80,6 +93,16 @@ VISMA_CLIENT_ID = get("VISMA_CLIENT_ID")
 VISMA_CLIENT_SECRET = get("VISMA_CLIENT_SECRET")
 VISMA_REFRESH_TOKEN = get("VISMA_REFRESH_TOKEN")
 VISMA_API = get("VISMA_API", "https://eaccountingapi.vismaonline.com/v2")
+
+# Visma Business NXT (GraphQL, klient-legitimasjon). Fase 1: KUN lesing av fakturastatus - se
+# integrasjoner/business_nxt.py. Egne navn (BNXT_*), saa eAccounting-koden over aldri aktiveres ved en feil.
+# Hemmeligheten settes som miljoevariabel lokalt og i Key Vault i drift - aldri i en fil, databasen eller en logg.
+BNXT_CLIENT_ID = get("BNXT_CLIENT_ID")
+BNXT_CLIENT_SECRET = get("BNXT_CLIENT_SECRET")
+BNXT_KUNDENR = get("BNXT_KUNDENR")        # Visma.net-kundenummer - trengs bare for aa liste selskapene (bnxt_sjekk)
+BNXT_SELSKAP = get("BNXT_SELSKAP")        # Visma.net-selskaps-ID: useCompany(no: ...)
+BNXT_TOKEN_URL = get("BNXT_TOKEN_URL", "https://connect.visma.com/connect/token")
+BNXT_API = get("BNXT_API", "https://business.visma.net/api/graphql-service")
 
 # Mottak fra nettsidens skjema (erstatter innsending til Pindena)
 WEBHOOK_HEMMELIG = get("WEBHOOK_HEMMELIG", "demo-webhook-hemmelighet")

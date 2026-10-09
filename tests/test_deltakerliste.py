@@ -100,7 +100,7 @@ def test_standard_viser_bare_nr_og_navn_for_bekreftede_i_norsk_rekkefolge(con):
 
 def test_personopplysninger_vises_bare_naar_de_er_krysset_av(con):
     kid, _ = _kurs(con)
-    html = _admin().get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&kol=epost&kol=telefon").get_data(as_text=True)
+    html = _admin().get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&kol=epost&kol=telefon&vis=alle_epost").get_data(as_text=True)  # e-post krever Ja på deling, eller «Vis alle»
     t = _tabell(html)
     assert "oystein@eksempel.no" in t and "90000001" in t
     assert "Testklinikken" not in html and ">Nr.</th>" not in t
@@ -173,9 +173,9 @@ def test_logo_vises_bare_naar_godkjent_fil_finnes(con, tmp_path, monkeypatch):
     assert '<img class="liste-logo" src="/static/logo/deltakerliste.png" alt="Egen logo">' in html
 
 
-def test_logoen_velges_og_terapiakademiet_er_standard(con, tmp_path, monkeypatch):
-    """Camilla 03.10: Terapiakademiet-logoen øverst (NIEFT- eller IPR-logo når den passer). En logo kan velges når
-    filen finnes; arket har «Deltakerliste» og kursnavnet midtstilt over listen."""
+def test_logoen_velges_og_den_forste_som_finnes_er_reserve(con, tmp_path, monkeypatch):
+    """En logo kan velges når filen finnes; arket har «Deltakerliste» og kursnavnet midtstilt over listen. Finnes ikke
+    standardlogoen (her NIEFT for et IPR-kurs), brukes den første som finnes."""
     kid, _ = _kurs(con)
     monkeypatch.setattr(deltakerliste, "LOGO_MAPPE", tmp_path / "logo")
     (tmp_path / "logo").mkdir()
@@ -216,7 +216,7 @@ def test_csv_har_valgte_kolonner_oppmote_per_dag_og_ingen_utfyllingskolonner(con
     dager = db.kursdager(con, kid)
     db.registrer_oppmote(con, pids["Anders Test"], dager[0]["id"], "manuell")
     con.commit()
-    r = _admin().get(f"/admin/kurs/{kid}/deltakerliste.csv?valgt=1&kol=nr&kol=epost&kol=oppmote&kol=signatur"
+    r = _admin().get(f"/admin/kurs/{kid}/deltakerliste.csv?valgt=1&vis=alle_epost&kol=nr&kol=epost&kol=oppmote&kol=signatur"
                      "&kol=merknad")
     assert r.status_code == 200 and r.mimetype == "text/csv" and r.headers["Cache-Control"] == "no-store"
     kursnr = con.execute("SELECT kursnr FROM kurs WHERE id=?", (kid,)).fetchone()[0]
@@ -253,3 +253,33 @@ def test_lesetilgang_kan_se_listen_men_ikke_laste_ned_csv(con):
     html = k.get(f"/admin/kurs/{kid}/deltakerliste").get_data(as_text=True)
     assert "Anders Test" in html and "deltakerliste.csv" not in html
     assert k.get(f"/admin/kurs/{kid}/deltakerliste.csv").status_code == 403
+
+def test_standardlogo_folger_arrangoren(con, tmp_path, monkeypatch):
+    """Camilla 05.10.2026: Terapiakademiet-logoen bare på kurs Terapiakademiet arrangerer, NIEFT-logoen på alle andre."""
+    kid, _ = _kurs(con)
+    monkeypatch.setattr(deltakerliste, "LOGO_MAPPE", tmp_path / "logo")
+    (tmp_path / "logo").mkdir()
+    for navn in ("terapiakademiet.png", "nieft.png"):
+        (tmp_path / "logo" / navn).write_bytes(b"PNG")
+    k = _admin()
+    assert 'src="/static/logo/nieft.png" alt="NIEFT"' in k.get(f"/admin/kurs/{kid}/deltakerliste").get_data(as_text=True)
+    c = db.koble(config.DB_STI)
+    c.execute("UPDATE kurs SET merke='terapiakademiet' WHERE id=?", (kid,))
+    c.commit()
+    html = k.get(f"/admin/kurs/{kid}/deltakerliste").get_data(as_text=True)
+    assert 'src="/static/logo/terapiakademiet.png" alt="Terapiakademiet"' in html
+    # Et eget valg vinner fortsatt
+    assert 'alt="NIEFT"' in k.get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&logo=nieft").get_data(as_text=True)
+
+def test_kursnummer_og_nr_kan_krysses_bort(con):
+    """Camilla 05.10.2026: kursnummeret øverst og Nr.-kolonnen er valg som kan krysses bort; yrkestittel heter Yrkestittel."""
+    kid, _ = _kurs(con)
+    k = _admin()
+    html = k.get(f"/admin/kurs/{kid}/deltakerliste").get_data(as_text=True)
+    assert 'name="vis" value="kursnr" checked' in html and "Kursnr. " in html
+    assert "Yrkestittel <span" in html and "Profesjon" not in html
+    uten = k.get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&kol=epost").get_data(as_text=True)
+    assert "Kursnr. " not in uten and 'name="vis" value="kursnr" data-send-ved-endring' in uten
+    assert "<th" in uten and ">Nr.</th>" not in uten
+    med = k.get(f"/admin/kurs/{kid}/deltakerliste?valgt=1&kol=nr&vis=kursnr").get_data(as_text=True)
+    assert "Kursnr. " in med

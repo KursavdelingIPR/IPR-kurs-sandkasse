@@ -1,0 +1,203 @@
+{% extends "admin_base.html" %}
+{% block hode %}<style>
+  .ev-stat { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:12px; margin:12px 0 18px; }
+  .ev-stat .kort { margin:0; }
+  .ev-stat .tall { font-size:28px; font-weight:600; color:var(--bla-mork); line-height:1.2; }
+  .ev-sp { max-width:900px; }
+  .ev-sp h3 { margin:0 0 10px; font-size:17px; }
+  .ev-snitt { display:flex; flex-wrap:wrap; gap:26px; align-items:center; }
+  .ev-snitt .stort { font-size:40px; font-weight:600; line-height:1; }
+  .ev-soyler { flex:1 1 320px; display:grid; grid-template-columns:auto 1fr auto; gap:6px 10px; align-items:center; font-size:14px; }
+  .ev-soyle { height:16px; background:var(--bla); border-radius:2px; min-width:2px; }
+  .ev-soyle.ev-tom { background:transparent; }
+  .ev-tekster { margin:0; padding-left:20px; }
+  .ev-tekster li { margin:6px 0; white-space:pre-wrap; }
+  .ev-runder { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 0; }
+  .ev-runder a { padding:6px 12px; border:1px solid var(--linje); border-radius:16px; text-decoration:none; font-size:14px; }
+  .ev-runder a[aria-current] { background:var(--bla); border-color:var(--bla); color:#fff; }
+  .ev-sporsmal { list-style:none; margin:0; padding:0; }
+  .ev-sporsmal > li { border-top:1px solid var(--linje); padding:10px 0; }
+  .ev-sporsmal .rad { display:flex; gap:10px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; }
+  .ev-sporsmal .nr { display:inline-block; min-width:26px; text-align:center; background:var(--bla); color:#fff; border-radius:3px; margin-right:8px; }
+  .ev-lenke { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:6px 0; }
+  .ev-lenke input { flex:1 1 340px; }
+  @media print { .ikke-utskrift, nav, .admin-meny, header { display:none !important; } .kort { break-inside:avoid; } }
+</style>{% endblock %}
+{% block innhold %}
+{% include "admin_kurs_header.html" %}
+{% include "admin_kurs_faner.html" %}
+{#- Evaluering (kurs/evaluering.py; ny utgave 09.10.2026 etter Forms-skjemaet): når den sendes, lenkene (personlig på e-post, delt lenke
+    og QR-kode), innledningen, spørsmålene og oversikten over svarene (anonyme). -#}
+{% set skriver = admin_rolle != 'lese' %}
+
+<div class="kort ikke-utskrift" style="max-width:900px">
+  <h2 style="margin-top:0">Evaluering</h2>
+  <p style="margin-top:0">Deltakerne får en personlig lenke på e-post{% if godkjenn_eposter %} (først når du har godkjent den i
+    <a href="{{ url_for('admin_klar_til_sending') }}">Klar til sending</a>){% endif %}, og kan svare én gang. Du kan også dele lenken
+    under, eller vise QR-koden på skjermen. Svarene er anonyme. Teksten i e-posten endres under
+    <a href="{{ url_for('admin_maltekst_rediger', mal='evaluering') }}">E-postmaler</a>.</p>
+  <form method="post" action="{{ url_for('admin_kurs_evaluering_innstillinger', kurs_id=kurs.id) }}" style="margin:0 0 12px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="valg" role="radiogroup" aria-labelledby="e-modus">
+      <span class="etikett" id="e-modus">Send evalueringen</span>
+      {% for verdi, tekst in modusvalg.items() %}
+      <label><input type="radio" name="modus" value="{{ verdi }}"{{ ' checked' if verdi == modus }}{{ ' disabled' if not skriver }}> {{ tekst }}
+        {% if verdi == 'samling' and not flere_samlinger %}<span class="liten dempet">(kurset har bare én samling)</span>{% endif %}</label>
+      {% endfor %}
+    </div>
+    {% if skriver %}<button class="liten" style="margin-top:8px">Lagre</button>{% endif %}
+  </form>
+  <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center">
+    <a class="knapp sekundar liten" href="{{ url_for('admin_kurs_evaluering_forhandsvis', kurs_id=kurs.id) }}" target="_blank" rel="noopener">Forhåndsvis skjemaet ↗</a>
+    <span class="merke {{ 'gra' if oppsett.stengt or modus == 'av' else 'ok' }}">{{ 'Stengt' if oppsett.stengt else ('Sendes ikke' if modus == 'av' else 'Åpen') }}</span>
+    {% if skriver %}
+    <form method="post" action="{{ url_for('admin_kurs_evaluering_stengt', kurs_id=kurs.id) }}" style="margin:0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="stengt" value="{{ '0' if oppsett.stengt else '1' }}">
+      <button class="liten sekundar">{{ 'Åpne evalueringen igjen' if oppsett.stengt else 'Steng evalueringen' }}</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <h3 style="margin-bottom:4px">Lenke du kan dele</h3>
+  <p class="liten dempet" style="margin:0 0 6px">Alle som har lenken, kan svare. Den kan ikke hindre at noen svarer to ganger.</p>
+  {% for r in runder %}
+  <div class="ev-lenke">
+    {% if runder|length > 1 %}<span class="liten" style="min-width:90px">{{ r.navn }}</span>{% endif %}
+    <input id="delt-{{ loop.index }}" value="{{ r.delt_lenke }}" readonly aria-label="Lenke til evalueringen{{ ' for ' ~ r.navn if runder|length > 1 }}">
+    <button type="button" class="sekundar liten" data-kopier="delt-{{ loop.index }}">Kopier lenke</button>
+    <a class="knapp sekundar liten" href="{{ url_for('admin_kurs_evaluering_qr', kurs_id=kurs.id, runde=r.samling_id or '') }}" target="_blank" rel="noopener">QR-kode ↗</a>
+  </div>
+  {% endfor %}
+  {% if skriver %}
+  <form method="post" action="{{ url_for('admin_kurs_evaluering_ny_lenke', kurs_id=kurs.id) }}" style="margin:6px 0 0"
+        data-bekreft="Lage nye lenker? De gamle lenkene og QR-kodene slutter å virke (de personlige lenkene på e-post virker fortsatt).">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Lag ny delt lenke</button>
+  </form>
+  {% endif %}
+</div>
+
+<details class="kort ikke-utskrift" style="max-width:900px"{{ ' open' if apne_skjema }}>
+  <summary><strong>Innledning og spørsmål</strong> <span class="liten dempet">– {{ sporsmal|length }} spørsmål{{ ' (standardsettet)' if not egne_sporsmal }}</span></summary>
+  {% if evalueringsfeil %}<div class="flash feil" role="alert" style="margin-top:10px">{{ evalueringsfeil }}</div>{% endif %}
+  <form method="post" action="{{ url_for('admin_kurs_evaluering_innledning', kurs_id=kurs.id) }}" style="margin:12px 0 18px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="ev-innledning">Innledning {% if not oppsett.egen_innledning %}<span class="merke gra liten">standardteksten</span>{% endif %}</label>
+    <textarea id="ev-innledning" name="innledning" rows="4" maxlength="2000"{{ ' readonly' if not skriver }}>{{ oppsett.innledning }}</textarea>
+    {% if skriver %}<button class="liten" style="margin-top:6px">Lagre innledningen</button>{% endif %}
+  </form>
+
+  <ol class="ev-sporsmal">
+    {% for s in sporsmal %}
+    <li id="sp-{{ s.nokkel }}">
+      <div class="rad">
+        <div><span class="nr">{{ loop.index }}</span><strong>{{ s.tekst }}</strong>{% if s.paakrevd %} <span class="merke gul liten">må besvares</span>{% endif %}
+          <span class="liten dempet"> · {{ typer[s.type] }}</span>
+          {% if s.hjelpetekst or s.lenke %}<div class="liten dempet" style="margin:4px 0 0 34px">{{ s.hjelpetekst or '' }}{% if s.lenke %} <a href="{{ s.lenke }}" target="_blank" rel="noopener">{{ s.lenketekst }}</a>{% endif %}</div>{% endif %}
+          {% if s.type == 'valg' %}<div class="liten" style="margin:4px 0 0 34px">{{ s.valg | join(' · ') }}</div>{% endif %}
+        </div>
+        {% if skriver %}
+        <div style="display:flex; gap:6px; flex-wrap:wrap">
+          {% for retning, pil, navn in (('opp', '▲', 'Flytt opp'), ('ned', '▼', 'Flytt ned')) %}
+          <form method="post" action="{{ url_for('admin_kurs_evaluering_flytt', kurs_id=kurs.id, nokkel=s.nokkel) }}" style="margin:0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="retning" value="{{ retning }}">
+            <button class="liten sekundar" aria-label="{{ navn }}: {{ s.tekst }}" title="{{ navn }}">{{ pil }}</button></form>
+          {% endfor %}
+          {% if s.nokkel not in besvarte %}
+          <form method="post" action="{{ url_for('admin_kurs_evaluering_slett', kurs_id=kurs.id, nokkel=s.nokkel) }}" style="margin:0"
+                data-bekreft="Slette spørsmålet «{{ s.tekst }}»?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Slett</button></form>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      {% if skriver %}
+      <details style="margin:6px 0 0 34px"><summary class="liten">Endre</summary>
+        {% with f=s, url=url_for('admin_kurs_evaluering_endre', kurs_id=kurs.id, nokkel=s.nokkel), knapp='Lagre spørsmålet', laast=s.nokkel in besvarte, prefiks='e-' ~ s.nokkel %}{% include "_evaluering_sporsmal_skjema.html" %}{% endwith %}
+      </details>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+
+  {% if skriver %}
+  <h3>Legg til spørsmål</h3>
+  {% with f={'type': 'skala', 'hjelpetekst': skala_hjelp, 'valg': [], 'paakrevd': False}, url=url_for('admin_kurs_evaluering_legg_til', kurs_id=kurs.id),
+          knapp='Legg til', laast=False, prefiks='ny' %}{% include "_evaluering_sporsmal_skjema.html" %}{% endwith %}
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px">
+    {% for nokkel, ferdig in ferdige.items() %}
+    <form method="post" action="{{ url_for('admin_kurs_evaluering_legg_til', kurs_id=kurs.id) }}" style="margin:0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="ferdig" value="{{ nokkel }}">
+      <button class="liten sekundar">+ {{ ferdig.tekst }}</button></form>
+    {% endfor %}
+    {% if egne_sporsmal and not besvarte %}
+    <form method="post" action="{{ url_for('admin_kurs_evaluering_standard', kurs_id=kurs.id) }}" style="margin:0"
+          data-bekreft="Bruke standardsettet igjen? Spørsmålene du har laget for kurset, slettes.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Bruk standardsettet igjen</button></form>
+    {% endif %}
+  </div>
+  {% endif %}
+</details>
+
+<div style="display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:10px; max-width:900px">
+  <h2 style="margin-bottom:0">Svar</h2>
+  <div class="ikke-utskrift" style="display:flex; gap:8px">
+    {% if res.antall_svar and admin_rolle != 'lese' %}<a class="knapp sekundar liten" href="{{ url_for('admin_kurs_evaluering_csv', kurs_id=kurs.id, runde=valgt_runde) }}">Last ned (Excel)</a>{% endif %}
+    <button type="button" class="sekundar liten" data-skriv-ut>Skriv ut</button>
+  </div>
+</div>
+{% if runder|length > 1 %}
+<nav class="ev-runder ikke-utskrift" aria-label="Velg samling">
+  <a href="{{ url_for('admin_kurs_evaluering', kurs_id=kurs.id, runde='alle') }}"{{ ' aria-current=page' if valgt_runde == 'alle' }}>Alle samlinger</a>
+  {% for r in runder %}<a href="{{ url_for('admin_kurs_evaluering', kurs_id=kurs.id, runde=r.samling_id) }}"{{ ' aria-current=page' if valgt_runde == r.samling_id|string }}>{{ r.navn }}</a>{% endfor %}
+</nav>
+{% endif %}
+
+<div class="ev-stat">
+  <div class="kort"><div class="liten dempet">Svar</div><div class="tall">{{ res.antall_svar }}</div>
+    {% if res.via_delt %}<div class="liten dempet">{{ res.via_delt }} via delt lenke</div>{% endif %}</div>
+  <div class="kort"><div class="liten dempet">Svarprosent</div><div class="tall">{{ (res.svarprosent ~ ' %') if res.svarprosent is not none else '–' }}</div>
+    <div class="liten dempet">{% if res.invitert %}{{ res.via_epost }} av {{ res.invitert }} som fikk lenken på e-post{% else %}Ingen har fått lenken på e-post ennå{% endif %}</div></div>
+  <div class="kort"><div class="liten dempet">Gjennomsnittstid</div><div class="tall">{{ tid_tekst(res.snitt_sekunder) }}</div>
+    <div class="liten dempet">minutter:sekunder på skjemaet</div></div>
+  <div class="kort"><div class="liten dempet">Åpen</div><div class="tall">{{ res.apen_dager if res.apen_dager else '–' }}{% if res.apen_dager %} <span style="font-size:15px; font-weight:400">{{ 'dag' if res.apen_dager == 1 else 'dager' }}</span>{% endif %}</div>
+    {% if res.apen_siden %}<div class="liten dempet">siden {{ res.apen_siden.strftime('%d.%m.%Y') }}{% if res.siste %} · siste svar {{ res.siste.strftime('%d.%m.%Y') }}{% endif %}</div>{% endif %}</div>
+</div>
+
+{% if not res.antall_svar %}
+<p class="dempet">Ingen svar ennå.</p>
+{% else %}
+{% for s in res.sporsmal %}
+<div class="kort ev-sp">
+  <h3>{{ s.nr }}. {{ s.tekst }}</h3>
+  {% if s.type == 'skala' %}
+  <div class="ev-snitt">
+    <div style="text-align:center; min-width:150px">
+      <div class="stort">{{ ('%.2f'|format(s.snitt)).replace('.', ',') if s.snitt is not none else '–' }}</div>
+      <div class="liten dempet">Gjennomsnittlig vurdering<br>{{ s.antall }} svar</div>
+    </div>
+    <div class="ev-soyler" role="list" aria-label="Fordeling">
+      {% for n in skala|reverse %}{% set antall = s.fordeling[n] %}
+      <span role="listitem">Nivå {{ n }}</span>
+      <span><span class="ev-soyle{{ ' ev-tom' if not antall }}" style="display:block; width:{{ (100 * antall / s.maks)|round|int if s.maks else 0 }}%"></span></span>
+      <strong>{{ antall }}</strong>
+      {% endfor %}
+    </div>
+  </div>
+  {% elif s.type == 'valg' %}
+  <div class="ev-soyler" style="max-width:640px" role="list" aria-label="Fordeling">
+    {% for t in s.telling %}
+    <span role="listitem">{{ t.valg }}</span>
+    <span><span class="ev-soyle{{ ' ev-tom' if not t.antall }}" style="display:block; width:{{ (100 * t.antall / s.maks)|round|int if s.maks else 0 }}%"></span></span>
+    <strong>{{ t.antall }} <span class="liten dempet" style="font-weight:400">({{ t.prosent }} %)</span></strong>
+    {% endfor %}
+  </div>
+  <p class="liten dempet" style="margin:8px 0 0">{{ s.antall }} svar</p>
+  {% else %}
+  {% if s.tekster %}<p class="liten dempet" style="margin:0 0 6px">{{ s.antall }} svar</p>
+  <ul class="ev-tekster">{% for t in s.tekster %}<li>{{ t }}</li>{% endfor %}</ul>
+  {% else %}<p class="dempet" style="margin:0">Ingen har skrevet noe her.</p>{% endif %}
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -418,6 +418,102 @@ def _m26_kursmerke(con) -> None:
         con.execute("ALTER TABLE kurs ADD COLUMN merke TEXT")
 
 
+def _m27_epostdeling(con) -> None:
+    """Deling av e-post (Camilla 05.10.2026: deltakere som ikke vil dele e-postadressen, skal ikke stå med den på
+    deltakerlisten). Ny kolonne kurs_ekstrafelt.rolle: 'deling_epost' merker kursets spørsmål «Deling av e-post», så systemet
+    kjenner det igjen selv om feltet får et annet navn. Felt som finnes fra før med hurtigvalget (envalg, «Deling av e-post»),
+    merkes - ett per kurs. Ingen eksisterende kolonne endres."""
+    if not db.har_kolonne(con, "kurs_ekstrafelt", "rolle"):
+        con.execute("ALTER TABLE kurs_ekstrafelt ADD COLUMN rolle TEXT")
+    con.execute("""UPDATE kurs_ekstrafelt SET rolle='deling_epost'
+                   WHERE id IN (SELECT MIN(id) FROM kurs_ekstrafelt WHERE type='envalg' AND label='Deling av e-post'
+                                GROUP BY kurs_id)
+                     AND NOT EXISTS (SELECT 1 FROM kurs_ekstrafelt x WHERE x.kurs_id=kurs_ekstrafelt.kurs_id
+                                     AND x.rolle='deling_epost')""")
+    con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_kurs_ekstrafelt_rolle ON kurs_ekstrafelt(kurs_id, rolle) "
+                "WHERE rolle IS NOT NULL")
+
+
+def _m28_evaluering(con) -> None:
+    """Evaluering etter kurset (Camilla 05.10.2026): kolonnen kurs.evaluering ('av' = ikke send, NULL = send) og tabellene
+    evaluering_besvart og evaluering_svar (anonyme svar, se schema.sql). Tabellene lages av grunnskjemaet; her sikres de også for
+    databaser der grunnskjemaet ikke er kjørt på nytt. Ingen eksisterende kolonne endres."""
+    if not db.har_kolonne(con, "kurs", "evaluering"):
+        con.execute("ALTER TABLE kurs ADD COLUMN evaluering TEXT")
+
+
+def _m29_klar_til_sending(con) -> None:
+    """«Klar til sending» (Camilla 05.10.2026): tabellen epost_godkjenning for automatiske e-poster som venter på godkjenning
+    (kurs/godkjenning.py). Bare en ny tabell - ingen eksisterende tabell eller kolonne endres, og ingen rader legges inn."""
+    _opprett_tabell_fra_skjema(con, "epost_godkjenning")
+    con.execute("CREATE INDEX IF NOT EXISTS epost_godkjenning_status ON epost_godkjenning (status, kurs_id)")
+
+
+def _m30_kursbevis_design(con) -> None:
+    """Kursbevis-design (Camilla 06.10.2026): tabellen kursbevis_design og kolonnen kurs.kursbevis_design_id (NULL for alle kurs
+    som finnes = kursbeviset som før). Ingen eksisterende kolonne endres; standarddesignene lages første gang listen vises."""
+    _opprett_tabell_fra_skjema(con, "kursbevis_design")
+    if not db.har_kolonne(con, "kurs", "kursbevis_design_id"):
+        con.execute(f"ALTER TABLE kurs ADD COLUMN kursbevis_design_id {'BIGINT' if db.er_postgres(con) else 'INTEGER'}")
+
+
+def _m31_datakontroll(con) -> None:
+    """Datakontrollen (Camilla 07.10.2026, kurs/datakontroll.py): tabellen datakontroll_ok for «Det stemmer». Bare en ny tabell -
+    ingen eksisterende tabell eller kolonne endres, og ingen rader legges inn."""
+    _opprett_tabell_fra_skjema(con, "datakontroll_ok")
+
+
+# Kolonnene for rabattpriser på paamelding (migrering 32), i samme rekkefølge og med samme definisjon som i skjemafilene
+_RABATTKOLONNER = (
+    ("priskategori", "TEXT", "TEXT"),
+    ("rabatt_prosent", "INTEGER CHECK (rabatt_prosent IS NULL OR rabatt_prosent BETWEEN 1 AND 99)",
+     "BIGINT CHECK (rabatt_prosent IS NULL OR rabatt_prosent BETWEEN 1 AND 99)"),
+    ("rabatt_status", "TEXT CHECK (rabatt_status IS NULL OR rabatt_status IN ('venter','godkjent','avvist'))",
+     "TEXT CHECK (rabatt_status IS NULL OR rabatt_status IN ('venter','godkjent','avvist'))"),
+    ("psyflix_org", "TEXT", "TEXT"),
+    ("psyflix_epost", "TEXT", "TEXT"),
+)
+
+
+def _m32_rabattpriser(con) -> None:
+    """Rabattpriser (Camilla 09.10.2026, kurs/rabatter.py): tabellene kurs_rabatt (rabattene per kurs) og rabatt_bevis
+    (studentbevis som venter på godkjenning), og fem nye kolonner på paamelding (alle NULL for påmeldinger som finnes = ordinær
+    pris, som før). Ingen eksisterende kolonne endres."""
+    _opprett_tabell_fra_skjema(con, "kurs_rabatt")
+    _opprett_tabell_fra_skjema(con, "rabatt_bevis")
+    pg = db.er_postgres(con)
+    for navn, sqlite_def, pg_def in _RABATTKOLONNER:
+        if not db.har_kolonne(con, "paamelding", navn):
+            con.execute(f"ALTER TABLE paamelding ADD COLUMN {navn} {pg_def if pg else sqlite_def}")
+
+
+def _m33_kursmaltekster(con) -> None:
+    """Kursets egne tekster i e-postmalene (Camilla 09.10.2026): tabellen kurs_maltekst (påmeldingsbekreftelsen per kurs, fanen
+    Kommunikasjon). Bare en ny tabell - ingen eksisterende tabell eller kolonne endres, og ingen rader legges inn (alle kurs følger
+    fellesteksten til noen tilpasser den)."""
+    _opprett_tabell_fra_skjema(con, "kurs_maltekst")
+
+
+# Kolonnene for den nye evalueringen på evaluering_svar (migrering 34), som i skjemafilene
+_EVALUERINGSKOLONNER = (
+    ("samling_id", "INTEGER", "BIGINT"),
+    ("kilde", "TEXT CHECK (kilde IS NULL OR kilde IN ('epost','delt'))", "TEXT CHECK (kilde IS NULL OR kilde IN ('epost','delt'))"),
+    ("sekunder", "INTEGER", "BIGINT"),
+)
+
+
+def _m34_ny_evaluering(con) -> None:
+    """Ny evaluering (Camilla 09.10.2026, kurs/evaluering.py): tabellene evaluering_sporsmal, evaluering_oppsett og
+    evaluering_besvart_samling, og tre nye kolonner på evaluering_svar (NULL for svarene som finnes). Ingen eksisterende kolonne endres.
+    kurs.evaluering får en ny verdi ('samling'), uten at kolonnen endres."""
+    for tabell in ("evaluering_sporsmal", "evaluering_oppsett", "evaluering_besvart_samling"):
+        _opprett_tabell_fra_skjema(con, tabell)
+    pg = db.er_postgres(con)
+    for navn, sqlite_def, pg_def in _EVALUERINGSKOLONNER:
+        if not db.har_kolonne(con, "evaluering_svar", navn):
+            con.execute(f"ALTER TABLE evaluering_svar ADD COLUMN {navn} {pg_def if pg else sqlite_def}")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
@@ -445,6 +541,14 @@ MIGRERINGER = [
     (24, "booking_og_notat", _m24_booking_og_notat),
     (25, "kursbevis_per_kurs", _m25_kursbevis_per_kurs),
     (26, "kursmerke", _m26_kursmerke),
+    (27, "epostdeling", _m27_epostdeling),
+    (28, "evaluering", _m28_evaluering),
+    (29, "klar_til_sending", _m29_klar_til_sending),
+    (30, "kursbevis_design", _m30_kursbevis_design),
+    (31, "datakontroll", _m31_datakontroll),
+    (32, "rabattpriser", _m32_rabattpriser),
+    (33, "kursmaltekster", _m33_kursmaltekster),
+    (34, "ny_evaluering", _m34_ny_evaluering),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

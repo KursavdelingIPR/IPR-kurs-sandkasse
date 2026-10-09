@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% set tema_ta = true %}{#- Terapiakademiet-drakten (base.html laster static/tema-terapiakademiet.css) -#}
+{% set tema_ipr = v.kurs.merke != 'terapiakademiet' %}{#- IPR-kurs: samme oppsett i IPR-farger og med IPR-logoen (static/tema-ipr.css, Camilla 05.10.2026) -#}
 {% import "_kursside_blokker.html" as bl %}
 {#- Min side for ett kurs, for deltakere (og forhåndsvisningen i administrasjonen). All data kommer ferdig filtrert fra deltakerside.bygg_visning (v).
     Sideoppsettet bruker containerspørringer (static/kursside-delt.css), så forhåndsvisningen i en ramme og en ekte telefon gir samme

@@ -1,0 +1,38 @@
+/* IPR-utseende for Min side på kurs IPR arrangerer (Camilla 05.10.2026: «De kursene som ikke er i regi av terapiakademiet, kan du lage
+   et annet design som passer med IPR-logoen?»). Samme oppsett som Terapiakademiet-drakten (tema-terapiakademiet.css), men i fargene fra
+   IPR-logoen: lys varm bakgrunn som bokstavene i logoen, bånd i lys blå, mørk blågrønn tekst og flater, blågrønn aksent og varm grå
+   dempet tekst. Lastes ETTER tema-terapiakademiet.css og bytter bare fargene (variablene og de få fargene som står direkte der).
+   Gjelder bare <body data-tema="ta" data-merke="ipr"> (kursside_deltaker.html setter tema_ipr når kurset ikke er et Terapiakademiet-kurs).
+   Kontrast (tests/test_tema_ipr.py): tekst minst 4,5:1 mot bakgrunn og bånd, feltkanter minst 3:1, lys tekst på de mørke flatene. */
+@media screen {
+
+body[data-tema="ta"][data-merke="ipr"] {
+  --ta-krem:#f6f3ec; --ta-band:#e2eff3; --ta-plomme:#1d4a5a; --ta-mauve:#5c554c; --ta-baer:#256a82;
+  --ta-linje:rgba(29,74,90,.22); --ta-felt:#5f8a99; --ta-felt-bg:#fcfbf8;
+  --ta-etikett-pa-plomme:#cfe6ee; --ta-lenke-pa-plomme:#a8d8e8;
+  --bla:#1d4a5a; --bla-mork:#133541; --bla-lys:#e2eff3; --tekst:#1d4a5a; --dempet:#5c554c; --linje:rgba(29,74,90,.22); --bg:#f6f3ec;
+}
+/* Logoen er bredere og lysere enn Terapiakademiets: litt høyere, så teksten i den kan leses */
+body[data-tema="ta"][data-merke="ipr"] header .logo img.ta-logo { height:52px; }
+
+/* Fargene som står direkte i tema-terapiakademiet.css (plomme/bær med gjennomsiktighet), her i IPR-blått */
+body[data-tema="ta"][data-merke="ipr"] .merke,
+body[data-tema="ta"][data-merke="ipr"] .merke.gra,
+body[data-tema="ta"][data-merke="ipr"] .dp-fil-kommer { background:rgba(29,74,90,.1); }
+body[data-tema="ta"][data-merke="ipr"] th,
+body[data-tema="ta"][data-merke="ipr"] .dp-tabell th,
+body[data-tema="ta"][data-merke="ipr"] .pm-felt input[readonly],
+body[data-tema="ta"][data-merke="ipr"] .pm-felt input.pm-auto { background:rgba(29,74,90,.08); }
+body[data-tema="ta"][data-merke="ipr"] .dp-hero-bilde::after { background:linear-gradient(180deg, rgba(29,74,90,.84) 0%, rgba(29,74,90,.93) 100%); }
+body[data-tema="ta"][data-merke="ipr"] .dp-hero-bilde .dp-meta { background:rgba(19,53,65,.82); }
+body[data-tema="ta"][data-merke="ipr"] .dp-chips { background:linear-gradient(var(--ta-krem) 78%, rgba(246,243,236,0)); }
+body[data-tema="ta"][data-merke="ipr"] .dp-kompakt .dp-b { background:rgba(29,74,90,.12); }
+body[data-tema="ta"][data-merke="ipr"] .dp-dager li.dp-i-dag,
+body[data-tema="ta"][data-merke="ipr"] .dp-meny a.dp-aktiv,
+body[data-tema="ta"][data-merke="ipr"] .dp-pr-dag.dp-i-dag > summary { background:rgba(37,106,130,.13); }
+body[data-tema="ta"][data-merke="ipr"] .pm-oppsett { --pm-ring:rgba(37,106,130,.28); }
+body[data-tema="ta"][data-merke="ipr"] .pm-forslag { box-shadow:0 8px 20px rgba(29,74,90,.18); }
+body[data-tema="ta"][data-merke="ipr"] .inn-seg { background:rgba(29,74,90,.18); }
+body[data-tema="ta"][data-merke="ipr"] .inn-seg-ferdig { background:#5aa8bf; }
+
+}

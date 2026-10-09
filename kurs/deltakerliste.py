@@ -18,7 +18,7 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import db, ekstrafelt, privatadresse
+from . import db, ekstrafelt, privatadresse, rabatter
 
 GRUNNLEGGENDE, KONTAKT, ARBEID, FAKTURA, SVAR, UTFYLLING = (
     "Grunnleggende", "Kontaktinformasjon", "Arbeid og autorisasjon", "Faktura", "Svar i påmeldingsskjemaet",
@@ -48,7 +48,7 @@ KOLONNER = (
     Kolonne("epost", "E-post", KONTAKT, personopplysning=True),
     Kolonne("telefon", "Telefon", KONTAKT, personopplysning=True),
     Kolonne("arbeidssted", "Arbeidssted", ARBEID, personopplysning=True),
-    Kolonne("yrkestittel", "Profesjon", ARBEID, personopplysning=True),        # feltet heter yrkestittel i skjemaet
+    Kolonne("yrkestittel", "Yrkestittel", ARBEID, personopplysning=True),      # samme navn som i påmeldingsskjemaet (Camilla 05.10.2026)
     Kolonne("hpr_nr", "HPR-nummer", ARBEID, personopplysning=True),
     Kolonne("betaler", "Betaler", FAKTURA),
     Kolonne("org_navn", "Organisasjon", FAKTURA),
@@ -90,6 +90,8 @@ INGEN_LOGO = "ingen"
 class Valg:
     kolonner: tuple
     status: str
+    kursnr: bool = True             # «Kursnr. 1001» øverst på arket; kan krysses bort (Camilla 05.10.2026)
+    alle_epost: bool = False        # også e-posten til dem som ikke har svart Ja på «Deling av e-post» (bare intern bruk)
 
     @property
     def nokler(self) -> list[str]:
@@ -97,7 +99,8 @@ class Valg:
 
     def som_args(self) -> dict:
         """Samme valg som query-parametre (brukes av CSV-lenken)."""
-        return {"valgt": "1", "status": self.status, "kol": [k.nokkel for k in self.kolonner if not k.laast]}
+        return {"valgt": "1", "status": self.status, "kol": [k.nokkel for k in self.kolonner if not k.laast],
+                "vis": (["kursnr"] if self.kursnr else []) + (["alle_epost"] if self.alle_epost else [])}
 
 
 @dataclass(frozen=True)
@@ -114,7 +117,9 @@ def les_valg(args, katalog_=KOLONNER) -> Valg:
     if status not in STATUSVALG:
         status = STANDARD_STATUS
     valgte = set(args.getlist("kol")) if args.get("valgt") else {k.nokkel for k in katalog_ if k.standard}
-    return Valg(tuple(k for k in katalog_ if k.laast or k.nokkel in valgte), status)
+    kursnr = "kursnr" in args.getlist("vis") if args.get("valgt") else True
+    alle_epost = bool(args.get("valgt")) and "alle_epost" in args.getlist("vis")
+    return Valg(tuple(k for k in katalog_ if k.laast or k.nokkel in valgte), status, kursnr, alle_epost)
 
 
 def _har(p, nokkel: str) -> bool:
@@ -123,6 +128,10 @@ def _har(p, nokkel: str) -> bool:
         return bool(p[nokkel])
     except (KeyError, IndexError):
         return False
+
+
+# Fakturaen holdes tilbake til rabatten er godkjent (kurs/rabatter.py, sveiper._opprett)
+RABATT_VENTER = "Venter på rabattsjekk"
 
 
 def fakturastatus(kurs, p) -> str:
@@ -139,7 +148,9 @@ def fakturastatus(kurs, p) -> str:
     if p["faktura_antall"] == 0:
         if db.er_ekstradeltaker(p):
             return FAKTURERES_MANUELT
-        return privatadresse.FAKTURA_VENTER if _har(p, "faktura_venter_adresse") else "Ikke fakturert"
+        if _har(p, "faktura_venter_adresse"):
+            return privatadresse.FAKTURA_VENTER
+        return RABATT_VENTER if rabatter.venter(p) else "Ikke fakturert"
     if p["faktura_ubetalt"] == 0:
         return "Betalt"
     if p["faktura_ubetalt"] == p["faktura_antall"]:
@@ -165,6 +176,8 @@ def hent(con, kurs_id: int, status: str) -> list[dict]:
                     p.opprettet, d.navn,
                     d.epost, d.telefon, d.arbeidssted,
                     d.yrkestittel, d.hpr_nr,
+                    (SELECT s.verdi FROM paamelding_svar s JOIN kurs_ekstrafelt e ON e.id=s.felt_id
+                     WHERE s.paamelding_id=p.id AND e.rolle='deling_epost') AS deler_epost,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id) AS faktura_antall,
                     (SELECT COUNT(*) FROM faktura WHERE paamelding_id=p.id AND status!='betalt') AS faktura_ubetalt
              FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id WHERE p.kurs_id=?"""
@@ -244,6 +257,10 @@ def tabell(kurs, rader, valg: Valg, dager, oppmott: set, *, csv: bool = False) -
                 egne = r.get("egne_dager")     # ekstradeltaker på noen samlinger: de andre dagene er «–» (teller ikke)
                 rad += [("" if csv else "–") if egne is not None and d["id"] not in egne
                         else (("ja" if csv else "✓") if (r["id"], d["id"]) in oppmott else "") for d in dager]
+            elif k.nokkel == "epost" and not valg.alle_epost and r.get("deler_epost") != "Ja":
+                # Bare de som har svart Ja på «Deling av e-post», står med e-post; de andre (Nei, ikke svart, eller kurset har
+                # ikke spørsmålet) får et tomt felt (Camilla 05.10.2026). «Vis alle e-postadresser» overstyrer.
+                rad.append("")
             else:
                 rad.append(_verdi(k.nokkel, nr, r, kurs))
         celler.append(rad)
@@ -260,10 +277,17 @@ def logoer() -> list[dict]:
     return ut
 
 
-def velg_logo(onsket: str | None) -> dict | None:
-    """Logoen øverst på utskriften: den valgte (?logo=...) når filen finnes, None for «ingen», ellers den første som
-    finnes (standard). Ukjente verdier gir standard."""
+def standardlogo(kurs) -> str:
+    """Terapiakademiet-logoen bare på kurs Terapiakademiet arrangerer (kurs.merke, plommefarget på Oversikten); alle andre
+    kurs får NIEFT-logoen (Camilla 05.10.2026)."""
+    return "terapiakademiet" if kurs["merke"] == "terapiakademiet" else "nieft"
+
+
+def velg_logo(onsket: str | None, standard: str | None = None) -> dict | None:
+    """Logoen øverst på utskriften: den valgte (?logo=...) når filen finnes, None for «ingen», ellers `standard` når filen
+    finnes, ellers den første som finnes. Ukjente verdier gir standard."""
     finnes = logoer()
     if onsket == INGEN_LOGO:
         return None
-    return next((l for l in finnes if l["nokkel"] == onsket), finnes[0] if finnes else None)
+    reserve = next((l for l in finnes if l["nokkel"] == standard), finnes[0] if finnes else None)
+    return next((l for l in finnes if l["nokkel"] == onsket), reserve)

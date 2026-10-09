@@ -13,7 +13,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from .. import config, kursdatoer, lenker, maltekster
+from .. import config, kursdatoer, maltekster, rabatter
 from . import m365
 
 _maler = Environment(
@@ -24,6 +24,11 @@ _maler = Environment(
 _maler.filters["flett"] = maltekster.manuell_tekst_til_html
 # Kursdagene gruppert per samling: {% for g in dager | samlinger(kurs) %} (samme visning som påmeldingssiden)
 _maler.filters["samlinger"] = kursdatoer.visning
+# Rabattpriser (kurs/rabatter.py): {{ kurs.pris_nok | deltakerpris(p) }} er prisen deltakeren faktureres for, og {{ p | prisnavn }}
+# «Studentpris» osv. (None uten rabatt). At rabatten sjekkes, står ikke i e-posten (Camilla 09.10.2026).
+_maler.filters["deltakerpris"] = rabatter.pris_for
+_maler.filters["prisnavn"] = rabatter.prisnavn
+_maler.filters["pris_i_setning"] = rabatter.i_setning
 
 
 # Emnet er REN TEKST (e-postemne, ikke HTML): egen renderer UTEN autoescape. Ellers ble '&' til '&amp;' og '<' til
@@ -54,11 +59,6 @@ def render(mal: str, maltekst: dict | None = None, **data) -> tuple[str, str]:
     if maltekst is None and mal in maltekster.AKTIVE_MALER:
         maltekst = maltekster.standard_maltekst(mal, data)   # direkte render (ingen DB): STANDARDtekst
     verdier = {"base_url": config.BASE_URL, **data}
-    if "m" in data and "lever_lenke" not in data:     # purring: signert opplastingslenke (laast systemblokk i malen)
-        try:
-            verdier["lever_lenke"] = lenker.lever_lenke(data["m"]["id"])
-        except (KeyError, IndexError, TypeError, ValueError):
-            verdier["lever_lenke"] = ""
     if maltekst is not None:
         verdier["maltekst"] = maltekst    # ferdig rendret (emne: ren tekst, tekst: trygg Markup) fra maltekster - IKKE fra DB her
     emne = _rent_emne(_emne_env.from_string(forste.rstrip("\r").removeprefix("Emne:")).render(**verdier))

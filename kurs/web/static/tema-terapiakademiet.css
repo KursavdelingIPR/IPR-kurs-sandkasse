@@ -167,7 +167,17 @@ body[data-tema="ta"] .dp-blokk-h h2 { font-size:28px; font-weight:500; }
 body[data-tema="ta"] .dp-ikon, body[data-tema="ta"] [class*="dp-ikon-"] { width:auto; height:auto; border-radius:0; background:none; color:var(--ta-baer); }
 body[data-tema="ta"] .dp-ikon .ik { width:26px; height:26px; }
 body[data-tema="ta"] .dp-tom p { color:var(--ta-mauve); }
-body[data-tema="ta"] .dp-person .dp-blokk-h { margin-bottom:16px; }
+/* Mine opplysninger: kompakt (Camilla 05.10.2026: «litt mer komprimert, at den ikke er så stor») - mindre luft, mindre overskrift,
+   tre kolonner når det er plass */
+body[data-tema="ta"] .dp-blokk.dp-person { padding:16px 24px 14px; }
+body[data-tema="ta"] .dp-person .dp-blokk-h { gap:10px; margin-bottom:10px; }
+body[data-tema="ta"] .dp-person .dp-blokk-h h2 { font-size:20px; }
+body[data-tema="ta"] .dp-person .dp-ikon .ik { width:20px; height:20px; }
+body[data-tema="ta"] .dp-person .dp-sub { font-size:12.5px; }
+body[data-tema="ta"] .dp-person .dp-felt { grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:6px 22px; }
+body[data-tema="ta"] .dp-person .dp-felt dt { font-size:11px; }
+body[data-tema="ta"] .dp-person .dp-felt dd { font-size:14.5px; line-height:1.35; margin-top:1px; }
+body[data-tema="ta"] .dp-person .dp-hjelp { margin:10px 0 0; font-size:12.5px; }
 body[data-tema="ta"] .dp-felt dt { color:var(--ta-baer); font-size:12px; font-weight:600; letter-spacing:.12em; }
 body[data-tema="ta"] .dp-felt dd { color:var(--ta-plomme); font-size:16.5px; }
 body[data-tema="ta"] .dp-bekreft { background:var(--ta-gul-bg); border:0; border-left:4px solid var(--ta-gul); border-radius:0; color:var(--ta-gul); }

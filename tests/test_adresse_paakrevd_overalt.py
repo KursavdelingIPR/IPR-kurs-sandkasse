@@ -62,7 +62,7 @@ def _forsok(vei: str, kid: int, adresse: bool) -> bool:
     """Prøver å registrere Ola Nordmann på kurset A1 via `vei`, med eller uten adressen. Returnerer om påmeldingen ble tatt imot."""
     a = ADRESSE if adresse else {}
     if vei == "skjema":
-        r = _klient().post("/kurs/A1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": EPOST, "samtykke": "on", **a})
+        r = _klient().post("/kurs/A1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": EPOST, "samtykke": "on", "samtykke_lagring": "on", **a})
         return r.status_code == 200
     if vei == "bedriftspaamelding":
         return _gruppe(uten_adresse=not adresse).status_code == 302

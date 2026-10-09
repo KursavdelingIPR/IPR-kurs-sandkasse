@@ -23,12 +23,21 @@ Sikkerhetstiltakene (tilgangsstyring, kryptering i transport, logging osv.) stå
 | `min_side_lenke` | påmeldings-id, versjon, om lenken er stengt, tidspunkt og hvem (en administrator) som stengte eller fornyet den | Den personlige lenken til Min side (knappen i e-postene) | **Ingen personopplysninger i seg selv** (bare id-er; ingen e-post, navn eller adresse). En rad finnes bare når en administrator har stengt eller fornyet lenken. Selve lenken er en signatur som regnes ut og **aldri lagres**. Følger påmeldingen ved sletting |
 | `utsending_logg` | mottakeradresse, e-posttype, tidspunkt | Hindre dobbel e-post | **Ikke** innholdet i e-posten |
 | `sendt_epost`, `sendt_epost_vedlegg`, `epost_fil` | en uforanderlig kopi av hver e-post systemet sender: emne, innhold, til, fra, hvem som sendte, tidspunkt, status, bilder og vedlegg | E-posthistorikken i deltakervinduet (fanen E-poster): se nøyaktig hva deltakeren fikk | Lagres før sendingen og endres aldri. Aldri allergier/tilrettelegging (sendes aldri på e-post), aldri innloggingslenker eller andre personlige tilgangslenker (token): den personlige lenken til Min side står som `/min/skjult` i kopien. Lagringstid: som deltakeropplysningene ellers |
+| `epost_godkjenning` | automatiske e-poster som venter på godkjenning i «Klar til sending»: mottaker, emne, innhold, påmelding/kurs, status | Administrator ser og godkjenner e-posten før den sendes (Camilla 05.10.2026) | Personlige tilgangslenker lagres aldri (vises som «skjult», lages ved sendingen). Innholdet slettes når e-posten er sendt, ikke skal sendes eller er utgått; raden (mottaker, emne, status) står igjen som spor. Slettes ved anonymisering og når påmeldingen slettes |
+| `evaluering_svar` | svarene på evalueringen: kurs, samling, dato, kilde (personlig eller delt lenke), tid brukt på skjemaet og svarene | Forbedre kursene (Camilla 05.10 og 09.10.2026) | **Anonyme**: ingen kobling til deltakeren og ikke klokkeslett. Fritekst kan likevel inneholde noe personen selv skriver – derfor kan bare kursadministrasjonen laste ned svarene. Slettes med kurset |
+| `evaluering_besvart`, `evaluering_besvart_samling` | at en påmelding har svart (etter kurset eller en samling), og datoen | Én gang per personlig lenke | Ikke hva personen svarte. Slettes med påmeldingen |
+| `evaluering_sporsmal`, `evaluering_oppsett` | spørsmålene og oppsettet per kurs | Evalueringen per kurs | Ingen personopplysninger |
+| `kurs_maltekst` | kursets egne tekster i påmeldingsbekreftelsen (emne, innledning, avslutning) | Tekst per kurs (Camilla 09.10.2026) | Ingen personopplysninger (flettefeltene fylles inn ved sendingen) |
+| `kurs_rabatt` | rabattene et kurs gir (kategori, prosent, om retten til rabatten må godkjennes) | Rabattpriser (Camilla 09.10.2026) | Ingen personopplysninger |
+| `paamelding` (rabatt) | prisen deltakeren valgte (`priskategori`, `rabatt_prosent`, `rabatt_status`) og, for Psyflix, organisasjonen og e-posten hos Psyflix | Riktig pris på fakturaen, og sjekk av retten til rabatten | Deltakeren samtykker i skjemaet til at IPR sjekker Psyflix-medlemskapet (navn og e-post sendes til Psyflix, i én e-post fra administrator). Psyflix-opplysningene tømmes ved anonymisering |
+| `rabatt_bevis` | studentbeviset (bilde eller PDF) til en studentpris | Sjekke retten til studentprisen | Ligger **bare til rabatten er avgjort**: slettes når administrator trykker «Godkjent» eller «Ikke godkjent», av morgenjobben når påmeldingen er avmeldt eller kurset er avsluttet/avlyst, ved anonymisering og når påmeldingen slettes. Bare kursadministrasjonen kan åpne det (ikke lesetilgang), og hver visning logges («rabattbevis_vist») |
+| `datakontroll_ok` | at en administrator har sjekket en opplysning som så feil ut («Det stemmer» i datakontrollen): deltaker, hvilken kontroll, tidspunkt og hvem | At den samme opplysningen ikke markeres igjen (Camilla 07.10.2026) | **Ingen kopi av opplysningen**, bare en sha256 av den (endres opplysningen, kontrolleres den på nytt). Slettes ved anonymisering og når deltakeren slettes |
 | `signatur`, `signatur_bilde` | signaturer til e-post: ansattes navn, tittel, telefon og e-post, og logoer | Signatur i e-post fra IPR | Opplysninger om **ansatte** (jobbkontakt), ikke om deltakere. Slettes når signaturen slettes; e-poster som alt er sendt, beholder signaturen i kopien |
 | `firmapaamelding(_rad)` | kontaktperson og deltakere ved bedriftspåmelding | Kvittering og påmelding | |
 | `henvendelse` | spørsmål fra «Spør oss», e-post | Besvarelse | Fritekst. «Spør oss» er av som standard: ingen nye henvendelser lagres, og eksisterende ligger urørt |
 | `innlogging_token` | engangslenker til Mine kurs og Min side (og «bekreft e-posten din») | Innlogging | Gyldig 30 min. Lenken kan ha `?neste=` (en sti på nettstedet, f.eks. `/kurs/PAR-DIG/deltakerside`): ingen persondata |
 | `import_forhaandsvisning` | CSV-rader under import | Import av deltakere | Utløper etter minutter, ryddes av morgenjobben |
-| `materiell_krav` | kursholders navn og e-post | Purring på materiell | |
+| `materiell_krav` | kursholders navn og e-post (eldre rader) | Ikke i bruk lenger (Camilla 06.10.2026: kursholder-lenken og SharePoint er tatt bort; filene til deltakerne ligger i kurssystemet) | Tabellen står igjen (tabeller slettes ikke); gamle rader kan slettes |
 | `admin_bruker` | ansattes navn, brukernavn, e-post, Entra-id | Tilgangsstyring | |
 | `hendelse` | revisjonslogg | Sporbarhet | **Inneholder aldri navn, e-post eller sensitive verdier** – bare id-er og feltnavn |
 | `planlagt_aktivitet` | interne planer i årsplanen | Planlegging | Skriv ikke personopplysninger her |
@@ -37,8 +46,7 @@ Sikkerhetstiltakene (tilgangsstyring, kryptering i transport, logging osv.) stå
 | `kursholder`, `planlagt_rolle` | kursholdernes korte og fulle navn, rollen deres per samling og veiledningsdag (trainer, facilitator, veileder …), om oppdraget er booket i Psybase, hvem som endret og når | Planlegging av kurs (Kalender → Kursholdere) | Ingen deltakerdata. Hendelsesloggen får bare id-er og koder, aldri navn. Ikke i e-post eller CSV. En kursholder som slutter, settes til «ikke aktiv»; navnet kan slettes når rollene ikke trengs lenger |
 | `samling_booking`, `sjekkliste_punkt.notat` | booking per samling (kurslokale, hotell, grupperom, lunsj): status og fritekst med hvor, referansenummer og pris, som kan ha navnet på en kursholder som får hotellrom; notat på sjekklistepunktene om hva som er gjort | Oppfølging av kurs (Kalender) | Ingen deltakerdata. Hendelsesloggen får bare id-er, type og status, aldri teksten. Ikke i e-post eller CSV. Skriv ikke opplysninger om deltakere her |
 
-Utenfor databasen: e-poster i kurs-postboksens «Sendte elementer» (Microsoft 365), kursmateriell og personlige mapper i
-SharePoint, møter og deltakerrapporter i Zoom, kunder og fakturaer i Visma. I demo: `utboks/` på lokal disk (bare
+Utenfor databasen: e-poster i kurs-postboksens «Sendte elementer» (Microsoft 365), møter og deltakerrapporter i Zoom, kunder og fakturaer i Visma. I demo: `utboks/` på lokal disk (bare
 oppdiktede data).
 
 ### Deltakerens private adresse
@@ -133,6 +141,9 @@ Visma. Når regelen er bestemt, kan den legges inn i morgenjobben på samme måt
 - e-postadressen i utsendingsloggen, bedriftspåmeldinger og henvendelser erstattes/slettes
 - en ventende forhåndsvisning av CSV-import (kortlevd: navn, e-post og adresse) som har personen, slettes
 - e-posthistorikken: alle lagrede kopier av e-poster for personens påmeldinger og til personens adresse slettes, og bilder/vedlegg som ingen annen e-post bruker
+- «Klar til sending»: e-poster til personen som venter på godkjenning (eller er behandlet) slettes
+- datakontrollen: merkene «Det stemmer» for personen slettes
+- rabattene: studentbevis som venter på godkjenning slettes, og Psyflix-organisasjonen og -e-posten tømmes
 - anonyme tall (påmelding, oppmøte, faktura) **beholdes**, slik at statistikk og økonomi stemmer
 
 Nektes hvis personen har aktive påmeldinger (påmeldt/venteliste på kurs som ikke er avsluttet/avlyst) – meld av
@@ -147,8 +158,7 @@ på Min side, redigerer og publiserer administrator siden på nytt** (fjern navn
 
 1. **Visma:** kundekort og fakturaer er regnskapsbilag og skal normalt beholdes i 5 år. Vurder sammen med regnskap.
 2. **Microsoft 365:** e-poster til personen i kurs-postboksens «Sendte elementer».
-3. **SharePoint:** personlige mapper (`Kurs/<kode>/Deltakere/<e-post>`), hvis det er brukt.
-4. **Zoom:** deltakerrapporter for digitale kurs.
+3. **Zoom:** deltakerrapporter for digitale kurs.
 
 ### Sikkerhetskopier
 
@@ -164,7 +174,7 @@ Dumper tatt for hånd (`pg_dump` før en migrering) slettes når de ikke trengs.
 - **Dataminimering i eksport:** deltakerlisten har bare nr. og navn som standard; alt annet må krysses av. Allergier og
   tilrettelegging kan aldri eksporteres (verken CSV eller utskriftslisten) – de har egen liste der hver visning logges.
   Deltakerens private adresse er ikke med i noen eksport (verken deltakerlisten, CSV av deltakere eller rapportene).
-- **E-post:** allergier/tilrettelegging sendes aldri på e-post, og det gjør heller ikke deltakerens private adresse. En kopi av hver sendt e-post lagres i e-posthistorikken (samme tilgang som deltakervinduet), men aldri innloggingslenker eller andre personlige tilgangslenker: innloggingslenken går ikke via utsendingsmotoren, og purringen til kursholder og bedriftens kvittering sendes uten kopi. Kopien vises i en låst ramme der ingen skript kan kjøre. Svarene på kursets egne spørsmål i
+- **E-post:** allergier/tilrettelegging sendes aldri på e-post, og det gjør heller ikke deltakerens private adresse. En kopi av hver sendt e-post lagres i e-posthistorikken (samme tilgang som deltakervinduet), men aldri innloggingslenker eller andre personlige tilgangslenker: innloggingslenken går ikke via utsendingsmotoren, og bedriftens kvittering sendes uten kopi. Kopien vises i en låst ramme der ingen skript kan kjøre. Svarene på kursets egne spørsmål i
   påmeldingsskjemaet sendes heller ikke på e-post.
 - **Egne spørsmål i påmeldingsskjemaet:** svarene vises bare i deltakervinduet og i deltakerlisten når de krysses av.
   Samtykker (f.eks. «Deling av e-post») er aldri forhåndsvalgt, og «Nei» er alltid et reelt valg.
@@ -214,7 +224,7 @@ Dumper tatt for hånd (`pg_dump` før en migrering) slettes når de ikke trengs.
 
 | Leverandør | Hva de får | Merknad |
 |---|---|---|
-| Microsoft (Azure, Microsoft 365) | Hele databasen (Azure Database for PostgreSQL), e-post, SharePoint | Norway East |
+| Microsoft (Azure, Microsoft 365) | Hele databasen (Azure Database for PostgreSQL), e-post | Norway East |
 | Zoom | Navn/e-post til deltakere på digitale kurs (via møtet) | |
 | Visma | Kundenavn, e-post, adresse, fakturaer | |
 | Anthropic (kun hvis «Spør oss» med KI er slått på) | Spørsmålet og relevante fakta om kurset/deltakerens påmelding | «Spør oss» er **av som standard** (`ASSISTENT_AKTIV=0`); slås på med `ASSISTENT_AKTIV=1`. Uten nøkkel brukes ordmatching lokalt |

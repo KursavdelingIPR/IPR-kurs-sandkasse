@@ -77,7 +77,7 @@ def _firmafelter(p):
 # Hver funksjon melder på EPOST med firma som betaler og med «skrevet» firmanavn/adresse der veien tillater det.
 
 def _offentlig(con, kid, nr):
-    _klient().post("/kurs/S1", data={"fornavn": "Ny", "etternavn": "Person", "epost": EPOST, "samtykke": "on", **ADRESSE,
+    _klient().post("/kurs/S1", data={"fornavn": "Ny", "etternavn": "Person", "epost": EPOST, "samtykke": "on", "samtykke_lagring": "on", **ADRESSE,
                                      "betaler": "organisasjon", "org_nr": nr, **SKREVET})
 
 
@@ -90,7 +90,7 @@ def _adminregistrering(con, kid, nr):
 def _bedriftspaamelding(con, kid, nr):
     _klient().post("/kurs/S1/gruppe", data=gruppeskjema({
         "kontakt_navn": "Kari Kontakt", "kontakt_epost": "kontakt@eksempel.no", "org_nr": nr, "faktura_ref": "REF-1",
-        "deltaker_navn": ["Ny Person"], "deltaker_epost": [EPOST], "samtykke": "on", **SKREVET}))
+        "deltaker_navn": ["Ny Person"], "deltaker_epost": [EPOST], "samtykke": "on", "samtykke_lagring": "on", **SKREVET}))
 
 
 def _webhook(con, kid, nr):
@@ -188,7 +188,7 @@ def test_skjemaene_sier_fra_om_ugyldig_og_ukjent_nummer(con, vei):
     tekster = {}
     for navn, nr in (("ugyldig", UGYLDIG), ("ukjent", UKJENT)):
         if vei == "offentlig":
-            r = _klient().post("/kurs/S1", data={"fornavn": "Ny", "etternavn": "Person", "epost": EPOST, "samtykke": "on", **ADRESSE,
+            r = _klient().post("/kurs/S1", data={"fornavn": "Ny", "etternavn": "Person", "epost": EPOST, "samtykke": "on", "samtykke_lagring": "on", **ADRESSE,
                                                  "betaler": "organisasjon", "org_nr": nr})
         elif vei == "adminregistrering":
             r = _admin().post(f"/admin/kurs/{kid}/deltaker/ny", data={
@@ -197,7 +197,7 @@ def test_skjemaene_sier_fra_om_ugyldig_og_ukjent_nummer(con, vei):
         else:
             r = _klient().post("/kurs/S1/gruppe", data=gruppeskjema({
                 "kontakt_navn": "Kari Kontakt", "kontakt_epost": "kontakt@eksempel.no", "org_nr": nr,
-                "deltaker_navn": ["Ny Person"], "deltaker_epost": [EPOST], "samtykke": "on"}))
+                "deltaker_navn": ["Ny Person"], "deltaker_epost": [EPOST], "samtykke": "on", "samtykke_lagring": "on"}))
         assert r.status_code == 400
         tekster[navn] = r.get_data(as_text=True)
     assert firmaopplysninger.TEKST_UGYLDIG in tekster["ugyldig"] and firmaopplysninger.TEKST_IKKE_FUNNET not in tekster["ugyldig"]

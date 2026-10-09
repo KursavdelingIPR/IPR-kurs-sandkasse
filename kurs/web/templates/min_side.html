@@ -66,8 +66,6 @@
       </div>
       {% endif %}
       {% if p.zoom_url and p.kursstatus != 'avsluttet' %}<p class="ms-liten">Zoom: <a href="{{ p.zoom_url }}">{{ p.zoom_url }}</a></p>{% endif %}
-      {% if x.filer %}<div class="ms-materiell"><p class="ms-liten"><strong>Kursmateriell</strong></p>
-        <ul class="ms-liste">{% for fil in x.filer %}<li><a href="{{ url_for('materiell', kurs_id=p.kurs_id, navn=fil.navn) }}">{{ fil.navn }}</a></li>{% endfor %}</ul></div>{% endif %}
       {% endif %}
     </article>
     {% else %}<p class="dempet">Du har ingen påmeldinger.</p>{% endfor %}

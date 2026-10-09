@@ -26,7 +26,7 @@ paa nytt fra deltakervinduet. Ellers ville en ekstradeltaker staatt igjen uten h
 """
 from dataclasses import dataclass, replace
 
-from . import db, privatadresse, sveiper
+from . import db, privatadresse, rabatter, sveiper
 from .kjoring import Kjoring
 
 # Resultatkoder fra behandle_holdt_paamelding()/klassifiser()
@@ -130,7 +130,10 @@ def forventet_handling(kurs, rad, con=None) -> str:
         tekst = "Bekreftelse på e-post og fakturering" if faktureres else "Bekreftelse på e-post"
     # En privat faktura lages aldri uten komplett privat adresse (privatadresse.py): si fra allerede i forhåndsvisningen
     venter = faktureres and con is not None and "id" in rad.keys() and privatadresse.venter(con, rad["id"])
-    return tekst + (" – fakturaen holdes tilbake fordi privat adresse mangler" if venter else "")
+    # ... og ingen faktura før rabatten er godkjent (kurs/rabatter.py)
+    rabatt = faktureres and rabatter.venter(rad)
+    return (tekst + (" – fakturaen holdes tilbake fordi privat adresse mangler" if venter else "")
+            + (" – fakturaen venter til rabatten er godkjent" if rabatt else ""))
 
 
 def teller_som_feil(res: Behandlingsresultat) -> bool:

@@ -424,7 +424,7 @@ def test_rekkefolge_0_er_en_ekte_overstyring(con):
     assert _rader(con, kid)[0]["rekkefolge"] == 0      # 0, ikke NULL
     les = db.hent_skjemaoverstyringer(con, kid)
     assert les.overstyringer["arbeidssted"] == Overstyring(rekkefolge=0) and not les.har_advarsler
-    assert _nokler(sf.effektivt_skjema(KURS, les)) == ["arbeidssted", "telefon"]
+    assert _nokler(sf.effektivt_skjema(KURS, les)) == ["arbeidssted", "telefon", "yrkestittel"]  # yrkestittel vises som standard (Camilla 05.10.2026)
 
 
 def test_rekkefolge_0_for_telefon_er_ogsaa_et_avvik():
@@ -436,19 +436,19 @@ def test_rekkefolge_0_for_telefon_er_ogsaa_et_avvik():
 
 def test_default_uten_overstyringer_er_kodet_standard():
     tekst = {n: sf.REGISTER[n].hjelpetekst for n in ("faktura_ref", "faktura_kommentar", "allergier")}
+    # yrkestittel vises og EHF er skjult som standard (Camilla 05.10.2026)
     forventet = sf.EffektivtSkjema(
         (sf.EffektivtFelt("telefon", "Telefon", False), sf.EffektivtFelt("arbeidssted", "Arbeidssted", False),
-         sf.EffektivtFelt("hpr_nr", "HPR-nummer", False)), True, True,
+         sf.EffektivtFelt("yrkestittel", "Yrkestittel", False), sf.EffektivtFelt("hpr_nr", "HPR-nummer", False)), True, True,
         (sf.EffektivtFelt("adresse", "Adresse", True), sf.EffektivtFelt("postnr", "Postnummer", True, "4 siffer i Norge."),
          sf.EffektivtFelt("poststed", "Poststed", True)),
         (sf.EffektivtFelt("faktura_ref", "Faktura merkes med", False, tekst["faktura_ref"]),
          sf.EffektivtFelt("faktura_epost", "E-post for faktura", False),
-         sf.EffektivtFelt("faktura_kommentar", "Kommentar til faktura", False, tekst["faktura_kommentar"]),
-         sf.EffektivtFelt("ehf", "Elektronisk faktura", False, None, "avkrysning")),
+         sf.EffektivtFelt("faktura_kommentar", "Kommentar til faktura", False, tekst["faktura_kommentar"])),
         (),
         (sf.EffektivtFelt("allergier", "Allergier eller spesialkost", False, tekst["allergier"], "langtekst"),
          sf.EffektivtFelt("tilrettelegging", "Behov for tilrettelegging", False, None, "langtekst")),
-        sf.INFO_STANDARD)
+        info=sf.INFO_STANDARD)     # navngitt: EffektivtSkjema har fått feltet nederstfelt foran info
     tomt = sf.Leseresultat(sf.MappingProxyType({}), ())
     for skjema in (sf.effektivt_skjema(KURS_LOP), sf.effektivt_skjema(KURS_LOP, None),
                    sf.effektivt_skjema(KURS_LOP, {}), sf.effektivt_skjema(KURS_LOP, tomt),
@@ -490,7 +490,9 @@ def test_felt_kan_bare_endres_innenfor_sine_grenser(felt, egenskaper, grunn):
     ("allergier", {"synlig": False, "label": "Allergier"}, Overstyring(synlig=False, label="Allergier")),
     ("faktura_epost", {"obligatorisk": True}, Overstyring(obligatorisk=True)),
     ("vis_pris", {"synlig": False}, Overstyring(synlig=False)),
-    ("yrkestittel", {"synlig": True, "rekkefolge": 1}, Overstyring(synlig=True, rekkefolge=1)),
+    # yrkestittel er synlig som standard (Camilla 05.10.2026) - avviket er nå å skjule det
+    ("yrkestittel", {"synlig": False, "rekkefolge": 1}, Overstyring(synlig=False, rekkefolge=1)),
+    ("ehf", {"synlig": True}, Overstyring(synlig=True)),          # EHF er skjult som standard, kan vises per kurs
 ])
 def test_nye_standardfelt_kan_tilpasses(felt, egenskaper, forventet):
     assert sf.normaliser_overstyring(felt, egenskaper) == forventet
@@ -499,7 +501,7 @@ def test_nye_standardfelt_kan_tilpasses(felt, egenskaper, forventet):
 @pytest.mark.parametrize("felt,annet", [("telefon", "arbeidssted"), ("arbeidssted", "telefon")])
 def test_skjult_felt_forsvinner(felt, annet):
     s = sf.effektivt_skjema(KURS, {felt: Overstyring(synlig=False)})
-    assert _nokler(s) == [annet]
+    assert _nokler(s) == [annet, "yrkestittel"]  # yrkestittel vises som standard (Camilla 05.10.2026)
 
 
 @pytest.mark.parametrize("felt", ["telefon", "arbeidssted"])
@@ -510,16 +512,22 @@ def test_obligatorisk_label_og_hjelpetekst_brukes(felt):
 
 def test_begge_kan_skjules():
     s = sf.effektivt_skjema(KURS_LOP, {"telefon": Overstyring(synlig=False), "arbeidssted": Overstyring(synlig=False)})
+    assert _nokler(s) == ["yrkestittel", "hpr_nr"]  # yrkestittel vises som standard (Camilla 05.10.2026)
+    # alle tre «Om deg»-feltene kan skjules; HPR står igjen
+    s = sf.effektivt_skjema(KURS_LOP, {n: Overstyring(synlig=False) for n in ("telefon", "arbeidssted", "yrkestittel")})
     assert _nokler(s) == ["hpr_nr"]
 
 
+# yrkestittel (standard rekkefølge 3) vises som standard (Camilla 05.10.2026)
 @pytest.mark.parametrize("over,forventet", [
-    ({"telefon": Overstyring(rekkefolge=3)}, ["arbeidssted", "telefon"]),
-    ({"arbeidssted": Overstyring(rekkefolge=0)}, ["arbeidssted", "telefon"]),
-    ({"arbeidssted": Overstyring(rekkefolge=-5)}, ["arbeidssted", "telefon"]),
-    ({"telefon": Overstyring(rekkefolge=2)}, ["telefon", "arbeidssted"]),          # likt -> standardindeks
-    ({"telefon": Overstyring(rekkefolge=9), "arbeidssted": Overstyring(rekkefolge=9)}, ["telefon", "arbeidssted"]),
-    ({"telefon": Overstyring(rekkefolge=2), "arbeidssted": Overstyring(rekkefolge=1)}, ["arbeidssted", "telefon"]),
+    ({"telefon": Overstyring(rekkefolge=3)}, ["arbeidssted", "telefon", "yrkestittel"]),   # likt med yrkestittel -> standardindeks
+    ({"arbeidssted": Overstyring(rekkefolge=0)}, ["arbeidssted", "telefon", "yrkestittel"]),
+    ({"arbeidssted": Overstyring(rekkefolge=-5)}, ["arbeidssted", "telefon", "yrkestittel"]),
+    ({"telefon": Overstyring(rekkefolge=2)}, ["telefon", "arbeidssted", "yrkestittel"]),          # likt -> standardindeks
+    ({"telefon": Overstyring(rekkefolge=9), "arbeidssted": Overstyring(rekkefolge=9)},
+     ["yrkestittel", "telefon", "arbeidssted"]),
+    ({"telefon": Overstyring(rekkefolge=2), "arbeidssted": Overstyring(rekkefolge=1)}, ["arbeidssted", "telefon", "yrkestittel"]),
+    ({"yrkestittel": Overstyring(rekkefolge=1)}, ["telefon", "yrkestittel", "arbeidssted"]),      # likt -> standardindeks
 ])
 def test_stabil_sortering_paa_effektiv_rekkefolge_og_standardindeks(over, forventet):
     assert _nokler(sf.effektivt_skjema(KURS, over)) == forventet
@@ -541,7 +549,7 @@ def test_hpr_laasene_kan_ikke_omgaas_med_haandlaget_overstyring():
     eller gjore det obligatorisk."""
     o = Overstyring(synlig=False, obligatorisk=True, rekkefolge=-100, label="Annet", hjelpetekst="Hjelp")
     s = sf.effektivt_skjema(KURS_LOP, {"hpr_nr": o})
-    assert _nokler(s) == ["telefon", "arbeidssted", "hpr_nr"]
+    assert _nokler(s) == ["telefon", "arbeidssted", "yrkestittel", "hpr_nr"]  # yrkestittel vises som standard (Camilla 05.10.2026)
     assert _felt(s, "hpr_nr") == sf.EffektivtFelt("hpr_nr", "HPR-nummer", False, "Hjelp")
 
 
@@ -626,7 +634,7 @@ def test_hpr_ikke_tillatt_egenskap_ignoreres_hjelpetekst_i_samme_rad_brukes(con,
     assert les.advarsler == (Advarsel(sf.IKKE_TILLATT, "hpr_nr", kol),)
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
     s = sf.effektivt_skjema(kurs, les)
-    assert _nokler(s) == ["telefon", "arbeidssted", "hpr_nr"]
+    assert _nokler(s) == ["telefon", "arbeidssted", "yrkestittel", "hpr_nr"]  # yrkestittel vises som standard (Camilla 05.10.2026)
     assert _felt(s, "hpr_nr") == sf.EffektivtFelt("hpr_nr", "HPR-nummer", False, "Gyldig hjelp")
 
 
@@ -693,7 +701,7 @@ def test_flere_korrupte_rader_gir_en_advarsel_per_problem_og_er_pii_frie(con):
         Advarsel(sf.KONTROLLTEGN, "telefon", "label"), Advarsel(sf.FOR_LANG, "telefon", "hjelpetekst")], key=repr)
     assert "PII" not in repr(les.advarsler) and "x" * 10 not in repr(les.advarsler)
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
-    assert _nokler(sf.effektivt_skjema(kurs, les)) == ["arbeidssted", "hpr_nr"]
+    assert _nokler(sf.effektivt_skjema(kurs, les)) == ["arbeidssted", "yrkestittel", "hpr_nr"]  # yrkestittel vises som standard (Camilla 05.10.2026)
 
 
 def test_rader_for_andre_kurs_leses_ikke(con):

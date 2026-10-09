@@ -24,7 +24,7 @@ MERKE = "Firmaopplysninger må kontrolleres"
 MELDING = "Vi kunne ikke hente firmaopplysningene akkurat nå"
 NEDE = brreg.DEMO_NEDE_ORGNR                      # registeret svarer ikke for dette nummeret (demo)
 FIRMA = "999900003"                               # EKSEMPEL KOMMUNE, Postboks 100, 1234 EKSEMPELBY
-BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": "test.person@eksempel.no", "samtykke": "on", **ADRESSE}
+BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": "test.person@eksempel.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE}
 
 
 @pytest.fixture(autouse=True)

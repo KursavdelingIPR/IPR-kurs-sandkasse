@@ -85,7 +85,7 @@ def _alle_tabeller_utenom_deltaker_og_paamelding(con) -> str:
 
 def _registrer(con, kode="P1", epost=EPOST, **over):
     r = _klient().post(f"/kurs/{kode}", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": epost,
-                                              "samtykke": "on", "betaler": "person", **SPORBAR_ADRESSE, **over})
+                                              "samtykke": "on", "samtykke_lagring": "on", "betaler": "person", **SPORBAR_ADRESSE, **over})
     assert r.status_code == 200, r.get_data(as_text=True)[:400]
 
 

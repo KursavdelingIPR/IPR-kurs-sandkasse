@@ -1,4 +1,5 @@
 {% extends "admin_base.html" %}
+{% from "_kodeknapper.html" import kodeknapper %}
 {% block innhold %}
 {% include "admin_kurs_header.html" %}
 {% include "admin_kurs_faner.html" %}
@@ -8,6 +9,53 @@
   {% if admin_rolle != 'lese' %}<a class="knapp liten sekundar" href="{{ url_for('admin_kurs_signatur', kurs_id=kurs.id) }}">Endre signatur</a>
   {% else %}<a class="liten" href="{{ url_for('admin_kurs_signatur', kurs_id=kurs.id) }}">Se signaturen</a>{% endif %}
 </div>
+
+{#- Påmeldingsbekreftelsen for DETTE kurset (Camilla 09.10.2026: «veldig mange av kursene er forskjellige, med ulike tekster, ulike regler»).
+    Teksten er fellesteksten fra E-postmaler til den tilpasses her (et utkast som er klart fra kurset er opprettet). Bare felt som er ulike
+    fellesteksten, lagres for kurset (maltekster.lagre_kurstekster). Forhåndsvisningen er hele e-posten med kursets egne datoer, sted, pris og
+    fakturaplan og en oppdiktet deltaker - ingenting sendes. -#}
+<h2 id="bekreftelse">Påmeldingsbekreftelse</h2>
+<p class="liten dempet" style="margin-top:-6px">E-posten deltakerne får når de har fått plass på kurset.
+  {% if bekreftelse_tilpasset %}<span class="merke gul">Tilpasset for dette kurset</span>
+  {% else %}<span class="merke gra">Fellesteksten</span> Teksten er den samme som i <a href="{{ url_for('admin_maltekst_rediger', mal='bekreftelse') }}">E-postmaler</a>
+  til du endrer den her – da gjelder endringen bare dette kurset.{% endif %}</p>
+{% if bekreftelse_feil %}<div class="flash feil" role="alert" style="max-width:760px">{{ bekreftelse_feil }}</div>{% endif %}
+
+<div class="kort" style="max-width:760px">
+  <form method="post" action="{{ url_for('admin_kurs_bekreftelse_lagre', kurs_id=kurs.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% for f in bekreftelse_felter %}
+    <div style="margin-bottom:14px">
+      <label for="bk-{{ f.navn }}">{{ f.visningsnavn }}{% if f.tilpasset %} <span class="merke gul liten">tilpasset</span>{% endif %}
+        <span class="liten dempet">(maks {{ f.maks }} tegn{{ ', ingen linjeskift' if f.type == 'emne' }}{{ ', kan være tom' if f.tom_tillatt and f.type != 'emne' }})</span></label>
+      {% if f.type == 'emne' %}
+      <input id="bk-{{ f.navn }}" name="{{ f.navn }}" maxlength="{{ f.maks }}" value="{{ f.tekst }}"{% if not f.tom_tillatt %} required{% endif %}{{ ' readonly' if admin_rolle == 'lese' }}>
+      {% else %}
+      <textarea id="bk-{{ f.navn }}" name="{{ f.navn }}" rows="5" maxlength="{{ f.maks }}"{{ ' readonly' if admin_rolle == 'lese' }}>{{ f.tekst }}</textarea>
+      {% endif %}
+      {% if admin_rolle != 'lese' %}{{ kodeknapper("bk-" ~ f.navn, f.koder, koder, systemkoder) }}{% endif %}
+    </div>
+    {% endfor %}
+    <p class="liten dempet" style="margin:0 0 10px">Midt i e-posten fyller systemet selv inn kursdagene, stedet, prisen og fakturaen, og knappen til Min side
+      når kurset har en. Det ser du i forhåndsvisningen under.</p>
+    {% if admin_rolle != 'lese' %}<button class="liten">Lagre for dette kurset</button>{% endif %}
+  </form>
+  {% if bekreftelse_tilpasset and admin_rolle != 'lese' %}
+  <form method="post" action="{{ url_for('admin_kurs_bekreftelse_tilbakestill', kurs_id=kurs.id) }}" style="margin-top:8px"
+        data-bekreft="Bruke fellesteksten fra E-postmaler for dette kurset igjen? Teksten som er tilpasset her, slettes.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="liten sekundar">Bruk fellesteksten igjen</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if bekreftelse_visning %}
+<h3>Slik ser e-posten ut for dette kurset</h3>
+<p class="liten dempet" style="margin:0 0 6px">Med en oppdiktet deltaker (Ola Nordmann, betaler selv). Ingen e-post sendes.
+  {% if not bekreftelse_visning.har_min_side %}Knappen «Åpne Min side» kommer med når kurset har en publisert Min side.{% endif %}</p>
+<p class="liten" style="margin:0 0 6px"><strong>Emne:</strong> {{ bekreftelse_visning.emne }}</p>
+<div class="kort" style="max-width:760px; background:#fafbfb">{{ bekreftelse_visning.html | safe }}</div>
+{% endif %}
 
 <h2>Manuelt sendt</h2>
 <p class="liten dempet">Send til deltakere via avkrysning i Deltakere-fanen, eller til én deltaker fra deltakerprofilen.</p>

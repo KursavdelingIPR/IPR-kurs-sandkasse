@@ -43,6 +43,8 @@ def _kildekurs(con, **over):
     felter.update(over)
     datoer = [start.isoformat(), (start + timedelta(days=1)).isoformat()]
     kid = db.opprett_kurs(con, datoer=datoer, **felter)
+    # En gammel forespørsel om materiell (06.10.2026: kursholder-lenken og SharePoint er tatt bort, men tabellen står igjen):
+    # den skal aldri følge med en kopi
     con.execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
                (kid, "Psykolog A", "psykolog.a@ipr.no", (start - timedelta(days=5)).isoformat()))
     con.execute("UPDATE kurs SET zoom_url='https://zoom/x', zoom_id='1', zoom_pw='pw' WHERE id=?", (kid,))
@@ -77,7 +79,7 @@ def test_prefyller_felt_fra_kildekurs(con):
     assert "basert på" in t
     assert 'value="EFT spesialistutdanning"' in t
     assert 'value="IPR, Bergen"' in t
-    assert "kursholder" not in t.lower() and 'value="psykolog.a@ipr.no"' not in t   # forespørsel om presentasjon er flyttet til Kursmateriell
+    assert "kursholder" not in t.lower() and 'value="psykolog.a@ipr.no"' not in t   # ingen kursholder i skjemaet (06.10.2026: kursholder-lenken er tatt bort)
     assert 'value="7"' in t                                          # timer per dag fra kildekurset
 
 
@@ -214,7 +216,9 @@ def test_zoom_kopieres_aldri(con):
     assert (nytt["zoom_url"], nytt["zoom_id"], nytt["zoom_pw"]) == (None, None, None)
 
 
-def test_ny_sharepoint_mappe_opprettes(con):
+def test_kopien_arver_ikke_sharepoint_mappen(con):
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort - et nytt kurs får ingen SharePoint-mappe, og kopien arver
+    # aldri originalens; kolonnen står igjen i databasen)
     kid = _kildekurs(con)
     con.commit()
     admin_id = _admin_id(con)
@@ -222,8 +226,7 @@ def test_ny_sharepoint_mappe_opprettes(con):
     _logg_inn(klient)
     klient.post("/admin/kurs/ny", data=_grunnlag(fra=str(kid), ansvarlig_admin_id=str(admin_id)))
     nytt = _fersk(con).execute("SELECT sharepoint_mappe FROM kurs WHERE id != ?", (kid,)).fetchone()
-    assert nytt["sharepoint_mappe"] != "Kurs/EFT-S1"
-    assert nytt["sharepoint_mappe"]
+    assert nytt["sharepoint_mappe"] is None
 
 
 def test_nye_kursdager_faar_egne_innsjekk_tokens(con):

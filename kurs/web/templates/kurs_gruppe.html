@@ -6,13 +6,15 @@
 <p class="sub">Meld på flere deltakere til dette kurset i én innsending. Maks {{ maks_deltakere or 30 }} deltakere per gang.</p>
 <p class="liten"><a href="{{ url_for('kursside', kode=kurs.kode) }}">← Meld på én person i stedet</a></p>
 
-<form method="post" class="kort" style="max-width:900px">
+<form method="post" class="kort" style="max-width:900px"{% if rabatter %} enctype="multipart/form-data"{% endif %}>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <strong>Kontaktperson og firma</strong>
   <div class="rad">
     <div><label for="f-kontakt_fornavn">Kontaktperson – fornavn *</label><input id="f-kontakt_fornavn" name="kontakt_fornavn" required autocomplete="given-name" value="{{ f.kontakt_fornavn or '' }}"></div>
     <div><label for="f-kontakt_etternavn">Kontaktperson – etternavn *</label><input id="f-kontakt_etternavn" name="kontakt_etternavn" required autocomplete="family-name" value="{{ f.kontakt_etternavn or '' }}"></div>
-    <div><label for="f-kontakt_epost">Kontaktperson – e-post *</label><input id="f-kontakt_epost" name="kontakt_epost" type="email" required value="{{ f.kontakt_epost or '' }}"></div>
+    <div><label for="f-kontakt_epost">Kontaktperson – e-post *</label><input id="f-kontakt_epost" name="kontakt_epost" type="email" required value="{{ f.kontakt_epost or '' }}" data-epost-sjekk="{{ EPOST_SJEKK }}"></div>
+    <div><label for="f-kontakt_epost_bekreft">Bekreft e-post *</label><input id="f-kontakt_epost_bekreft" name="kontakt_epost_bekreft" type="email" required value="{{ f.kontakt_epost_bekreft or '' }}"
+      data-lik-som="f-kontakt_epost" data-lik-feil="E-postadressene er ikke like."></div>
     <div><label for="f-kontakt_telefon">Kontaktperson – telefon</label><input id="f-kontakt_telefon" name="kontakt_telefon" value="{{ f.kontakt_telefon or '' }}"></div>
   </div>
   <div class="rad">
@@ -23,7 +25,7 @@
   <label style="font-weight:normal"><input type="checkbox" name="ehf" {{ 'checked' if f.ehf }}> Send som EHF (elektronisk faktura)</label>
 
   <p class="liten dempet" style="margin-top:14px">
-    {% if kurs.fakturering == 'person' and kurs.pris_nok %}Hver bekreftet deltaker faktureres for seg, {{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr, til firmaet over.
+    {% if kurs.fakturering == 'person' and kurs.pris_nok %}Hver bekreftet deltaker faktureres for seg, {{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr, til firmaet over.{% if rabatter %} Har en deltaker rett på rabattpris, velger dere den på deltakeren under.{% endif %}
     {% elif kurs.fakturering == 'organisasjon' %}Dere faktureres samlet av kursadministrasjonen i etterkant – ikke automatisk gjennom dette skjemaet.
     {% else %}Dette kurset faktureres ikke automatisk.{% endif %}
   </p>
@@ -35,10 +37,17 @@
     <div class="deltaker-rad rad" style="border-top:1px solid var(--linje); padding-top:12px; margin-top:12px">
       <div><label>Fornavn * <input name="deltaker_fornavn" value="{{ d.fornavn or '' }}"></label></div>
       <div><label>Etternavn * <input name="deltaker_etternavn" value="{{ d.etternavn or '' }}"></label></div>
-      <div><label>E-post * <input name="deltaker_epost" type="email" value="{{ d.epost or '' }}"></label></div>
+      <div><label>E-post * <input name="deltaker_epost" type="email" value="{{ d.epost or '' }}" data-epost-sjekk="{{ EPOST_SJEKK }}"></label></div>
       <div><label>Telefon <input name="deltaker_telefon" value="{{ d.telefon or '' }}"></label></div>
       <div><label>Arbeidssted <input name="deltaker_arbeidssted" value="{{ d.arbeidssted or '' }}"></label></div>
       {% if kurs_viser_hpr(kurs) %}<div><label>HPR-nummer <input name="deltaker_hpr" value="{{ d.hpr_nr or '' }}"></label></div>{% endif %}
+      {%- if rabatter %}
+      <div><label>Pris <select name="deltaker_priskategori"><option value="">Ordinær pris – {{ kurs.pris_nok | kr }}</option>
+        {%- for r in rabatter %}<option value="{{ r.kategori }}"{{ ' selected' if d.priskategori == r.kategori }}>{{ r.prisnavn }} – {{ r.pris | kr }}</option>{% endfor %}</select></label></div>
+      {%- if rabatter | selectattr('kategori', 'equalto', 'student') | list %}
+      <div><label>Studentbevis (ved studentpris) <input type="file" name="deltaker_studentbevis" accept="image/jpeg,image/png,image/webp,application/pdf"></label></div>
+      {%- endif %}
+      {%- endif %}
       <div class="deltaker-adresse" style="grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:0 14px">
         <div style="flex:2 1 220px; min-width:0"><label>Adresse * <input name="deltaker_adresse" autocomplete="off" value="{{ d.adresse or '' }}"></label></div>
         <div style="flex:0 1 120px; min-width:0"><label>Postnr. * <input name="deltaker_postnr" inputmode="numeric" autocomplete="off" aria-describedby="hjelp-adresse" value="{{ d.postnr or '' }}"></label></div>
@@ -54,10 +63,17 @@
     <div class="deltaker-rad rad" style="border-top:1px solid var(--linje); padding-top:12px; margin-top:12px">
       <div><label>Fornavn * <input name="deltaker_fornavn"></label></div>
       <div><label>Etternavn * <input name="deltaker_etternavn"></label></div>
-      <div><label>E-post * <input name="deltaker_epost" type="email"></label></div>
+      <div><label>E-post * <input name="deltaker_epost" type="email" data-epost-sjekk="{{ EPOST_SJEKK }}"></label></div>
       <div><label>Telefon <input name="deltaker_telefon"></label></div>
       <div><label>Arbeidssted <input name="deltaker_arbeidssted"></label></div>
       {% if kurs_viser_hpr(kurs) %}<div><label>HPR-nummer <input name="deltaker_hpr"></label></div>{% endif %}
+      {%- if rabatter %}
+      <div><label>Pris <select name="deltaker_priskategori"><option value="">Ordinær pris – {{ kurs.pris_nok | kr }}</option>
+        {%- for r in rabatter %}<option value="{{ r.kategori }}">{{ r.prisnavn }} – {{ r.pris | kr }}</option>{% endfor %}</select></label></div>
+      {%- if rabatter | selectattr('kategori', 'equalto', 'student') | list %}
+      <div><label>Studentbevis (ved studentpris) <input type="file" name="deltaker_studentbevis" accept="image/jpeg,image/png,image/webp,application/pdf"></label></div>
+      {%- endif %}
+      {%- endif %}
       <div class="deltaker-adresse" style="grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:0 14px">
         <div style="flex:2 1 220px; min-width:0"><label>Adresse * <input name="deltaker_adresse" autocomplete="off"></label></div>
         <div style="flex:0 1 120px; min-width:0"><label>Postnr. * <input name="deltaker_postnr" inputmode="numeric" autocomplete="off" aria-describedby="hjelp-adresse"></label></div>
@@ -67,10 +83,18 @@
     </div>
   </template>
 
+  {% if rabatter %}<label style="font-weight:normal; margin-top:18px"><input type="checkbox" name="rabatt_bekreftet" value="1"{{ ' checked' if f.rabatt_bekreftet }}>
+    Deltakerne som har fått rabattpris, har rett på den, og IPR kan sjekke det (medlemskap i NIEFT eller hos Psyflix, studentbevis). Kreves bare når en deltaker har rabattpris.</label>{% endif %}
   <label style="font-weight:normal; margin-top:18px"><input type="checkbox" name="samtykke" required>
     Jeg bekrefter at jeg har fullmakt til å melde på deltakerne og har gjort dem kjent med
+    {%- if kurs.merke == 'terapiakademiet' %}
+    <a href="{{ url_for('static', filename='vilkar/terapiakademiet-salgsbetingelser.pdf') }}" target="_blank" rel="noopener">salgsbetingelsene</a> og
+    <a href="{{ url_for('static', filename='vilkar/terapiakademiet-personvernerklaering.pdf') }}" target="_blank" rel="noopener">personvernerklæringen</a>. *</label>
+    {%- else %}
     <a href="https://www.ipr.no/kurs-og-utdanning/artikkel/kurs-salgsbetingelser" target="_blank" rel="noopener">vilkår</a> og
     <a href="https://www.ipr.no/om-oss/personvernerkl%C3%A6ring" target="_blank" rel="noopener">personvernerklæring</a>. *</label>
+    {%- endif %}
+  <label style="font-weight:normal; margin-top:8px"><input type="checkbox" name="samtykke_lagring" required> Jeg aksepterer at Institutt for Psykologisk Rådgivning lagrer denne informasjonen for videre kontakt i forbindelse med kurset. *</label>
   <p style="margin-top:16px"><button>Meld på gruppen</button></p>
 </form>
 

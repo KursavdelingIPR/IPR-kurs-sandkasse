@@ -290,7 +290,7 @@ def test_hele_den_offentlige_paameldingen_har_drakten(con, monkeypatch):
     k = _klient()
     sider = {"skjemaet": k.get("/kurs/K1"), "bedriftspåmeldingen": k.get("/kurs/K1/gruppe"),
              "skjemaet med valideringsfeil": _klient().post("/kurs/K1", data={"fornavn": ""}),
-             "kvitteringen": _klient().post("/kurs/K1", data={"fornavn": "Kari", "etternavn": "Test", "epost": "kari@example.no", "samtykke": "on", "betaler": "person",
+             "kvitteringen": _klient().post("/kurs/K1", data={"fornavn": "Kari", "etternavn": "Test", "epost": "kari@example.no", "samtykke": "on", "samtykke_lagring": "on", "betaler": "person",
                                                               "adresse": "Veien 1", "postnr": "0150", "poststed": "Oslo"})}
     for navn, r in sider.items():
         assert r.status_code in (200, 400), (navn, r.status_code)
@@ -309,7 +309,7 @@ def test_pm_reglene_for_paameldingssiden_gjelder_bare_med_drakten():
 
 
 def test_forhandsvisningen_av_min_side_i_admin_viser_drakten_men_ingen_bunn_eller_meny(con):
-    kid = lag_kurs(con, "K1")
+    kid = lag_kurs(con, "K1", merke="terapiakademiet")        # IPR-kurs har IPR-fargene (test_tema_ipr.py)
     skriv_side(con, kid, dokument(tekstblokk("Velkommen", "<p>Hei</p>")))
     html = _html(admin_klient(con).get(f"/admin/kurs/{kid}/kursside/forhandsvis?versjon=publisert"))
     assert '<body data-tema="ta" class="dp-side dp-forhandsvisning"' in html and "tema-terapiakademiet.css" in html

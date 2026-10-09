@@ -6,12 +6,11 @@ ellers standard - noeyaktig som en ekte utsending) og videre til epost.render() 
 malfilen. Forhaandsvisningen bruker dermed noeyaktig samme rendringsvei som faktisk utsending, bare med paadiktede
 verdier - ingen parallell "preview-renderer", ingen claim, ingen epost.send, ingen utsending_logg-rad.
 
-For maler med flere reelle varianter (dagfor: forste/midt/siste kursdag; purring: frist om flere dager/frist i dag)
+For maler med flere reelle varianter (dagfor: forste/midt/siste kursdag)
 returnerer eksempler() flere (variantnavn, data) - en for hver variant - slik at admin kan se dem alle.
 """
 from datetime import date, timedelta
 
-from . import lenker
 from .sveiper import PLAN_NA, FakturaPlan
 
 _OM = date.today() + timedelta(days=30)
@@ -25,8 +24,6 @@ DELTAKER = {"navn": "Ola Nordmann", "fornavn": "Ola", "betaler": "person", "beta
 DAG1 = {"dato": _OM.isoformat(), "start_kl": None, "slutt_kl": None}
 DAG2 = {"dato": (_OM + timedelta(days=1)).isoformat(), "start_kl": None, "slutt_kl": None}
 DAG3 = {"dato": (_OM + timedelta(days=2)).isoformat(), "start_kl": None, "slutt_kl": None}
-MATERIELL = {"ansvarlig_navn": "Kari Kursholder", "kursnavn": KURS["navn"], "beskrivelse": "Kurspresentasjon",
-            "frist": (date.today() + timedelta(days=7)).isoformat(), "id": 0}
 
 
 def eksempler(mal: str) -> list[tuple[str, dict]]:
@@ -47,14 +44,10 @@ def eksempler(mal: str) -> list[tuple[str, dict]]:
         ]
     if mal == "kursbevis_klar":
         return [("", dict(navn="Ola Nordmann", fornavn="Ola", kurs=KURS))]
+    if mal == "evaluering":
+        return [("", dict(d=DELTAKER, kurs=KURS, evaluering_url="/evaluering/eksempel"))]
     if mal == "firmapaamelding_kvittering":
         return [("", dict(kontakt={"navn": "Kari HR", "fornavn": "Kari", "firmanavn": "Eksempel AS"}, kurs=KURS,
                           kvittering_url="/kurs/EKS-1/gruppe/kvittering/eksempel-token",
                           antall_totalt=3, antall_bekreftet=2, antall_venteliste=1, antall_feilet=0))]
-    if mal == "purring":
-        return [
-            ("Frist om 7 dager", dict(m=MATERIELL, igjen=7, lever_lenke=lenker.lever_lenke(0))),
-            ("Frist om 2 dager", dict(m=MATERIELL, igjen=2, lever_lenke=lenker.lever_lenke(0))),
-            ("Frist i dag", dict(m=MATERIELL, igjen=0, lever_lenke=lenker.lever_lenke(0))),
-        ]
     raise ValueError(f"Ingen eksempeldata for mal {mal!r}")

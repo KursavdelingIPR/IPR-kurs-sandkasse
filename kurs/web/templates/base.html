@@ -184,13 +184,12 @@
   input.datofelt { max-width:12em; }
   button.lenkeknapp { background:none; border:0; padding:0; color:var(--bla); font-size:inherit; text-decoration:underline; }
   button.lenkeknapp:hover { background:none; border:0; box-shadow:none; color:var(--bla-mork); }
+  .epost-forslag { margin:6px 0 0; font-size:14px; color:#855d00; }   /* «Mente du …?» (datakontroll) */
+  .epost-forslag button.lenkeknapp { margin-left:4px; }
   .flere-innstillinger { margin-top:14px; }
   .flere-innstillinger > summary { cursor:pointer; width:max-content; color:var(--bla); font-size:14px; }
   tr.samlingstopp th { background:var(--bla-lys); color:var(--bla); font-size:13px; text-transform:none; letter-spacing:0; }
-  .materielliste { padding-left:18px; }
-  .materielliste li { margin:4px 0; }
   form.innebygd { display:inline; margin-left:6px; }
-  .materiellforesporsel > summary { cursor:pointer; color:var(--bla); font-weight:600; }
   @media (max-width: 820px) {
     .samlingsfelt { grid-template-columns:repeat(2, minmax(0,1fr)); }
     .samlingsfelt .samling-navn { grid-column:1 / -1; }
@@ -204,11 +203,23 @@
   .epostmeta { display:flex; flex-wrap:wrap; gap:2px 22px; margin:0 0 14px; font-size:14px; }
   .epostmeta b { font-weight:600; color:var(--dempet); margin-right:5px; }
   .epostmeta > span { overflow-wrap:anywhere; }
+  .klarknapper { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:12px 0 4px; }   /* Klar til sending */
+  .designfarge { display:inline-block; width:22px; height:22px; border-radius:50%; border:1px solid var(--linje); vertical-align:middle; }   /* kursbevis-design */
+  .designkort { display:grid; grid-template-columns:minmax(0,1fr) 220px; gap:18px; }
+  .designkort .designbilde { border:1px solid var(--linje); border-radius:8px; background:#dfe5e8; width:220px; height:311px; overflow:hidden; }
+  .designkort .designbilde iframe { width:794px; height:1123px; border:0; transform:scale(.277); transform-origin:0 0; pointer-events:none; }
+  .designfelt { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px 16px; }
+  @media (max-width:700px) { .designkort { grid-template-columns:1fr; } }
   h3.epostinnhold { font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--dempet); font-weight:600; margin:2px 0 6px; }
   .epostfakta { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 16px; margin:0 0 16px; font-size:14px; }
   .epostfakta dt { font-weight:600; color:var(--dempet); }
   .epostfakta dd { margin:0; overflow-wrap:anywhere; }
   iframe.epostramme { width:100%; height:560px; border:1px solid var(--linje); border-radius:8px; background:#fff; }
+  /* Oppsett: Status og Ansvarlig under Kapasitet, felt og knapp på én linje (admin_kurs_oppsett.html) */
+  .status-og-ansvarlig { margin-top:14px; }
+  .innebygd-rad { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .innebygd-rad select { width:auto; min-width:12em; flex:1 1 12em; max-width:22em; }
+  .status-og-ansvarlig label .merke { margin-left:6px; vertical-align:1px; }
   /* E-post i deltakervinduet: teksten og signaturen i én boks, Send til høyre ved flettefeltene (admin_deltaker_epost_ny.html) */
   .vindu-epost { max-width:900px; }
   .epostboks { border:1px solid #c7d0d5; border-radius:6px; background:#fff; }
@@ -345,12 +356,12 @@
   }
 </style>
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='app.js') }}" defer></script>
-{% block hode %}{% endblock %}{% if tema_ta %}<link rel="stylesheet" href="{{ url_for('static', filename='tema-terapiakademiet.css') }}">{% endif %}
+{% block hode %}{% endblock %}{% if tema_ta %}<link rel="stylesheet" href="{{ url_for('static', filename='tema-terapiakademiet.css') }}">{% endif %}{% if tema_ta and tema_ipr %}<link rel="stylesheet" href="{{ url_for('static', filename='tema-ipr.css') }}">{% endif %}
 </head>
-<body{% if tema_ta %} data-tema="ta"{% endif %}{% block sideklasse %}{% endblock %}>
+<body{% if tema_ta %} data-tema="ta"{% if tema_ipr %} data-merke="ipr"{% endif %}{% endif %}{% block sideklasse %}{% endblock %}>
 <a class="hopp" href="#innhold">Hopp til innhold</a>
 {% if demo %}<div class="demo-banner">DEMOMODUS – ingen ekte e-post, faktura eller Zoom. Systemdato: {{ idag }}</div>{% endif %}
-<header{% block header_attr %}{% endblock %}><div class="inner">{% set _merke %}{% if tema_ta and tema_logo('topp') %}<img class="ta-logo" src="{{ url_for('static', filename=tema_logo('topp')) }}" alt="Terapiakademiet">{% else %}IPR Påmeldingssystem{% endif %}{% endset %}
+<header{% block header_attr %}{% endblock %}><div class="inner">{% set _merke %}{% if tema_ta and tema_ipr and tema_logo('ipr') %}<img class="ta-logo" src="{{ url_for('static', filename=tema_logo('ipr')) }}" alt="Institutt for Psykologisk Rådgivning">{% elif tema_ta and tema_logo('topp') %}<img class="ta-logo" src="{{ url_for('static', filename=tema_logo('topp')) }}" alt="Terapiakademiet">{% else %}IPR Påmeldingssystem{% endif %}{% endset %}
   {#- Logoen er en lenke bare der den fører et fornuftig sted: Oversikten i Admin, eller Min side for en innlogget deltaker. Startsiden (/) er
       innloggingen til Admin, så deltakere sendes ikke dit. -#}
   {% if session.admin_id and request.path.startswith('/admin') %}<a class="logo" href="{{ url_for('admin') }}">{{ _merke }}</a>
@@ -374,7 +385,7 @@
 </main>{% if tema_ta %}
 {#- Bunnen på sidene med Terapiakademiet-drakten (static/tema-terapiakademiet.css): logoen (lys utgave) hvis den er lagt inn, og kontaktopplysninger -#}
 <footer class="ta-bunn"><div class="ta-bunn-inner">
-  {% if tema_logo('bunn') %}<img class="ta-logo" src="{{ url_for('static', filename=tema_logo('bunn')) }}" alt="Terapiakademiet">{% endif %}
+  {% if tema_logo('bunn') and not tema_ipr %}<img class="ta-logo" src="{{ url_for('static', filename=tema_logo('bunn')) }}" alt="Terapiakademiet">{% endif %}
   <p class="ta-bunn-navn">Kursadministrasjonen, Institutt for Psykologisk Rådgivning</p>
   {% if kontakt_epost %}<p>Spørsmål? Skriv til <a href="mailto:{{ kontakt_epost }}">{{ kontakt_epost }}</a></p>{% endif %}
 </div></footer>{% endif %}

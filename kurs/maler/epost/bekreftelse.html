@@ -11,10 +11,10 @@ Emne: {{ maltekst.emne }}
     admintekst. Mailen sendes FOER fakturaforsoket, saa teksten sier aldri "sendt"/"opprettet". Ingen dato ved mangler_kursdag. -#}
 {% if faktura_plan.modus == 'per_samling' %}
 {%- set antall_samlinger = (dager | samlinger(kurs)) | length %}
-<p>Kursavgiften på {{ kurs.pris_nok }} kr deles på {{ antall_samlinger }} samling{{ 'er' if antall_samlinger != 1 }}, og faktura for hver samling sendes {{ kurs.faktura_dager_for }} {{ 'dag' if kurs.faktura_dager_for == 1 else 'dager' }} før samlingen
+<p>Kursavgiften på {{ kurs.pris_nok | deltakerpris(p) }} kr{% if p | prisnavn %} ({{ (p | prisnavn) | pris_i_setning }}){% endif %} deles på {{ antall_samlinger }} samling{{ 'er' if antall_samlinger != 1 }}, og faktura for hver samling sendes {{ kurs.faktura_dager_for }} {{ 'dag' if kurs.faktura_dager_for == 1 else 'dager' }} før samlingen
 {% if p.betaler == 'organisasjon' %}til {{ p.org_navn or 'firmaet' }}{% else %}til deg{% endif %}.</p>
 {% elif faktura_plan.modus in ('na', 'utsatt', 'mangler_kursdag') %}
-<p>Faktura på {{ kurs.pris_nok }} kr sendes separat til {% if p.betaler == 'organisasjon' %}{{ p.org_navn or 'firmaet' }}{% else %}deg{% endif %}{% if faktura_plan.modus == 'utsatt' %}, tidligst {{ faktura_plan.tidligst_dato.strftime('%d.%m.%Y') }}{% endif %}.</p>
+<p>Faktura på {{ kurs.pris_nok | deltakerpris(p) }} kr{% if p | prisnavn %} ({{ (p | prisnavn) | pris_i_setning }}){% endif %} sendes separat til {% if p.betaler == 'organisasjon' %}{{ p.org_navn or 'firmaet' }}{% else %}deg{% endif %}{% if faktura_plan.modus == 'utsatt' %}, tidligst {{ faktura_plan.tidligst_dato.strftime('%d.%m.%Y') }}{% endif %}.</p>
 {% endif %}
 {#- LÅST SYSTEMBLOKK: personlig lenke til Min side. Bare med når kurset har en åpen Min side og lenken ikke er stengt. Bygges av systemet
     (minside.url), aldri av admintekst. Lagres ikke i e-posthistorikken (skjult i kopien). -#}

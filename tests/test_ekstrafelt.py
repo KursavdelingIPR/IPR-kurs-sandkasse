@@ -171,7 +171,8 @@ def test_egne_felt_sorteres_inn_blant_standardfeltene_i_om_deg():
                                                                          plassering="til_slutt", rekkefolge=1),
             ef.Ekstrafelt(3, "tekst", "Først", rekkefolge=0)]
     s = sf.effektivt_skjema(_kurs(spesialistlop="EFT"), None, egne)
-    assert [f.nokkel for f in s.deltakerfelt] == ["ekstra_3", "telefon", "arbeidssted", "ekstra_1", "hpr_nr"]
+    assert [f.nokkel for f in s.deltakerfelt] == ["ekstra_3", "telefon", "arbeidssted", "ekstra_1", "yrkestittel",
+                                                  "hpr_nr"]  # yrkestittel vises som standard (Camilla 05.10.2026)
     assert [f.nokkel for f in s.sluttfelt] == ["ekstra_2"]
     assert s.deltakerfelt[3] == sf.EffektivtFelt("ekstra_1", "Land", False, None, "tekst", (), None, 1)
 
@@ -206,7 +207,7 @@ def test_felt_som_vises_etter_et_skjult_felt_vises_ikke():
 def test_egne_felt_kan_aldri_erstatte_eller_skjule_standardfelt():
     egne = [ef.Ekstrafelt(1, "tekst", "Telefon", rekkefolge=5), ef.Ekstrafelt(2, "tekst", "E-post", rekkefolge=6)]
     s = sf.effektivt_skjema(_kurs(), None, egne)
-    assert [f.nokkel for f in s.deltakerfelt] == ["telefon", "arbeidssted", "ekstra_1", "ekstra_2"]
+    assert [f.nokkel for f in s.deltakerfelt] == ["telefon", "arbeidssted", "yrkestittel", "ekstra_1", "ekstra_2"]  # yrkestittel vises som standard (Camilla 05.10.2026)
 
 
 # ============================ svarene ============================

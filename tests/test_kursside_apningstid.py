@@ -1,6 +1,7 @@
 """Min side (for ett kurs): åpningstiden etter kurset kan settes per kurs (kursside.apen_dager). Standard er 180 dager etter siste kursdag
 (config.KURSSIDE_ETTERTILGANG_DAGER); hvert kurs kan ha 1-3650 dager eller «Ingen tidsbegrensning». Håndhevet i tilgangssjekken (siden,
-filnedlasting, Mine kurs, kursholders filer) og forklart for deltakeren. En bestemt «Åpen til»-dato virker som før og går foran.
+filnedlasting og Mine kurs) og forklart for deltakeren. En bestemt «Åpen til»-dato virker som før og går foran.
+(06.10.2026: kursholder-lenken og SharePoint er tatt bort, og med dem kursholders filer.)
 Bare oppdiktede data.
 """
 import json
@@ -306,18 +307,18 @@ def test_filnedlasting_folger_samme_sluttdato(con, kid, monkeypatch):
 
 
 def test_lister_som_folger_noedbremsen_folger_ogsaa_kursets_dager(con, kid):
-    """har_side (innsjekk-resultat og Mine kurs), materiell_apent (kursholders filer) og Mine kurs sin kan_apne bruker samme sluttdato."""
+    """har_side (innsjekk-resultat og Mine kurs) og Mine kurs sin kan_apne bruker samme sluttdato.
+    (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og kontrollen av kursholders filer med dem)"""
     did = lag_deltaker(con, kid)[0]
     _sett(con, kid, apen_dager=20)
     siste_apne, dagen_etter = SISTE + timedelta(days=20), SISTE + timedelta(days=21)
     assert deltakerside.har_side(con, kid, siste_apne) and not deltakerside.har_side(con, kid, dagen_etter)
-    assert deltakerside.materiell_apent(con, kid, siste_apne) and not deltakerside.materiell_apent(con, kid, dagen_etter)
     p = [{"kurs_id": kid, "kode": "K1", "status": "bekreftet", "kursstatus": "aapen"}]
     assert deltakerside.min_side_info(con, did, p, siste_apne)[kid]["kan_apne"] is True
     assert deltakerside.min_side_info(con, did, p, dagen_etter)[kid]["kan_apne"] is False
     _sett(con, kid, apen_dager=sidelager.UBEGRENSET)
     ute = SISTE + timedelta(days=5000)
-    assert deltakerside.har_side(con, kid, ute) and deltakerside.materiell_apent(con, kid, ute)
+    assert deltakerside.har_side(con, kid, ute)
     assert deltakerside.min_side_info(con, did, p, ute)[kid]["kan_apne"] is True
     assert deltakerside.landing(con, did, ute) == "K1"                                # landing bruker samme tilgangssjekk
 

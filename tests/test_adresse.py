@@ -37,7 +37,7 @@ pytestmark = pytest.mark.uten_standardadresse   # registrerer bevisst uten adres
 
 ROT = Path(__file__).resolve().parent.parent
 EPOST = "test.person@eksempel.no"
-BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": EPOST, "samtykke": "on"}
+BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": EPOST, "samtykke": "on", "samtykke_lagring": "on"}
 FIRMA = "999900003"          # EKSEMPEL KOMMUNE, Postboks 100, 1234 EKSEMPELBY (oppdiktet)
 FIRMA_ADRESSE = ("Postboks 100", "1234", "EKSEMPELBY")
 NEDE = brreg.DEMO_NEDE_ORGNR
@@ -157,7 +157,8 @@ def test_alle_kurs_faar_adressefeltene_rett_etter_epost(con, kw):
     assert not hasattr(skjema, "privatfelt")                      # de private fakturafeltene finnes ikke lenger
     html = _klient().get("/kurs/A1").get_data(as_text=True)
     navn = [m for m in re.findall(r'<input id="f-(\w+)"', html)]
-    assert navn[:6] == ["fornavn", "etternavn", "epost", "adresse", "postnr", "poststed"]
+    # «Bekreft e-post» står rett etter e-post (Camilla 05.10.2026), adressen kommer rett etter den
+    assert navn[:7] == ["fornavn", "etternavn", "epost", "epost_bekreft", "adresse", "postnr", "poststed"]
 
 
 def test_en_laast_rad_i_databasen_gjor_ikke_feltet_valgfritt(con):

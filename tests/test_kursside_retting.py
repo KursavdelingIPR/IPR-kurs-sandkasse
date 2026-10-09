@@ -1,8 +1,8 @@
 """Rettinger etter kritikernes gjennomgang av kursside-arbeidet (funn 1-40). Hver test bærer funnnummeret i kommentaren over seg.
 Bare oppdiktede data.
 
-Sikkerhet:  (1) stdlib-parseren brukte kvadratisk tid på uferdige tagger, (3) /dokument godtok utløpt admin-økt, (4) nødbrems stoppet ikke SharePoint-materiellet,
-            (5) trygg_neste slapp gjennom linjeskift, (7) uhåndterte unntak (500), (8) ingen takgrense på filnedlasting, (2/12/13) innsjekk på e-post alene.
+Sikkerhet:  (1) stdlib-parseren brukte kvadratisk tid på uferdige tagger, (3) /dokument godtok utløpt admin-økt, (4) nødbrems stoppet ikke SharePoint-materiellet
+            (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og testene av (4) med dem), (5) trygg_neste slapp gjennom linjeskift, (7) uhåndterte unntak (500), (8) ingen takgrense på filnedlasting, (2/12/13) innsjekk på e-post alene.
 Utseende og bruk: (12) overskrifter fra Word, (10) filer uten dag, (14) toppbilde bak tittelen, (18) programdager uten dato, (21) «Kursside ↗», (22) kontrast, (23) 15 MB.
 Testhull (24-35): mutantene fra kritikerne (gårsdagens QR, opprydding av nye filer, escaping i malen, dag n av m, har_side, data:-adresser, sniffet bildetype,
             tom kode, fornavn til uinnlogget, avmeldte på Min side, grenser og visningsdetaljer).
@@ -20,7 +20,7 @@ import pytest
 from kurs import config, db, deltakerside, hendelseslogg, maltekster, signaturer
 from kurs import sideinnhold as si
 from kurs import sidelager
-from kurs.integrasjoner import epost, sharepoint
+from kurs.integrasjoner import epost
 from kurs.web import sikkerhet
 
 from kurssidehjelp import (IDAG, admin_klient, csrf, dokument, deltaker_klient, fast_dato, json_post, lag_deltaker, lag_kurs, ny_database, pdf, png,
@@ -34,8 +34,6 @@ TEMPLATES = Path(__file__).resolve().parent.parent / "kurs" / "web" / "templates
 def con(tmp_path, monkeypatch):
     c = ny_database(tmp_path, monkeypatch)
     fast_dato(monkeypatch)
-    monkeypatch.setattr(sharepoint, "DEMO_ROT", tmp_path / "sharepoint_demo")
-    deltakerside.nullstill_sp_cache()
     yield c
     c.close()
 
@@ -220,6 +218,7 @@ def test_7_lagret_json_endret_utenom_siden_gir_ikke_500_paa_deltakersiden(con, k
         {"id": "b_kontakt1", "type": "kontakt", "tittel": "K", "data": {"personer": [1, {"navn": ["x"]}]}},
         {"id": "b_lenke001", "type": "lenker", "tittel": "L", "data": {"lenker": [None, 4]}},
         {"id": "b_viktig01", "type": "viktig", "tittel": "V", "data": {"tekst": 5}},
+        # «sharepoint» er et gammelt felt (06.10.2026: kursholder-lenken og SharePoint er tatt bort); eldre lagrede sider kan ha det
         {"id": "b_filer001", "type": "filer", "tittel": "F", "data": {"filer": [9, {"fil_id": "x"}], "sharepoint": "ja"}}]}
     ren = json.dumps(odelagt, ensure_ascii=True)                       # «\ud800» skrives som escape i JSON-teksten, slik en manuell endring i databasen ville gjort
     con.execute("UPDATE kursside SET publisert=? WHERE kurs_id=?", (ren, kid))
@@ -241,7 +240,7 @@ def test_7_les_fjerner_enslige_surrogater_men_beholder_ekte_emoji():
 @pytest.mark.parametrize("blokk", [
     {"type": "program", "data": {"dager": {"a": 1}}}, {"type": "program", "data": {"dager": [None]}}, {"type": "tabell", "data": {"rader": 5}},
     {"type": "tabell", "data": {"rader": [3]}}, {"type": "kontakt", "data": {"personer": [1]}}, {"type": "lenker", "data": {"lenker": [None]}},
-    {"type": "viktig", "data": {"tekst": 5}}, {"type": "tekst", "data": {"html": 5}}, {"type": "filer", "data": {"filer": 3, "sharepoint": None}}])
+    {"type": "viktig", "data": {"tekst": 5}}, {"type": "tekst", "data": {"html": 5}}, {"type": "filer", "data": {"filer": 3}}])
 def test_7_blokk_med_feil_datatyper_regnes_som_tom_og_kaster_aldri(blokk):
     assert si.blokk_er_tom(blokk) in (True, False)
 
@@ -260,7 +259,8 @@ def test_5_kontrolltegn_i_neste_avvises(verdi):
     assert sikkerhet.trygg_neste(verdi, "/standard") == "/standard"
 
 
-@pytest.mark.parametrize("verdi", ["/kurs/K1/deltakerside", "/innsjekk/abc_DEF-123", "/materiell/3/Dag 1 – Grunnmodell.pdf", "/logg-inn?x=1&y=2", "/min-side#mine-kurs"])
+# (06.10.2026: kursholder-lenken og SharePoint er tatt bort - adressen til kursholders filer er byttet med et søk med de samme tegnene: mellomrom og tankestrek)
+@pytest.mark.parametrize("verdi", ["/kurs/K1/deltakerside", "/innsjekk/abc_DEF-123", "/admin/sok?q=Dag 1 – Grunnmodell", "/logg-inn?x=1&y=2", "/min-side#mine-kurs"])
 def test_5_vanlige_neste_verdier_virker_fortsatt(verdi):
     assert sikkerhet.trygg_neste(verdi, "/standard") == verdi
 
@@ -312,63 +312,6 @@ def test_3_dokument_er_fortsatt_apent_for_deltakeren_selv_og_stengt_for_fremmede
     annen, _ = lag_deltaker(con, kid, "ola@example.no", fornavn="Ola")
     assert deltaker_klient(annen).get(f"/dokument/{dok}").status_code == 403
     assert _klient().get(f"/dokument/{dok}").status_code == 403
-
-
-# ============================================================ (4) nødbrems og stenging stopper også SharePoint-materiellet ============================================================
-
-def _sp_fil(tmp_path, kode="K1", navn="slides.pdf"):
-    mappe = tmp_path / "sharepoint_demo" / "Kurs" / kode / "Presentasjoner"
-    mappe.mkdir(parents=True, exist_ok=True)
-    (mappe / navn).write_bytes(b"demo")
-    return navn
-
-
-def test_4_sharepoint_materiell_er_apent_uten_publisert_side_som_for(con, kid, tmp_path):
-    navn = _sp_fil(tmp_path)
-    did, _ = lag_deltaker(con, kid, "kari@example.no")
-    k = deltaker_klient(did)
-    assert navn in k.get("/min-side").get_data(as_text=True)
-    assert k.get(f"/materiell/{kid}/{navn}").status_code == 200
-
-
-def test_4_naadbrems_stopper_sharepoint_i_min_side_og_i_materiell(con, kid, tmp_path):
-    navn = _sp_fil(tmp_path)
-    did, _ = lag_deltaker(con, kid, "kari@example.no")
-    skriv_side(con, kid, dokument(tekstblokk()))
-    k = deltaker_klient(did)
-    assert k.get(f"/materiell/{kid}/{navn}").status_code == 200                               # siden er åpen: materiellet er åpent
-    assert sidelager.sett_aktiv(con, kid, False, "admin:test")
-    con.commit()
-    assert k.get("/kurs/K1/deltakerside").status_code == 404
-    assert navn not in k.get("/min-side").get_data(as_text=True)
-    assert k.get(f"/materiell/{kid}/{navn}").status_code == 404
-    assert sidelager.sett_aktiv(con, kid, True, "admin:test")
-    con.commit()
-    assert k.get(f"/materiell/{kid}/{navn}").status_code == 200                               # slås siden på igjen, er alt tilbake
-
-
-def test_4_stengt_side_stopper_sharepoint_men_ikke_naar_datoen_ikke_er_naadd(con, kid, tmp_path):
-    navn = _sp_fil(tmp_path)
-    did, _ = lag_deltaker(con, kid, "kari@example.no")
-    skriv_side(con, kid, dokument(tekstblokk()))
-    k = deltaker_klient(did)
-    sidelager.sett_innstillinger(con, kid, stenges=(IDAG + timedelta(days=1)).isoformat(), aktor="admin:test")
-    con.commit()
-    assert k.get(f"/materiell/{kid}/{navn}").status_code == 200
-    sidelager.sett_innstillinger(con, kid, stenges="2000-01-01", aktor="admin:test")
-    con.commit()
-    assert k.get(f"/materiell/{kid}/{navn}").status_code == 404
-    assert navn not in k.get("/min-side").get_data(as_text=True)
-
-
-def test_4_materiell_apent_i_logikken(con, kid):
-    assert deltakerside.materiell_apent(con, kid, IDAG) is True                               # ingen side
-    skriv_side(con, kid, dokument(tekstblokk()), publiser=False)
-    assert deltakerside.materiell_apent(con, kid, IDAG) is True                               # ikke publisert
-    skriv_side(con, kid, dokument(tekstblokk()))
-    assert deltakerside.materiell_apent(con, kid, IDAG) is True
-    sidelager.sett_aktiv(con, kid, False, "admin:test")
-    assert deltakerside.materiell_apent(con, kid, IDAG) is False
 
 
 # ============================================================ (8) takgrense på filnedlasting ============================================================
@@ -647,7 +590,8 @@ def test_22_kontrastfunksjonen_stemmer_med_kjente_verdier():
 
 def test_23_for_stor_fil_gir_konkret_rad_ikke_del_filen_opp(con, kid, monkeypatch):
     tekst = sidelager.for_stor_tekst(15)
-    assert "maks 15 MB" in tekst and "komprimere bildene" in tekst and "Komprimer bilder" in tekst and "SharePoint" in tekst and "Del " not in tekst
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort - rådet sjekkes ikke lenger for «SharePoint»)
+    assert "maks 15 MB" in tekst and "komprimere bildene" in tekst and "Komprimer bilder" in tekst and "Del " not in tekst
     monkeypatch.setattr(config, "KURSSIDE_FIL_MAKS_MB", 1)
     admin = admin_klient()
     r = admin.post(_u(kid, "/fil"), data=b"%PDF-1.4\n" + b"x" * (2 * 1024 * 1024), content_type="application/octet-stream",
@@ -1102,7 +1046,7 @@ def test_dokumentasjonen_beskriver_innsjekkbryteren_og_de_rettede_svakhetene():
     assert "Å rette `dokument()` er ikke gjort" not in sikkerhet_md and "_admin_okt_gyldig()" in sikkerhet_md and "lineær tid" in sikkerhet_md
     drift = (rot / "OPERATIONS.md").read_text(encoding="utf-8")
     assert "alle **avvisninger**" in drift and "(kl. 08:47)»" not in drift.split("**Bare én gang per dag:**")[1].split("Første registrering")[0].split("Er hun innlogget")[0]
-    assert "SharePoint-filer stengt" in drift
+    assert "kursholder-lenken og SharePoint er tatt bort" in drift            # (06.10.2026: før «SharePoint-filer stengt» ved nødbrems)
 
 
 # ===================== (14b) bilde til høyre i toppen, og bilde til høyre med tekst (Camilla 04.10.2026) =====================

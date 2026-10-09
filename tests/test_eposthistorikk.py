@@ -17,7 +17,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from kurs import config, daglig, db, eposthistorikk, kursbevis, maltekster, migreringer, sveiper
+from kurs import config, daglig, db, eposthistorikk, kalender, kursbevis, maltekster, migreringer, sveiper
 from kurs.integrasjoner import epost
 from kurs.kjoring import EpostkopiFeil, Kjoring, SendingStanset
 
@@ -153,34 +153,28 @@ def test_kursbevis_faar_kopi(con):
 
 
 def test_personlige_lenker_lagres_aldri(con):
-    """Innloggingslenker (Min side), kursholderens opplastingslenke og bedriftens kvitteringslenke er tokens."""
+    """Innloggingslenker (Min side) og bedriftens kvitteringslenke er tokens.
+    (06.10.2026: kursholder-lenken og SharePoint er tatt bort - kursholderens opplastingslenke og purringen finnes ikke lenger)"""
     kid = _kurs(con)
     _meld_paa(con, kid)
     _klient(logg_inn=False).post("/logg-inn", data={"epost": "kari@example.no"})
-    frist = (IDAG + timedelta(days=7)).isoformat()
-    con.execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
-                (kid, "Kari Kursholder", "kursholder@example.no", frist))
-    con.commit()
     daglig.kjor(Kjoring(con, idag=IDAG))
     con.commit()
-    assert any("purring" in f.read_text(encoding="utf-8") or "Kursholder" in f.read_text(encoding="utf-8")
-               for f in _utboks())                                                       # purringen ble sendt
     alt = " ".join(r["html"] for r in _kopier(con))
-    assert "/logg-inn/" not in alt and "/lever/" not in alt and "token" not in alt.lower()
-    assert not _kopier(con, til="kursholder@example.no")
+    assert "/logg-inn/" not in alt and "token" not in alt.lower()
     tokens = [r[0] for r in _fersk(con).execute("SELECT token FROM innlogging_token")]
     assert tokens and all(t not in alt for t in tokens)
 
 
 def test_varsel_til_admin_faar_kopi_uten_paamelding(con):
-    kid = _kurs(con)
-    con.execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
-                (kid, "Kari Kursholder", "kursholder@example.no", (IDAG - timedelta(days=1)).isoformat()))
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og «eskalering» med dem; varselet til administrasjonen her er
+    # påminnelsen om sjekklistene, sendt slik morgenjobben sender den)
+    k = Kjoring(con, idag=IDAG)
+    assert k.send_en_gang(f"sjekkliste:{IDAG.isoformat()}", config.SJEKKLISTE_EPOST, "sjekkliste-paaminnelse",
+                          "sjekkliste_paaminnelse", samlinger=[], antall_forfalt=1, antall_snart=0)
     con.commit()
-    daglig.kjor(Kjoring(con, idag=IDAG))
-    con.commit()
-    (k,) = _kopier(con, type="eskalering")
-    assert (k["paamelding_id"], k["kurs_id"], k["til"]) == (None, kid, config.ADMIN_EPOST)
+    (kopi,) = _kopier(con, type="sjekkliste-paaminnelse")
+    assert (kopi["paamelding_id"], kopi["kurs_id"], kopi["til"]) == (None, None, config.SJEKKLISTE_EPOST)
 
 
 def test_allergier_og_tilrettelegging_er_aldri_i_en_kopi(con):
@@ -461,7 +455,9 @@ def test_detaljen_har_kompakt_topp_med_sendt_til_fra_og_vedlegg_og_innholdet_und
     assert side.index(">Innhold</h3>") < side.index("<iframe") < side.index('id="vedlegg"') and "Program.pdf" in side
 
 
-def test_epost_uten_vedlegg_sier_at_det_ikke_er_noen(con):
+def test_epost_uten_vedlegg_sier_at_det_ikke_er_noen(con, monkeypatch):
+    # Bekreftelsen har kalenderfilen vedlagt (Camilla 05.10.2026); her skal e-posten være uten vedlegg
+    monkeypatch.setattr(kalender, "vedlegg", lambda kurs, dager: [])
     kid = _kurs(con)
     pid = _meld_paa(con, kid)
     sveiper.kjor(Kjoring(con, idag=IDAG), pid)

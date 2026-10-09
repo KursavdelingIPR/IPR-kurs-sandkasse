@@ -60,6 +60,17 @@ STANDARD_HTML = (
 )
 
 
+# Utgangspunktet når kurset har et design (kurs/kursbevisdesign.py): bare midten - logo, overskrift og signatur kommer fra designet
+DESIGN_HTML = (
+    '<div style="text-align: center">Dette bekrefter at</div>'
+    '<div style="text-align: center"><span style="font-size: x-large">{navn}</span></div>'
+    '<div style="text-align: center">{deltakelse}</div>'
+    '<div style="text-align: center"><span style="font-size: large"><b>{kursnavn}</b></span></div>'
+    '<div style="text-align: center"><br></div>'
+    '<div style="text-align: center">{detaljer}</div>'
+)
+
+
 class Kursbevisfeil(ValueError):
     """Kursbeviset kan ikke lagres. Meldingen er norsk og trygg å vise."""
 
@@ -70,8 +81,15 @@ def ramme_farge(kurs) -> str | None:
 
 
 def for_redigering(kurs) -> str:
-    """Innholdet som vises i redigereren: kursets egen versjon, ellers utgangspunktet (standard med flettefelt)."""
-    return kurs["kursbevis_html"] if kurs["kursbevis_html"] else STANDARD_HTML
+    """Innholdet som vises i redigereren: kursets egen versjon, ellers utgangspunktet med flettefelt - bare midten når kurset
+    har et design (logo, overskrift og signatur kommer da fra designet), ellers hele standardbeviset."""
+    if kurs["kursbevis_html"]:
+        return kurs["kursbevis_html"]
+    try:
+        har_design = bool(kurs["kursbevis_design_id"])
+    except (KeyError, IndexError):
+        har_design = False
+    return DESIGN_HTML if har_design else STANDARD_HTML
 
 
 def klargjor(con, innhold: str, *, aktor: str) -> str:
@@ -103,11 +121,12 @@ def tilbakestill(con, kurs_id: int, *, aktor: str) -> None:
 
 
 def kopier(con, til_kurs_id: int, fra_kurs_id: int, *, aktor: str) -> None:
-    fra = con.execute("SELECT kursbevis_html, kursbevis_ramme FROM kurs WHERE id=?", (fra_kurs_id,)).fetchone()
+    fra = con.execute("SELECT kursbevis_html, kursbevis_ramme, kursbevis_design_id FROM kurs WHERE id=?",
+                      (fra_kurs_id,)).fetchone()
     if not fra:
         raise Kursbevisfeil("Fant ikke kurset det skal kopieres fra.")
-    con.execute("UPDATE kurs SET kursbevis_html=?, kursbevis_ramme=? WHERE id=?",
-                (fra["kursbevis_html"], fra["kursbevis_ramme"], til_kurs_id))
+    con.execute("UPDATE kurs SET kursbevis_html=?, kursbevis_ramme=?, kursbevis_design_id=? WHERE id=?",
+                (fra["kursbevis_html"], fra["kursbevis_ramme"], fra["kursbevis_design_id"], til_kurs_id))
     db.logg(con, "kursbevis_kopiert", {"kurs_id": til_kurs_id, "fra_kurs_id": fra_kurs_id}, aktor=aktor)
 
 
@@ -116,8 +135,13 @@ def kurs_med_egen_versjon(con, unntatt: int) -> list:
                           ORDER BY kursnr DESC""", (unntatt,)).fetchall()
 
 
-def _norsk_dato(iso: str) -> str:
-    return f"{iso[8:10]}.{iso[5:7]}.{iso[:4]}" if re.fullmatch(r"\d{4}-\d{2}-\d{2}", iso or "") else (iso or "")
+def norsk_dato(iso) -> str:
+    """'2027-06-14' -> '14.06.2027' (standardbeviset og flettefeltene). Annet står som det er."""
+    iso = str(iso or "")[:10]
+    return f"{iso[8:10]}.{iso[5:7]}.{iso[:4]}" if re.fullmatch(r"\d{4}-\d{2}-\d{2}", iso) else iso
+
+
+_norsk_dato = norsk_dato
 
 
 def detaljer_html(v: dict) -> str:

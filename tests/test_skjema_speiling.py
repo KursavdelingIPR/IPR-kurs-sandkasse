@@ -112,12 +112,16 @@ def test_parseren_ser_det_samme_som_sqlite(tmp_path):
 
 
 def test_parseren_fant_alle_tabeller_og_indekser():
-    assert len(SQLITE_TAB) == 52 and set(SQLITE_IDX) == {"faktura_unik", "faktura_forsok_unik"}
+    assert len(SQLITE_TAB) == 63 and set(SQLITE_IDX) == {"faktura_unik", "faktura_forsok_unik"}
     assert {"kurs_ekstrafelt", "paamelding_svar", "min_side_lenke"} <= set(SQLITE_TAB)
     assert {"planlagt_kurs", "planlagt_samling"} <= set(SQLITE_TAB)          # migrering 20
     assert {"sjekkliste_mal", "sjekkliste_malpunkt", "planlagt_kurs_sjekkliste", "sjekkliste_punkt"} <= set(SQLITE_TAB)  # 21
     assert {"kursholder", "planlagt_rolle"} <= set(SQLITE_TAB)                # migrering 22
     assert "samling_booking" in SQLITE_TAB                                      # migrering 24
+    assert "datakontroll_ok" in SQLITE_TAB                                      # migrering 31
+    assert {"kurs_rabatt", "rabatt_bevis"} <= set(SQLITE_TAB)                  # migrering 32
+    assert "kurs_maltekst" in SQLITE_TAB                                        # migrering 33
+    assert {"evaluering_sporsmal", "evaluering_oppsett", "evaluering_besvart_samling"} <= set(SQLITE_TAB)   # migrering 34
     assert {"kursside", "kursside_versjon", "kursside_fil", "kursside_fil_innhold"} <= set(SQLITE_TAB)
 
 

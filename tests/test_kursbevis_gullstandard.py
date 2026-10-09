@@ -94,7 +94,8 @@ def test_standard_kursbevis_har_alle_faste_elementer_og_riktige_data(con, sendt)
     assert "<h1>Kursbevis</h1>" in html and "<p>Dette bekrefter at</p>" in html
     assert '<p class="navn">Ola Nordmann</p>' in html and "<p>har gjennomført</p>" in html
     assert "<strong>Veiledning i praksis</strong>" in html
-    assert "<tr><td>Kursdager</td><td>2027-03-01, 2027-03-02</td></tr>" in html   # datoene deltakeren MOTTE
+    # datoene deltakeren MOTTE, i norsk format (06.10.2026: standardbeviset viste 2027-03-01 - flettefeltene var alt norske)
+    assert "<tr><td>Kursdager</td><td>01.03.2027, 02.03.2027</td></tr>" in html
     assert "<tr><td>Timer</td><td>12</td></tr>" in html                             # 2 moter x 6 timer
     assert "<tr><td>Sted</td><td>Oslo</td></tr>" in html
     assert "Akkumulert" not in html                                                # ikke spesialistlop

@@ -24,7 +24,7 @@
   <div class="rad">
     <div><label for="f-fornavn">Fornavn *</label><input id="f-fornavn" name="fornavn" required value="{{ f.fornavn or '' }}"></div>
     <div><label for="f-etternavn">Etternavn *</label><input id="f-etternavn" name="etternavn" required value="{{ f.etternavn or '' }}"></div>
-    <div><label for="f-epost">E-post *</label><input id="f-epost" name="epost" type="email" required value="{{ f.epost or '' }}"></div>
+    <div><label for="f-epost">E-post *</label><input id="f-epost" name="epost" type="email" required value="{{ f.epost or '' }}" data-epost-sjekk="{{ EPOST_SJEKK }}"></div>
     <div><label for="f-adresse">Adresse *</label><input id="f-adresse" name="adresse" required autocomplete="off" value="{{ f.adresse or '' }}"></div>
     <div><label for="f-postnr">Postnummer *</label><input id="f-postnr" name="postnr" required autocomplete="off" aria-describedby="hjelp-adresse" value="{{ f.postnr or '' }}"></div>
     <div><label for="f-poststed">Poststed *</label><input id="f-poststed" name="poststed" required autocomplete="off" value="{{ f.poststed or '' }}"></div>
@@ -45,6 +45,14 @@
   </fieldset>
 
   {% if kurs.fakturering == 'person' and kurs.pris_nok %}
+  {% if rabatter %}
+  <label for="f-priskategori" style="margin-top:18px">Pris</label>
+  <select id="f-priskategori" name="priskategori" style="max-width:26em" aria-describedby="hjelp-priskategori">
+    <option value="">Ordinær pris – {{ kurs.pris_nok | kr }}</option>
+    {% for r in rabatter %}<option value="{{ r.kategori }}"{{ ' selected' if f.priskategori == r.kategori }}>{{ r.prisnavn }} – {{ r.pris | kr }}</option>{% endfor %}
+  </select>
+  <p id="hjelp-priskategori" class="liten dempet" style="margin:4px 0 0">En pris du velger her, regnes som godkjent (ingen sjekk og ikke noe studentbevis).</p>
+  {% endif %}
   <label style="margin-top:18px">Hvem betaler?</label>
   <label style="font-weight:normal"><input type="radio" name="betaler" value="person" {{ 'checked' if f.betaler != 'organisasjon' }} data-skjul="org">Deltakeren betaler selv</label>
   <label style="font-weight:normal"><input type="radio" name="betaler" value="organisasjon" {{ 'checked' if f.betaler == 'organisasjon' }} data-vis="org">Arbeidsgiver betaler</label>
@@ -52,7 +60,7 @@
     <div class="rad">
       <div><label for="f-org_nr">Organisasjonsnummer</label><input id="f-org_nr" name="org_nr" value="{{ f.org_nr or '' }}"></div>
       <div><label for="f-faktura_ref">Fakturareferanse / bestillernr.</label><input id="f-faktura_ref" name="faktura_ref" value="{{ f.faktura_ref or '' }}"></div>
-      <div><label for="f-faktura_epost">E-post for faktura</label><input id="f-faktura_epost" name="faktura_epost" value="{{ f.faktura_epost or '' }}"></div>
+      <div><label for="f-faktura_epost">E-post for faktura</label><input id="f-faktura_epost" name="faktura_epost" value="{{ f.faktura_epost or '' }}" data-epost-sjekk="{{ EPOST_SJEKK }}"></div>
     </div>
     <p class="liten dempet">Skriv bare organisasjonsnummeret. Firmanavn og fakturaadresse hentes fra Enhetsregisteret når påmeldingen registreres. Svarer ikke registeret, merkes påmeldingen «Firmaopplysninger må kontrolleres», og fakturaen venter.</p>
     <label style="font-weight:normal"><input type="checkbox" name="ehf" {{ 'checked' if f.ehf }}>Send som EHF (elektronisk faktura)</label>

@@ -4,9 +4,19 @@
 <h1>{{ utsending.emne }}</h1>
 <p class="sub">Sendt av {{ utsending.sendt_av_navn or '–' }} · {{ utsending.opprettet }} · {{ mottakere|length }} mottaker{{ 'e' if mottakere|length != 1 }}</p>
 
-<div class="kort" style="max-width:640px; white-space:pre-wrap">{{ utsending.tekst }}</div>
-{% if signatur is not none %}<p class="liten dempet" style="margin:0 0 4px">Signatur i denne e-posten:</p>
-<div class="kort epostsignatur" style="max-width:640px">{{ signatur if signatur else '(ingen signatur)' }}</div>{% endif %}
+{#- Hele e-posten samlet: tekst, signatur og vedlegg i én boks (Camilla 05.10.2026) -#}
+<div class="kort" style="max-width:640px">
+  <div style="white-space:pre-wrap">{{ utsending.tekst }}</div>
+  {%- if signatur %}<div class="epostsignatur" style="margin-top:14px">{{ signatur }}</div>{% endif %}
+  {%- if vedlegg %}
+  <div class="epostvedlegg" style="margin-top:14px; padding-top:10px; border-top:1px solid var(--linje, #dfe5e8)">
+    <p class="liten dempet" style="margin:0 0 4px">Vedlegg ({{ vedlegg|length }})</p>
+    <ul style="margin:0; padding-left:18px">{% for v in vedlegg %}
+      <li><a href="{{ url_for('admin_deltaker_epost_vedlegg', kurs_id=kurs.id, paamelding_id=v.paamelding_id, epost_id=v.epost_id, nr=v.nr) }}" target="_blank" rel="noopener">📎 {{ v.filnavn }}</a></li>{% endfor %}
+    </ul>
+  </div>
+  {%- endif %}
+</div>
 
 <h2>Mottakere ({{ mottakere|length }})</h2>
 <div class="tabellboks" style="max-width:640px"><table>

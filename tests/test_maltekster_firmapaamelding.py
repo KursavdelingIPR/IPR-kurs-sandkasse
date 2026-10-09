@@ -58,7 +58,7 @@ def _grunnlag(**over):
         "kontakt_navn": "Kari HR", "kontakt_epost": "kari.hr@firma.no", "kontakt_telefon": "90000000",
         "firmanavn": "Firma AS", "org_nr": "999900003", "faktura_ref": "BEST-1",       # firmanavnet fra registeret brukes
         "deltaker_navn": ["Ola Nordmann"], "deltaker_epost": ["ola@firma.no"],
-        "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on",
+        "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on", "samtykke_lagring": "on",
     }
     data.update(over)
     return gruppeskjema(data)       # fullt navn i testdataene -> skjemaets egne fornavn-/etternavn-felt

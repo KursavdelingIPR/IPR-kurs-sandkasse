@@ -1,16 +1,17 @@
-"""Felles token for Microsoft Graph (brukes av epost.py og sharepoint.py).
+"""Token for Microsoft Graph (brukes av epost.py). Kurssystemet bruker ikke SharePoint (Camilla 06.10.2026).
 
 Oppsett i Entra ID (Azure AD):
-  1. App-registrering "IPR Kurs" -> Certificates & secrets -> ny client secret
-  2. API permissions (Application): Mail.Send, Sites.Selected  -> Grant admin consent
+  1. App-registrering "IPR Kurs" -> Certificates & secrets -> sertifikat (anbefalt, M365_SERTIFIKAT - se sertifikat.py)
+     eller client secret (M365_CLIENT_SECRET)
+  2. API permissions (Application): Mail.Send  -> Grant admin consent
   3. Begrens Mail.Send til kurs@-postboksen med en Application Access Policy (Exchange)
-  4. Gi appen tilgang til KUN kurs-SharePoint-siten (Sites.Selected)
 """
 import time
 
 import requests
 
 from .. import config
+from . import sertifikat
 
 _cache: dict = {}
 
@@ -23,7 +24,8 @@ def token() -> str:
         data={
             "grant_type": "client_credentials",
             "client_id": config.M365_CLIENT_ID,
-            "client_secret": config.M365_CLIENT_SECRET,
+            **sertifikat.legitimasjon(config.M365_TENANT_ID, config.M365_CLIENT_ID, sertifikat=config.M365_SERTIFIKAT,
+                                      passord=config.M365_SERTIFIKAT_PASSORD, hemmelighet=config.M365_CLIENT_SECRET),
             "scope": "https://graph.microsoft.com/.default",
         },
         timeout=30,

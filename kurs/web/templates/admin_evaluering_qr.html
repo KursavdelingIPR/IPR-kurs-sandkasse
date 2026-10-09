@@ -1,0 +1,42 @@
+<!doctype html>
+{#- QR-koden til evalueringen (delt lenke, kurs/evaluering.py): vises på skjermen den siste kursdagen, eller skrives ut. Alle som skanner,
+    kan svare (anonymt). Lenken under QR-koden kan også deles. -#}
+<html lang="no"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evaluering – {{ kurs.navn }}</title>
+<style>
+  :root { --bla:#1f5c73; --bla-lys:#e7f0f3; --tekst:#1d2a33; --dempet:#4f5d67; --linje:#dfe5e8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:#fff; color:var(--tekst); line-height:1.4; }
+  .verktoy { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; padding:10px 20px; background:var(--bla-lys); border-bottom:1px solid var(--linje); font-size:15px; }
+  .verktoy a { color:var(--bla); }
+  .verktoy button { font:inherit; font-size:15px; padding:7px 16px; border-radius:7px; border:1px solid var(--bla); background:var(--bla); color:#fff; cursor:pointer; }
+  :focus-visible { outline:3px solid #f3a53d; outline-offset:2px; }
+  .plakat { display:grid; grid-template-columns:auto minmax(0,1fr); gap:0 clamp(24px,5vw,80px); align-items:center; justify-content:center;
+            padding:clamp(16px,3vw,40px); min-height:calc(100vh - 60px); }
+  .qr svg { display:block; width:min(62vh, 44vw); height:auto; }
+  .over { margin:0 0 6px; font-size:clamp(15px,1.8vw,24px); letter-spacing:.08em; text-transform:uppercase; color:var(--dempet); font-weight:700; }
+  h1 { margin:0 0 6px; font-size:clamp(28px,4.2vw,58px); line-height:1.12; font-weight:650; }
+  .runde { margin:0; color:var(--dempet); font-size:clamp(18px,2.4vw,32px); }
+  .tekst { margin:clamp(16px,2.4vw,34px) 0 0; font-size:clamp(17px,2.1vw,30px); }
+  .lenke { margin-top:clamp(14px,2vw,28px); padding-top:12px; border-top:2px solid var(--linje); font-size:clamp(14px,1.4vw,19px); color:var(--dempet);
+           overflow-wrap:anywhere; }
+  .stengt { margin:0; padding:10px 20px; background:#fbf1d9; color:#6d4c00; border-bottom:1px solid #ecd59b; }
+  @media (max-width:760px) { .plakat { grid-template-columns:1fr; } .qr svg { width:min(80vw, 60vh); } }
+  @media print { .verktoy, .stengt { display:none; } .plakat { min-height:auto; } }
+</style></head>
+<body>
+<div class="verktoy"><a href="{{ url_for('admin_kurs_evaluering', kurs_id=kurs.id) }}">← Evaluering</a>
+  <button type="button" data-skriv-ut>Skriv ut</button></div>
+{% if stengt %}<p class="stengt" role="status">Evalueringen er stengt. Den som skanner koden, får beskjed om det.</p>{% endif %}
+<main class="plakat">
+  <div class="qr" role="img" aria-label="QR-kode til evalueringen">{{ svg }}</div>
+  <div>
+    <p class="over">Evaluering</p>
+    <h1>{{ kurs.navn }}</h1>
+    {% if runde_navn %}<p class="runde">{{ runde_navn }}</p>{% endif %}
+    <p class="tekst">Skann koden med kameraet på mobilen, og svar på evalueringen. Det tar omtrent 5 minutter, og svarene er anonyme.</p>
+    <p class="lenke">{{ lenke }}</p>
+  </div>
+</main>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body></html>

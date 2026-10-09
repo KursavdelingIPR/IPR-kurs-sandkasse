@@ -93,7 +93,8 @@
     var overbooking = form.querySelector("input[name=overbooking]");
     var fulltSpoersmaal = false;
     if (form.hasAttribute("data-status-bekreft")) {
-      var valg = form.querySelector("select[name=status]");
+      // form.elements tar også med felt som står et annet sted på siden med form="…" (statusvalget i Oppsett, 05.10.2026)
+      var valg = form.querySelector("select[name=status]") || form.elements.namedItem("status");
       // Bare Påmeldt tar en plass (data-full-bekreft står bare på de som ikke er Påmeldt fra før). Ekstradeltaker tar ingen plass.
       fulltSpoersmaal = form.hasAttribute("data-full-bekreft") && !!valg && valg.value === "paameldt";
       var valgtAlt = valg && valg.selectedIndex >= 0 ? valg.options[valg.selectedIndex] : null;
@@ -1551,4 +1552,132 @@
     });
     felt.forEach(function (f) { f.required = endret && noenFylt; });
   });
+
+  // «Bekreft e-post» i påmeldingsskjemaene (input[data-lik-som="<id>"]): nettleseren stopper innsendingen og peker på feltet
+  // når adressene ikke er like (store/små bokstaver og mellomrom teller ikke). Serveren kontrollerer det samme.
+  var sjekkLik = function (bekreft) {
+    var forste = document.getElementById(bekreft.getAttribute("data-lik-som"));
+    var ulik = forste && bekreft.value.trim() !== "" &&
+               bekreft.value.trim().toLowerCase() !== forste.value.trim().toLowerCase();
+    bekreft.setCustomValidity(ulik ? (bekreft.getAttribute("data-lik-feil") || "Ikke like.") : "");
+  };
+  document.addEventListener("input", function (e) {
+    if (!(e.target instanceof Element)) return;
+    if (e.target.hasAttribute("data-lik-som")) { sjekkLik(e.target); return; }
+    if (e.target.id) {
+      document.querySelectorAll('input[data-lik-som="' + e.target.id + '"]').forEach(sjekkLik);
+    }
+  });
 })();
+
+// «Mente du …?» under e-postfeltene (input[data-epost-sjekk], Camilla 07.10.2026): et forslag når domenet ser ut som en
+// skrivefeil, f.eks. gmal.com eller hotmail.no. Samme regler og domenelister som kurs/datakontroll.py (de kommer som JSON i
+// attributtet). Bare et forslag: ingenting stoppes, og deltakeren kan sende adressen slik den er.
+(function () {
+  function avstand(a, b) {
+    var d = [], i, j;
+    for (i = 0; i <= a.length; i++) { d.push([i]); }
+    for (j = 1; j <= b.length; j++) { d[0][j] = j; }
+    for (i = 1; i <= a.length; i++) {
+      for (j = 1; j <= b.length; j++) {
+        var kost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+        d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + kost);
+        if (i > 1 && j > 1 && a.charAt(i - 1) === b.charAt(j - 2) && a.charAt(i - 2) === b.charAt(j - 1)) {
+          d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+        }
+      }
+    }
+    return d[a.length][b.length];
+  }
+  function forslag(epost, regler) {
+    epost = (epost || "").trim();
+    var at = epost.lastIndexOf("@");
+    if (at < 1 || epost.indexOf("@") !== at) { return null; }
+    var lokal = epost.slice(0, at), domene = epost.slice(at + 1).toLowerCase().replace(/\.$/, "");
+    if (!domene || domene.indexOf(".") < 0 || regler.vanlige.indexOf(domene) >= 0) { return null; }
+    if (regler.sjeldne[domene]) { return lokal + "@" + regler.sjeldne[domene]; }
+    var grense = domene.length <= 8 ? 1 : 2, best = null, bestAvstand = 99;
+    regler.vanlige.forEach(function (d) {
+      var a = avstand(domene, d);
+      if (a < bestAvstand) { bestAvstand = a; best = d; }
+    });
+    if (bestAvstand <= grense) { return lokal + "@" + best; }
+    var punkt = domene.lastIndexOf("."), tld = domene.slice(punkt + 1);
+    if (regler.tld[tld]) { return lokal + "@" + domene.slice(0, punkt) + "." + regler.tld[tld]; }
+    return null;
+  }
+  function vis(felt) {
+    var regler;
+    try { regler = JSON.parse(felt.getAttribute("data-epost-sjekk")); } catch (e) { return; }
+    // under feltet; ligger feltet inne i en <label> (deltakerradene i bedriftspåmeldingen), under etiketten
+    var holder = felt.closest("label") ? felt.closest("label").parentNode : felt.parentNode;
+    var boks = holder.querySelector(".epost-forslag");
+    var riktig = forslag(felt.value, regler);
+    if (!riktig) { if (boks) { boks.remove(); } return; }
+    if (!boks) {
+      boks = document.createElement("p");
+      boks.className = "epost-forslag";
+      boks.setAttribute("role", "status");
+      holder.appendChild(boks);
+    }
+    boks.textContent = "Mente du " + riktig + "? ";
+    var knapp = document.createElement("button");
+    knapp.type = "button";
+    knapp.className = "lenkeknapp";
+    knapp.textContent = "Ja, bruk den";
+    knapp.addEventListener("click", function () {
+      var gammel = felt.value.trim();
+      felt.value = riktig;
+      // «Bekreft e-post» følger med når den hadde den samme skrivefeilen
+      document.querySelectorAll('input[data-lik-som="' + felt.id + '"]').forEach(function (b) {
+        if (b.value.trim().toLowerCase() === gammel.toLowerCase()) { b.value = riktig; }
+        b.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      felt.dispatchEvent(new Event("input", { bubbles: true }));
+      boks.remove();
+      felt.focus();
+    });
+    boks.appendChild(knapp);
+  }
+  ["change", "focusout"].forEach(function (hendelse) {
+    document.addEventListener(hendelse, function (e) {
+      if (e.target instanceof Element && e.target.matches("input[data-epost-sjekk]")) { vis(e.target); }
+    });
+  });
+})();
+
+// Rabattpriser (kurs/rabatter.py, Camilla 09.10.2026).
+// (1) Påmeldingsskjemaet: beløpene i betalingsvalget ([data-prisdel] = antall deler) følger prisen deltakeren har valgt.
+// (2) Oppsett → Priser og rabatter: prisen i kroner følger prosenten mens den skrives (samme avrunding som serveren: hele kroner).
+(function () {
+  function kroner(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " "); }
+  function rabattpris(pris, prosent) { return Math.floor((pris * (100 - prosent) + 50) / 100); }
+  document.querySelectorAll("[data-prisvalg]").forEach(function (valg) {
+    var form = valg.closest("form");
+    if (!form) { return; }
+    var oppdater = function () {
+      var valgt = form.querySelector('input[name="priskategori"]:checked');
+      if (!valgt) { return; }
+      var pris = parseInt(valgt.getAttribute("data-pris"), 10) || 0;
+      form.querySelectorAll("[data-prisdel]").forEach(function (el) {
+        var deler = parseInt(el.getAttribute("data-prisdel"), 10) || 1;
+        el.textContent = kroner(Math.floor(pris / deler));
+      });
+    };
+    form.addEventListener("change", oppdater);
+    window.addEventListener("pageshow", oppdater);
+    oppdater();
+  });
+  document.querySelectorAll("form[data-rabattoppsett]").forEach(function (form) {
+    var pris = parseInt(form.getAttribute("data-rabattoppsett"), 10) || 0;
+    form.addEventListener("input", function (e) {
+      if (!(e.target instanceof Element) || !e.target.matches("[data-rabattprosent]")) { return; }
+      var rad = e.target.closest("tr");
+      var celle = rad && rad.querySelector("[data-rabattpris]");
+      var prosent = parseInt(e.target.value, 10);
+      if (!celle) { return; }
+      celle.textContent = prosent >= 1 && prosent <= 99 ? kroner(rabattpris(pris, prosent)).replace(/ /g, "\u00a0") + "\u00a0kr" : "–";
+    });
+  });
+})();
+

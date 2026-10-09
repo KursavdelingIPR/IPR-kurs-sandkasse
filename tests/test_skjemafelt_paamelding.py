@@ -65,7 +65,7 @@ def _lagre(con, kid, felt, **egenskaper):
 
 
 EPOST = "test.person@eksempel.no"
-BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": EPOST, "samtykke": "on", **ADRESSE}
+BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": EPOST, "samtykke": "on", "samtykke_lagring": "on", **ADRESSE}
 
 
 def _post(kode, **data):
@@ -345,7 +345,8 @@ def test_synlig_fakturablokk_validering_og_lagring(con):
     p = _paamelding(con, kid)
     assert (p["betaler"], p["org_navn"], p["org_nr"], p["ehf"], p["betaling"], p["faktura_ref"], p["faktura_epost"],
             p["faktura_adresse"], p["faktura_postnr"], p["faktura_sted"]) == (
-        "organisasjon", "DEMOVIRKSOMHET AS", "999999999", 1, "per_samling", "MANIP-REF", "manip@eksempel.no",
+        # ehf=0: EHF-avkrysningen er skjult som standard (Camilla 05.10.2026), så en innsendt ehf ignoreres
+        "organisasjon", "DEMOVIRKSOMHET AS", "999999999", 0, "per_samling", "MANIP-REF", "manip@eksempel.no",
         "Demoveien 1", "0101", "DEMOBY")
 
 
@@ -360,6 +361,9 @@ def test_synlig_fakturablokk_person_betaler(con):
 
 def test_ukjente_ekstra_postfelt_ignoreres(con):
     kid = _kurs(con, kode="UK")
+    # yrkestittel vises som standard (Camilla 05.10.2026) - skjules her, så et innsendt felt kurset ikke viser, ignoreres
+    db.lagre_skjemafelt(con, kid, "yrkestittel", {"synlig": False})
+    con.commit()
     assert _post("UK", status="avmeldt", kilde="admin", sveiper_utsatt="1", yrkestittel="MANIP",
                  intern_kommentar="MANIP").status_code == 200
     p = _paamelding(con, kid)

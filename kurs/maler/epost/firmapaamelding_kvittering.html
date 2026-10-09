@@ -7,7 +7,8 @@ Emne: {{ maltekst.emne }}
   {% if antall_feilet %}<li>{{ antall_feilet }} kunne ikke registreres – se oversikten på lenken under for detaljer</li>{% endif %}
 </ul>
 <p>Full oversikt: <a href="{{ base_url }}{{ kvittering_url }}">{{ base_url }}{{ kvittering_url }}</a></p>
-{% if kurs.fakturering == 'person' and kurs.pris_nok %}<p>Hver bekreftet deltaker faktureres for seg, {{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr, til {{ kontakt.firmanavn }}.</p>
+{% if kurs.fakturering == 'person' and kurs.pris_nok and med_rabatt %}<p>Hver bekreftet deltaker faktureres for seg, til prisen som er valgt for deltakeren (ordinær pris {{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr), til {{ kontakt.firmanavn }}. Rabatter som må sjekkes, faktureres når de er godkjent.</p>
+{% elif kurs.fakturering == 'person' and kurs.pris_nok %}<p>Hver bekreftet deltaker faktureres for seg, {{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr, til {{ kontakt.firmanavn }}.</p>
 {% elif kurs.fakturering == 'organisasjon' %}<p>Dere faktureres samlet av kursadministrasjonen i etterkant – ikke automatisk gjennom dette skjemaet.</p>
 {% else %}<p>Dette kurset faktureres ikke automatisk.</p>{% endif %}
 {{ maltekst.avslutning }}

@@ -1468,7 +1468,9 @@ def sett_paamelding_status(con, paamelding_id: int, ny_status: str, aktor: str =
             faktureres = sveiper.skal_faktureres({"fakturering": kurs["fakturering"], "pris_nok": kurs["pris_nok"], "status": "bekreftet"})
             # Gjenstår det en faktura (samlet: ingen faktura ennå; per samling: minst en delfaktura som ikke er laget)? Samme regel for én
             # faktura og for flere delfakturaer, også når deltakeren alt har fått noen: bare de som gjenstår, holdes tilbake.
-            gjenstaar = faktureres and sveiper.fakturering_gjenstaar(con, {**dict(p), "pris_nok": kurs["pris_nok"]})
+            from . import rabatter
+            gjenstaar = faktureres and sveiper.fakturering_gjenstaar(
+                con, {**dict(p), "pris_nok": rabatter.deltakerpris(kurs["pris_nok"], p["rabatt_prosent"])})
             if not p["sveiper_kjort"]:                      # ikke behandlet: holdet oppheves, vanlige regler (morgenjobb og umiddelbar kjøring)
                 kjort, utsatt = 0, 0
             elif not gjenstaar:                             # behandlet, og det er ingenting mer å lage: ingenting endres
@@ -1565,12 +1567,13 @@ def prisendring_feil(con, kurs_id: int, ny_pris: int, fakturering: str) -> str |
     ingen flere fakturaer, og er alltid greit. Ren lesing."""
     if ny_pris <= 0 or fakturering != "person":
         return None
-    from . import sveiper   # importeres her: sveiper bruker db
+    from . import rabatter, sveiper   # importeres her: sveiper bruker db
     samlinger = sveiper.samlinger_til_fakturering(con, kurs_id)
     berort = 0
     for p in con.execute("""SELECT * FROM paamelding WHERE kurs_id=? AND status='bekreftet' AND ekstradeltaker_ts IS NULL
                             AND betaling='per_samling'""", (kurs_id,)).fetchall():
-        gjenstaar = sveiper.delfakturaer_som_gjenstaar(con, {**dict(p), "pris_nok": ny_pris}, samlinger)
+        gjenstaar = sveiper.delfakturaer_som_gjenstaar(
+            con, {**dict(p), "pris_nok": rabatter.deltakerpris(ny_pris, p["rabatt_prosent"])}, samlinger)
         if any(belop <= 0 for *_, belop in gjenstaar):
             berort += 1
     if not berort:
@@ -1616,39 +1619,6 @@ def oppdater_kurs_felter(con, kurs_id: int, felter: dict, aktor: str = "admin", 
         logg(con, "kurs_okonomi_endret", {"kurs_id": kurs_id, "endringer": {f: [gammel[f], felter[f]] for f in okonomi},
                                           **okonomisk_binding_oversikt(con, kurs_id)}, aktor=aktor)
     return endret
-
-
-def synk_materiell_ansvarlig(con, kurs_id: int, ny_epost: str | None, aktor: str = "admin") -> int:
-    """Naar kursholder endres i Oppsett, oppdaterer vi ogsaa e-posten purringer gaar til - materiell_krav
-    er en egen tabell som ellers ville fortsatt aa peke paa den gamle kursholderen. Rorer aldri et krav
-    som allerede er levert (det er historikk)."""
-    if not ny_epost:
-        return 0
-    cur = con.execute(
-        "UPDATE materiell_krav SET ansvarlig_epost=? WHERE kurs_id=? AND levert_ts IS NULL",
-        (ny_epost, kurs_id))
-    if cur.rowcount:
-        logg(con, "materiell_ansvarlig_endret", {"kurs_id": kurs_id, "antall": cur.rowcount}, aktor=aktor)
-    return cur.rowcount
-
-
-def be_om_materiell(con, kurs_id: int, *, navn: str, epost: str, frist: str, aktor: str = "admin") -> int:
-    """Ber kursholderen om presentasjon (Kursmateriell på kurssiden). Morgenjobben sender påminnelser med
-    opplastingslenke 7, 2 og 0 dager før fristen, og varsler admin når fristen er passert (daglig._purring).
-    Loggen får bare id-er og fristen, aldri navn eller e-post."""
-    krav_id = sett_inn(con, "INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
-                       (kurs_id, navn, epost, frist))
-    logg(con, "materiell_bedt_om", {"kurs_id": kurs_id, "materiell_id": krav_id, "frist": frist}, aktor=aktor)
-    return krav_id
-
-
-def fjern_materiell_krav(con, kurs_id: int, krav_id: int, aktor: str = "admin") -> bool:
-    """Fjerner en forespørsel om materiell som ikke er levert (f.eks. sendt til feil e-post - lag heller en ny).
-    En levert forespørsel er historikk og fjernes aldri. Returnerer om noe ble fjernet."""
-    cur = con.execute("DELETE FROM materiell_krav WHERE id=? AND kurs_id=? AND levert_ts IS NULL", (krav_id, kurs_id))
-    if cur.rowcount:
-        logg(con, "materiell_krav_fjernet", {"kurs_id": kurs_id, "materiell_id": krav_id}, aktor=aktor)
-    return bool(cur.rowcount)
 
 
 def endre_kapasitet(con, kurs_id: int, ny_kapasitet: int | None, aktor: str = "admin") -> list[int]:
@@ -1732,6 +1702,10 @@ def gjenaapne_kurs(con, kurs_id: int, aktor: str = "admin") -> None:
 _FAKTURAADRESSE = ("faktura_adresse", "faktura_postnr", "faktura_sted")
 
 
+# Rabattfeltene på paamelding (migrering 32, kurs/rabatter.py) slik de er uten rabatt: ordinær pris, ingen sjekk
+_INGEN_RABATT = {"priskategori": None, "rabatt_prosent": None, "rabatt_status": None, "psyflix_org": None, "psyflix_epost": None}
+
+
 def meld_paa(con, kurs_id: int, *, epost: str, fornavn: str, etternavn: str, deltaker: dict | None = None,
              paamelding: dict | None = None, sensitivt: dict | None = None, idag: date | None = None,
              aktor: str | None = None, tillat_utkast: bool = False, ignorer_frist: bool = False,
@@ -1799,8 +1773,9 @@ def meld_paa(con, kurs_id: int, *, epost: str, fornavn: str, etternavn: str, del
     # paamelding={"sveiper_utsatt": 1}.
     # faktura_onskes_na/faktura_tidligst_dato: samme begrunnelse som sveiper_utsatt - en NY registreringsrunde (ogsaa
     # reaktivering) skal aldri arve en gammel fakturabeslutning. Kaller kan overstyre faktura_onskes_na.
+    # Rabatten (kurs/rabatter.py): samme begrunnelse - en ny registreringsrunde arver aldri en gammel pris. Kalleren setter den.
     felter = {"status": status, "samtykke_ts": na, "oppdatert": na, "sveiper_utsatt": 0,
-              "faktura_onskes_na": 0, "faktura_tidligst_dato": None, **(paamelding or {})}
+              "faktura_onskes_na": 0, "faktura_tidligst_dato": None, **_INGEN_RABATT, **(paamelding or {})}
     # Ekstradeltaker: har plass uten å ta plass, og holdes tilbake (ingen automatisk bekreftelse eller faktura). Alle andre: nullstilt.
     felter["ekstradeltaker_ts"] = naa_utc() if ekstradeltaker else None
     if ekstradeltaker:
@@ -1823,6 +1798,7 @@ def meld_paa(con, kurs_id: int, *, epost: str, fornavn: str, etternavn: str, del
             [*felter.values(), finnes["id"]],
         )
         pid = finnes["id"]
+        con.execute("DELETE FROM rabatt_bevis WHERE paamelding_id=?", (pid,))     # et gammelt studentbevis følger ikke med
     else:
         kolonner = ["kurs_id", "deltaker_id", *felter.keys()]
         pid = sett_inn(
@@ -1895,7 +1871,8 @@ def anonymiser_deltaker(con, deltaker_id: int, aktor: str) -> dict:
                 (ANONYM_NAVN, ANONYM_FORNAVN, ANONYM_ETTERNAVN, ny, deltaker_id))
     ut["paameldinger"] = con.execute(
         """UPDATE paamelding SET faktura_epost=NULL, faktura_adresse=NULL, faktura_postnr=NULL, faktura_sted=NULL,
-                  faktura_ref=NULL, faktura_kommentar=NULL, intern_kommentar=NULL, oppdatert=? WHERE deltaker_id=?""",
+                  faktura_ref=NULL, faktura_kommentar=NULL, intern_kommentar=NULL, psyflix_org=NULL, psyflix_epost=NULL,
+                  oppdatert=? WHERE deltaker_id=?""",
         (naa_utc(), deltaker_id)).rowcount
     ut["sensitivt"] = con.execute(
         "DELETE FROM sensitivt WHERE paamelding_id IN (SELECT id FROM paamelding WHERE deltaker_id=?)",
@@ -1914,6 +1891,16 @@ def anonymiser_deltaker(con, deltaker_id: int, aktor: str) -> dict:
         """DELETE FROM sendt_epost WHERE paamelding_id IN (SELECT id FROM paamelding WHERE deltaker_id=?)
              OR LOWER(til)=LOWER(?)""", (deltaker_id, gammel)).rowcount
     slett_ubrukte_epostfiler(con)
+    # Rabattene: studentbevis som venter på godkjenning (Psyflix-opplysningene er tømt over)
+    ut["rabattbevis"] = con.execute(
+        "DELETE FROM rabatt_bevis WHERE paamelding_id IN (SELECT id FROM paamelding WHERE deltaker_id=?)",
+        (deltaker_id,)).rowcount
+    # Datakontrollen: «Det stemmer»-merkene for personen (bare hasher, men de hører til personen)
+    ut["datakontroll"] = con.execute("DELETE FROM datakontroll_ok WHERE deltaker_id=?", (deltaker_id,)).rowcount
+    # «Klar til sending» (kurs/godkjenning.py): e-poster til personen som venter på godkjenning eller er behandlet
+    ut["epostkoe"] = con.execute(
+        """DELETE FROM epost_godkjenning WHERE paamelding_id IN (SELECT id FROM paamelding WHERE deltaker_id=?)
+             OR LOWER(mottaker)=LOWER(?)""", (deltaker_id, gammel)).rowcount
     ut["importforhandsvisninger"] = _slett_forhaandsvisninger_med(con, gammel)
     ut["firmarader"] = con.execute("UPDATE firmapaamelding_rad SET navn=?, epost=? WHERE LOWER(epost)=LOWER(?)",
                                    (ANONYM_NAVN, ny, gammel)).rowcount
@@ -2535,6 +2522,38 @@ def opprett_ekstrafelt(con, kurs_id: int, data: dict, rekkefolge: int, aktor: st
                  VALUES (?,{','.join('?' * len(kol))},?,?)""",
         (kurs_id, *kol.values(), datetime.now().isoformat(timespec="seconds"), aktor))
     logg(con, "ekstrafelt_opprettet", {"kurs_id": kurs_id, "felt_id": felt_id, "type": verdier["type"]}, aktor=aktor)
+    return felt_id
+
+
+EPOSTDELING = "deling_epost"      # kurs_ekstrafelt.rolle for kursets spørsmål «Deling av e-post» (migrering 27)
+
+
+def epostdeling_felt(con, kurs_id: int) -> int | None:
+    """Id-en til kursets spørsmål om deling av e-post, eller None."""
+    rad = con.execute("SELECT id FROM kurs_ekstrafelt WHERE kurs_id=? AND rolle=?", (kurs_id, EPOSTDELING)).fetchone()
+    return rad["id"] if rad else None
+
+
+def sikre_epostdeling(con, kurs_id: int, aktor: str = "system") -> int | None:
+    """Sørger for at kurset har spørsmålet «Deling av e-post» (Ja/Nei, påkrevd) i påmeldingsskjemaet (Camilla 05.10.2026:
+    alle påmeldingsskjema). Finnes det, skjer ingenting. Et felt med samme navn og type (f.eks. kopiert fra et annet kurs)
+    merkes i stedet for å lage et nytt. Returnerer id-en, eller None når kurset alt har maks antall egne felt."""
+    felt_id = epostdeling_felt(con, kurs_id)
+    if felt_id:
+        return felt_id
+    mal = ekstrafelt.MALER["deling_epost"][1]
+    rad = con.execute("SELECT id FROM kurs_ekstrafelt WHERE kurs_id=? AND type=? AND label=? ORDER BY id LIMIT 1",
+                      (kurs_id, mal["type"], mal["label"])).fetchone()
+    if rad:
+        felt_id = rad["id"]
+    else:
+        if con.execute("SELECT COUNT(*) FROM kurs_ekstrafelt WHERE kurs_id=?", (kurs_id,)).fetchone()[0] >= ekstrafelt.MAKS_FELT:
+            return None
+        # Standardfeltenes plass teller bare under «Om deg»; spørsmålet står «til slutt», så overstyringene trengs ikke
+        overstyringer = hent_skjemaoverstyringer(con, kurs_id).overstyringer if mal["plassering"] == skjemafelt.OM_DEG else {}
+        plass = skjemafelt.neste_plass(overstyringer, hent_ekstrafelt(con, kurs_id).felt, mal["plassering"])
+        felt_id = opprett_ekstrafelt(con, kurs_id, dict(mal), plass, aktor=aktor)
+    con.execute("UPDATE kurs_ekstrafelt SET rolle=? WHERE id=?", (EPOSTDELING, felt_id))
     return felt_id
 
 

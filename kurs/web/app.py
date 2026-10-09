@@ -24,17 +24,18 @@ from werkzeug.datastructures import MultiDict
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.routing import IntegerConverter
-from werkzeug.utils import secure_filename
 
 from .. import (aarsplan, aktivitetsliste, behandling, booking, config, daglig, db, deltakerliste, deltakerside, deltakersok,
-                ekstrafelt, eposthistorikk, firmaopplysninger, hendelseslogg, import_deltakere, kursdatoer, kursfarger,
-                kursbevismal, kursokonomi,
+                datakontroll, ekstrafelt, eposthistorikk, evaluering, firmaopplysninger, godkjenning, hendelseslogg, import_deltakere,
+                kursdatoer,
+                kursfarger,
+                kursbevisdesign, kursbevismal, kursokonomi,
                 kurskalender, kursholdere, lenker,
                 mal_eksempler, maltekster, migreringer, minside, okonomi, paameldingsside, planlagte_kurs, privatadresse,
-                signaturer, sjekklister, skjemafelt, statustekster, sveiper, tema, vedlegg)
+                rabatter, signaturer, sjekklister, skjemafelt, statustekster, sveiper, tema, vedlegg)
 from ..deltakerliste import fakturastatus as _fakturastatus
 from ..feil import sikker_feiltekst
-from ..integrasjoner import brreg, epost, sharepoint
+from ..integrasjoner import brreg, epost
 from ..kjoring import Kjoring
 from .. import kursbevis
 from ..kursbevis import timer_i_lop
@@ -55,9 +56,9 @@ app.secret_key = config.HEMMELIG_NOKKEL
 # Sesjonscookien: HttpOnly + SameSite=Lax alltid; Secure i drift (HTTPS bak App Service sin proxy - ProxyFix leser
 # X-Forwarded-Proto/-For, slik at request.is_secure og klientens IP blir riktige). Cookie-levetiden gjelder deltakernes
 # «husk meg» (innsjekk); admin-oekter har egne, kortere grenser i krever_admin (ADMIN_MAKS_TIMER / ADMIN_INAKTIV_MIN).
-MATERIELL_MAKS_BYTES = 40 * 1024 * 1024   # stoerste tillatte opplasting (kursmateriell); andre ruter setter lavere grenser
+OPPLASTING_MAKS_BYTES = 40 * 1024 * 1024  # stoerste tillatte foresporsel (filer paa Min side m.m.); rutene setter lavere grenser
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=not config.DEMO,
-                  PERMANENT_SESSION_LIFETIME=timedelta(days=30), MAX_CONTENT_LENGTH=MATERIELL_MAKS_BYTES + 128 * 1024,
+                  PERMANENT_SESSION_LIFETIME=timedelta(days=30), MAX_CONTENT_LENGTH=OPPLASTING_MAKS_BYTES + 128 * 1024,
                   MAX_FORM_MEMORY_SIZE=4 * 1024 * 1024, PREFERRED_URL_SCHEME="http" if config.DEMO else "https")
 if not config.DEMO:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -122,6 +123,8 @@ def _globale():
     # assistent_aktiv leses per forespørsel: «Spør oss» og Kunnskapsbase vises i menyene bare når ASSISTENT_AKTIV=1 (standard: av)
     return {"demo": config.DEMO, "idag": _idag().isoformat(), "admin_rolle": g.get("admin_rolle"),
             "rolle_navn": db.ROLLE_NAVN, "assistent_aktiv": config.ASSISTENT_AKTIV,
+            "antall_klar_til_sending": godkjenning.antall_ventende(con()) if g.get("admin_rolle") else 0,
+            "godkjenn_eposter": config.GODKJENN_EPOSTER,
             "tema_logo": tema.logo, "kontakt_epost": config.AVSENDER_EPOST}      # tema_logo kalles bare på sider med Terapiakademiet-drakten
 
 
@@ -179,7 +182,9 @@ SYSTEM_ENDEPUNKTER = frozenset({"admin_brukere", "admin_bruker_deaktiver", "admi
                                 "admin_anonymiser_deltaker"})
 KUN_KURSADMIN_ENDEPUNKTER = frozenset({"admin_csv", "admin_eksporter_valgte_csv", "admin_allergiliste",
                                        "admin_deltakerliste_csv", "admin_rapport_kurs_csv", "admin_rapport_okonomi_csv",
-                                       "admin_rapport_deltakere_csv", "admin_utboks", "admin_kursside_deltakernavn"})
+                                       "admin_rapport_deltakere_csv", "admin_utboks", "admin_kursside_deltakernavn",
+                                       "admin_rabatt_bevis",        # studentbeviset: bare kursadministrasjonen
+                                       "admin_kurs_evaluering_csv"})
 # admin_sok_json er en ren lesing som sendes som POST bare for at søketeksten ikke skal stå i adressen (se deltakersøket).
 LESE_TILLATTE_POST = frozenset({"admin_logg_ut", "admin_sok_json"})
 
@@ -325,8 +330,19 @@ def _render_paameldingsside(kurs, dager, f, plasser_igjen, skjema, **ekstra):
     beregnes her fra SAMME kursrad som resten av requesten bruker."""
     ekstra.setdefault("forhandsvisning", False)
     ekstra.setdefault("admin_visning", False)
+    ekstra.setdefault("rv", {})               # prisvalget slik det ble sendt (vises igjen ved feil)
+    # Rabattprisene (kurs/rabatter.py) vises bare der fakturadelen vises: deltakeren betaler per person, og kurset har en pris
+    kurs_rabatter = rabatter.for_kurs(con(), kurs) if skjema.vis_fakturablokk else []
     return render_template("kurs.html", kurs=kurs, dager=dager, f=f, plasser_igjen=plasser_igjen, skjema=skjema,
-                           side=paameldingsside.effektiv_side(kurs), offentlig_lenke=_offentlig_lenke(kurs), **ekstra)
+                           side=paameldingsside.effektiv_side(kurs), offentlig_lenke=_offentlig_lenke(kurs),
+                           rabatter=kurs_rabatter, kontakt_epost=tema.kontakt_epost(kurs), **ekstra)
+
+
+def _rabattverdier(form) -> dict:
+    """Prisvalget slik deltakeren fylte det ut, til skjemaet vises igjen ved feil. Studentbeviset må velges på nytt: nettleseren
+    sender aldri en fil tilbake i et skjema."""
+    return {k: (form.get(k) or "").strip() for k in ("priskategori", "psyflix_org", "psyflix_epost", "rabatt_bekreftet",
+                                                      "psyflix_samtykke")}
 
 
 @app.template_global()
@@ -369,7 +385,7 @@ def _skjema_utilgjengelig(kurs, forhandsvisning: bool = False):
 
 # Faste identitetsfelt som alltid finnes i skjemaet (validering: se kursside()). Deltakerens adresse er ogsaa alltid med
 # (skjema.adressefelt).
-_IDENTITETSFELT = ("fornavn", "etternavn", "epost", "samtykke")
+_IDENTITETSFELT = ("fornavn", "etternavn", "epost", "epost_bekreft", "samtykke", "samtykke_lagring")
 
 
 def _tillatte_innsendte_verdier(form, skjema) -> dict:
@@ -378,7 +394,7 @@ def _tillatte_innsendte_verdier(form, skjema) -> dict:
     finnes eller er skjult, og hele faktura-/betalingsblokken naar den ikke vises. Verdiene er uendrede raa strenger
     (flervalg: liste med de avkryssede verdiene)."""
     ut = {k: form[k] for k in _IDENTITETSFELT if k in form}
-    felt = [*skjema.adressefelt, *skjema.deltakerfelt, *skjema.sluttfelt, *skjema.sensitive_felt]
+    felt = [*skjema.adressefelt, *skjema.deltakerfelt, *skjema.sluttfelt, *skjema.sensitive_felt, *skjema.nederstfelt]
     if skjema.vis_fakturablokk:
         ut.update({k: form[k] for k in skjemafelt.FAKTURABLOKK.felt if k in form})
         felt += [*skjema.firmafelt]
@@ -470,7 +486,7 @@ def kursside(kode):
     fakturafelt = skjema.firmafelt if org else ()      # betaler deltakeren selv, er fakturaadressen hans egen adresse
     # Deltakerens private adresse (adresse, postnr, poststed) er ALLTID krav - ogsaa naar arbeidsgiver betaler
     felt_feil = skjemafelt.valider_adresse(f)
-    for felt in (*skjema.deltakerfelt, *fakturafelt, *skjema.sluttfelt, *skjema.sensitive_felt):
+    for felt in (*skjema.deltakerfelt, *fakturafelt, *skjema.sluttfelt, *skjema.sensitive_felt, *skjema.nederstfelt):
         if felt.ekstra_id is None and felt.obligatorisk and not _tekst(f, felt.nokkel):
             felt_feil[felt.nokkel] = f"Fyll inn «{felt.label}»."
     if org and _tekst(f, "faktura_epost") and "@" not in f["faktura_epost"]:
@@ -491,9 +507,18 @@ def kursside(kode):
     orgnr = brreg.normaliser_orgnr(f.get("org_nr", "")) if org else ""
     if org and not brreg.gyldig_orgnr(orgnr):
         feil.append(firmaopplysninger.TEKST_UGYLDIG + ", eller søk opp firmaet og velg det i listen.")
-    feil += meldinger(fakturafelt) + meldinger(skjema.sluttfelt) + meldinger(skjema.sensitive_felt)
+    feil += meldinger(fakturafelt) + meldinger(skjema.sluttfelt) + meldinger(skjema.sensitive_felt) + meldinger(skjema.nederstfelt)
+    if "epost_bekreft" in f and f["epost_bekreft"].strip().lower() != f.get("epost", "").strip().lower():
+        feil.append("E-postadressene er ikke like. Sjekk at e-posten er skrevet riktig begge steder.")
     if not f.get("samtykke"):
         feil.append("Du må godta vilkår og personvernerklæring.")
+    if not f.get("samtykke_lagring"):
+        feil.append("Du må akseptere at informasjonen lagres for videre kontakt i forbindelse med kurset.")
+    # Prisvalget (kurs/rabatter.py): bare kategorien leses fra skjemaet - prosenten og prisen kommer fra kursets oppsett
+    kurs_rabatter = rabatter.for_kurs(con(), kurs) if skjema.vis_fakturablokk else []
+    rabattvalg, rabattfeil = rabatter.les_valg(kurs_rabatter, request.form, request.files)
+    feil += rabattfeil
+    rv = _rabattverdier(request.form) if kurs_rabatter else {}
     oppslag = None
     if org and not feil:
         # Den felles regelen (firmaopplysninger.py): firmanavn og adresse kommer bare fra registeret. Svarer det ikke,
@@ -510,12 +535,13 @@ def kursside(kode):
     if feil:
         for x in feil:
             flash(x, "feil")
-        return _render_paameldingsside(kurs, dager, f, _plasser_igjen(kurs), skjema), 400
+        return _render_paameldingsside(kurs, dager, f, _plasser_igjen(kurs), skjema, rv=rv), 400
     # Verdiene lagres som de ble sendt (som før): ingen ny trimming. Felt skjemaet ikke viser, er ikke med i `f`.
     paamelding = {"betaler": betaler, "ehf": 0, "betaling": f.get("betaling", "samlet")}
     if org:
         paamelding |= {**firmaopplysninger.paamelding_felter(oppslag), "ehf": 1 if f.get("ehf") else 0}
         paamelding |= {k: f.get(k) or None for k in ("faktura_ref", "faktura_epost", "faktura_kommentar")}
+    paamelding |= rabatter.paamelding_felter(rabattvalg, kurs_rabatter)
     # Betaler deltakeren selv, kopierer db.meld_paa personens adresse til fakturaadressen. Betaler firma, brukes bare
     # firmaets adresse fra registeret - deltakerens private adresse lagres da bare paa personen.
     try:
@@ -532,16 +558,19 @@ def kursside(kode):
                 sensitivt={"allergier": f.get("allergier"), "tilrettelegging": f.get("tilrettelegging")},
                 svar=svar, idag=_idag(),
             )
+            if rabattvalg.bevis:
+                rabatter.lagre_bevis(con(), pid, rabattvalg.bevis)
             if registeret_svarte_ikke:
                 firmaopplysninger.logg_ikke_hentet(con(), kurs["id"], pid)
     except db.Paameldingsfeil as e:
         flash(str(e), "feil")
-        return _render_paameldingsside(kurs, dager, f, _plasser_igjen(kurs), skjema), 400
+        return _render_paameldingsside(kurs, dager, f, _plasser_igjen(kurs), skjema, rv=rv), 400
     # "Webhook": kjor sveipene med en gang (bekreftelse + faktura). Daglig jobb tar det som evt. feiler.
     sveiper.kjor(Kjoring(con(), idag=_idag()), pid)
     con().commit()
     return render_template("kvittering.html", kurs=kurs, status=status, fornavn=f["fornavn"].strip(),
-                           firmaopplysninger_mangler=registeret_svarte_ikke)
+                           firmaopplysninger_mangler=registeret_svarte_ikke,
+                           epost=f["epost"].strip(), kontakt=tema.kontakt_epost(kurs), kontakt_epost=tema.kontakt_epost(kurs))
 
 
 def _json_svar(data: dict, status: int = 200):
@@ -589,12 +618,17 @@ def _grupperad_liste(f) -> list[dict]:
     """Bygger deltakerraden-listen fra skjemaet, uten aa filtrere bort noe - brukes til aa vise
     skjemaet paa nytt akkurat slik brukeren skrev det, ved valideringsfeil."""
     kolonner = {k: f.getlist(f"deltaker_{k}") for k in ("fornavn", "etternavn", "epost", "telefon", "arbeidssted", "hpr",
-                                                          *skjemafelt.ADRESSEFELT)}
+                                                          *skjemafelt.ADRESSEFELT, "priskategori")}
     n = max(len(kolonner["fornavn"]), len(kolonner["etternavn"]))
     rader = [{k: (v[i] if i < len(v) else "") for k, v in kolonner.items()} for i in range(n)]
     for r in rader:
         r["hpr_nr"] = r.pop("hpr")
     return rader
+
+
+def _gruppe_rabatter(kurs) -> list:
+    """Rabattprisene i bedriftspåmeldingen: som i påmeldingsskjemaet, når hver deltaker faktureres for seg (kurs/rabatter.py)."""
+    return rabatter.for_kurs(con(), kurs) if kurs["fakturering"] == "person" else []
 
 
 @app.route("/kurs/<kode>/gruppe", methods=["GET", "POST"])
@@ -603,7 +637,8 @@ def kurs_gruppe(kode):
     if not _kurs_offentlig_tilgjengelig(kurs):
         abort(404)
     if request.method == "GET":
-        return render_template("kurs_gruppe.html", kurs=kurs, f={}, deltakere=[{}], maks_deltakere=MAKS_DELTAKERE_GRUPPE)
+        return render_template("kurs_gruppe.html", kurs=kurs, f={}, deltakere=[{}], maks_deltakere=MAKS_DELTAKERE_GRUPPE, rabatter=_gruppe_rabatter(kurs),
+                               kontakt_epost=tema.kontakt_epost(kurs))
 
     sikkerhet.krev_kvote("paamelding")
     f = request.form
@@ -619,8 +654,13 @@ def kurs_gruppe(kode):
         feil.append("Fyll inn organisasjonsnummer.")
     elif not brreg.gyldig_orgnr(brreg.normaliser_orgnr(f["org_nr"])):
         feil.append(firmaopplysninger.TEKST_UGYLDIG + ".")
+    bekreftet_epost = f.get("kontakt_epost_bekreft", "").strip().lower()
+    if "kontakt_epost_bekreft" in f and bekreftet_epost != f.get("kontakt_epost", "").strip().lower():
+        feil.append("E-postadressene til kontaktpersonen er ikke like. Sjekk at e-posten er skrevet riktig begge steder.")
     if not f.get("samtykke"):
         feil.append("Dere må godta vilkår og personvernerklæring.")
+    if not f.get("samtykke_lagring"):
+        feil.append("Dere må akseptere at informasjonen lagres for videre kontakt i forbindelse med kurset.")
 
     rader_visning = _grupperad_liste(f)
     if len(rader_visning) > MAKS_DELTAKERE_GRUPPE:
@@ -630,6 +670,11 @@ def kurs_gruppe(kode):
     # paamelding). Ellers ignoreres en innsendt deltaker_hpr fullstendig - None overskriver/sletter aldri en eksisterende
     # persons HPR (finn_eller_opprett_deltaker oppdaterer kun med ikke-tomme verdier).
     hpr_synlig = skjemafelt.vis_hpr(kurs)
+    # Prisen per deltaker (kurs/rabatter.py): bare kategorien leses fra skjemaet. Studentbeviset kommer i samme rekkefølge som
+    # radene (hver rad har et filfelt når kurset gir studentpris; et tomt felt sendes som en tom fil).
+    kurs_rabatter = _gruppe_rabatter(kurs)
+    tilgjengelige = {r.kategori for r in kurs_rabatter}
+    studentbevis = request.files.getlist("deltaker_studentbevis")
     deltaker_rader = []
     for i, r in enumerate(rader_visning, start=1):
         fornavn, etternavn = r["fornavn"].strip(), r["etternavn"].strip()
@@ -643,13 +688,30 @@ def kurs_gruppe(kode):
         if adressefeil := skjemafelt.valider_adresse(r):
             feil.append(f"Deltaker {i}: " + _adressefeil_tekst(adressefeil))
             continue
-        deltaker_rader.append({"fornavn": fornavn, "etternavn": etternavn, "navn": db.fullt_navn(fornavn, etternavn),
+        kategori = (r.get("priskategori") or "").strip()
+        if kategori and kategori not in tilgjengelige:
+            feil.append(f"Deltaker {i}: velg en av prisene i listen.")
+            continue
+        bevis = None
+        if kategori == "student":
+            fil = studentbevis[i - 1] if i - 1 < len(studentbevis) else None
+            if not fil or not fil.filename:
+                feil.append(f"Deltaker {i}: last opp studentbeviset (bilde eller PDF) for studentprisen.")
+                continue
+            try:
+                bevis = rabatter.kontroller_bevis(fil.filename, fil.read())
+            except rabatter.Rabattfeil as e:
+                feil.append(f"Deltaker {i}: {e}")
+                continue
+        deltaker_rader.append({"priskategori": kategori or None, "bevis": bevis,"fornavn": fornavn, "etternavn": etternavn, "navn": db.fullt_navn(fornavn, etternavn),
                                "epost": deltaker_epost, "telefon": r["telefon"].strip() or None,
                                "arbeidssted": r["arbeidssted"].strip() or None,
                                "hpr_nr": (r["hpr_nr"].strip() or None) if hpr_synlig else None,
                                **skjemafelt.rens_adresse(r)})
     if not deltaker_rader:
         feil.append("Legg til minst én deltaker.")
+    if any(d["priskategori"] for d in deltaker_rader) and not f.get("rabatt_bekreftet"):
+        feil.append("Bekreft at deltakerne har rett på prisene som er valgt.")
     eposter = [d["epost"] for d in deltaker_rader]
     if len(eposter) != len(set(eposter)):
         feil.append("Samme e-postadresse er oppgitt flere ganger blant deltakerne.")
@@ -658,7 +720,8 @@ def kurs_gruppe(kode):
         for x in feil:
             flash(x, "feil")
         return render_template("kurs_gruppe.html", kurs=kurs, f=f, deltakere=rader_visning or [{}],
-                               maks_deltakere=MAKS_DELTAKERE_GRUPPE), 400
+                               maks_deltakere=MAKS_DELTAKERE_GRUPPE, rabatter=_gruppe_rabatter(kurs),
+                               kontakt_epost=tema.kontakt_epost(kurs)), 400
 
     # Den felles regelen (firmaopplysninger.py): firmanavn og adresse kommer bare fra registeret. Er nummeret ukjent, får
     # kontaktpersonen beskjed. Svarer ikke registeret, går påmeldingen gjennom med organisasjonsnummeret alene, merket
@@ -667,7 +730,8 @@ def kurs_gruppe(kode):
     if tekst := firmaopplysninger.avvisning(oppslag):
         flash(tekst, "feil")
         return render_template("kurs_gruppe.html", kurs=kurs, f=f, deltakere=rader_visning or [{}],
-                               maks_deltakere=MAKS_DELTAKERE_GRUPPE), 400
+                               maks_deltakere=MAKS_DELTAKERE_GRUPPE, rabatter=_gruppe_rabatter(kurs),
+                               kontakt_epost=tema.kontakt_epost(kurs)), 400
     firma_felter = firmaopplysninger.paamelding_felter(oppslag)
     kontakt_fornavn, kontakt_etternavn = f["kontakt_fornavn"].strip(), f["kontakt_etternavn"].strip()
     kontakt = {
@@ -696,7 +760,8 @@ def kurs_gruppe(kode):
         flash("Påmeldingen kunne ikke fullføres akkurat nå. Prøv igjen om noen minutter, eller ta kontakt med "
               "kursadministrasjonen dersom problemet vedvarer.", "feil")
         return render_template("kurs_gruppe.html", kurs=kurs, f=f, deltakere=rader_visning or [{}],
-                               maks_deltakere=MAKS_DELTAKERE_GRUPPE), 400
+                               maks_deltakere=MAKS_DELTAKERE_GRUPPE, rabatter=_gruppe_rabatter(kurs),
+                               kontakt_epost=tema.kontakt_epost(kurs)), 400
 
     firma, ny = db.finn_eller_opprett_firmapaamelding(con(), kurs["id"], kontakt, eposter)
     if not ny:
@@ -713,8 +778,14 @@ def kurs_gruppe(kode):
                               **{k: rad[k] for k in skjemafelt.ADRESSEFELT}},
                     paamelding={"betaler": "organisasjon", **firma_felter,
                                 "faktura_epost": kontakt["epost"], "faktura_ref": kontakt["faktura_ref"],
-                                "ehf": 1 if kontakt["ehf"] else 0, "kilde": "gruppe"},
+                                "ehf": 1 if kontakt["ehf"] else 0, "kilde": "gruppe",
+                                # Psyflix: avtalen går gjennom firmaet som melder på; medlemmet sjekkes på deltakerens e-post
+                                **rabatter.paamelding_felter(rabatter.Valg(
+                                    rad["priskategori"], psyflix_org=(firma_felter["org_navn"] or None)
+                                    if rad["priskategori"] == "psyflix" else None), kurs_rabatter)},
                     idag=_idag())
+                if rad["bevis"]:
+                    rabatter.lagre_bevis(con(), pid, rad["bevis"])
                 if oppslag.utfall == firmaopplysninger.UTILGJENGELIG:
                     firmaopplysninger.logg_ikke_hentet(con(), kurs["id"], pid)
             resultater.append((rad, pid, status, None))
@@ -743,7 +814,7 @@ def kurs_gruppe(kode):
     emne, html = epost.render("firmapaamelding_kvittering", maltekst=firma_maltekst, kontakt=kontakt_visning, kurs=kurs,
                               kvittering_url=kvittering_url, antall_totalt=antall_totalt,
                               antall_bekreftet=antall_bekreftet, antall_venteliste=antall_venteliste,
-                              antall_feilet=antall_feilet)
+                              antall_feilet=antall_feilet, med_rabatt=any(d["priskategori"] for d in deltaker_rader))
     Kjoring(con(), idag=_idag()).send_ferdigrendret_en_gang(      # kvitteringslenken er et token: ingen kopi
         f"firmapaamelding:{firma['id']}", kontakt["epost"], "firmapaamelding_kvittering", emne, html,
         kurs_id=kurs["id"], lagre_kopi=False)
@@ -982,7 +1053,7 @@ def min_side():
     deltaker = con().execute("SELECT id, fornavn, navn, epost, arbeidssted FROM deltaker WHERE id=?", (did,)).fetchone()
     paameldinger = con().execute(
         """SELECT p.id, p.kurs_id, p.status, p.betaling, p.ekstradeltaker_ts, k.navn, k.kode, k.type, k.sted, k.zoom_url,
-                  k.sharepoint_mappe, k.status AS kursstatus
+                  k.status AS kursstatus
            FROM paamelding p JOIN kurs k ON k.id=p.kurs_id
            WHERE p.deltaker_id=? AND p.status!='avmeldt' ORDER BY p.opprettet DESC""", (did,)).fetchall()
     info = deltakerside.min_side_info(con(), did, paameldinger, _idag())
@@ -995,14 +1066,10 @@ def min_side():
             """SELECT kd.id, kd.dato, o.kilde FROM kursdag kd LEFT JOIN oppmote o ON o.kursdag_id=kd.id AND o.paamelding_id=?
                WHERE kd.kurs_id=? ORDER BY kd.dato""", (p["id"], p["kurs_id"])).fetchall() if d["id"] in egne]
         ks = info[p["kurs_id"]]
-        # Har kurset en kursside som deltakeren kommer inn på, står kursholders filer der (og SharePoint spørres ikke herfra)
-        filer = (sharepoint.list_filer(f"{p['sharepoint_mappe']}/Presentasjoner")
-                 if p["sharepoint_mappe"] and p["status"] == "bekreftet" and not ks["kan_apne"]
-                 and deltakerside.materiell_apent(con(), p["kurs_id"], _idag()) else [])
         fakturaer = con().execute(
             """SELECT f.faktura_nr, f.belop_nok, f.status, kd.dato FROM faktura f LEFT JOIN kursdag kd ON kd.id=f.kursdag_id
                WHERE f.paamelding_id=? ORDER BY kd.dato, f.id""", (p["id"],)).fetchall() if full else []
-        kursliste.append({"p": p, "dager": dager, "filer": filer, "fakturaer": fakturaer, "kursside": ks, "i_dag": ks["i_dag"],
+        kursliste.append({"p": p, "dager": dager, "fakturaer": fakturaer, "kursside": ks, "i_dag": ks["i_dag"],
                           "periode": kursdatoer.datoliste([date.fromisoformat(str(d["dato"])) for d in dager]) if dager else "",
                           "melding": {"niva": melding["niva"], "tekst": melding["tekst"]} if melding and melding["kode"] == p["kode"] else None})
     dokumenter = con().execute(
@@ -1044,89 +1111,10 @@ def dokument(dok_id):
         if rot not in sti.parents or not sti.is_file():
             abort(404)
         return Response(sti.read_bytes(), mimetype="text/html" if sti.suffix == ".html" else "application/octet-stream")
-    if d["url"].startswith("sp:"):
-        return _send_fil(d["url"][3:])
     try:
         return redirect(sikkerhet.trygt_url_felt(d["url"]))
     except ValueError:
         abort(404)
-
-
-@app.get("/materiell/<int:kurs_id>/<path:navn>")
-@krever_deltaker
-def materiell(kurs_id, navn):
-    kurs = con().execute("SELECT * FROM kurs WHERE id=?", (kurs_id,)).fetchone() or abort(404)
-    if not _har_tilgang_kurs(session["deltaker_id"], kurs_id):
-        abort(403)
-    if not kurs["sharepoint_mappe"] or "/" in navn or "\\" in navn or navn in (".", "..") or "\x00" in navn:
-        abort(404)                                      # aldri sti-deler i filnavnet
-    if not deltakerside.materiell_apent(con(), kurs_id, _idag()):
-        abort(404)                                      # kurssiden er tatt ned eller stengt: da er kursholders filer også stengt
-    return _send_fil(f"{kurs['sharepoint_mappe']}/Presentasjoner/{navn}")
-
-
-def _send_fil(sti: str):
-    try:
-        innhold = sharepoint.hent_fil(sti)
-    except (FileNotFoundError, PermissionError):
-        abort(404)
-    except Exception as e:  # noqa: BLE001 - SharePoint utilgjengelig: si fra, ikke krasj
-        logging.getLogger("kurs.integrasjoner").warning("Henting fra SharePoint feilet: %s", sikker_feiltekst(e))
-        abort(503)
-    filnavn = secure_filename(sti.rsplit("/", 1)[-1]) or "fil"
-    return Response(innhold, mimetype="application/octet-stream",
-                    headers={"Content-Disposition": f'attachment; filename="{filnavn}"', "X-Content-Type-Options": "nosniff"})
-
-
-# ---------- levering av materiell (kursholder) ----------
-
-MATERIELL_FILTYPER = frozenset({"pdf", "pptx", "ppt", "docx", "doc", "xlsx", "odp", "odt", "txt", "zip", "key"})
-
-
-@app.route("/lever/<int:krav_id>/<signatur>", methods=["GET", "POST"])
-def lever(krav_id, signatur):
-    """Kursholder laster opp materiell. Lenken er signert (ingen innlogging for eksterne kursholdere), filnavnet renses,
-    kun kjente filtyper og en stoerrelsesgrense godtas, og opplastinger takbegrenses."""
-    if not lenker.signatur_ok(signatur, "lever", krav_id):
-        abort(404)
-    m = con().execute("SELECT m.*, k.navn AS kursnavn, k.kode, k.sharepoint_mappe FROM materiell_krav m "
-                      "JOIN kurs k ON k.id=m.kurs_id WHERE m.id=?", (krav_id,)).fetchone() or abort(404)
-    if request.method == "POST":
-        sikkerhet.krev_kvote("lever")
-        request.max_content_length = MATERIELL_MAKS_BYTES + 64 * 1024
-        try:
-            fil = request.files.get("fil")
-        except RequestEntityTooLarge:
-            flash(f"Filen er for stor (maks {MATERIELL_MAKS_BYTES // (1024 * 1024)} MB).", "feil")
-            return render_template("lever.html", m=m), 413
-        filnavn = secure_filename(fil.filename) if fil and fil.filename else ""
-        endelse = filnavn.rsplit(".", 1)[-1].lower() if "." in filnavn else ""
-        if not filnavn:
-            flash("Velg en fil.", "feil")
-        elif endelse not in MATERIELL_FILTYPER:
-            flash("Filtypen støttes ikke. Last opp PDF, PowerPoint, Word, Excel eller en zip-fil.", "feil")
-        else:
-            innhold = fil.stream.read(MATERIELL_MAKS_BYTES + 1)
-            if len(innhold) > MATERIELL_MAKS_BYTES:
-                flash(f"Filen er for stor (maks {MATERIELL_MAKS_BYTES // (1024 * 1024)} MB).", "feil")
-                return render_template("lever.html", m=m), 413
-            mappe = m["sharepoint_mappe"] or _opprett_sharepoint_mappe(m["kurs_id"], m["kode"])
-            try:
-                if not mappe:
-                    raise RuntimeError("SharePoint-mappen mangler")
-                sharepoint.last_opp(f"{mappe}/Presentasjoner", filnavn, innhold)
-            except Exception as e:  # noqa: BLE001 - opplastingen kan trygt proeves igjen (samme sti overskrives)
-                db.logg(con(), "materiell_opplasting_feilet", {"krav_id": krav_id, "feil": sikker_feiltekst(e)},
-                        aktor=f"materiell:{krav_id}")
-                con().commit()
-                flash("Filen kunne ikke lastes opp akkurat nå. Prøv igjen litt senere.", "feil")
-                return render_template("lever.html", m=m), 503
-            con().execute("UPDATE materiell_krav SET levert_ts=? WHERE id=?", (db.naa_utc(), krav_id))
-            db.logg(con(), "materiell_levert", {"krav_id": krav_id, "fil": filnavn}, aktor=f"materiell:{krav_id}")
-            con().commit()
-            flash("Takk! Filen er lastet opp og er nå tilgjengelig for deltakerne på Min side.", "ok")
-            return redirect(url_for("lever", krav_id=krav_id, signatur=signatur))
-    return render_template("lever.html", m=m)
 
 
 # ======================= admin =======================
@@ -1217,18 +1205,17 @@ def admin_bruker_deaktiver(bid):
 def admin():
     """Oversikten er forsiden i Admin: søk etter deltaker og kurs, det som trenger oppfølging, og kurslisten med filtre
     (Aktiviteter er slått sammen med denne siden). «Siste hendelser» er tatt bort."""
-    mangler = con().execute(
-        """SELECT m.*, k.kursnr, k.kode, k.navn AS kursnavn FROM materiell_krav m JOIN kurs k ON k.id=m.kurs_id
-           WHERE m.levert_ts IS NULL ORDER BY m.frist""").fetchall()
     # Levende telling fra NAAVAERENDE tilstand (ikke kumulativ hendelseslogg): uavklarte e-post-/faktura-
     # operasjoner som vi bevisst IKKE prover automatisk paa nytt. Samme staleness-grense som motoren.
     uavklart = db.uavklarte_operasjoner(con())
     if sjekklister.synk_kurs(con(), _idag()):         # påminnelsen tar med kursene i systemet med riktige datoer
         con().commit()
-    return render_template("admin.html", mangler=mangler, uavklart=uavklart, statistikk=_kursstatistikk(),
+    return render_template("admin.html", uavklart=uavklart, statistikk=_kursstatistikk(),
                            firma_mangler=firmaopplysninger.liste(con()),
                            adresse_venter=privatadresse.liste(con(), uten_avsluttede=True),
                            sjekk=sjekklister.paaminnelser(con(), _idag()), snart_dager=sjekklister.SNART_DAGER,
+                           klar_til_sending=godkjenning.antall_ventende(con()), datakontroll_antall=datakontroll.antall(con()),
+                           rabatter_ventende=rabatter.antall_ventende(con()),
                            **_kursliste())
 
 
@@ -2187,36 +2174,6 @@ def _utvalg_versjon(p, valgte) -> str:
     return hashlib.sha256(json.dumps([p["ekstradeltaker_ts"], sorted(valgte)], ensure_ascii=False).encode()).hexdigest()[:20]
 
 
-def _opprett_sharepoint_mappe(kurs_id: int, kode: str) -> str | None:
-    """Lager kursets SharePoint-mappe og lagrer stien. Kalles først NÅR kurset er lagret: en feil her stopper aldri
-    kurset, og det blir aldri en foreldreløs mappe for et kurs som ikke finnes. Idempotent - kan prøves igjen.
-    Returnerer mappen, eller None hvis den ikke kunne lages nå (feilen logges uten personopplysninger)."""
-    try:
-        mappe = sharepoint.opprett_kursmappe(kode)
-    except Exception as e:  # noqa: BLE001 - nett, Graph eller oppsett: kurset står, mappen mangler og kan lages senere
-        db.logg(con(), "sharepoint_mappe_feilet", {"kurs_id": kurs_id, "feil": sikker_feiltekst(e)}, aktor=_aktor())
-        con().commit()
-        logging.getLogger("kurs.integrasjoner").warning("SharePoint-mappe for kurs %s feilet: %s", kurs_id,
-                                                        sikker_feiltekst(e))
-        return None
-    con().execute("UPDATE kurs SET sharepoint_mappe=? WHERE id=? AND sharepoint_mappe IS NULL", (mappe, kurs_id))
-    con().commit()
-    return mappe
-
-
-@app.post("/admin/kurs/<int:kurs_id>/sharepoint-mappe")
-@krever_admin
-def admin_sharepoint_mappe(kurs_id):
-    kurs = _hent_kurs(kurs_id)
-    if kurs["sharepoint_mappe"]:
-        flash("Kurset har allerede en SharePoint-mappe.", "info")
-    elif _opprett_sharepoint_mappe(kurs_id, kurs["kode"]):
-        flash("SharePoint-mappen er laget.", "ok")
-    else:
-        flash("SharePoint-mappen kunne ikke lages nå. Prøv igjen litt senere, eller kontakt systemansvarlig.", "feil")
-    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
-
-
 @app.get("/admin/kurs/<int:kurs_id>/oppsett")
 @krever_admin
 def admin_kurs_oppsett(kurs_id):
@@ -2238,7 +2195,6 @@ def _render_oppsett(kurs, *, samlingsrader=None, datofeil=None, status: int = 20
     """Oppsett-fanen. `samlingsrader` er innsendte rader fra kursgjennomføringen (vises igjen med feilene i `datofeil`)."""
     kurs_id = kurs["id"]
     dager = db.kursdager(con(), kurs_id)
-    filer = sharepoint.list_filer(f"{kurs['sharepoint_mappe']}/Presentasjoner") if kurs["sharepoint_mappe"] else []
     # Oppmøte per kursdag: de som er satt opp på dagen (en ekstradeltaker bare på sine samlinger) - både oppmøtet og nevneren
     oppmote_antall = {r["kursdag_id"]: r["antall"] for r in con().execute(
         f"""SELECT o.kursdag_id, COUNT(*) AS antall FROM oppmote o JOIN kursdag kd ON kd.id=o.kursdag_id
@@ -2256,10 +2212,9 @@ def _render_oppsett(kurs, *, samlingsrader=None, datofeil=None, status: int = 20
     rad_for = {d["id"]: d for d in dager}
     dager_per_samling = [(g, [rad_for[i] for i in g["ider"]]) for g in kursdatoer.visning(dager, kurs)]
     forste = date.fromisoformat(dager[0]["dato"]) if dager else None
-    materiell = con().execute("SELECT * FROM materiell_krav WHERE kurs_id=? ORDER BY frist, id", (kurs_id,)).fetchall()
     faktura_oversikt = db.okonomisk_binding_oversikt(con(), kurs_id)
     return render_template(
-        "admin_kurs_oppsett.html", kurs=kurs, dager=dager, dager_per_samling=dager_per_samling, filer=filer,
+        "admin_kurs_oppsett.html", kurs=kurs, dager=dager, dager_per_samling=dager_per_samling,
         admins=_aktive_admins(), oppmote_antall=oppmote_antall, paa_dagen=paa_dagen,
         # bekreftet_antall = ALLE med plass (påmeldte og ekstradeltakere): alle får utsendinger og berøres av endret sted, format
         # og datoer. paameldte_antall og ekstra_antall er tallene hver for seg (ekstradeltakere teller ikke som påmeldte).
@@ -2273,7 +2228,27 @@ def _render_oppsett(kurs, *, samlingsrader=None, datofeil=None, status: int = 20
         datofeil=datofeil or [], kursdato_versjon=_kursdato_versjon(kurs_id),
         forste_kursdag=forste.isoformat() if forste else "",
         fristforslag=kursdatoer.foreslaatt_frist(forste, _idag()).isoformat() if forste else "",
-        materiell=materiell, idag_dato=_idag().isoformat()), status
+        idag_dato=_idag().isoformat(), rabattoppsett=rabatter.oppsett(con(), kurs)), status
+
+
+@app.post("/admin/kurs/<int:kurs_id>/rabatter")
+@krever_admin
+def admin_kurs_rabatter_lagre(kurs_id):
+    """Oppsett → Priser og rabatter (kurs/rabatter.py): hvilke rabatter kurset gir, prosenten og om retten til rabatten må
+    godkjennes. Gjelder nye påmeldinger: de som er påmeldt, beholder prosenten de fikk."""
+    _hent_kurs(kurs_id)
+    try:
+        endret = rabatter.lagre_for_kurs(con(), kurs_id, rabatter.les_oppsett(request.form), aktor=_aktor())
+    except rabatter.Rabattfeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+        return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id) + "#rabatter")
+    con().commit()
+    if endret:
+        flash("Rabattene er lagret. De gjelder nye påmeldinger; de som er påmeldt, beholder prisen de fikk.", "ok")
+    else:
+        flash("Ingen endringer i rabattene.", "info")
+    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id) + "#rabatter")
 
 
 @app.post("/admin/kurs/<int:kurs_id>/oppsett")
@@ -2283,8 +2258,7 @@ def admin_kurs_oppsett_lagre(kurs_id):
     har fakturaer (økonomisk bundet) - ellers måtte en utvikler inn i databasen for å rette en pris. Da må administratoren krysse
     av for bekreftelsen (bekreft_okonomi): fakturaer som er laget, endres ikke, og endringen gjelder bare det som ikke er laget
     ennå. Uten avkryssingen lagres alt det andre, men pris og fakturaoppsett står urørt (db.oppdater_kurs_felter stripper dem
-    uansett), og administratoren får beskjed. Kursholderens e-post lagres bare når et eldre skjema sender feltet: forespørsler om
-    presentasjon ligger nå under Kursmateriell."""
+    uansett), og administratoren får beskjed. Kursholderens e-post lagres bare når et eldre skjema sender feltet."""
     kurs = _hent_kurs(kurs_id)
     if _endret_av_andre("kurs", kurs):
         flash(_ENDRET_AV_ANDRE, "feil")
@@ -2300,6 +2274,11 @@ def admin_kurs_oppsett_lagre(kurs_id):
         zoom_url = sikkerhet.trygt_url_felt(f.get("zoom_url"))
     except ValueError as e:
         feil.append(f"Zoom-lenke: {e}")
+    # Ansvarlig lagres med resten av kursinnstillingene (Camilla 05.10.2026: en egen «Lagre» ved Ansvarlig, rett under Kapasitet,
+    # lagret bare ansvarlig - kapasiteten hun nettopp hadde skrevet inn, forsvant). Eldre skjema uten feltet: ansvarlig står urørt.
+    ansvarlig = f.get("ansvarlig_admin_id", type=int) if "ansvarlig_admin_id" in f else kurs["ansvarlig_admin_id"]
+    if ansvarlig and not con().execute("SELECT 1 FROM admin_bruker WHERE id=?", (ansvarlig,)).fetchone():
+        feil.append("Ansvarlig finnes ikke lenger. Velg en annen.")
     okonomi_endret = [n for n in db.KURS_LAASTE_FELT if n in felter and felter[n] != kurs[n]]
     bekreftet = bundet and f.get("bekreft_okonomi") == "1"
     if bekreftet and "pris_nok" in okonomi_endret:        # en pris som ville gitt en faktura på 0 kr, avvises før noe lagres
@@ -2324,9 +2303,10 @@ def admin_kurs_oppsett_lagre(kurs_id):
     except db.Paameldingsfeil as e:                      # ingenting er skrevet ennå (kontrollene i db kommer før lagringen)
         flash(str(e), "feil")
         return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
-    if "kursholder_epost" in felter and felter["kursholder_epost"] != (kurs["kursholder_epost"] or None):
-        db.synk_materiell_ansvarlig(con(), kurs_id, felter["kursholder_epost"], aktor=_aktor())
     opprykket = db.endre_kapasitet(con(), kurs_id, kapasitet, aktor=_aktor()) if kapasitet != kurs["kapasitet"] else []
+    if (ansvarlig or None) != kurs["ansvarlig_admin_id"]:
+        con().execute("UPDATE kurs SET ansvarlig_admin_id=? WHERE id=?", (ansvarlig or None, kurs_id))
+        db.logg(con(), "kurs_ansvarlig_endret", {"kurs_id": kurs_id, "ansvarlig_admin_id": ansvarlig}, aktor=_aktor())
     con().commit()
     if opprykket:
         sveiper.kjor(Kjoring(con(), idag=_idag(), aktor=_aktor()))
@@ -2409,46 +2389,6 @@ def admin_kurs_kursdatoer(kurs_id):
     return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
 
 
-@app.post("/admin/kurs/<int:kurs_id>/materiell")
-@krever_admin
-def admin_be_om_materiell(kurs_id):
-    """Ber kursholderen om presentasjon (flyttet hit fra «Opprett kurs»)."""
-    _hent_kurs(kurs_id)
-    f = request.form
-    navn, epost_, frist = (f.get("ansvarlig_navn", "").strip(), f.get("ansvarlig_epost", "").strip(),
-                           f.get("frist", "").strip())
-    feil = []
-    if not navn:
-        feil.append("Fyll inn navnet til kursholderen.")
-    if not _GYLDIG_EPOST.fullmatch(epost_):
-        feil.append("Fyll inn en gyldig e-postadresse til kursholderen.")
-    try:
-        date.fromisoformat(frist)
-    except ValueError:
-        feil.append("Fyll inn en gyldig frist for presentasjonen.")
-    if feil:
-        for x in feil:
-            flash(x, "feil")
-    else:
-        db.be_om_materiell(con(), kurs_id, navn=navn, epost=epost_, frist=frist, aktor=_aktor())
-        con().commit()
-        flash(f"Forespørselen er lagret. Kursholderen får påminnelse med opplastingslenke 7, 2 og 0 dager før fristen "
-              f"({kursdatoer.kort_dato(date.fromisoformat(frist))}).", "ok")
-    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id) + "#kursmateriell")
-
-
-@app.post("/admin/kurs/<int:kurs_id>/materiell/<int:krav_id>/fjern")
-@krever_admin
-def admin_fjern_materiell_krav(kurs_id, krav_id):
-    _hent_kurs(kurs_id)
-    if db.fjern_materiell_krav(con(), kurs_id, krav_id, aktor=_aktor()):
-        con().commit()
-        flash("Forespørselen er fjernet. Kursholderen får ingen flere påminnelser om den.", "ok")
-    else:
-        flash("Forespørselen finnes ikke, eller presentasjonen er allerede levert.", "feil")
-    return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id) + "#kursmateriell")
-
-
 @app.post("/admin/kurs/<int:kurs_id>/status")
 @krever_admin
 def admin_kurs_status(kurs_id):
@@ -2477,8 +2417,10 @@ def _uvarslede_avlysninger(kurs_id: int) -> int:
         """SELECT COUNT(*) FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id
            WHERE p.kurs_id=? AND p.status IN ('bekreftet','venteliste')
              AND NOT EXISTS (SELECT 1 FROM utsending_logg u WHERE u.nokkel=? AND u.mottaker=d.epost
-                             AND u.type='avlysning' AND u.status != 'feilet')""",
-        (kurs_id, f"kurs:{kurs_id}")).fetchone()[0]
+                             AND u.type='avlysning' AND u.status != 'feilet')
+             AND NOT EXISTS (SELECT 1 FROM epost_godkjenning g WHERE g.nokkel=? AND g.mottaker=d.epost
+                             AND g.type='avlysning' AND g.status='venter')""",
+        (kurs_id, f"kurs:{kurs_id}", f"kurs:{kurs_id}")).fetchone()[0]
 
 
 def _send_avlysninger(k: Kjoring, kurs, mottakere):
@@ -2514,8 +2456,12 @@ def admin_avlys_kurs(kurs_id):
         flash(str(e), "feil")
         return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
     ut = _send_avlysninger(k, kurs, mottakere)
-    flash(f"Kurset er avlyst og {len(ut.sendt)} deltaker(e) er varslet på e-post. "
-         "Husk å kreditere eventuelle fakturaer manuelt i Visma – det gjøres ikke automatisk.", "ok")
+    if ut.til_godkjenning and not ut.sendt:
+        flash(f"Kurset er avlyst. Avlysningsvarselet til {ut.til_godkjenning} deltaker(e) ligger i «Klar til sending» og sendes "
+              "når du godkjenner det. Husk å kreditere eventuelle fakturaer manuelt i Visma – det gjøres ikke automatisk.", "ok")
+    else:
+        flash(f"Kurset er avlyst og {len(ut.sendt)} deltaker(e) er varslet på e-post. "
+              "Husk å kreditere eventuelle fakturaer manuelt i Visma – det gjøres ikke automatisk.", "ok")
     _flash_sendefeil(ut)
     return redirect(url_for("admin_kurs_oppsett", kurs_id=kurs_id))
 
@@ -2532,6 +2478,9 @@ def admin_avlysning_varsle(kurs_id):
     ut = _send_avlysninger(Kjoring(con(), idag=_idag(), aktor=_aktor()), kurs, _avlysningsmottakere(kurs_id))
     if ut.sendt:
         flash(f"Avlysningsvarsel sendt til {len(ut.sendt)} deltaker(e).", "ok")
+    elif ut.til_godkjenning:
+        flash(f"Avlysningsvarselet til {ut.til_godkjenning} deltaker(e) ligger i «Klar til sending» og sendes når du godkjenner det.",
+              "info")
     elif not (ut.uavklart or ut.ikke_forsokt or ut.uavklart_fra_for):
         flash("Alle har allerede fått avlysningsvarselet.", "info")
     _flash_sendefeil(ut)
@@ -2697,7 +2646,7 @@ def _skjema_admin_verdier(overstyringer, egne, antall_svar=None) -> dict:
             "vis_naar": f"{e.vis_naar_felt}={e.vis_naar_verdi}" if e.vis_naar_felt else "",
             "betingelse_ok": e.betingelse_ok, "antall_svar": antall_svar.get(e.id, 0)}
     verdier["rekkefolge"] = {p: skjemafelt.plassrekkefolge(overstyringer, egne, p)
-                             for p in (skjemafelt.OM_DEG, skjemafelt.TIL_SLUTT)}
+                             for p in (skjemafelt.OM_DEG, skjemafelt.TIL_SLUTT, skjemafelt.NEDERST)}
     return verdier
 
 
@@ -2739,7 +2688,7 @@ def _skjema_admin_innsendt(form, overstyringer, egne, antall_svar=None) -> tuple
                                 "antall_svar": antall_svar.get(x.id, 0)}
 
     naa, rekkefolge = {}, {}
-    for plassering in (skjemafelt.OM_DEG, skjemafelt.TIL_SLUTT):
+    for plassering in (skjemafelt.OM_DEG, skjemafelt.TIL_SLUTT, skjemafelt.NEDERST):
         naa[plassering] = skjemafelt.plassrekkefolge(overstyringer, egne, plassering)
         innsendt = [n for n in form.get(f"rekkefolge_{plassering}", "").split(",") if n]
         if len(innsendt) != len(set(innsendt)) or set(innsendt) != set(naa[plassering]):
@@ -2899,6 +2848,9 @@ def admin_kurs_ekstrafelt_ny(kurs_id):
     if mal is not None:
         if mal not in ekstrafelt.MALER:
             abort(400)
+        if mal == "deling_epost" and db.epostdeling_felt(con(), kurs_id):
+            flash("Kurset har allerede spørsmålet om deling av e-post.", "info")
+            return redirect(url_for("admin_kurs_paameldingsskjema", kurs_id=kurs_id))
         data = dict(ekstrafelt.MALER[mal][1])
     else:
         data = {"type": request.form.get("type", ""), "label": request.form.get("label", ""),
@@ -2913,6 +2865,8 @@ def admin_kurs_ekstrafelt_ny(kurs_id):
         with db.transaksjon(con()):
             felt_id = db.opprett_ekstrafelt(con(), kurs_id, data, skjemafelt.neste_plass(overstyringer, egne, plassering),
                                             aktor=_aktor())
+            if mal == "deling_epost":           # deltakerlisten tar bare med e-posten til dem som har svart Ja
+                db.sikre_epostdeling(con(), kurs_id, aktor=_aktor())
     except ekstrafelt.EkstrafeltFeil as e:
         flash(f"Feltet ble ikke lagt til: {e.forklaring or 'ugyldig verdi.'}", "feil")
         return _render_skjema_admin(kurs, _skjema_admin_verdier(overstyringer, egne, antall_svar), advarsler, egne,
@@ -3050,13 +3004,14 @@ def admin_kurs_deltakere(kurs_id):
                       CASE WHEN p.ekstradeltaker_ts IS NULL THEN 0 ELSE 1 END, d.navn"""
     # Fakturaen venter på privat adresse (privatadresse.py): fakturastatus «Venter på privat adresse» og en egen melding øverst
     venter_adresse = {r["id"] for r in privatadresse.liste(con(), kurs_id)}
+    kontroll = datakontroll.for_kurs(con(), kurs_id)           # opplysninger som ser feil ut (gult merke ved navnet)
     deltakere = [dict(r, fakturastatus=_fakturastatus(kurs, {**dict(r), "faktura_venter_adresse": r["id"] in venter_adresse}),
                       faktura_venter_adresse=r["id"] in venter_adresse,
                       statusnokkel=_statusnokkel(r), sokbar=_sokbar(r),
                       synlig=_treffer(r, sok, statuser),
                       adresse_merke=_adressemerke_i_listen(r, kurs), adresse_mangler=bool(_adressemerke_i_listen(r, kurs)),
                       firma_mangler=kurs["status"] != "avlyst" and r["status"] in ("bekreftet", "venteliste")
-                      and firmaopplysninger.mangler(r)) for r in con().execute(sql, (kurs_id,))]
+                      and firmaopplysninger.mangler(r), kontroll=kontroll.get(r["id"], [])) for r in con().execute(sql, (kurs_id,))]
     # Tallet bak hver status: hvor mange med den statusen som passer med søket (uten søk: alle med statusen)
     antall_per_status = {s: sum(1 for p in deltakere if p["statusnokkel"] == s and _treffer(p, sok, []))
                          for s in DELTAKER_STATUSVALG}
@@ -3169,6 +3124,7 @@ def admin_deltaker_ny(kurs_id):
     def vis(f, status: int = 200):
         """Skjemaet (igjen): med det som ble fylt ut, og samlingsvalget for ekstradeltaker."""
         return render_template("admin_deltaker_ny.html", kurs=kurs, dager=dager, f=f, plasser_igjen=plasser_igjen, fane="deltakere",
+                               rabatter=rabatter.for_kurs(con(), kurs),
                                samlinger=samlinger_valg, ekstra_valgt=f.get("ekstradeltaker") == "1",
                                valgte_samlinger=f.getlist("samling", type=int) if hasattr(f, "getlist") else []), status
 
@@ -3189,6 +3145,11 @@ def admin_deltaker_ny(kurs_id):
     if not (f.get("fornavn", "").strip() and f.get("etternavn", "").strip()) or "@" not in f.get("epost", ""):
         feil.append("Fyll inn fornavn, etternavn og en gyldig e-postadresse.")
     feil += skjemafelt.valider_adresse(f).values()     # deltakerens private adresse er alltid krav
+    # Prisen (kurs/rabatter.py): valgt av administrator, så den er avgjort med en gang (ingen sjekk og ikke noe studentbevis)
+    kurs_rabatter = rabatter.for_kurs(con(), kurs)
+    kategori = (f.get("priskategori") or "").strip()
+    if kategori and kategori not in {r.kategori for r in kurs_rabatter}:
+        feil.append("Velg en av prisene i listen.")
     org = f.get("betaler") == "organisasjon"
     if org and not f.get("org_nr", "").strip():
         feil.append("Fyll inn organisasjonsnummer når arbeidsgiver betaler.")
@@ -3215,7 +3176,8 @@ def admin_deltaker_ny(kurs_id):
                 paamelding={k: f.get(k) or None for k in ("faktura_epost", "faktura_ref", "faktura_kommentar")}
                 | (firmaopplysninger.paamelding_felter(oppslag) if org else {})
                 | {"betaler": "organisasjon" if org else "person", "ehf": 1 if f.get("ehf") else 0,
-                   "betaling": f.get("betaling", "samlet"), "kilde": "admin", "sveiper_utsatt": 1},
+                   "betaling": f.get("betaling", "samlet"), "kilde": "admin", "sveiper_utsatt": 1}
+                | rabatter.paamelding_felter(rabatter.Valg(kategori or None), kurs_rabatter, av_admin=True),
                 sensitivt={"allergier": f.get("allergier"), "tilrettelegging": f.get("tilrettelegging")},
                 idag=_idag(), aktor=_aktor(), tillat_utkast=True, ignorer_frist=True,
                 # Ekstradeltaker: på kurset, men tar ikke plass (ingen kapasitetssjekk, aldri venteliste) og holdes tilbake
@@ -3243,7 +3205,7 @@ def admin_deltaker_ny(kurs_id):
 
 # Marg utover selve fil-taket (import_deltakere.MAKS_FILSTORRELSE) for multipart-hodefelt/grense -
 # satt KUN paa denne ruten (request.max_content_length er en per-request-egenskap), IKKE som en
-# global app.config-endring som ville paavirket andre opplastingsruter (f.eks. /lever/<id>).
+# global app.config-endring som ville paavirket andre opplastingsruter.
 MAKS_REQUEST_BYTES_IMPORT = import_deltakere.MAKS_FILSTORRELSE + 64 * 1024
 
 
@@ -3444,6 +3406,11 @@ def admin_deltaker(kurs_id, paamelding_id):
     return render_template(
         "admin_deltaker.html", kurs=kurs, p=p, fane="deltaker", faktura_venter_adresse=faktura_venter_adresse,
         fakturastatus=_fakturastatus(kurs, {**dict(p), "faktura_venter_adresse": faktura_venter_adresse}),
+        # Rabattprisen (kurs/rabatter.py): rabattene kurset gir, om prisen kan endres (ingen faktura ennå), studentbeviset og
+        # varselet om Psyflix-rabatt de siste 12 månedene
+        rabatter_kurs=rabatter.for_kurs(con(), kurs), pris_kan_endres=rabatter.kan_endres(con(), paamelding_id),
+        har_rabattbevis=rabatter.har_bevis(con(), paamelding_id),
+        psyflix_aar=p["priskategori"] == "psyflix" and rabatter.psyflix_siste_aar(con(), p["deltaker_id"], paamelding_id, _idag()),
         skjemasvar=_skjemasvar(kurs_id, paamelding_id),
         andre_paameldinger=andre_paameldinger, prisvalg_redigerbar=prisvalg_redigerbar, prisvalg_grunn=prisvalg_grunn,
         kurs_plan_tekst=_PLAN_SOM_TEKST.get(kurs["betaling"], kurs["betaling"]),
@@ -3455,6 +3422,7 @@ def admin_deltaker(kurs_id, paamelding_id):
         samlinger=samlinger, valgte_samlinger=db.ekstradeltaker_samlinger(con(), paamelding_id),
         utvalg_versjon=_utvalg_versjon(p, db.ekstradeltaker_samlinger(con(), paamelding_id)),
         bekreftelse_sendt=db.allerede_sendt(con(), f"kurs:{kurs_id}", p["epost"], "bekreftelse"),
+        kontroll=datakontroll.for_paamelding(con(), paamelding_id),
         utvalg_tekst=db.samlingsutvalg_tekst(con(), p), **_min_side_data(kurs_id, paamelding_id, p))
 
 
@@ -3606,6 +3574,16 @@ def admin_deltaker_paamelding(kurs_id, paamelding_id):
     ny_plan = valg if valg in ("samlet", "per_samling") and valg != p["betaling"] and _prisvalg(kurs, p)[0] else None
 
     db.oppdater_paamelding(con(), paamelding_id, felter, aktor=_aktor())
+    # Prisen (kurs/rabatter.py): bare når feltet er med i skjemaet (vises når kurset gir rabatter og ingen faktura er laget) OG valget
+    # er endret (priskategori_for er valget da vinduet ble vist) - ellers ville en lagring av noe annet tatt med seg en ny prosent
+    ny_pris = False
+    if "priskategori" in f and (f.get("priskategori") or "") != (f.get("priskategori_for") or ""):
+        try:
+            ny_pris = rabatter.endre(con(), kurs, paamelding_id, f.get("priskategori") or None, aktor=_aktor())
+        except rabatter.Rabattfeil as e:
+            con().rollback()
+            flash(str(e), "feil")
+            return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
     if ny_plan:
         try:
             db.bytt_fakturaplan(con(), paamelding_id, ny_plan, aktor=_aktor())
@@ -3618,7 +3596,7 @@ def admin_deltaker_paamelding(kurs_id, paamelding_id):
     if kurs["type"] != "digital":
         db.oppdater_sensitivt(con(), paamelding_id, f.get("allergier"), f.get("tilrettelegging"), aktor=_aktor())
     con().commit()
-    if ny_plan and p["status"] == "bekreftet":
+    if (ny_plan or ny_pris) and p["status"] == "bekreftet":
         _fakturaplan_videre(paamelding_id)
     if ikke_hentet:
         flash("Påmeldingen er oppdatert. " + firmaopplysninger.TEKST_IKKE_HENTET, "info")
@@ -4244,7 +4222,294 @@ def _kursbevis_side(kurs, innhold=None, ramme=None, status=200):
         ramme=ramme or kurs["kursbevis_ramme"] or kursbevismal.STANDARD_RAMME, rammer=kursbevismal.RAMMER,
         koder=kursbevismal.KODER, egen_versjon=bool(kurs["kursbevis_html"]),
         kopier_fra=kursbevismal.kurs_med_egen_versjon(con(), kurs["id"]),
+        designer=kursbevisdesign.alle(con()), design=kursbevisdesign.hent(con(), kurs["kursbevis_design_id"]),
         **{**_signatureditor_kontekst(), "storrelser": kursbevismal.STORRELSER}), status
+
+
+# ============================ kursbevis-design (Camilla 06.10.2026) ============================
+
+_DESIGN_EKSEMPEL_KURS = {"id": 0, "kursnr": 1000, "navn": "Eksempelkurs i emosjonsfokusert terapi", "sted": "Oslo",
+                         "spesialistlop": None, "kursbevis_html": None, "kursbevis_ramme": None, "kursbevis_design_id": None,
+                         "timer_pr_dag": 8}
+
+
+@app.route("/admin/kursbevis-design", methods=["GET", "POST"])
+@krever_admin
+def admin_kursbevis_design():
+    """Designene for kursbevisene: lages én gang og velges per kurs under fanen Kursbevis. POST lagrer ett design (nytt når
+    design_id mangler); et nytt signaturbilde lastes opp til signaturbiblioteket og brukes i designet."""
+    if request.method == "POST":
+        design_id = request.form.get("design_id", "")
+        felt = request.form.to_dict()
+        try:
+            fil = request.files.get("signatur_fil")
+            if fil and fil.filename:
+                felt["signatur_bilde_id"] = signaturer.lagre_bilde(con(), fil.filename, fil.read(),
+                                                                   request.form.get("signatur_alt") or "Signatur", aktor=_aktor())
+            ny_id = kursbevisdesign.lagre(con(), int(design_id) if design_id.isdigit() else None, felt, aktor=_aktor())
+            con().commit()
+            flash(f"Designet «{felt.get('navn', '').strip()}» er lagret. Det brukes for kursbevis som utstedes fra nå av.", "ok")
+            return redirect(url_for("admin_kursbevis_design") + f"#design-{ny_id}")
+        except (kursbevisdesign.Designfeil, signaturer.Signaturfeil) as e:
+            con().rollback()
+            flash(str(e), "feil")
+            return redirect(url_for("admin_kursbevis_design") + (f"#design-{design_id}" if design_id.isdigit() else "#nytt-design"))
+    designer = kursbevisdesign.alle(con())
+    con().commit()                              # standarddesignene lages første gang
+    return render_template("admin_kursbevis_design.html", designer=designer, logoer=kursbevisdesign.LOGOER,
+                           illustrasjoner=kursbevisdesign.ILLUSTRASJONER, skrifter=kursbevisdesign.SKRIFTER,
+                           bilder=signaturer.bilder(con()),
+                           i_bruk={d["id"]: kursbevisdesign.kurs_som_bruker(con(), d["id"]) for d in designer})
+
+
+@app.get("/admin/kursbevis-design/<int:design_id>/forhandsvis")
+@krever_admin
+def admin_kursbevis_design_forhandsvis(design_id):
+    """Designet som et A4-ark med et oppdiktet eksempelkurs og en oppdiktet deltaker (vises i et vindu på siden)."""
+    d = kursbevisdesign.hent(con(), design_id) or abort(404)
+    kurs = {**_DESIGN_EKSEMPEL_KURS, "kursbevis_design_id": d["id"]}
+    eksempel = dict(navn="Ola Nordmann", fornavn="Ola", kurs=kurs, dager=["2027-03-01", "2027-03-02", "2027-05-10", "2027-05-11"],
+                    timer=32, samlinger=None, antall_samlinger=2, lop_timer=None, dato=_idag().isoformat())
+    side = kursbevis.lag_html(con(), kurs, eksempel, forhandsvisning=True)
+    r = make_response(side)
+    r.headers["Content-Security-Policy"] = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'self'"
+    r.headers["X-Frame-Options"] = "SAMEORIGIN"
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
+# ============================ evaluering etter kurset (Camilla 05.10.2026, ny utgave 09.10.2026) ============================
+
+def _evaluering_side(kurs, samling_id=None, **kw):
+    """Skjemaet (Forms-oppsett, kurs/evaluering.py). `startet` er tidspunktet siden ble vist (til «tid brukt på skjemaet»)."""
+    runde_navn = next((r["navn"] for r in evaluering.runder(con(), kurs) if r["samling_id"] == samling_id), None) if samling_id else None
+    return render_template("evaluering.html", kurs=kurs, sporsmal=evaluering.sporsmal(con(), kurs), skala=evaluering.SKALA,
+                           maks_tekst=evaluering.MAKS_TEKST, innledning=evaluering.oppsett(con(), kurs)["innledning"],
+                           runde_navn=runde_navn, startet=int(time.time()), **{"svar": {}, **kw})
+
+
+def _evaluering_innsending(kurs, samling_id, paamelding_id, kilde):
+    """Felles for den personlige og den delte lenken: kontroll, lagring (anonymt) og takk."""
+    sikkerhet.krev_kvote("evaluering")
+    s_liste = evaluering.sporsmal(con(), kurs)
+    try:
+        svar = evaluering.tolk(request.form, s_liste)
+    except evaluering.Evalueringsfeil as e:
+        return _evaluering_side(kurs, samling_id, feil=str(e), svar=request.form), 400
+    sekunder = evaluering.sekunder_brukt(request.form.get("startet"), time.time())
+    if not evaluering.lagre(con(), kurs["id"], paamelding_id, svar, _idag(), samling_id=samling_id, kilde=kilde, sekunder=sekunder):
+        con().rollback()
+        return _evaluering_side(kurs, samling_id, allerede=True)
+    con().commit()
+    return _evaluering_side(kurs, samling_id, ferdig=True)
+
+
+@app.route("/evaluering/<token>", methods=["GET", "POST"])
+def evaluering_svar(token):
+    """Den personlige lenken (e-posten etter kurset eller samlingen). Signert (kurs/evaluering.py) og kan brukes én gang per runde.
+    Svaret lagres uten kobling til deltakeren; bare at påmeldingen har svart."""
+    lest = evaluering.les_token(token)
+    p = con().execute("SELECT id, kurs_id, status FROM paamelding WHERE id=?", (lest[0],)).fetchone() if lest else None
+    if not p or p["status"] != "bekreftet":
+        return render_template("feil.html", tittel="Lenken virker ikke",
+                               tekst="Lenken til evalueringen er ikke gyldig. Kontakt oss hvis du vil gi tilbakemelding."), 404
+    kurs, samling_id = _hent_kurs(p["kurs_id"]), lest[1]
+    if evaluering.har_svart(con(), p["id"], samling_id):
+        return _evaluering_side(kurs, samling_id, allerede=True)
+    if evaluering.oppsett(con(), kurs)["stengt"]:
+        return _evaluering_side(kurs, samling_id, stengt=True)
+    if request.method == "GET":
+        return _evaluering_side(kurs, samling_id)
+    return _evaluering_innsending(kurs, samling_id, p["id"], "epost")
+
+
+@app.route("/evaluering/delt/<token>", methods=["GET", "POST"])
+def evaluering_delt(token):
+    """Den delte lenken (og QR-koden) for en runde: alle som har lenken, kan svare (Camilla 09.10.2026). Den kan ikke hindre dobbeltsvar.
+    «Ny lenke» i fanen Evaluering gjør gamle lenker ugyldige."""
+    lest = evaluering.les_delt_token(token)
+    kurs = con().execute("SELECT * FROM kurs WHERE id=?", (lest[0],)).fetchone() if lest else None
+    gyldig = kurs is not None and kurs["status"] not in ("avlyst", "utkast") \
+        and evaluering.oppsett(con(), kurs)["delt_versjon"] == lest[1]
+    samling_id = lest[2] if lest else None
+    if gyldig and samling_id and samling_id not in {r["samling_id"] for r in evaluering.runder(con(), kurs)}:
+        gyldig = False
+    if not gyldig:
+        return render_template("feil.html", tittel="Lenken virker ikke",
+                               tekst="Lenken til evalueringen er ikke gyldig lenger. Kontakt oss hvis du vil gi tilbakemelding."), 404
+    if evaluering.oppsett(con(), kurs)["stengt"]:
+        return _evaluering_side(kurs, samling_id, stengt=True)
+    if request.method == "GET":
+        return _evaluering_side(kurs, samling_id)
+    return _evaluering_innsending(kurs, samling_id, None, "delt")
+
+
+def _runde_arg(kurs, runder) -> tuple[str, object]:
+    """Runden i adressen (?runde=): («alle» | samling-id som tekst | «»), og verdien til evaluering.resultater."""
+    tekst = (request.args.get("runde") or "").strip()
+    if len(runder) > 1:
+        if tekst != evaluering.ALLE and tekst.isdigit() and int(tekst) in {r["samling_id"] for r in runder}:
+            return tekst, int(tekst)
+        return evaluering.ALLE, evaluering.ALLE
+    return "", runder[0]["samling_id"]
+
+
+@app.get("/admin/kurs/<int:kurs_id>/evaluering")
+@krever_admin
+def admin_kurs_evaluering(kurs_id):
+    return _render_evaluering(_hent_kurs(kurs_id))
+
+
+def _render_evaluering(kurs, evalueringsfeil: str | None = None, status: int = 200):
+    runder = evaluering.runder(con(), kurs)
+    for r in runder:
+        r["delt_lenke"] = evaluering.delt_lenke(con(), kurs, r["samling_id"])
+    valgt_runde, runde = _runde_arg(kurs, runder)
+    return render_template(
+        "admin_kurs_evaluering.html", kurs=kurs, fane="evaluering", modus=evaluering.modus(kurs), modusvalg=evaluering.MODUS,
+        flere_samlinger=len(db.kursets_samlinger(con(), kurs["id"])) > 1, oppsett=evaluering.oppsett(con(), kurs), runder=runder,
+        sporsmal=evaluering.sporsmal(con(), kurs), egne_sporsmal=evaluering.har_egne_sporsmal(con(), kurs["id"]),
+        besvarte=evaluering._besvarte_nokler(con(), kurs["id"]), typer=evaluering.TYPER, ferdige=evaluering.FERDIGE,
+        skala=evaluering.SKALA, skala_hjelp=evaluering.SKALA_HJELP, tid_tekst=evaluering.tid_tekst, valgt_runde=valgt_runde,
+        res=evaluering.resultater(con(), kurs, runde, _idag()), evalueringsfeil=evalueringsfeil, apne_skjema=bool(evalueringsfeil)), status
+
+
+def _evaluering_endring(kurs_id, handling):
+    """Felles for endringene i fanen Evaluering: kjør `handling(kurs)`, commit og tilbake, eller vis feilen i skjemaet."""
+    kurs = _hent_kurs(kurs_id)
+    try:
+        melding = handling(kurs)
+    except evaluering.Evalueringsfeil as e:
+        con().rollback()
+        return _render_evaluering(kurs, str(e), 400)
+    con().commit()
+    if melding:
+        flash(melding, "ok")
+    return redirect(url_for("admin_kurs_evaluering", kurs_id=kurs_id))
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/innstillinger")
+@krever_admin
+def admin_kurs_evaluering_innstillinger(kurs_id):
+    def lagre(kurs):
+        evaluering.sett_modus(con(), kurs["id"], request.form.get("modus", ""), aktor=_aktor())
+        return "Lagret: " + evaluering.MODUS[request.form["modus"]].lower() + "."
+    return _evaluering_endring(kurs_id, lagre)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/stengt")
+@krever_admin
+def admin_kurs_evaluering_stengt(kurs_id):
+    stengt = request.form.get("stengt") == "1"
+
+    def lagre(kurs):
+        evaluering.sett_stengt(con(), kurs["id"], stengt, aktor=_aktor())
+        return "Evalueringen er stengt." if stengt else "Evalueringen er åpen igjen."
+    return _evaluering_endring(kurs_id, lagre)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/ny-lenke")
+@krever_admin
+def admin_kurs_evaluering_ny_lenke(kurs_id):
+    def ny(kurs):
+        evaluering.ny_delt_lenke(con(), kurs["id"], aktor=_aktor())
+        return "Ny delt lenke er laget. De gamle lenkene og QR-kodene virker ikke lenger."
+    return _evaluering_endring(kurs_id, ny)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/innledning")
+@krever_admin
+def admin_kurs_evaluering_innledning(kurs_id):
+    def lagre(kurs):
+        evaluering.lagre_innledning(con(), kurs, request.form.get("innledning", ""), aktor=_aktor())
+        return "Innledningen er lagret."
+    return _evaluering_endring(kurs_id, lagre)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/sporsmal")
+@krever_admin
+def admin_kurs_evaluering_legg_til(kurs_id):
+    def legg_til(kurs):
+        ferdig = request.form.get("ferdig")
+        if ferdig:
+            if ferdig not in evaluering.FERDIGE:
+                raise evaluering.Evalueringsfeil("Ukjent spørsmål.")
+            data = {"lenketekst": None, "lenke": None, "hjelpetekst": None, "valg": [], "paakrevd": False, **evaluering.FERDIGE[ferdig]}
+            if not data["lenke"]:
+                data["lenketekst"] = None
+        else:
+            data = evaluering.les_sporsmal(request.form)
+        evaluering.legg_til(con(), kurs, data, aktor=_aktor())
+        return "Spørsmålet er lagt til." + (" Legg inn lenken under «Endre» hvis spørsmålet skal ha en." if ferdig else "")
+    return _evaluering_endring(kurs_id, legg_til)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/sporsmal/<nokkel>")
+@krever_admin
+def admin_kurs_evaluering_endre(kurs_id, nokkel):
+    def lagre(kurs):
+        evaluering.endre(con(), kurs, nokkel, evaluering.les_sporsmal(request.form), aktor=_aktor())
+        return "Spørsmålet er lagret."
+    return _evaluering_endring(kurs_id, lagre)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/sporsmal/<nokkel>/flytt")
+@krever_admin
+def admin_kurs_evaluering_flytt(kurs_id, nokkel):
+    def flytt(kurs):
+        evaluering.flytt(con(), kurs, nokkel, request.form.get("retning", ""), aktor=_aktor())
+    return _evaluering_endring(kurs_id, flytt)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/sporsmal/<nokkel>/slett")
+@krever_admin
+def admin_kurs_evaluering_slett(kurs_id, nokkel):
+    def slett(kurs):
+        evaluering.slett(con(), kurs, nokkel, aktor=_aktor())
+        return "Spørsmålet er slettet."
+    return _evaluering_endring(kurs_id, slett)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/standard")
+@krever_admin
+def admin_kurs_evaluering_standard(kurs_id):
+    def standard(kurs):
+        evaluering.tilbake_til_standard(con(), kurs, aktor=_aktor())
+        return "Kurset bruker standardsettet igjen."
+    return _evaluering_endring(kurs_id, standard)
+
+
+@app.get("/admin/kurs/<int:kurs_id>/evaluering/forhandsvis")
+@krever_admin
+def admin_kurs_evaluering_forhandsvis(kurs_id):
+    return _evaluering_side(_hent_kurs(kurs_id), forhandsvisning=True)
+
+
+@app.get("/admin/kurs/<int:kurs_id>/evaluering/qr")
+@krever_admin
+def admin_kurs_evaluering_qr(kurs_id):
+    """QR-koden til den delte lenken (for runden i ?runde=), til skjermen eller utskrift."""
+    kurs = _hent_kurs(kurs_id)
+    runder = evaluering.runder(con(), kurs)
+    tekst = (request.args.get("runde") or "").strip()
+    runde = next((r for r in runder if str(r["samling_id"] or "") == tekst), runder[0])
+    lenke = evaluering.delt_lenke(con(), kurs, runde["samling_id"])
+    return render_template("admin_evaluering_qr.html", kurs=kurs, svg=qr_svg(lenke), lenke=lenke,
+                           runde_navn=runde["navn"] if runde["samling_id"] else None, stengt=evaluering.oppsett(con(), kurs)["stengt"])
+
+
+@app.get("/admin/kurs/<int:kurs_id>/evaluering.csv")
+@krever_admin
+def admin_kurs_evaluering_csv(kurs_id):
+    """Svarene (anonyme) som CSV til Excel: én rad per svar, én kolonne per spørsmål."""
+    kurs = _hent_kurs(kurs_id)
+    _, runde = _runde_arg(kurs, evaluering.runder(con(), kurs))
+    db.logg(con(), "evaluering_lastet_ned", {"kurs_id": kurs_id}, aktor=_aktor())
+    con().commit()
+    return Response(evaluering.som_csv(con(), kurs, runde), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename=evaluering-{kurs['kursnr']}.csv",
+                             "Cache-Control": "no-store"})
 
 
 @app.route("/admin/kurs/<int:kurs_id>/kursbevis", methods=["GET", "POST"])
@@ -4253,8 +4518,21 @@ def admin_kurs_kursbevis(kurs_id):
     """Rediger kursbeviset for dette kurset: tekst, flettefelt, bilder og ramme. Gjelder kursbevis som utstedes fra nå av."""
     kurs = _hent_kurs(kurs_id)
     if request.method == "GET":
-        return _kursbevis_side(kurs)
+        side = _kursbevis_side(kurs)
+        con().commit()                          # standarddesignene lages første gang (kursbevisdesign.sikre_standard)
+        return side
     handling = request.form.get("handling", "lagre")
+    if handling == "design":
+        try:
+            valgt = request.form.get("design_id", "")
+            kursbevisdesign.velg_for_kurs(con(), kurs_id, int(valgt) if valgt.isdigit() else None, aktor=_aktor())
+            con().commit()
+            flash("Designet er valgt. Forhåndsvis kursbeviset for å se det." if valgt else
+                  "Kurset bruker ikke design lenger – kursbeviset blir som før.", "ok")
+        except kursbevisdesign.Designfeil as e:
+            con().rollback()
+            flash(str(e), "feil")
+        return redirect(url_for("admin_kurs_kursbevis", kurs_id=kurs_id))
     try:
         if handling == "tilbakestill":
             kursbevismal.tilbakestill(con(), kurs_id, aktor=_aktor())
@@ -4631,14 +4909,27 @@ def admin_epost_detalj(kurs_id, utsending_id):
     mottakere = db.admin_utsending_mottakere(con(), utsending_id)
     signatur = (signaturer.som_markup(_trygg_signatur(utsending["signatur_html"]))
                 if utsending["signatur_html"] is not None else None)
+    # Vedleggene slik de ble sendt (Camilla 05.10.2026: «jeg kan ikke se vedlegget»). Alle mottakerne fikk de samme filene, så
+    # listen hentes fra den første kopien i e-posthistorikken; lenken går via deltakerens e-posthistorikk (tilgangskontrollen der).
+    vedlegg = con().execute(
+        """SELECT se.id AS epost_id, se.paamelding_id, v.nr, v.filnavn FROM sendt_epost se
+           JOIN sendt_epost_vedlegg v ON v.sendt_epost_id=se.id
+           WHERE se.id=(SELECT MIN(id) FROM sendt_epost WHERE kurs_id=? AND nokkel=? AND type='admin_epost'
+                        AND paamelding_id IS NOT NULL)
+             AND v.innebygd_cid IS NULL ORDER BY v.nr""", (kurs_id, utsending["nokkel"])).fetchall()
     return render_template("admin_epost_detalj.html", kurs=kurs, utsending=utsending, mottakere=mottakere,
-                           signatur=signatur)
+                           signatur=signatur, vedlegg=vedlegg)
 
 
 @app.get("/admin/kurs/<int:kurs_id>/kommunikasjon")
 @krever_admin
 def admin_kurs_kommunikasjon(kurs_id):
-    kurs = _hent_kurs(kurs_id)
+    return _render_kommunikasjon(_hent_kurs(kurs_id))
+
+
+def _render_kommunikasjon(kurs, bekreftelse: dict | None = None, status: int = 200):
+    """Fanen Kommunikasjon: påmeldingsbekreftelsen (tekst og forhåndsvisning), manuelt sendt og automatisk sendt e-post."""
+    kurs_id = kurs["id"]
     meldinger = con().execute(
         "SELECT * FROM utsending_logg WHERE nokkel=? AND status='sendt' ORDER BY sendt_ts DESC LIMIT 300",
         (f"kurs:{kurs_id}",)
@@ -4650,7 +4941,72 @@ def admin_kurs_kommunikasjon(kurs_id):
            WHERE au.kurs_id=? AND ul.status='sendt' GROUP BY au.id, ab.navn ORDER BY au.opprettet DESC""",
         (kurs_id,)).fetchall()
     return render_template("admin_kurs_kommunikasjon.html", kurs=kurs, meldinger=meldinger, manuelle=manuelle,
-                           kurssignatur=signaturer.kursvalg(con(), kurs_id), fane="kommunikasjon")
+                           kurssignatur=signaturer.kursvalg(con(), kurs_id), fane="kommunikasjon",
+                           **(bekreftelse if bekreftelse is not None else _kursbekreftelse(kurs))), status
+
+
+# Eksempeldeltakeren i forhåndsvisningen av kursets påmeldingsbekreftelse (oppdiktet, aldri en ekte deltaker)
+_EKSEMPELDELTAKER = {"navn": "Ola Nordmann", "fornavn": "Ola", "etternavn": "Nordmann", "betaler": "person", "org_navn": None}
+
+
+def _kursbekreftelse(kurs, feil: str | None = None, innsendt: dict | None = None) -> dict:
+    """Påmeldingsbekreftelsen i fanen Kommunikasjon (Camilla 09.10.2026): kursets tekst (eller fellesteksten, som et utkast) til
+    redigering, og hele e-posten slik deltakerne får den for DETTE kurset - kursets datoer, sted, pris og fakturaplan, med en oppdiktet
+    deltaker. Samme rendringsvei som den faktiske utsendingen (Kjoring.render_for_sending), uten at noe sendes."""
+    mal = "bekreftelse"
+    m = maltekster.MALER[mal]
+    try:
+        effektive = maltekster.effektive_tekster(con(), mal, kurs["id"])
+        tilpasset = set(maltekster.hent_kurstekster(con(), kurs["id"], mal))
+    except maltekster.MalFeil as e:
+        return {"bekreftelse_feil": e.forklaring or "Teksten kunne ikke leses akkurat nå.", "bekreftelse_felter": [],
+                "bekreftelse_visning": None, "bekreftelse_tilpasset": False}
+    felter = [{"navn": felt, "visningsnavn": f.navn, "type": f.type, "maks": f.maks, "tom_tillatt": f.tom_tillatt,
+               "tekst": (innsendt or {}).get(felt, effektive[felt]), "tilpasset": felt in tilpasset,
+               "koder": [k for k in maltekster.kodeliste(f.kode)
+                         if k != "sporsmal_url" or config.ASSISTENT_AKTIV or "{sporsmal_url}" in (effektive[felt] or "")]}
+              for felt, f in m.felt.items()]
+    visning, visningsfeil = None, None
+    if not innsendt:
+        har_min_side = deltakerside.har_side(con(), kurs["id"], _idag())
+        k = Kjoring(con(), idag=_idag())
+        try:
+            # Kursets dager og fakturaplanen etter samme regel som en ekte påmelding (sveiper.bekreftelse_eksempel)
+            emne, html = k.render_for_sending(mal, **sveiper.bekreftelse_eksempel(k, kurs, _EKSEMPELDELTAKER),
+                                              min_side_url=f"{config.BASE_URL}/min/eksempel" if har_min_side else None)
+            visning = {"emne": emne, "html": signaturer.til_visning(html), "har_min_side": har_min_side}
+        except maltekster.MalFeil as e:
+            visningsfeil = e.forklaring or "E-posten kunne ikke vises akkurat nå."
+    return {"bekreftelse_felter": felter, "bekreftelse_visning": visning, "bekreftelse_feil": feil or visningsfeil,
+            "bekreftelse_tilpasset": bool(tilpasset), "koder": maltekster.KODER, "systemkoder": maltekster.SYSTEMKODER}
+
+
+@app.post("/admin/kurs/<int:kurs_id>/kommunikasjon/bekreftelse")
+@krever_admin
+def admin_kurs_bekreftelse_lagre(kurs_id):
+    """Lagrer kursets påmeldingsbekreftelse (emne, innledning, avslutning). Felt som er like fellesteksten, lagres ikke: kurset følger da
+    fellesteksten videre. Ugyldig tekst (f.eks. et ukjent {flettefelt}) lagres ikke, og siden vises igjen med teksten og feilen."""
+    kurs = _hent_kurs(kurs_id)
+    tekster = {felt: request.form.get(felt, "") for felt in maltekster.MALER["bekreftelse"].felt if felt in request.form}
+    try:
+        endret = maltekster.lagre_kurstekster(con(), kurs_id, "bekreftelse", tekster, aktor=_aktor())
+    except maltekster.MalFeil as e:
+        con().rollback()
+        return _render_kommunikasjon(kurs, _kursbekreftelse(kurs, feil=e.forklaring or "Teksten er ikke gyldig.", innsendt=tekster), 400)
+    con().commit()
+    flash("Påmeldingsbekreftelsen for kurset er lagret." if endret else "Ingen endringer i påmeldingsbekreftelsen.",
+          "ok" if endret else "info")
+    return redirect(url_for("admin_kurs_kommunikasjon", kurs_id=kurs_id) + "#bekreftelse")
+
+
+@app.post("/admin/kurs/<int:kurs_id>/kommunikasjon/bekreftelse/tilbakestill")
+@krever_admin
+def admin_kurs_bekreftelse_tilbakestill(kurs_id):
+    _hent_kurs(kurs_id)
+    if maltekster.tilbakestill_kurstekster(con(), kurs_id, "bekreftelse", aktor=_aktor()):
+        con().commit()
+        flash("Kurset bruker fellesteksten for påmeldingsbekreftelsen igjen.", "ok")
+    return redirect(url_for("admin_kurs_kommunikasjon", kurs_id=kurs_id) + "#bekreftelse")
 
 
 @app.post("/admin/kurs/<int:kurs_id>/oppmote")
@@ -4703,6 +5059,30 @@ def admin_qr(kurs_id, dag_id):
                            kode_url=f"{config.BASE_URL}/logg-inn", dag_nr=nr, dag_av=av, dato_lang=deltakerside.dato_lang(dato, aar=True),
                            gjelder_i_dag=dato == _idag(), idag_lang=deltakerside.dato_lang(_idag(), aar=True),
                            krever_innlogging=config.INNSJEKK_KREVER_INNLOGGING)
+
+
+# Logoen øverst på QR-arkene (Camilla 05.10.2026): NIEFT på IPR-kurs, Terapiakademiet på Terapiakademiet-kurs (kurs.merke)
+QR_LOGO = {"terapiakademiet": ("logo/terapiakademiet.png", "Terapiakademiet"), None: ("logo/nieft.png", "NIEFT")}
+
+
+def _qr_logo(kurs) -> tuple[str, str]:
+    return QR_LOGO.get(kurs["merke"], QR_LOGO[None])
+
+
+@app.get("/admin/kurs/<int:kurs_id>/qr-utskrift")
+@krever_admin
+def admin_qr_utskrift(kurs_id):
+    """Alle QR-kodene for innsjekk på kurset, én A4-side per kursdag med logo øverst, klare til å skrives ut eller lagres som PDF
+    (Camilla 05.10.2026: «printe ut QR-kodene som skal skannes»). Hver kode virker bare på sin egen kursdag."""
+    kurs = _hent_kurs(kurs_id)
+    dager = db.kursdager(con(), kurs_id)
+    ark = [{"dato_lang": deltakerside.dato_lang(date.fromisoformat(d["dato"]), aar=True), "nr": i, "av": len(dager),
+            "samling": d["samling_navn"], "kode": d["innsjekk_kode"],
+            "svg": qr_svg(f"{config.BASE_URL}{url_for('innsjekk_qr', token=d['innsjekk_token'])}")}
+           for i, d in enumerate(dager, start=1)]
+    logo, logo_navn = _qr_logo(kurs)
+    return render_template("admin_qr_utskrift.html", kurs=kurs, ark=ark, logo=logo, logo_navn=logo_navn,
+                           kode_url=f"{config.BASE_URL}/logg-inn", krever_innlogging=config.INNSJEKK_KREVER_INNLOGGING)
 
 
 @app.get("/admin/kurs/<int:kurs_id>/allergiliste")
@@ -4830,7 +5210,7 @@ def admin_deltakerliste(kurs_id):
     """Deltakerliste med kolonnevalg for utskrift / PDF (nettleserens «Lagre som PDF»). Personvernreglene står i
     kurs/deltakerliste.py: bare nr og navn som standard, aldri allergier/tilrettelegging."""
     kurs, katalog, valg, dager, tabell = _deltakerliste(kurs_id)
-    logo = deltakerliste.velg_logo(request.args.get("logo"))
+    logo = deltakerliste.velg_logo(request.args.get("logo"), deltakerliste.standardlogo(kurs))
     return render_template("admin_deltakerliste.html", kurs=kurs, valg=valg, tabell=tabell,
                            katalog=katalog, grupper=deltakerliste.GRUPPER,
                            statusvalg=deltakerliste.STATUSVALG, logo=logo, logoer=deltakerliste.logoer(),
@@ -5228,6 +5608,11 @@ def _statusetikett(nokkel) -> str:
 STATUSMERKE = {"paameldt": "ok", "ekstradeltaker": "bla", "venteliste": "gul", "avmeldt": "gra", "avslatt": "feil",
                "utgatt": "gra", "forlatt": "feil"}
 app.jinja_env.globals["STATUSMERKE"] = STATUSMERKE
+app.jinja_env.globals["EPOST_SJEKK"] = datakontroll.for_skjema()      # «Mente du …?» under e-postfeltene (static/app.js)
+# Rabattpriser (kurs/rabatter.py): det gule merket, prisens navn og deltakerens pris i listene og deltakervinduet
+app.jinja_env.filters["pris_i_setning"] = rabatter.i_setning      # «studentpris», men «NIEFT-pris»
+app.jinja_env.globals.update(rabatt_merke=rabatter.merke, rabatt_prisnavn=rabatter.prisnavn, deltakerpris=rabatter.deltakerpris,
+                             RABATT_PRISNAVN=rabatter.PRISNAVN, RABATT_VENTER=rabatter.VENTER, RABATT_AVVIST=rabatter.AVVIST)
 
 
 @app.template_filter("statusmerke")
@@ -5602,13 +5987,19 @@ def _opprett_kurs(f, kilde):
                 felter["status"] = "utkast"
                 felter.update(side_kopi)
                 # Kursbeviset (fanen Kursbevis) følger med kopien; utstedte kursbevis hører til originalen
-                felter.update(kursbevis_html=kilde["kursbevis_html"], kursbevis_ramme=kilde["kursbevis_ramme"])
+                felter.update(kursbevis_html=kilde["kursbevis_html"], kursbevis_ramme=kilde["kursbevis_ramme"],
+                              kursbevis_design_id=kilde["kursbevis_design_id"])
                 felter.setdefault("merke", kilde["merke"])     # arrangøren følger med (skjemaet kan ha valgt en annen)
             kid = db.opprett_kurs(con(), kode=kode, navn=navn, datoer=[], samlinger=samlinger, idag=_idag(),
                                   aktor=_aktor(), **felter)
             for felt, egenskaper in kopiplan:
                 db.lagre_skjemafelt(con(), kid, felt, egenskaper, aktor=_aktor())
             db.kopier_ekstrafelt(con(), kid, ekstraplan, aktor=_aktor())
+            db.sikre_epostdeling(con(), kid, aktor=_aktor())     # «Deling av e-post» på alle kurs (Camilla 05.10.2026)
+            if er_duplikat:
+                rabatter.kopier(con(), kilde["id"], kid)         # rabattprisene følger med kopien
+                maltekster.kopier_kurstekster(con(), kilde["id"], kid, aktor=_aktor())   # og kursets egne e-posttekster
+                evaluering.kopier(con(), kilde["id"], kid)       # og evalueringens spørsmål og oppsett
     except skjemafelt.SkjemaLesefeil:
         flash("Skjemainnstillingene til originalkurset kunne ikke leses akkurat nå. Kurset er ikke opprettet. "
               "Prøv igjen om litt.", "feil")
@@ -5628,13 +6019,7 @@ def _opprett_kurs(f, kilde):
 
 def _kurs_opprettet_meldinger(kid: int, kode: str, kopi_advarsel: bool, side_advarsel: bool) -> None:
     kursnr = con().execute("SELECT kursnr FROM kurs WHERE id=?", (kid,)).fetchone()["kursnr"]
-    if _opprett_sharepoint_mappe(kid, kode):   # ekstern sideeffekt: først når kurset er lagret
-        flash(f"Kurset er opprettet med kursnummer {kursnr}, og har fått påmeldingsside, SharePoint-mappe og "
-              "innsjekkkoder.", "ok")
-    else:
-        flash(f"Kurset er opprettet med kursnummer {kursnr}, og har fått påmeldingsside og innsjekkkoder. "
-              "SharePoint-mappen kunne ikke lages akkurat nå – bruk knappen «Lag SharePoint-mappe» under "
-              "Kursmateriell for å prøve igjen.", "info")
+    flash(f"Kurset er opprettet med kursnummer {kursnr}, og har fått påmeldingsside og innsjekkkoder.", "ok")
     if kopi_advarsel:
         flash(_SKJEMA_KOPI_ADVARSEL, "info")
     if side_advarsel:
@@ -5674,16 +6059,19 @@ def _opprett_kurs_gammelt_skjema(f, kilde):
                 felter["status"] = "utkast"
                 felter.update(side_kopi)
                 # Kursbeviset (fanen Kursbevis) følger med kopien; utstedte kursbevis hører til originalen
-                felter.update(kursbevis_html=kilde["kursbevis_html"], kursbevis_ramme=kilde["kursbevis_ramme"])
+                felter.update(kursbevis_html=kilde["kursbevis_html"], kursbevis_ramme=kilde["kursbevis_ramme"],
+                              kursbevis_design_id=kilde["kursbevis_design_id"])
                 felter.setdefault("merke", kilde["merke"])     # arrangøren følger med (skjemaet kan ha valgt en annen)
             kid = db.opprett_kurs(con(), kode=kode, navn=f["navn"].strip(), datoer=datoer, aktor=_aktor(), **felter)
-            # Kopien faar EGNE rader paa den NYE kurs-id-en, i samme transaksjon som kurs/kursdager/materiell.
+            # Kopien faar EGNE rader paa den NYE kurs-id-en, i samme transaksjon som kurs og kursdager.
             for felt, egenskaper in kopiplan:
                 db.lagre_skjemafelt(con(), kid, felt, egenskaper, aktor=_aktor())
             db.kopier_ekstrafelt(con(), kid, ekstraplan, aktor=_aktor())
-            if f.get("kursholder_epost") and f.get("materiell_frist"):
-                con().execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
-                              (kid, f.get("kursholder_navn") or f["kursholder_epost"], f["kursholder_epost"], f["materiell_frist"]))
+            db.sikre_epostdeling(con(), kid, aktor=_aktor())     # «Deling av e-post» på alle kurs (Camilla 05.10.2026)
+            if er_duplikat:
+                rabatter.kopier(con(), kilde["id"], kid)         # rabattprisene følger med kopien
+                maltekster.kopier_kurstekster(con(), kilde["id"], kid, aktor=_aktor())   # og kursets egne e-posttekster
+                evaluering.kopier(con(), kilde["id"], kid)       # og evalueringens spørsmål og oppsett
         _kurs_opprettet_meldinger(kid, kode, kopi_advarsel or ekstra_advarsel, side_advarsel)
         return redirect(url_for("admin_kurs_oppsett", kurs_id=kid))
     except skjemafelt.SkjemaLesefeil:
@@ -5751,6 +6139,154 @@ def _rediger_kontekst(mal: str, feil_felt: str | None = None, feil_tekst: str | 
                       "ugyldig": effektive is None and felt in raa})
     return dict(mal=mal, mal_navn=m.navn, mal_beskrivelse=m.beskrivelse, felter=felter, koder=maltekster.KODER,
                systemkoder=maltekster.SYSTEMKODER, feil_felt=feil_felt, mal_feilmelding=mal_feilmelding)
+
+
+
+# ============================ rabattpriser (Camilla 09.10.2026) ============================
+
+@app.get("/admin/rabatter")
+@krever_admin
+def admin_rabatter():
+    """Rabatter som venter på godkjenning, per kurs (kurs/rabatter.py), med listen til e-posten til Psyflix."""
+    grupper = rabatter.ventende(con(), _idag())
+    return render_template("admin_rabatter.html", grupper=grupper, psyflix_tekst=rabatter.psyflix_tekst(grupper))
+
+
+@app.post("/admin/rabatter/<int:paamelding_id>")
+@krever_admin
+def admin_rabatt_avgjor(paamelding_id):
+    """«Godkjent» (rabatten står) eller «Ikke godkjent» (ordinær pris). Fakturaen er holdt tilbake til nå, og lages etter den vanlige
+    fakturaplanen med en gang avgjørelsen er lagret. Deltakeren får ikke beskjed automatisk."""
+    p = con().execute("SELECT id, kurs_id, status FROM paamelding WHERE id=?", (paamelding_id,)).fetchone() or abort(404)
+    beslutning = request.form.get("beslutning")
+    if beslutning not in ("godkjent", "avvist"):
+        abort(400)
+    try:
+        (rabatter.godkjenn if beslutning == "godkjent" else rabatter.avvis)(con(), paamelding_id, aktor=_aktor())
+    except rabatter.Rabattfeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+    else:
+        con().commit()
+        if p["status"] == "bekreftet":
+            _fakturaplan_videre(paamelding_id)
+        if beslutning == "godkjent":
+            flash("Rabatten er godkjent. Fakturaen lages med rabattprisen, etter den vanlige fakturaplanen.", "ok")
+        else:
+            flash("Rabatten er ikke godkjent. Fakturaen lages med ordinær pris, etter den vanlige fakturaplanen. Deltakeren får ikke "
+                  "beskjed automatisk: send gjerne en e-post fra deltakervinduet.", "ok")
+    if request.form.get("tilbake") == "vindu":
+        return redirect(url_for("admin_deltaker", kurs_id=p["kurs_id"], paamelding_id=paamelding_id))
+    return redirect(url_for("admin_rabatter"))
+
+
+@app.get("/admin/rabatter/<int:paamelding_id>/bevis")
+@krever_admin
+def admin_rabatt_bevis(paamelding_id):
+    """Studentbeviset (bilde eller PDF) i nettleseren. Bare for kursadministrasjonen (ikke lesetilgang), og hver visning logges."""
+    filnavn, mimetype, innhold = rabatter.hent_bevis(con(), paamelding_id) or abort(404)
+    db.logg(con(), "rabattbevis_vist", {"paamelding_id": paamelding_id}, aktor=_aktor())
+    con().commit()
+    r = make_response(innhold)
+    r.headers["Content-Type"] = mimetype
+    r.headers["Content-Disposition"] = f"inline; filename*=UTF-8''{quote(filnavn)}"
+    r.headers["Cache-Control"] = "no-store"
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    r.headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
+    return r
+
+
+# ============================ datakontroll (Camilla 07.10.2026) ============================
+
+@app.get("/admin/datakontroll")
+@krever_admin
+def admin_datakontroll():
+    """Opplysninger som ser feil ut på kurs som ikke er avsluttet eller avlyst (kurs/datakontroll.py), gruppert per kurs."""
+    return render_template("admin_datakontroll.html", grupper=datakontroll.oversikt(con()))
+
+
+@app.post("/admin/datakontroll/ok")
+@krever_admin
+def admin_datakontroll_ok():
+    """«Det stemmer»: verdien er sjekket og markeres ikke igjen før den endres. Verdien hentes på nytt her (ikke fra skjemaet)."""
+    pid = request.form.get("paamelding_id", type=int) or 0
+    kode = request.form.get("kode", "")
+    p = con().execute("SELECT id, kurs_id, deltaker_id FROM paamelding WHERE id=?", (pid,)).fetchone() or abort(404)
+    funn = next((f for f in datakontroll.for_paamelding(con(), pid) if f.kode == kode), None)
+    if funn:
+        datakontroll.godta(con(), p["deltaker_id"], kode, funn.verdi, aktor=_aktor())
+        con().commit()
+        flash(f"{funn.felt}: merket som riktig.", "ok")
+    if request.form.get("tilbake") == "vindu":
+        return redirect(url_for("admin_deltaker", kurs_id=p["kurs_id"], paamelding_id=pid))
+    return redirect(url_for("admin_datakontroll"))
+
+
+# ============================ Klar til sending ============================
+
+def _ider_fra_skjema() -> list[int]:
+    ut = []
+    for v in request.form.getlist("id"):
+        try:
+            ut.append(int(v))
+        except ValueError:
+            continue
+    return ut
+
+
+@app.get("/admin/klar-til-sending")
+@krever_admin
+def admin_klar_til_sending():
+    """Automatiske e-poster som venter på godkjenning før de sendes (Camilla 05.10.2026, kurs/godkjenning.py), gruppert per
+    kurs og type, og de sist behandlede."""
+    return render_template("admin_klar_til_sending.html", grupper=godkjenning.grupper(con(), _idag()),
+                           behandlet=godkjenning.sist_behandlet(con()), statusnavn=godkjenning.STATUSNAVN,
+                           typenavn=godkjenning.typenavn, aktiv=config.GODKJENN_EPOSTER)
+
+
+@app.get("/admin/klar-til-sending/<int:godkjenning_id>")
+@krever_admin
+def admin_klar_til_sending_epost(godkjenning_id):
+    """Én e-post i køen slik den vil se ut. Innholdet vises i en låst ramme uten skript; personlige lenker står som «skjult»."""
+    rad = godkjenning.hent(con(), godkjenning_id) or abort(404)
+    return render_template("admin_klar_til_sending_epost.html", r=rad,
+                           html=godkjenning.forhandsvisning(con(), rad) if rad["html"] else None,
+                           grunn=godkjenning.hvorfor_ikke(con(), rad, _idag()) if rad["status"] == "venter" else None,
+                           statusnavn=godkjenning.STATUSNAVN, typenavn=godkjenning.typenavn)
+
+
+@app.post("/admin/klar-til-sending/send")
+@krever_admin
+def admin_klar_til_sending_send():
+    """Sender de valgte e-postene (én gruppe eller én e-post). Bare de som fortsatt venter og gir mening, sendes."""
+    ider = _ider_fra_skjema()
+    if not ider:
+        flash("Ingen e-poster var valgt.", "info")
+        return redirect(url_for("admin_klar_til_sending"))
+    ut = godkjenning.send(Kjoring(con(), idag=_idag(), aktor=_aktor()), ider)
+    deler = []
+    if ut["sendt"]:
+        deler.append(f"{ut['sendt']} e-post(er) er sendt")
+    if ut["utgaatt"]:
+        deler.append(f"{ut['utgaatt']} ble ikke sendt fordi de ikke lenger gir mening (utgått)")
+    if ut["ikke_forsokt"]:
+        deler.append(f"{ut['ikke_forsokt']} kunne ikke sendes nå og venter fortsatt – prøv igjen senere")
+    if ut["uavklart"]:
+        deler.append(f"{ut['uavklart']} har uavklart utfall – se «Uavklarte operasjoner» på Oversikten")
+    flash((". ".join(deler) or "Ingenting å sende – e-postene var allerede behandlet") + ".",
+          "feil" if ut["uavklart"] or ut["ikke_forsokt"] else "ok")
+    return redirect(url_for("admin_klar_til_sending"))
+
+
+@app.post("/admin/klar-til-sending/ikke-send")
+@krever_admin
+def admin_klar_til_sending_avvis():
+    """«Ikke send»: e-postene sendes aldri, heller ikke av morgenjobben senere."""
+    antall = godkjenning.avvis(con(), _ider_fra_skjema(), _aktor())
+    con().commit()
+    flash(f"{antall} e-post(er) blir ikke sendt." if antall else "Ingenting å endre – e-postene var allerede behandlet.",
+          "ok" if antall else "info")
+    return redirect(url_for("admin_klar_til_sending"))
 
 
 @app.get("/admin/e-postmaler")

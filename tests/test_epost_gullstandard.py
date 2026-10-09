@@ -7,7 +7,8 @@ Vi tester semantisk (emne, sentrale setninger, varianter, systemstyrte deler, es
 mellomrom - ikke skjore byte-snapshots. To lag:
   1. direkte epost.render(...) med faste eksempeldata (alle varianter)
   2. ende-til-ende: den ekte koden som sender (sveiper, daglig, ruter) - fanger det som faktisk sendes
-De tre LAASTE malene (innlogging, eskalering, admin_melding) er ikke redigerbare i v1; de har en kort baseline.
+De LAASTE malene (innlogging, admin_melding) er ikke redigerbare i v1; de har en kort baseline.
+(06.10.2026: kursholder-lenken og SharePoint er tatt bort, og med dem «purring» og «eskalering» og testene av dem.)
 """
 import re
 from datetime import date, timedelta
@@ -307,28 +308,6 @@ def test_firma_escaper_firmanavn():
     assert "<i>" not in html and "A&amp;B &lt;AS&gt;" in html and "Kari &lt;i&gt;HR&lt;/i&gt;" in html
 
 
-# ============================ purring ============================
-
-M = {"ansvarlig_navn": "Per Psykolog", "ansvarlig_epost": "per@x.no", "beskrivelse": "Kurspresentasjon",
-     "kursnavn": "Veiledning i praksis", "kode": "V1", "frist": "2027-02-20", "id": 7}
-
-
-@pytest.mark.parametrize("igjen,emne_forventet", [
-    (7, "Påminnelse: Kurspresentasjon til Veiledning i praksis – frist om 7 dager"),
-    (2, "Påminnelse: Kurspresentasjon til Veiledning i praksis – frist om 2 dager"),
-    (0, "Frist i dag: Kurspresentasjon til Veiledning i praksis"),
-])
-def test_purring_emne_per_variant(igjen, emne_forventet):
-    emne, html = _render("purring", m=M, igjen=igjen)
-    assert emne == emne_forventet
-    assert "<p>Hei Per Psykolog,</p>" in html
-    assert ("Vi minner om at <strong>kurspresentasjon</strong> til <strong>Veiledning i praksis</strong> "
-            "skal leveres innen <strong>2027-02-20</strong>.") in html
-    from kurs import lenker
-    assert f'<a href="{lenker.lever_lenke(7)}">Last opp her</a> – så blir materiellet automatisk tilgjengelig for deltakerne.' in html
-    assert lenker.lever_lenke(7).startswith(f"{BASE}/lever/7/") and len(lenker.lever_lenke(7).rsplit("/", 1)[-1]) == 32
-
-
 # ============================ laaste maler (ikke redigerbare i v1): kort baseline ============================
 
 def test_laast_innlogging():
@@ -338,13 +317,6 @@ def test_laast_innlogging():
     assert "Lenken virker i 30 minutter og kan bare brukes én gang." in html
     assert '<a href="https://x.no/logg-inn/tok"' in html and ">Logg inn</a>" in html
     assert "Ba du ikke om dette? Da kan du se bort fra e-posten." in html
-
-
-def test_laast_eskalering():
-    emne, html = _render("eskalering", m=M, igjen=-3)
-    assert emne == "Mangler materiell: Veiledning i praksis (3 dager over frist)"
-    assert "Per Psykolog (per@x.no) har ikke levert <strong>kurspresentasjon</strong>" in html
-    assert "Fristen var 2027-02-20. Automatiske påminnelser er sendt." in html
 
 
 def test_laast_admin_melding_escaper_tekst():
@@ -439,17 +411,6 @@ def test_e2e_ukefor_og_dagfor_via_daglig(con, sendt):
     assert "Tid: 2027-03-04 kl. 09:00–16:00" in html and "Husk å registrere oppmøte med QR-koden" in html
 
 
-def test_e2e_purring_via_daglig(con, sendt):
-    kid = _opprett(con, date(2027, 4, 1), kode="E3")
-    con.execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
-                (kid, "Per Psykolog", "per@x.no", "2027-02-08"))
-    con.commit()
-    daglig._purring(Kjoring(con, idag=date(2027, 2, 1)))                                # 7 dager igjen
-    (til, emne, html), = sendt
-    assert (til, emne) == ("per@x.no", "Påminnelse: Kurspresentasjon til Veiledning i praksis – frist om 7 dager")
-    assert "skal leveres innen <strong>2027-02-08</strong>" in html and "/lever/" in html
-
-
 def _admin_klient():
     from kurs.web import app as webapp
     k = webapp.app.test_client()
@@ -474,7 +435,7 @@ def test_e2e_firmakvittering_via_gruppe_rute(con, sendt):
         "kontakt_fornavn": "Kari", "kontakt_etternavn": "HR", "kontakt_epost": "kari.hr@firma.no",
         "kontakt_telefon": "90000000", "firmanavn": "Firma AS", "org_nr": "999900003", "faktura_ref": "B1",
         "deltaker_fornavn": ["Ola"], "deltaker_etternavn": ["Nordmann"], "deltaker_epost": ["ola@firma.no"],
-        "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on", **gruppeadresse()})
+        "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on", "samtykke_lagring": "on", **gruppeadresse()})
     (til, emne, html), = [m for m in sendt if m[0] == "kari.hr@firma.no"]
     assert emne == "Bedriftspåmelding til Veiledning i praksis – kvittering"
     assert "<p>Hei Kari,</p>" in html

@@ -53,6 +53,7 @@
 /* Tydelig rekkefølge å lese i: datoene er halvfete og prisen er fet og blå. Resten er vanlig tekst. */
 .pm-dato { font-weight:600; }
 .pm-info-pris p { font-size:15.5px; line-height:20px; font-weight:600; color:var(--bla-mork); }
+.pm-info-pris p.pm-rabattpris { margin-top:4px; font-size:14px; font-weight:400; }   /* rabattprisene (kurs/rabatter.py) */
 /* «Fullt»: en varselstripe over hele boksens bredde (mørk gul tekst på lys gul, over 4,5:1 i kontrast) */
 .pm-info-fullt p { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:8px; background:#fbf0d3; color:#6f4d00; }
 .pm-info-fullt .pm-ikon { stroke:currentColor; }

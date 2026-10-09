@@ -14,6 +14,16 @@
                      'adresse': ('text', 'street-address'), 'postnr': ('text', 'postal-code'),
                      'poststed': ('text', 'address-level2')} -%}
 
+{#- Beløpene i betalingsvalget: med rabattpriser følger de prisen deltakeren velger (static/app.js, data-prisdel = antall deler).
+    valgtekst samler teksten i ett element: valgene er en fleksboks, og et løst beløp ville blitt en egen kolonne. Uten rabatter er
+    teksten nøyaktig som før. -#}
+{%- macro belop(kroner, deler=1) -%}
+{%- if rabatter %}<span data-prisdel="{{ deler }}">{{ kroner }}</span>{% else %}{{ kroner }}{% endif -%}
+{%- endmacro -%}
+{%- macro valgtekst(for_, kroner, etter, deler=1) -%}
+{%- if rabatter %}<span>{{ for_ }}{{ belop(kroner, deler) }}{{ etter }}</span>{% else %}{{ for_ }}{{ kroner }}{{ etter }}{% endif -%}
+{%- endmacro -%}
+
 {%- macro krav(felt) %}{% if felt.obligatorisk %} <span class="pm-krav">(krav)</span>{% endif %}{% endmacro -%}
 {%- macro hjelp(felt) %}{% if felt.hjelpetekst %}<p id="hjelp-{{ felt.nokkel }}" class="pm-hjelp">{{ felt.hjelpetekst }}</p>{% endif %}{% endmacro -%}
 {%- macro beskrevet(felt) %}{% if felt.hjelpetekst %} aria-describedby="hjelp-{{ felt.nokkel }}"{% endif %}{% endmacro -%}
@@ -49,7 +59,7 @@
       {%- for v in felt.valg %}<option value="{{ v }}"{{ ' selected' if v == verdi }}>{{ v }}</option>{% endfor %}
     </select>
     {%- else %}{% set t = inputtype.get(felt.nokkel, ('text', none)) %}
-    <input id="f-{{ felt.nokkel }}" name="{{ felt.nokkel }}"{% if t[0] != 'text' %} type="{{ t[0] }}"{% endif %}{% if t[1] %} autocomplete="{{ t[1] }}"{% endif %}{% if felt.ekstra_id %} maxlength="300"{% endif %}{{ ' required' if felt.obligatorisk and not av }}{{ ' disabled' if av }}{{ beskrevet(felt) }} value="{{ verdi or '' }}">
+    <input id="f-{{ felt.nokkel }}" name="{{ felt.nokkel }}"{% if t[0] != 'text' %} type="{{ t[0] }}"{% endif %}{% if t[1] %} autocomplete="{{ t[1] }}"{% endif %}{% if t[0] == 'email' %} data-epost-sjekk="{{ EPOST_SJEKK }}"{% endif %}{% if felt.ekstra_id %} maxlength="300"{% endif %}{{ ' required' if felt.obligatorisk and not av }}{{ ' disabled' if av }}{{ beskrevet(felt) }} value="{{ verdi or '' }}">
     {%- endif %}
     {{ hjelp(felt) }}
   </div>
@@ -87,15 +97,22 @@
   {%- if 'vis_tid' in skjema.info and dager %}
   <div class="pm-info-del pm-info-dager">
     <h2><svg class="pm-ikon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>{{ 'Kursdag' if dager|length == 1 else 'Kursdager' }}</h2>
-    <ul>{% for g in samlingsliste %}<li><span class="pm-dato">{% if g.navn %}{{ g.navn }}: {% endif %}{{ g.periode }}</span> <span class="dempet">kl. {{ g.tid }}</span>
-      {%- if g.avvik %}<ul class="pm-avvik">{% for a in g.avvik %}<li>{{ a.dato }}:{% if a.tid %} kl. {{ a.tid }}{% endif %}{% if a.merknad %}{{ ' –' if a.tid }} {{ a.merknad }}{% endif %}</li>{% endfor %}</ul>{% endif %}</li>{% endfor %}</ul>
+    {#- Bare «1. samling: dato – dato» per samling, og ett felles tidspunkt under når alle dagene har samme tid (Camilla 05.10.2026:
+        samlingsnavn og klokkeslett på hver linje «ble bare rot»). -#}
+    {%- set felles_tid = (samlingsliste | map(attribute='tid') | unique | list | length == 1)
+                         and not (samlingsliste | selectattr('avvik') | list) %}
+    <ul>{% for g in samlingsliste %}<li><span class="pm-dato">{% if g.etikett %}{{ g.etikett }}: {% endif %}{{ g.fra_til if g.etikett else g.periode }}</span>
+      {%- if not felles_tid %} <span class="dempet">kl. {{ g.tid|replace(':', '.') }}</span>{% endif %}
+      {%- if g.avvik %}<ul class="pm-avvik">{% for a in g.avvik %}<li>{{ a.dato }}:{% if a.tid %} kl. {{ a.tid|replace(':', '.') }}{% endif %}{% if a.merknad %}{{ ' –' if a.tid }} {{ a.merknad }}{% endif %}</li>{% endfor %}</ul>{% endif %}</li>{% endfor %}</ul>
+    {%- if felles_tid %}<p class="pm-tid"><strong>Tidspunkt:</strong> {{ samlingsliste[0].tid|replace(':', '.') }}{{ ' alle dager' if dager|length > 1 }}</p>{% endif %}
   </div>
   {%- endif %}
   {%- if 'vis_sted' in skjema.info and (kurs.sted or kurs.type == 'digital') %}
   <div class="pm-info-del pm-info-sted"><h2><svg class="pm-ikon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21.5s-6.8-5.7-6.8-11.3a6.8 6.8 0 0 1 13.6 0c0 5.6-6.8 11.3-6.8 11.3z"/><circle cx="12" cy="10.2" r="2.4"/></svg>Sted</h2><p>{{ kurs.sted or 'Digitalt (Zoom)' }}</p></div>
   {%- endif %}
   {%- if 'vis_pris' in skjema.info %}
-  <div class="pm-info-del pm-info-pris"><h2><svg class="pm-ikon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.5 12.3V5a1.5 1.5 0 0 1 1.5-1.5h7.3l8 8a1.6 1.6 0 0 1 0 2.2l-6.6 6.6a1.6 1.6 0 0 1-2.2 0z"/><circle cx="8.3" cy="8.3" r="1.3"/></svg>Pris</h2><p>{{ pris }}</p></div>
+  <div class="pm-info-del pm-info-pris"><h2><svg class="pm-ikon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.5 12.3V5a1.5 1.5 0 0 1 1.5-1.5h7.3l8 8a1.6 1.6 0 0 1 0 2.2l-6.6 6.6a1.6 1.6 0 0 1-2.2 0z"/><circle cx="8.3" cy="8.3" r="1.3"/></svg>Pris</h2><p>{{ pris }}</p>
+    {%- for r in rabatter %}<p class="pm-rabattpris">{{ r.prisnavn }}: {{ r.pris | kr }}</p>{% endfor %}</div>
   {%- endif %}
   {%- if 'vis_frist' in skjema.info and kurs.paameldingsfrist %}
   <div class="pm-info-del"><h2><svg class="pm-ikon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.8"/><path d="M12 7.2V12l3.2 2"/></svg>Påmeldingsfrist</h2><p>{{ kurs.paameldingsfrist|langdato }}</p></div>
@@ -107,7 +124,7 @@
   {#- kurs.notat er en intern kommentar (bare for administratorer) og vises aldri her -#}
 </aside>
 
-<form method="post" class="kort pm-skjema"{% if forhandsvisning %} data-ingen-innsending{% endif %} aria-labelledby="pm-skjema-tittel">
+<form method="post" class="kort pm-skjema"{% if forhandsvisning %} data-ingen-innsending{% endif %}{% if rabatter %} enctype="multipart/form-data"{% endif %} aria-labelledby="pm-skjema-tittel">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <h2 id="pm-skjema-tittel">Påmelding</h2>
 
@@ -121,7 +138,13 @@
   </div>
   <div class="pm-rad">
     <label class="pm-etikett" for="f-epost">E-post <span class="pm-krav">(krav)</span></label>
-    <div class="pm-felt"><input id="f-epost" name="epost" type="email" required autocomplete="email" value="{{ f.epost }}"></div>
+    <div class="pm-felt"><input id="f-epost" name="epost" type="email" required autocomplete="email" value="{{ f.epost }}" data-epost-sjekk="{{ EPOST_SJEKK }}"></div>
+  </div>
+  {#- Skrives inn to ganger, så en skrivefeil oppdages før påmeldingen sendes (Camilla 05.10.2026, alle påmeldingsskjema) -#}
+  <div class="pm-rad">
+    <label class="pm-etikett" for="f-epost_bekreft">Bekreft e-post <span class="pm-krav">(krav)</span></label>
+    <div class="pm-felt"><input id="f-epost_bekreft" name="epost_bekreft" type="email" required autocomplete="email" value="{{ f.epost_bekreft }}"
+      data-lik-som="f-epost" data-lik-feil="E-postadressene er ikke like."></div>
   </div>
   {#- Deltakerens private adresse: alltid med og alltid krav (også når arbeidsgiver betaler). Betaler deltakeren selv,
       faktureres denne adressen. -#}
@@ -137,6 +160,56 @@
   {%- set firma_valgt = f.betaler == 'organisasjon' %}
   {%- set privat_valgt = f.betaler == 'person' %}
   <h3 class="pm-deltittel">Faktura</h3>
+  {%- if rabatter %}
+  {%- set valgt = rv.get('priskategori') or '' %}
+  {#- Rabattprisene (kurs/rabatter.py, Camilla 09.10.2026): én pris per person. Bare kategorien sendes - prosenten og prisen kommer fra
+      kursets oppsett. Studentbevis, Psyflix-opplysninger og bekreftelsen vises for prisen som er valgt (data-vis-naar). -#}
+  <div class="pm-rad" role="radiogroup" aria-labelledby="e-priskategori">
+    <span class="pm-etikett" id="e-priskategori">Pris <span class="pm-krav">(krav)</span></span>
+    <div class="pm-felt pm-valg" data-prisvalg>
+      <label><input type="radio" name="priskategori" value="" data-pris="{{ kurs.pris_nok }}" required{{ ' checked' if not valgt }}>Ordinær pris – {{ kurs.pris_nok | kr }}</label>
+      {%- for r in rabatter %}
+      <label><input type="radio" name="priskategori" value="{{ r.kategori }}" data-pris="{{ r.pris }}" required{{ ' checked' if valgt == r.kategori }}>{{ r.prisnavn }} – {{ r.pris | kr }}</label>
+      {%- endfor %}
+      <p class="pm-hjelp">Én pris per person.{% if rabatter | selectattr('maa_godkjennes') | list %} Rabatter sjekkes før fakturaen sendes.{% endif %}</p>
+    </div>
+  </div>
+  {%- for r in rabatter %}
+  {%- set vist = valgt == r.kategori %}
+  <div class="pm-gruppe" data-vis-naar="priskategori" data-vis-verdi="{{ r.kategori }}"{% if not vist %} hidden{% endif %}>
+    {%- if r.kategori == 'student' %}
+    <div class="pm-rad">
+      <label class="pm-etikett" for="f-studentbevis">Studentbevis <span class="pm-krav">(krav)</span></label>
+      <div class="pm-felt"><input id="f-studentbevis" name="studentbevis" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required aria-describedby="hjelp-studentbevis"{{ ' disabled' if not vist }}>
+        <p id="hjelp-studentbevis" class="pm-hjelp">Et bilde eller en PDF av gyldig studentbevis (maks 10 MB). Vi sletter det når vi har sjekket det.{% if vist %} Velg filen på nytt.{% endif %}</p></div>
+    </div>
+    {%- elif r.kategori == 'nieft' %}
+    <div class="pm-rad"><span class="pm-etikett" aria-hidden="true"></span>
+      <div class="pm-felt"><p class="pm-tekst">Bruk e-posten du er registrert med som NIEFT-medlem.{% if r.maa_godkjennes %} Vi sjekker medlemskapet før fakturaen sendes.{% endif %}</p></div>
+    </div>
+    {%- elif r.kategori == 'psyflix' %}
+    <div class="pm-rad">
+      <label class="pm-etikett" for="f-psyflix_org">Organisasjon med Psyflix-avtale <span class="pm-krav">(krav)</span></label>
+      <div class="pm-felt"><input id="f-psyflix_org" name="psyflix_org" maxlength="200" required value="{{ rv.get('psyflix_org', '') }}" aria-describedby="hjelp-psyflix_org"{{ ' disabled' if not vist }}>
+        <p id="hjelp-psyflix_org" class="pm-hjelp">Organisasjonen eller arbeidsplassen avtalen med Psyflix går gjennom.</p></div>
+    </div>
+    <div class="pm-rad">
+      <label class="pm-etikett" for="f-psyflix_epost">E-post hos Psyflix</label>
+      <div class="pm-felt"><input id="f-psyflix_epost" name="psyflix_epost" type="email" maxlength="200" value="{{ rv.get('psyflix_epost', '') }}" aria-describedby="hjelp-psyflix_epost" data-epost-sjekk="{{ EPOST_SJEKK }}"{{ ' disabled' if not vist }}>
+        <p id="hjelp-psyflix_epost" class="pm-hjelp">Bare hvis den er en annen enn e-posten over.</p></div>
+    </div>
+    <div class="pm-rad" role="group" aria-labelledby="e-psyflix_samtykke">
+      <span class="pm-etikett" id="e-psyflix_samtykke">Samtykke <span class="pm-krav">(krav)</span></span>
+      <div class="pm-felt pm-valg"><label><input type="checkbox" name="psyflix_samtykke" value="1" required{{ ' checked' if vist and rv.get('psyflix_samtykke') }}{{ ' disabled' if not vist }}><span>Jeg samtykker til at IPR sjekker medlemskapet mitt hos Psyflix (navnet og e-posten min sendes til Psyflix).</span></label></div>
+    </div>
+    {%- endif %}
+    <div class="pm-rad" role="group" aria-labelledby="e-rabatt_bekreftet-{{ r.kategori }}">
+      <span class="pm-etikett" id="e-rabatt_bekreftet-{{ r.kategori }}">Bekreftelse <span class="pm-krav">(krav)</span></span>
+      <div class="pm-felt pm-valg"><label><input type="checkbox" name="rabatt_bekreftet" value="1" required{{ ' checked' if vist and rv.get('rabatt_bekreftet') }}{{ ' disabled' if not vist }}><span>Jeg bekrefter at jeg har rett på {{ r.prisnavn_i_setning }}.</span></label></div>
+    </div>
+  </div>
+  {%- endfor %}
+  {%- endif %}
   <div class="pm-rad" role="radiogroup" aria-labelledby="e-betaler">
     <span class="pm-etikett" id="e-betaler">Betale privat / firma <span class="pm-krav">(krav)</span></span>
     <div class="pm-felt pm-valg">
@@ -172,14 +245,14 @@
   <div class="pm-rad" role="radiogroup" aria-labelledby="e-betaling">
     <span class="pm-etikett" id="e-betaling">Betaling</span>
     <div class="pm-felt pm-valg">
-      <label><input type="radio" name="betaling" value="samlet"{{ ' checked' if f.betaling != 'per_samling' }}>Hele beløpet i én faktura ({{ '{:,}'.format(kurs.pris_nok).replace(',', ' ') }} kr)</label>
-      <label><input type="radio" name="betaling" value="per_samling"{{ ' checked' if f.betaling == 'per_samling' }}>Delt opp – én faktura før hver samling (ca. {{ '{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' ') }} kr × {{ antall_samlinger }})</label>
+      <label><input type="radio" name="betaling" value="samlet"{{ ' checked' if f.betaling != 'per_samling' }}>{{ valgtekst('Hele beløpet i én faktura (', '{:,}'.format(kurs.pris_nok).replace(',', ' '), ' kr)') }}</label>
+      <label><input type="radio" name="betaling" value="per_samling"{{ ' checked' if f.betaling == 'per_samling' }}>{{ valgtekst('Delt opp – én faktura før hver samling (ca. ', '{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' '), ' kr × ' ~ antall_samlinger ~ ')', antall_samlinger) }}</label>
     </div>
   </div>
   {%- elif kurs.betaling == 'per_samling' and antall_samlinger > 1 %}
   <div class="pm-rad">
     <span class="pm-etikett">Betaling</span>
-    <div class="pm-felt"><p class="pm-tekst">Kurset faktureres per samling: ca. {{ '{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' ') }} kr før hver av de {{ antall_samlinger }} samlingene.</p></div>
+    <div class="pm-felt"><p class="pm-tekst">Kurset faktureres per samling: ca. {{ belop('{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' '), antall_samlinger) }} kr før hver av de {{ antall_samlinger }} samlingene.</p></div>
   </div>
   {%- endif %}
   {%- endif %}
@@ -200,11 +273,22 @@
   <div class="pm-rad pm-samtykke" role="group" aria-labelledby="e-samtykke">
     <span class="pm-etikett" id="e-samtykke">Vilkår <span class="pm-krav">(krav)</span></span>
     <div class="pm-felt pm-valg">
+      {#- Terapiakademiet-kurs: Terapiakademiets egne vilkår og personvernerklæring (PDF, foreløpig - Camilla 05.10.2026); IPR-kurs: ipr.no -#}
+      {%- if kurs.merke == 'terapiakademiet' %}
+      <label><input type="checkbox" name="samtykke" required><span>Jeg godtar <a href="{{ url_for('static', filename='vilkar/terapiakademiet-salgsbetingelser.pdf') }}" target="_blank" rel="noopener">salgsbetingelsene</a> og
+        <a href="{{ url_for('static', filename='vilkar/terapiakademiet-personvernerklaering.pdf') }}" target="_blank" rel="noopener">personvernerklæringen</a></span></label>
+      {%- else %}
       <label><input type="checkbox" name="samtykke" required><span>Jeg godtar <a href="https://www.ipr.no/kurs-og-utdanning/artikkel/kurs-salgsbetingelser" target="_blank" rel="noopener">vilkår for kurs</a> og
         <a href="https://www.ipr.no/om-oss/personvernerkl%C3%A6ring" target="_blank" rel="noopener">personvernerklæringen</a></span></label>
+      {%- endif %}
+      <label><input type="checkbox" name="samtykke_lagring" required><span>Jeg aksepterer at Institutt for Psykologisk Rådgivning lagrer denne informasjonen for videre kontakt i forbindelse med kurset.</span></label>
     </div>
   </div>
 
+  {#- Felt plassert «nederst» (f.eks. nyhetsbrev): etter vilkårene, rett over Meld på-knappen (Camilla 05.10.2026) -#}
+  {%- for felt in skjema.nederstfelt %}
+  {{ felt_rad(felt) }}
+  {%- endfor %}
   <div class="pm-rad pm-knapperad">
     <span></span>
     <div class="pm-felt">

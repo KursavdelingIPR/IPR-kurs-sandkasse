@@ -32,6 +32,23 @@
 </div>
 {% endif %}
 
+{#- Datakontrollen (kurs/datakontroll.py, Camilla 07.10.2026): opplysninger som ser feil ut. Rett dem under, eller «Det stemmer». -#}
+{% if kontroll %}
+<div class="varselboks gul" id="datakontroll">
+  <strong>Ser dette riktig ut?</strong>
+  <ul class="liten" style="margin:6px 0 4px; padding-left:18px">
+    {% for f in kontroll %}
+    <li style="margin:4px 0">{{ f.felt }}: {{ f.tekst }}
+      {% if admin_rolle != 'lese' %}<form method="post" action="{{ url_for('admin_datakontroll_ok') }}" class="innebygd">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="paamelding_id" value="{{ p.id }}">
+        <input type="hidden" name="kode" value="{{ f.kode }}"><input type="hidden" name="tilbake" value="vindu">
+        <button class="liten sekundar">Det stemmer</button></form>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  <p class="liten dempet" style="margin:0">Rett opplysningen under hvis den er feil. «Det stemmer» betyr at den er sjekket og ikke markeres igjen.</p>
+</div>
+{% endif %}
+
 {% set firma_mangler = p.status in ('bekreftet', 'venteliste') and firmaopplysninger_mangler(p) %}
 {% if firma_mangler %}
 <div class="varselboks" id="firmakontroll">
@@ -41,6 +58,30 @@
   <form method="post" action="{{ url_for('admin_deltaker_firmaopplysninger', kurs_id=kurs.id, paamelding_id=p.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button>Hent firmaopplysninger på nytt</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{# Rabattprisen venter på godkjenning (kurs/rabatter.py): fakturaen holdes tilbake til den er avgjort #}
+{% set rabattmerke = rabatt_merke(p) %}
+{% if rabattmerke %}
+<div class="varselboks gul" id="rabattkontroll">
+  <strong>{{ rabattmerke }}</strong>
+  <p class="liten" style="margin:6px 0">{{ p.navn }} har valgt {{ (rabatt_prisnavn(p) or 'rabattpris') | pris_i_setning }}: {{ deltakerpris(kurs.pris_nok, p.rabatt_prosent) | kr }}
+    i stedet for {{ kurs.pris_nok | kr }}. Fakturaen venter til rabatten er avgjort.</p>
+  <ul class="liten" style="margin:0 0 8px; padding-left:18px">
+    {% if p.priskategori == 'student' %}<li>{% if har_rabattbevis %}{% if admin_rolle != 'lese' %}<a href="{{ url_for('admin_rabatt_bevis', paamelding_id=p.id) }}" target="_blank" rel="noopener">Åpne studentbeviset</a>{% else %}Studentbeviset er lastet opp (bare kursadministrasjonen kan åpne det).{% endif %}{% else %}Studentbeviset mangler.{% endif %}</li>{% endif %}
+    {% if p.priskategori == 'nieft' %}<li>Sjekk at {{ p.epost }} står i NIEFT-medlemsoversikten (ellers navnet).</li>{% endif %}
+    {% if p.priskategori == 'psyflix' %}<li>Organisasjon: {{ p.psyflix_org or 'ikke oppgitt' }}{% if p.psyflix_epost %} · e-post hos Psyflix: {{ p.psyflix_epost }}{% endif %}
+      (<a href="{{ url_for('admin_rabatter') }}">liste til Psyflix</a>)</li>
+      {% if psyflix_aar %}<li><strong>Har fått Psyflix-rabatt hos IPR de siste 12 månedene.</strong> Vilkåret er én videreutdanning med rabatt per år.</li>{% endif %}{% endif %}
+  </ul>
+  {% if admin_rolle != 'lese' %}
+  <form method="post" action="{{ url_for('admin_rabatt_avgjor', paamelding_id=p.id) }}" style="margin:0; display:flex; gap:6px; flex-wrap:wrap">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="tilbake" value="vindu">
+    <button name="beslutning" value="godkjent" class="liten">Godkjent</button>
+    <button name="beslutning" value="avvist" class="liten sekundar">Ikke godkjent (ordinær pris)</button>
   </form>
   {% endif %}
 </div>
@@ -85,7 +126,7 @@
   </div>
   <div class="skjemarad">
     <div><label for="f-epost">E-post</label><span class="merknad">(krav)</span></div>
-    <div><input id="f-epost" name="epost" type="email" required value="{{ p.epost }}"></div>
+    <div><input id="f-epost" name="epost" type="email" required value="{{ p.epost }}" data-epost-sjekk="{{ EPOST_SJEKK }}"></div>
   </div>
   <div class="skjemarad">
     <div><label for="f-adresse">Adresse</label><span class="merknad">{{ '(krav)' if har_adresse else '(fylles ut samlet)' }}</span></div>
@@ -130,9 +171,28 @@
     Fakturaer som er laget, endres ikke når du endrer her: de står i Visma og må rettes der. Det gjelder også hvem som betaler, og fakturaplanen.
   </div>
   {% endif %}
+  {#- Prisen (kurs/rabatter.py): kursets pris, eller rabattprisen. Kan endres her til fakturaen er laget, når kurset gir rabatter;
+      en pris administrator velger, er godkjent. priskategori_for: endres bare når valget faktisk er endret. -#}
+  {% set naa_kat = p.priskategori if p.rabatt_prosent else '' %}
+  {% set kan_velge = rabatter_kurs and pris_kan_endres and admin_rolle != 'lese' %}
   <div class="skjemarad">
-    <div><span class="etikett">Pris</span></div>
-    <div><p class="feltverdi">{{ kurs.pris_nok|kr }} <span class="liten dempet">– styres av kurset</span></p></div>
+    <div>{% if kan_velge %}<label for="f-priskategori">Pris</label>{% else %}<span class="etikett">Pris</span>{% endif %}</div>
+    <div>
+      {% if kan_velge %}
+      {% set kurs_kat = rabatter_kurs | map(attribute='kategori') | list %}
+      <select id="f-priskategori" name="priskategori" aria-describedby="hjelp-pris">
+        <option value=""{{ ' selected' if not naa_kat }}>Ordinær pris – {{ kurs.pris_nok | kr }}</option>
+        {% for r in rabatter_kurs %}<option value="{{ r.kategori }}"{{ ' selected' if naa_kat == r.kategori }}>{{ r.prisnavn }} – {{ (deltakerpris(kurs.pris_nok, p.rabatt_prosent) if naa_kat == r.kategori else r.pris) | kr }}</option>{% endfor %}
+        {% if naa_kat and naa_kat not in kurs_kat %}<option value="{{ naa_kat }}" selected>{{ rabatt_prisnavn(p) }} – {{ deltakerpris(kurs.pris_nok, p.rabatt_prosent) | kr }}</option>{% endif %}
+      </select>
+      <input type="hidden" name="priskategori_for" value="{{ naa_kat }}">
+      <p id="hjelp-pris" class="hjelp">Kan endres til fakturaen er laget. En pris du velger her, er godkjent (ingen sjekk).{% if p.rabatt_status == RABATT_AVVIST %}
+        {{ RABATT_PRISNAVN.get(p.priskategori, 'Rabatten') }} ble ikke godkjent.{% endif %}</p>
+      {% else %}
+      <p class="feltverdi">{{ deltakerpris(kurs.pris_nok, p.rabatt_prosent) | kr }}{% if rabatt_prisnavn(p) %} – {{ rabatt_prisnavn(p) }} ({{ p.rabatt_prosent }} % rabatt){% endif %}
+        <span class="liten dempet">– {% if p.rabatt_status == RABATT_AVVIST %}{{ RABATT_PRISNAVN.get(p.priskategori, 'rabatten') | pris_i_setning }} ble ikke godkjent{% elif not pris_kan_endres and (rabatter_kurs or p.rabatt_prosent) %}fakturaen er laget{% else %}styres av kurset{% endif %}</span></p>
+      {% endif %}
+    </div>
   </div>
   <div class="skjemarad">
     <div><span class="etikett" id="e-betaling">Betaling</span></div>

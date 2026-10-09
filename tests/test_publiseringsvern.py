@@ -73,7 +73,7 @@ def test_offentlig_post_kan_ikke_omgaa_get_vernet(con, status, monkeypatch):
     monkeypatch.setattr(visma, "fakturer", lambda *a, **kw: visma_kalt.append(1))
     _kurs(con, "K1", status)
     con.commit()
-    r = _klient().post("/kurs/K1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", **ADRESSE})
+    r = _klient().post("/kurs/K1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     assert r.status_code == 404
     assert _antall(con, "paamelding") == 0
     assert _antall(con, "deltaker") == 0
@@ -91,7 +91,7 @@ def test_aapen_fungerer_som_for(con, monkeypatch):
     r = _klient().get("/kurs/K1")
     assert r.status_code == 200
     assert "Meld meg på" in r.get_data(as_text=True)
-    r2 = _klient().post("/kurs/K1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", **ADRESSE})
+    r2 = _klient().post("/kurs/K1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     assert r2.status_code == 200
     assert _antall(con, "paamelding") == 1
     assert con.execute("SELECT status FROM paamelding").fetchone()[0] == "bekreftet"
@@ -104,11 +104,11 @@ def test_full_fungerer_som_for_inkl_venteliste(con, monkeypatch):
     monkeypatch.setattr(epost, "send", lambda *a, **kw: None)
     kid = _kurs(con, "K1", "aapen", kapasitet=1)
     con.commit()
-    r1 = _klient().post("/kurs/K1", data={"fornavn": "Forste", "etternavn": "Deltaker", "epost": "forste@x.no", "samtykke": "on", **ADRESSE})
+    r1 = _klient().post("/kurs/K1", data={"fornavn": "Forste", "etternavn": "Deltaker", "epost": "forste@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     assert r1.status_code == 200
 
     # naa er kapasiteten (1) faktisk fylt - andre paamelding utloeser meld_paa() sin egen 'full'-/venteliste-logikk
-    r2 = _klient().post("/kurs/K1", data={"fornavn": "Andre", "etternavn": "Deltaker", "epost": "andre@x.no", "samtykke": "on", **ADRESSE})
+    r2 = _klient().post("/kurs/K1", data={"fornavn": "Andre", "etternavn": "Deltaker", "epost": "andre@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     assert r2.status_code == 200
     assert con.execute("SELECT status FROM kurs WHERE id=?", (kid,)).fetchone()[0] == "full"   # auto-satt av meld_paa
 
@@ -128,7 +128,7 @@ def test_aktiv_folger_eksisterende_forretningsregel_fortsatt_offentlig(con, monk
     con.commit()
     r = _klient().get("/kurs/K1")
     assert r.status_code == 200
-    r2 = _klient().post("/kurs/K1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", **ADRESSE})
+    r2 = _klient().post("/kurs/K1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     assert r2.status_code == 200
     assert _antall(con, "paamelding") == 1
 
@@ -185,7 +185,7 @@ def test_ukjent_kurskode_gir_fortsatt_404_uendret(con):
 def _gruppedata():
     return {
         "kontakt_fornavn": "Kari", "kontakt_etternavn": "Kontakt", "kontakt_epost": "kari@x.no", "firmanavn": "Firma AS",
-        "org_nr": "999900003", "samtykke": "on",
+        "org_nr": "999900003", "samtykke": "on", "samtykke_lagring": "on",
         "deltaker_fornavn": ["Ola"], "deltaker_etternavn": ["Nordmann"], "deltaker_epost": ["ola@x.no"],
         "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "deltaker_hpr": [""], **gruppeadresse(),
     }

@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from kurs import config, db, maltekster
-from kurs.integrasjoner import sharepoint
 
 from kurssidehjelp import IDAG, admin_klient, deltaker_klient, dokument, fast_dato, lag_deltaker, lag_kurs, ny_database, skriv_side, tekstblokk
 
@@ -124,9 +123,9 @@ def test_admin_menyen_har_ikke_offentlig_side_og_forsiden_finnes(con, monkeypatc
 def test_admin_menyen_har_de_andre_valgene_som_for(con):
     admin = admin_klient(con)
     lenker = _lenker(_html(admin.get("/admin")))
-    # Rapporter står sist i menyen, etter Utboks (Camilla 04.10.2026)
-    assert lenker[:3] == ["Oversikt", "Kalender", "E-postmaler"] and "Aktiviteter" not in lenker
-    assert lenker[3:6] == ["Daglig kjøring", "Brukere", "Utboks"] and lenker[6] == "Økonomi"      # demo
+    # Rapporter står sist i menyen, etter Utboks (Camilla 04.10.2026). «Klar til sending» etter E-postmaler (05.10.2026)
+    assert lenker[:4] == ["Oversikt", "Kalender", "E-postmaler", "Klar til sending"] and "Aktiviteter" not in lenker
+    assert lenker[4:7] == ["Daglig kjøring", "Brukere", "Utboks"] and lenker[7] == "Økonomi"      # demo
     assert 'href="/admin/logg-ut">Logg ut' in _html(admin.get("/admin"))       # «Logg ut» står i gruppen til høyre (globalt søk)
 
 
@@ -305,23 +304,6 @@ def test_min_side_merker_avlyste_og_gjennomforte_kurs(con):
     con.commit()
     html = _min_side(con, did)
     assert 'class="merke feil">Avlyst' in html and "Åpne Min side" not in html and "Påmeldt" not in html
-
-
-def test_min_side_kaller_ikke_sharepoint_for_kurs_med_kursside_men_beholder_listen_ellers(con, monkeypatch):
-    kall = []
-
-    def fake(mappe):
-        kall.append(mappe)
-        return [{"navn": "Dag 1.pdf", "sti": f"{mappe}/Dag 1.pdf", "storrelse": 10}]
-
-    monkeypatch.setattr(sharepoint, "list_filer", fake)
-    med, uten = lag_kurs(con, "MED"), lag_kurs(con, "UTEN")
-    did, _ = lag_deltaker(con, med)
-    lag_deltaker(con, uten, "kari@example.no")
-    skriv_side(con, med, dokument(tekstblokk()))
-    html = _min_side(con, did)
-    assert kall == ["Kurs/UTEN/Presentasjoner"]                                     # ingen Graph-spørring for kurset som har kursside
-    assert html.count("Kursmateriell") == 1 and 'href="/materiell/' in html and "Dag 1.pdf" in html
 
 
 def test_min_side_har_min_konto_med_ankere_og_sammendrag(con):

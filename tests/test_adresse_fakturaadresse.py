@@ -230,7 +230,7 @@ def test_ny_adresse_fra_en_offentlig_paamelding_flytter_ikke_fakturaadressen_paa
     a, b = _kurs(con, "A1"), _kurs(con, "A2")
     holdt = _holdt(con, a)
     r = _klient().post("/kurs/A2", data={"fornavn": "Rita", "etternavn": "Retting", "epost": EPOST.upper(),
-                                         "samtykke": "on", "betaler": "person", **ANNEN_ADRESSE})
+                                         "samtykke": "on", "samtykke_lagring": "on", "betaler": "person", **ANNEN_ADRESSE})
     assert r.status_code == 200
     assert _adr(_person(con)) == ANNEN_ADRESSE
     assert _fakt(_p(con, holdt)) == ADRESSE                       # uendret: den ventende fakturaen på A1
@@ -241,7 +241,7 @@ def test_ny_adresse_fra_en_offentlig_paamelding_flytter_ikke_fakturaadressen_paa
 def test_en_overskrevet_adresse_logges_med_feltnavn_og_aldri_med_verdier(con):
     a, b = _kurs(con, "A1"), _kurs(con, "A2")
     holdt = _holdt(con, a)
-    _klient().post("/kurs/A2", data={"fornavn": "Rita", "etternavn": "Retting", "epost": EPOST, "samtykke": "on",
+    _klient().post("/kurs/A2", data={"fornavn": "Rita", "etternavn": "Retting", "epost": EPOST, "samtykke": "on", "samtykke_lagring": "on",
                                      "betaler": "person", **SPORBAR_ADRESSE})
     hendelser = [h for h in con.execute("SELECT aktor, detaljer FROM hendelse WHERE handling='deltaker_endret'")]
     assert len(hendelser) == 1
@@ -388,7 +388,7 @@ def test_privat_betaler_uten_noen_adresse_faar_ingen_faktura_foer_adressen_er_la
 def test_privatadressen_kopieres_ogsaa_naar_kurset_ikke_faktureres(con, kw):
     """Deltakerens private adresse skal ALLTID legges til - ikke bare på kurs der fakturablokken vises."""
     _kurs(con, **kw)
-    r = _klient().post("/kurs/A1", data={"fornavn": "Rita", "etternavn": "Retting", "epost": EPOST, "samtykke": "on",
+    r = _klient().post("/kurs/A1", data={"fornavn": "Rita", "etternavn": "Retting", "epost": EPOST, "samtykke": "on", "samtykke_lagring": "on",
                                          **ADRESSE})
     assert r.status_code == 200, r.get_data(as_text=True)[:300]
     p = con.execute("SELECT * FROM paamelding").fetchone()

@@ -6,7 +6,7 @@ databaseendringer rulles tilbake til slutt.
 from dataclasses import dataclass, field
 from datetime import date
 
-from . import config, db, deltakerside, maltekster, minside, signaturer
+from . import config, db, deltakerside, godkjenning, maltekster, minside, signaturer
 from .feil import sikker_feiltekst
 from .integrasjoner import epost
 
@@ -35,6 +35,7 @@ class Sendeutfall:
     uavklart: int = 0                           # feilet under sending NAA - utfallet er uavklart
     uavklart_fra_for: int = 0                   # hadde et uavklart eller paagaaende forsoek fra foer - ikke roert
     ikke_forsokt: int = 0                       # utsatt: e-posttjenesten nede / ugyldig mal - ingenting reservert
+    til_godkjenning: int = 0                    # venter i «Klar til sending» (kurs/godkjenning.py) - ikke sendt
 
 
 @dataclass
@@ -46,6 +47,7 @@ class Kjoring:
     sendefeil_paa_rad: int = 0
     aktor: str = "system"                   # hvem som sendte (e-posthistorikken): 'system' eller 'admin:<brukernavn>'
     feil: list[str] = field(default_factory=list)       # steg som feilet (daglig.py) - gir avslutningskode 1
+    til_godkjenning: list = field(default_factory=list)  # (nokkel, til, type) lagt i «Klar til sending» i denne kjøringen
 
     @property
     def sending_stanset(self) -> bool:
@@ -98,7 +100,7 @@ class Kjoring:
         return epost.render(mal, maltekst=maltekst, **data)
 
     def send_en_gang(self, nokkel: str, til: str, type_: str, mal: str, *, paamelding_id: int | None = None,
-                     kurs_id: int | None = None, lagre_kopi: bool = True, **data) -> bool:
+                     kurs_id: int | None = None, lagre_kopi: bool = True, vedlegg=(), **data) -> bool:
         """Sender e-post med malen hvis (nokkel, til, type) ikke er sendt for. True hvis sendt naa.
 
         Rendrer FOERST (en malfeil skal ikke etterlate noen rad - kan proves igjen etter retting), og
@@ -106,12 +108,16 @@ class Kjoring:
         dens docstring for den fulle kontrakten - uendret her)."""
         emne, html = self.render_for_sending(mal, **data)
         return self.send_ferdigrendret_en_gang(nokkel, til, type_, emne, html, paamelding_id=paamelding_id, mal=mal,
-                                               kurs_id=kurs_id, lagre_kopi=lagre_kopi)
+                                               kurs_id=kurs_id, lagre_kopi=lagre_kopi, vedlegg=vedlegg)
 
     def send_ferdigrendret_en_gang(self, nokkel: str, til: str, type_: str, emne: str, html: str, *,
                                    paamelding_id: int | None = None, mal: str | None = None,
-                                   kurs_id: int | None = None, vedlegg=(), lagre_kopi: bool = True) -> bool:
+                                   kurs_id: int | None = None, vedlegg=(), lagre_kopi: bool = True,
+                                   godkjent: bool = False) -> bool:
         """Sender en ALLEREDE RENDRET (emne, html) hvis (nokkel, til, type) ikke er sendt for. True hvis sendt naa.
+
+        «Klar til sending» (kurs/godkjenning.py): en type som krever godkjenning, sendes IKKE her, men legges i køen og gir False
+        (se _legg_til_godkjenning). Bare godkjenning.send() sender den, med godkjent=True.
 
         Dette ER selve fase-11-motoren (claim/commit/send/status) - send_en_gang() er kun et tynt lag som
         rendrer og delegerer hit. Brukes direkte av kallere som MÅ garantere at ingen ny DB-avhengig
@@ -146,6 +152,9 @@ class Kjoring:
         som aldri skal lagres (kursholderens opplastingslenke, bedriftens kvitteringslenke). Tørrkjøring lagrer ingen kopi.
         `vedlegg` er epost.Vedlegg (bilder i teksten med cid, og vanlige vedlegg) - de samme bytene sendes og lagres.
         """
+        if not godkjent and godkjenning.krever_godkjenning(type_):
+            return self._legg_til_godkjenning(nokkel, til, type_, emne, html, paamelding_id=paamelding_id, mal=mal,
+                                              kurs_id=kurs_id, vedlegg=vedlegg, lagre_kopi=lagre_kopi)
         if self.sending_stanset:        # FOER claim: ingenting reserveres, meldingen tas ved neste kjoering
             raise SendingStanset("E-posttjenesten har feilet flere ganger på rad - resten sendes ved neste kjøring.")
         # Signaturbildene (cid:signaturbilde-...) sendes som innebygde bilder - og lagres dermed i kopien
@@ -202,6 +211,27 @@ class Kjoring:
         self.si(f"  sendt  {type_:<22} «{emne}»")  # ingen mottakeradresse i driftsutskriften
         return True
 
+    def _legg_til_godkjenning(self, nokkel, til, type_, emne, html, *, paamelding_id, mal, kurs_id, vedlegg, lagre_kopi) -> bool:
+        """Legger e-posten i «Klar til sending» i stedet for å sende den. Alltid False (ikke sendt). Er den alt sendt eller forsøkt
+        (en rad i utsending_logg), skjer ingenting - som når motoren taper claimen. Ligger den i køen fra før, legges den ikke inn
+        på nytt (idempotent: morgenjobben kan kjøres flere ganger samme dag). Ingen e-post i køen har egne vedlegg i dag; kommer det,
+        stoppes den her i stedet for å sendes uten (vedleggene lagres ikke i køen)."""
+        if self.con.execute("SELECT 1 FROM utsending_logg WHERE nokkel=? AND mottaker=? AND type=?",
+                            (nokkel, til, type_)).fetchone():
+            return False
+        if vedlegg:
+            raise ValueError(f"Vedlegg støttes ikke i «Klar til sending» ({type_}).")
+        ny = godkjenning.legg_i_koe(self.con, nokkel=nokkel, til=til, type_=type_, emne=emne, html=html,
+                                    paamelding_id=paamelding_id, mal=mal, kurs_id=kurs_id, lagre_kopi=lagre_kopi)
+        self.til_godkjenning.append((nokkel, til, type_))
+        if self.tor:
+            self.si(f"  [TØRR] {type_:<22} -> Klar til sending  «{emne}»")
+        else:
+            self.con.commit()
+            if ny:
+                self.si(f"  til godkjenning  {type_:<15} «{emne}»")     # ingen mottakeradresse i driftsutskriften
+        return False
+
     def send_til_mange(self, nokkel: str, type_: str, mottakere, lag, *, mal: str | None = None) -> Sendeutfall:
         """Samme type melding til mange mottakere (rader med id = paamelding_id og epost), hver gjennom claim-motoren
         (send_ferdigrendret_en_gang). `lag(mottaker)` gir (emne, html) eller (emne, html, vedlegg). `mal` er malnavnet
@@ -215,9 +245,12 @@ class Kjoring:
                 continue
             try:
                 emne, html, *vedlegg = lag(m)
+                i_koe_foer = len(self.til_godkjenning)
                 if self.send_ferdigrendret_en_gang(nokkel, m["epost"], type_, emne, html, paamelding_id=m["id"], mal=mal,
                                                    vedlegg=vedlegg[0] if vedlegg else ()):
                     ut.sendt.append(m["id"])
+                elif len(self.til_godkjenning) > i_koe_foer:
+                    ut.til_godkjenning += 1                 # venter i «Klar til sending»
                 elif db.allerede_sendt(self.con, nokkel, m["epost"], type_):
                     ut.allerede += 1
                 else:

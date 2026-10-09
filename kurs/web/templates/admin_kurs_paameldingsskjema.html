@@ -148,6 +148,7 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="rekkefolge_om_deg" value="{{ v.rekkefolge.om_deg|join(',') }}">
   <input type="hidden" name="rekkefolge_til_slutt" value="{{ v.rekkefolge.til_slutt|join(',') }}">
+  <input type="hidden" name="rekkefolge_nederst" value="{{ v.rekkefolge.nederst|join(',') }}">
 
   <section class="kort sb-info" aria-labelledby="sb-info-tittel">
     <h3 class="sb-seksjonstittel" id="sb-info-tittel">Informasjonsboksen</h3>
@@ -225,6 +226,13 @@
     {{ standardrad(n) }}
     {%- endfor %}
     <tbody class="sb-fast">{{ fastrad('Samtykke', 'Fast felt – vilkår for kurs og personvernerklæringen') }}</tbody>
+    {#- «Nederst»: egne felt etter samtykket, rett over Meld på-knappen (f.eks. nyhetsbrev, Camilla 05.10.2026) -#}
+    {%- if v.rekkefolge.nederst %}
+    <tbody class="sb-seksjon"><tr><th scope="rowgroup" colspan="6">Nederst (over Meld på-knappen)</th></tr></tbody>
+    {%- endif %}
+    {%- for n in v.rekkefolge.nederst %}
+    {{ egetrad(n, 'nederst') }}
+    {%- endfor %}
   </table>
   </div>
   <p style="margin-top:14px"><button>Lagre påmeldingsskjema</button></p>

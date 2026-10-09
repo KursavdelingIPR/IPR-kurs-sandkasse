@@ -74,6 +74,7 @@ _MIN_HELTALL, _MAKS_HELTALL = -(2 ** 63), 2 ** 63 - 1
 
 # Delene av skjemaet der kursets egne felt kan plasseres, og hvordan «vis bare når» viser til et annet felt.
 OM_DEG, TIL_SLUTT = "om_deg", "til_slutt"
+NEDERST = "nederst"          # egne felt helt nederst: etter vilkårene, rett over Meld på-knappen (f.eks. nyhetsbrev, 05.10.2026)
 BETALER = "betaler"                 # «Betale privat / firma» i fakturablokken (verdiene PERSON / ORGANISASJON)
 PERSON, ORGANISASJON = "person", "organisasjon"
 EKSTRA_REF = "ekstra:"              # 'ekstra:<id>' = et av kursets egne felt (name i skjemaet: 'ekstra_<id>')
@@ -113,7 +114,7 @@ _POSTNR = Skjemafelt("postnr", "Postnummer", LAAST, True, True, frozenset(), hje
 _POSTSTED = Skjemafelt("poststed", "Poststed", LAAST, True, True, frozenset())
 _TELEFON = Skjemafelt("telefon", "Telefon", KONFIGURERBAR, True, False, EGENSKAPER, rekkefolge=1)
 _ARBEIDSSTED = Skjemafelt("arbeidssted", "Arbeidssted", KONFIGURERBAR, True, False, EGENSKAPER, rekkefolge=2)
-_YRKESTITTEL = Skjemafelt("yrkestittel", "Yrkestittel", KONFIGURERBAR, False, False, EGENSKAPER, rekkefolge=3)
+_YRKESTITTEL = Skjemafelt("yrkestittel", "Yrkestittel", KONFIGURERBAR, True, False, EGENSKAPER, rekkefolge=3)
 _HPR = Skjemafelt("hpr_nr", "HPR-nummer", BETINGET, True, False, frozenset({HJELPETEKST}))
 _FAKTURA_REF = Skjemafelt("faktura_ref", "Faktura merkes med", FAKTURA, True, False, _TEKSTFELT,
                           hjelpetekst="NB! Bruk bare tall for ressurs nr. / merida nr. / avdelings nr.",
@@ -123,7 +124,7 @@ _FAKTURA_EPOST = Skjemafelt("faktura_epost", "E-post for faktura", FAKTURA, True
 _FAKTURA_KOMMENTAR = Skjemafelt("faktura_kommentar", "Kommentar til faktura", FAKTURA, True, False, _TEKSTFELT,
                                 hjelpetekst="Legg inn eventuelle kommentarer her angående arbeidsgivers "
                                             "betalingsinformasjon.", betaler=ORGANISASJON)
-_EHF = Skjemafelt("ehf", "Elektronisk faktura", FAKTURA, True, False, _UTEN_KRAV, type="avkrysning",
+_EHF = Skjemafelt("ehf", "Elektronisk faktura", FAKTURA, False, False, _UTEN_KRAV, type="avkrysning",
                   betaler=ORGANISASJON)
 _ALLERGIER = Skjemafelt("allergier", "Allergier eller spesialkost", SENSITIV, True, False, _UTEN_KRAV,
                         hjelpetekst="Har du allergier eller intoleranser? Vi forhåndsbestiller mat og trenger derfor å "
@@ -471,12 +472,13 @@ class EffektivtSkjema:
     firmafelt: tuple = ()       # fakturablokken naar firma betaler (etter organisasjonsnummer og firmaopplysningene)
     sluttfelt: tuple = ()       # kursets egne felt «til slutt» (foer allergier og samtykke)
     sensitive_felt: tuple = ()
+    nederstfelt: tuple = ()     # kursets egne felt «nederst» (etter samtykket, rett over Meld på-knappen)
     info: frozenset = INFO_STANDARD     # det informasjonsboksen viser
 
     @property
     def egne_felt(self) -> tuple:
         """Kursets egne felt i skjemaet, i visningsrekkefolge."""
-        return tuple(f for f in (*self.deltakerfelt, *self.sluttfelt) if f.ekstra_id is not None)
+        return tuple(f for f in (*self.deltakerfelt, *self.sluttfelt, *self.nederstfelt) if f.ekstra_id is not None)
 
 
 # HPR-nummer samles ikke inn lenger (Camilla 02.10.2026: «ta bort HPR-nummer»). Feltet, lagringen og alt som finnes fra før er beholdt (deltakervinduet,
@@ -615,4 +617,5 @@ def effektivt_skjema(kurs, overstyringer=None, ekstrafelt=()) -> EffektivtSkjema
     adresse = tuple(_effektivt(REGISTER[n], {}) for n in ADRESSEFELT)      # laast: ingen overstyring kan endre dem
     return EffektivtSkjema(tuple(om_deg), blokk, bool(sensitive), adresse, fakturafelt(ORGANISASJON),
                            tuple(del_av_skjemaet(TIL_SLUTT)), sensitive,
-                           frozenset(n for n in INFOFELT if synlig(n)))
+                           nederstfelt=tuple(del_av_skjemaet(NEDERST)),
+                           info=frozenset(n for n in INFOFELT if synlig(n)))

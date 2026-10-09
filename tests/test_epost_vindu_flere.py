@@ -136,6 +136,24 @@ def test_vedlegg_til_flere(con):
     assert all("program.pdf" in f.read_text(encoding="utf-8", errors="replace") for f in _utboks()) and len(_utboks()) == 2
 
 
+
+def test_sendt_e_post_viser_vedlegget_og_signaturen_samlet(con):
+    """Camilla 05.10.2026: vedlegget skal kunne åpnes fra den sendte e-posten under Kommunikasjon, og tekst og signatur står
+    samlet i én boks."""
+    kid, a, b = _kurs(con)
+    k = _klient()
+    nokkel = _nokkel(k.post(f"/admin/kurs/{kid}/epost/vindu", data={"paamelding_id": [a, b]}).get_data(as_text=True))
+    k.post(f"/admin/kurs/{kid}/epost/vindu/send", content_type="multipart/form-data", data={
+        "skjemanokkel": nokkel, "paamelding_id": [a, b], "emne": "Program", "tekst": "Hei",
+        "signatur_html": "<p>Med vennlig hilsen</p>", "vedlegg": [(io.BytesIO(PDF), "program.pdf")]})
+    uid = db.koble(config.DB_STI).execute("SELECT id FROM admin_utsending WHERE kurs_id=? AND emne='Program'",
+                                          (kid,)).fetchone()["id"]
+    html = k.get(f"/admin/kurs/{kid}/epost/{uid}").get_data(as_text=True)
+    lenke = re.search(r'href="(/admin/kurs/%d/deltaker/\d+/epost/\d+/vedlegg/1)"[^>]*>📎 program.pdf' % kid, html)
+    assert lenke and "Signatur i denne e-posten" not in html
+    assert k.get(lenke.group(1)).data == PDF
+
+
 @pytest.mark.parametrize("navn,data,feil", [
     ("virus.exe", b"MZ" + b"\x00" * 50, "kan ikke legges ved"),
     ("side.html", b"<html></html>", "kan ikke legges ved"),

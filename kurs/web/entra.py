@@ -8,7 +8,7 @@ Lokal brukernavn/passord-innlogging beholdes som utviklingsmekanisme (demo) og s
 Flyt:
   1. /admin/logg-inn/entra        -> lager state, nonce og PKCE-verifier i sesjonen, sender brukeren til Microsoft
   2. /admin/logg-inn/entra/svar   -> kontrollerer state, bytter code mot tokens DIREKTE mot token-endepunktet (TLS +
-                                     client_secret + code_verifier), leser id_token, kontrollerer iss/aud/tid/exp/nonce,
+                                     sertifikat eller client_secret + code_verifier), leser id_token, kontrollerer iss/aud/tid/exp/nonce,
                                      finner rollen, henter/oppretter brukeren og logger inn.
 
 Hvorfor id_token ikke signaturvalideres her: tokenet mottas i direkte, autentisert TLS-kommunikasjon med Microsofts
@@ -34,6 +34,7 @@ import requests
 from flask import abort, flash, redirect, render_template, request, session, url_for
 
 from .. import config, db
+from ..integrasjoner import sertifikat
 
 logg = logging.getLogger("kurs.entra")
 
@@ -43,7 +44,7 @@ STATE_LEVETID_SEK = 10 * 60
 
 
 def aktiv() -> bool:
-    return bool(config.ENTRA_TENANT_ID and config.ENTRA_CLIENT_ID and config.ENTRA_CLIENT_SECRET)
+    return bool(config.ENTRA_TENANT_ID and config.ENTRA_CLIENT_ID and (config.ENTRA_SERTIFIKAT or config.ENTRA_CLIENT_SECRET))
 
 
 def _kart(tekst: str) -> dict:
@@ -145,14 +146,17 @@ def installer(app, con, logg_inn_admin) -> None:
         try:
             svar = requests.post(
                 f"{MYNDIGHET}/{config.ENTRA_TENANT_ID}/oauth2/v2.0/token",
-                data={"client_id": config.ENTRA_CLIENT_ID, "client_secret": config.ENTRA_CLIENT_SECRET,
+                data={"client_id": config.ENTRA_CLIENT_ID,
+                      **sertifikat.legitimasjon(config.ENTRA_TENANT_ID, config.ENTRA_CLIENT_ID,
+                                                sertifikat=config.ENTRA_SERTIFIKAT, passord=config.ENTRA_SERTIFIKAT_PASSORD,
+                                                hemmelighet=config.ENTRA_CLIENT_SECRET),
                       "grant_type": "authorization_code", "code": code, "redirect_uri": _redirect_uri(),
                       "code_verifier": ventet["verifier"], "scope": SCOPE},
                 timeout=20)
             svar.raise_for_status()
             claims = les_id_token(svar.json()["id_token"])
             kontroller_claims(claims, ventet.get("nonce", ""))
-        except (requests.RequestException, ValueError, KeyError, TypeError) as e:
+        except (requests.RequestException, ValueError, KeyError, TypeError) as e:   # Sertifikatfeil er en ValueError
             logg.warning("Entra-innlogging feilet: %s", type(e).__name__)   # aldri tokens/claims i loggen
             flash("Innloggingen med Microsoft kunne ikke bekreftes. Prøv igjen, eller kontakt IT.", "feil")
             return redirect(url_for("admin_login")), 403

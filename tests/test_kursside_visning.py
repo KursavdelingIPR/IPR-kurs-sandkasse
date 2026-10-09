@@ -12,7 +12,6 @@ import pytest
 from flask import render_template
 
 from kurs import deltakerside, sidelager
-from kurs.integrasjoner import sharepoint
 
 from kurssidehjelp import (IDAG, admin_klient, dokument, deltaker_klient, fast_dato, lag_deltaker, lag_kurs, ny_database, pdf, png, skriv_side, tekstblokk)
 
@@ -36,8 +35,6 @@ def _uten_kommentarer(css: str) -> str:
 def con(tmp_path, monkeypatch):
     c = ny_database(tmp_path, monkeypatch)
     fast_dato(monkeypatch)
-    monkeypatch.setattr(sharepoint, "DEMO_ROT", tmp_path / "sharepoint_demo")
-    deltakerside.nullstill_sp_cache()
     yield c
     c.close()
 
@@ -60,7 +57,7 @@ def _fyll(con, kid, **topp) -> int:
         {"id": "b_viktig01", "type": "viktig", "tittel": "Rombytte", "data": {"niva": "advarsel", "tekst": "Vi bytter rom.\n\nSe skjermen."}},
         {"id": "b_progr001", "type": "program", "tittel": "Program", "data": {"dager": dager}},
         {"id": "b_filer001", "type": "filer", "tittel": "Presentasjoner", "data": {"filer": [{"fil_id": pdf_id, "tittel": "Dag 1 – Innledning", "gruppe": None, "synlig_fra": None}],
-                                                                                    "sharepoint": False, "vis_kommende": True}},
+                                                                                    "vis_kommende": True}},
         {"id": "b_lenke001", "type": "lenker", "tittel": "Litteratur", "data": {"lenker": [
             {"tittel": "Kompendium", "url": "https://bibliotek.example.no/k", "tekst": "Kapittel 1", "nivaa": "obligatorisk", "kilde": None},
             {"tittel": "Artikkel", "url": "https://tidsskrift.example.no/a", "tekst": "", "nivaa": "anbefalt", "kilde": None}]}},
@@ -180,7 +177,7 @@ def _vis(con, kid, tilpass=None, *, forhandsvisning=False) -> str:
     side = sidelager.hent(con, kid)
     from kurs import sideinnhold as si
     v = deltakerside.bygg_visning(con, kurs, si.les(side["publisert"]), deltaker_id=None if forhandsvisning else did, idag=IDAG, forhandsvisning=forhandsvisning,
-                                  fil_url=lambda i: f"/f/{i}", sp_url=lambda n: None)
+                                  fil_url=lambda i: f"/f/{i}")
     v["min_side_url"] = "/min-side"
     if tilpass:
         tilpass(v)

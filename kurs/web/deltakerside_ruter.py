@@ -57,7 +57,6 @@ def installer(app, con, *, krever_deltaker, admin_okt_gyldig, idag, deltaker_ful
         v = deltakerside_modul.bygg_visning(
             con(), t.kurs, dok, deltaker_id=did, idag=idag(), forhandsvisning=False,
             fil_url=lambda fid: url_for("deltakerside_fil", kode=kode, fil_id=fid),
-            sp_url=lambda navn: url_for("materiell", kurs_id=t.kurs["id"], navn=navn),
             sist_publisert=t.side["publisert_tid"])
         v["min_side_url"] = url_for("min_side")          # oversikten «Mine kurs»
         v["person"] = minside.mine_opplysninger(con(), did, t.kurs["id"], full=deltaker_full())

@@ -9,7 +9,7 @@ Hva som skal følges med på, og hva man gjør når noe går galt. Utrulling: `D
 |---|---|---|
 | Morgenjobben | Avslutningskoden til `python -m kurs.daglig` (planlagt kjøring) og hendelsesloggen | Kode **0** = alt kjørt. Kode **1** = ett eller flere steg feilet; resten er likevel kjørt. Feilene står som `daglig_feil` (steg, kurs-id, feiltype) |
 | Uavklarte operasjoner | Admin → Oversikt → «Uavklarte operasjoner» → «Se og avklar» | Tallet skal være 0. Se avsnitt 3 |
-| Materiell som mangler | Admin → Oversikt | Purres automatisk; admin får eskalering etter fristen |
+| E-poster som venter | Admin → Klar til sending (tallet står også i menyen og på Oversikten) | Se gjennom og velg Send eller Ikke send. Se 2g |
 | Henvendelser «til adm» | Admin → Kunnskapsbase (bare når «Spør oss» er slått på, se 2e) | Besvar, og gjør gode svar om til godkjente svar. Med «Spør oss» av kommer det ingen nye henvendelser |
 
 ## 2. Morgenjobben
@@ -24,6 +24,84 @@ Hva som skal følges med på, og hva man gjør når noe går galt. Utrulling: `D
 - Steg 9 («Min side») tømmer gruppelistene (tabeller med navn) på Min side `KURSSIDE_TOM_TABELLER_ETTER_DAGER` (30) dager etter siste kursdag, i utkast,
   publisert side og alle lagrede versjoner. Idempotent: en tabell uten rader røres ikke.
 
+## 2g. Klar til sending – godkjenne e-poster før de sendes
+
+- Fra 05.10.2026 (Camilla): **bekreftelse og venteliste** sendes automatisk (fakturaen venter på bekreftelsen). Alle andre
+  automatiske e-poster – avlysning, påminnelsene uka før og dagen før, kursbevis, evaluering og kvittering til
+  bedrift – legges i **Admin → Klar til sending** og sendes først når en administrator trykker **Send**.
+  Interne e-poster (til kurspostboksen), innloggingslenker, avslag og e-post du skriver selv går som før.
+- Listen er gruppert per kurs og type. Klikk på emnet for å se e-posten. **Send alle** sender gruppen, **Ikke send** gjør at
+  e-posten aldri sendes (heller ikke av morgenjobben senere).
+- En e-post som ikke lenger gir mening, kan ikke sendes og får status **Utgått**: deltakeren har ikke lenger plass, kurset er
+  gjenåpnet, eller fristen er passert (påminnelsen dagen før kan sendes til og med dagen før kursdagen,
+  uka før til og med dagen før første kursdag, evalueringen i 14 dager etter siste kursdag). Morgenjobben (steg 11) merker dem.
+- Personlige lenker (Min side, bedriftens kvitteringslenke) lagres aldri i køen: de vises som
+  «skjult» og lages i det e-posten sendes. Innholdet i køen slettes når e-posten er behandlet; det som ble sendt, ligger i
+  e-posthistorikken som før.
+- Kursbeviset lages (og vises på Min side) når kurset er avsluttet; det er bare e-posten om at det er klart som venter.
+- Slå av godkjenningen (alt sendes automatisk som før): `GODKJENN_EPOSTER=0`.
+
+## 2h. Mulig feil i påmeldinger (datakontrollen)
+
+- Fra 07.10.2026 (Camilla): systemet sier fra om opplysninger som ser ut som skrivefeil. Ingenting stoppes eller rettes
+  automatisk – det er bare forslag.
+- **I påmeldingsskjemaet:** skriver noen f.eks. `kari@gmal.com` eller `kari@hotmail.no`, kommer «Mente du kari@gmail.com?»
+  under e-postfeltet med knappen **Ja, bruk den**. Deltakeren kan også sende adressen slik den er. (Det samme i
+  bedriftspåmeldingen og når administrator legger til eller retter en deltaker.)
+- **For administrator:** kortet **Mulig feil i påmeldinger** på Oversikten (antall) med lenken **Se og rett →** til en liste per
+  kurs, et gult merke **Sjekk opplysningene** ved navnet i deltakerlisten og boksen **Ser dette riktig ut?** øverst i
+  deltakervinduet. Bare kurs som ikke er avsluttet eller avlyst, og bare deltakere med plass eller på venteliste.
+- Kontrollene: e-post (kjente skrivefeil som gmal.com, gmial.com, hotmail.no, gmail.con, og adresser som mangler noe),
+  navn (bare små eller bare store bokstaver, tall, e-postadresse i navnet, likt fornavn og etternavn), telefon (norske nummer
+  skal ha 8 siffer; +47 telles ikke), postnummer (4 siffer) og mulig dublett (samme navn eller telefonnummer to ganger på
+  samme kurs, med ulike e-postadresser).
+- Er opplysningen feil: rett den i deltakervinduet som vanlig. Er den riktig: trykk **Det stemmer** – da markeres akkurat den
+  verdien ikke igjen (endres den senere, kontrolleres den på nytt). Brukere med lesetilgang ser listen, men kan ikke merke.
+- Domenelistene (vanlige e-posttjenester og kjente skrivefeil) står øverst i `kurs/datakontroll.py`; skjemaet bruker de samme.
+
+## 2h1. Evalueringen
+
+- Ny utgave 09.10.2026 (Camilla, etter Forms-skjemaet deres). Alt ligger i fanen **Evaluering** på kurset.
+- **Når:** dagen etter siste kursdag (standard), **dagen etter hver samling**, eller ikke i det hele tatt. Deltakerne får en personlig
+  lenke på e-post (godkjennes først i Klar til sending) og kan svare én gang per runde.
+- **Lenke du kan dele** og **QR-kode** (til skjermen den siste dagen): alle som har lenken, kan svare. Den kan ikke hindre at noen svarer
+  to ganger. **Lag ny delt lenke** gjør de gamle lenkene og QR-kodene ugyldige. **Steng evalueringen** stopper alle svar.
+- **Spørsmålene:** et nytt kurs har standardsettet (11 spørsmål fra Forms-skjemaet, skala 1–6). Legg til, endre, flytt og slett under
+  «Innledning og spørsmål». «+ Har du planer om å delta på EFT 2. år?» legger til det ferdige spørsmålet (legg inn lenken under
+  «Endre»). Har noen svart, kan et spørsmål bare få ny tekst. Spørsmålene følger med når kurset dupliseres.
+- **Svar:** antall, svarprosent, gjennomsnittstid, hvor lenge evalueringen har vært åpen, gjennomsnitt og søyler per nivå, valg i prosent
+  og alle fritekstene. Per samling eller alle samlinger samlet. **Last ned (Excel)** og **Skriv ut**. Svarene er anonyme.
+
+## 2h2. Påmeldingsbekreftelsen per kurs
+
+- Fra 09.10.2026 (Camilla: «veldig mange av kursene er forskjellige, med ulike tekster, ulike regler»): på hvert kurs, fanen
+  **Kommunikasjon → Påmeldingsbekreftelse**, ser du teksten (emne, innledning, avslutning) og hele e-posten slik deltakerne får den
+  for akkurat det kurset: kursdagene, stedet, prisen og fakturaen fylles inn av systemet, med en oppdiktet deltaker. Ingenting sendes.
+- Et nytt kurs har fellesteksten fra **E-postmaler → Bekreftelse på plass** som utkast. Endrer du teksten på kurset og trykker
+  **Lagre for dette kurset**, gjelder den bare det kurset. **Bruk fellesteksten igjen** fjerner kursets egen tekst.
+- Felt du ikke har endret, følger fellesteksten (også om den endres senere). Når et kurs dupliseres, følger kursets tekst med.
+- Se over teksten før kurset åpnes for påmelding.
+
+## 2i. Rabattpriser
+
+- Fra 09.10.2026 (Camilla, plan i OneDrive: Plan_rabattpriser_2026-10-09.md). Rabattene velges **per kurs** under **Oppsett → Priser og
+  rabatter**: NIEFT-medlem (forslag 30 %), IPR-terapeut (50 %), student (50 %) og Psyflix-medlem (25 %; 20 % på Modul 1). Kryss av for
+  rabattene kurset gir, og skriv prosenten. Prisen er kursets pris minus rabatten, avrundet til hele kroner. Endringer gjelder nye
+  påmeldinger; de som er påmeldt, beholder prosenten de fikk. Når et kurs dupliseres, følger rabattene med.
+- **Én rabatt per person.** I påmeldingsskjemaet velger deltakeren pris. I bedriftspåmeldingen velges prisen per deltaker. Med «Legg til
+  deltaker» og i deltakervinduet velger administrator (da regnes prisen som godkjent).
+- **Må godkjennes** (standard for alle fire): påmeldingen får et gult merke («Sjekk studentbevis», «Sjekk NIEFT-medlemskap» osv.), og
+  **fakturaen venter** til dere har trykket **Godkjent** (rabattprisen) eller **Ikke godkjent** (ordinær pris) – i deltakervinduet eller på
+  siden **Rabatter som venter** (kortet på Oversikten). Fakturaen lages med en gang etter avgjørelsen, etter den vanlige fakturaplanen.
+  Deltakeren får ikke beskjed automatisk; send en e-post fra deltakervinduet ved behov.
+  - **Student:** studentbeviset lastes opp i skjemaet (bilde eller PDF, maks 10 MB). Det slettes når rabatten er avgjort.
+  - **NIEFT:** deltakeren bruker e-posten fra NIEFT-innmeldingen; sjekk den mot medlemsoversikten (ellers navnet).
+  - **Psyflix:** deltakeren oppgir organisasjonen avtalen går gjennom, og samtykker til sjekken. **Kopier liste** på siden Rabatter som
+    venter gir teksten til én e-post til Psyflix. Har personen fått Psyflix-rabatt hos IPR de siste 12 månedene, står det et varsel.
+- Fjerner dere avkrysningen for «Må godkjennes», faktureres rabattprisen med en gang.
+- Prisen kan endres i deltakervinduet til fakturaen er laget. Økonomi viser inntekten som summen av prisene, og hvor mye som er gitt i rabatt.
+- Å melde på flere personer og betale for alle (privatperson) kommer sammen med kortbetaling.
+
 ## 2b. Min side – slik lager du den
 
 Hvert kurs kan ha en **Min side**: siden deltakerne ser etter innlogging eller via sin personlige lenke (program, presentasjoner, gruppeinndeling, litteratur, praktisk
@@ -33,9 +111,7 @@ informasjon, innsjekk og deltakerens egne opplysninger fra påmeldingen). Den re
 1. Oversikt → kurset → fanen **Min side** (eller knappen «Min side» i kurslisten). En ny side starter tom: velg «Start fra mal» for en ferdig standardside.
 2. Bygg siden av blokker (tekst, viktig, program, filer, lenker, gruppetabell, kontakt, bilde). Utkastet lagres av seg selv. Deltakerne ser ingenting før du trykker **Publiser …**.
 3. Publiseringen viser hva som endres og kjører en kontroll (bilder uten alternativ tekst, en deltakers e-postadresse på siden). Røde feil må rettes.
-4. **Ta siden ned** midlertidig: Endre ved «Åpen til» → fjern haken ved «Siden er åpen for deltakerne». **Når siden er tatt ned eller stengt, er også kursholders
-   SharePoint-filer stengt** for deltakerne (både lenkene under Mine kurs og adressen `/materiell/...`), ikke bare det som ligger på selve siden. Kurs uten publisert
-   Min side er som før.
+4. **Ta siden ned** midlertidig: Endre ved «Åpen til» → fjern haken ved «Siden er åpen for deltakerne». Kurs uten publisert Min side er som før.
    **Hvor lenge siden er åpen etter kurset:** standard er **180 dager** etter siste kursdag (`KURSSIDE_ETTERTILGANG_DAGER`), men hvert kurs kan ha sin egen tid.
    Endre ved «Åpen til» → «Hvor lenge er siden åpen etter siste kursdag?» og velg *Standard*, *Antall dager* (helt tall fra 1 til 3650), *Ingen tidsbegrensning*
    (for utdanninger og kurs som trenger tilgang lenger; siden er da åpen så lenge kurset finnes) eller *Til en bestemt dato*. Dialogen viser datoen som følger
@@ -47,7 +123,7 @@ informasjon, innsjekk og deltakerens egne opplysninger fra påmeldingen). Den re
 5. Deltakerne varsles ikke automatisk. Gi beskjed via fanen Kommunikasjon.
 
 Hvem ser siden: bare deltakere med **bekreftet** påmelding på akkurat det kurset. Ventelisten, avmeldte, avslåtte og andre kurs får en nøytral «finner ikke siden»-beskjed.
-Kursholders filer i SharePoint (kursmappen, «Presentasjoner») kan vises på siden under «Fra kursholder».
+Presentasjoner og dokumenter legges på siden i blokken Filer (Camilla 06.10.2026: kursholder-lenken og SharePoint er tatt bort; filene til deltakerne ligger i kurssystemet).
 En kort brukerveiledning: `dokumentasjon/Min side - slik gjør du.md`. Innstillinger og grenser: `DEPLOYMENT.md` (`KURSSIDE_*`).
 
 **Personvern:** alle på kurset ser siden. Skriv aldri e-postadresser, private telefonnumre eller helseopplysninger om deltakere. Gruppelister har bare fornavn og forbokstav,
@@ -269,7 +345,7 @@ Microsoft eller Visma), sendes/faktureres den **aldri automatisk på nytt** – 
 **E-post:** Sjekk «Sendte elementer» i kurs-postboksen.
 - Finnes den → «Er sendt».
 - Finnes den ikke → «Ble ikke sendt». Systemet prøver igjen neste gang samme utsending kjøres (morgenjobben for
-  påminnelser, bekreftelser og purringer; knappen på kurset for avlysninger). Kursbevisvarsler og manuelle e-poster
+  påminnelser og bekreftelser; knappen på kurset for avlysninger). Kursbevisvarsler og manuelle e-poster
   prøves ikke automatisk – send da en e-post manuelt.
 
 **Faktura:** Søk opp kunden i Visma.
@@ -284,7 +360,6 @@ igjen – de dukker ikke opp her. Se avsnitt 6.
 
 | Hendelse | Hva du gjør |
 |---|---|
-| «Kurset er opprettet … SharePoint-mappen kunne ikke lages» | Kurset er lagret. Trykk «Lag SharePoint-mappe» på kursets oppsett-side når SharePoint svarer. Opplasting fra kursholder lager mappen selv ved behov |
 | Avlysning: «N deltaker(e) har ikke fått avlysningsvarselet» | Trykk «Send avlysningsvarsel til dem» på kurset når e-post virker. Ingen får det to ganger |
 | Manuell e-post: «N mottaker(e) fikk ikke e-posten» | Send samme utsendelse på nytt senere – de som fikk den, får den ikke igjen |
 | «Endringene ble ikke lagret: noen andre har endret dette …» | Noen andre (eller morgenjobben) lagret mens du hadde siden åpen. Siden viser nå de nyeste verdiene – gjør endringen på nytt |
@@ -410,14 +485,14 @@ igjen – de dukker ikke opp her. Se avsnitt 6.
 - Editoren for Min side og deltakersiden er prøvd i Edge/Chromium. **Firefox og Safari/iOS er ikke prøvd** (særlig rik tekst, dra med finger, `<dialog>`, opplasting fra telefon).
 - **PostgreSQL er ikke kjørt** mot migreringene (`kursside`, `min_side_lenke`), filopplasting eller innsjekk: kjør migreringene og prøv filtrafikk, innsjekk og den personlige lenken mot Azure-testbasen før reell bruk.
 - Opplysningene i kortet «Mine opplysninger» kan deltakeren ikke redigere selv (de rettes av administrasjonen), og svar på kursets egne spørsmål i påmeldingsskjemaet vises ikke der.
-- Filene på Min side ligger i databasen (base64): 15 MB per dokument, 5 MB per bilde, 100 MB og 200 filer per kurs. Store presentasjoner kan ligge i SharePoint («Fra kursholder»).
+- Filene på Min side ligger i databasen (base64): 15 MB per dokument, 5 MB per bilde, 100 MB og 200 filer per kurs. Store presentasjoner bør lagres som PDF; filboks i Azure (Blob Storage) for mange store filer er planlagt før drift.
 - «Åpen til»-datoen og «i dag» bruker serverens dato (se 2d). Innsjekk-begrensningene står i 2d.
 
 ## 6. Nøkler og tokens
 
 | Hva | Når | Slik |
 |---|---|---|
-| `HEMMELIG_NOKKEL` | Ved mistanke om lekkasje | Ny verdi i Key Vault → restart. Alle logges ut; gamle opplastings-/innloggingslenker og personlige lenker til Min side i sendte e-poster slutter å virke (kursholdere får ny lenke ved neste purring; deltakerne logger inn med e-post) |
+| `HEMMELIG_NOKKEL` | Ved mistanke om lekkasje | Ny verdi i Key Vault → restart. Alle logges ut; gamle innloggingslenker og personlige lenker til Min side i sendte e-poster slutter å virke (deltakerne logger inn med e-post) |
 | Client secrets (Entra, Graph, Zoom, Visma) | Før utløp (Entra: maks 24 mnd) | Ny hemmelighet i Key Vault → restart → slett den gamle |
 | Visma-tilgang | Ved «invalid_grant» / fakturaer feiler med `IkkeSendt` | Hent nytt refresh-token (`AZURE-SETUP.md` avsnitt 7), legg det i Key Vault som `VISMA_REFRESH_TOKEN`, og slett det lagrede: `DELETE FROM integrasjon_token WHERE navn='visma_refresh_token';` Fakturaene prøves automatisk igjen neste kjøring |
 
@@ -429,7 +504,7 @@ igjen – de dukker ikke opp her. Se avsnitt 6.
   tilgangsstyring og slett den når den ikke trengs.
 - Etter en gjenoppretting: gjenta «Retten til sletting» for personer som ble slettet etter at kopien ble tatt (ellers er de
   tilbake). Hold en liste over slettingene utenfor databasen – se `GDPR.md`, «Sikkerhetskopier».
-- Kursbevis ligger i databasen og er med i backupen. Kursmateriell ligger i SharePoint (Microsoft sin oppbevaring).
+- Kursbevis ligger i databasen og er med i backupen. Filene på Min side ligger også i databasen.
 - Test gjenoppretting minst én gang før produksjon, og etter større endringer.
 
 ## 8. Tester

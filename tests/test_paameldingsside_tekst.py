@@ -308,7 +308,7 @@ def test_offentlig_post_feil_beholder_egen_intro_og_knapp(con):
     assert r.status_code == 400 and INTRO_P + "Egen intro</p>" in html and "<button>Send inn</button>" in html
     db.meld_paa(con, kid, epost="finnes@eksempel.no", fornavn="Finnes", etternavn="Test")
     con.commit()
-    r = k.post("/kurs/T1", data={"fornavn": "Finnes", "etternavn": "Test", "epost": "finnes@eksempel.no", "samtykke": "on", **ADRESSE})
+    r = k.post("/kurs/T1", data={"fornavn": "Finnes", "etternavn": "Test", "epost": "finnes@eksempel.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     html = r.get_data(as_text=True)
     assert r.status_code == 400 and "allerede påmeldt" in html
     assert INTRO_P + "Egen intro</p>" in html and "<button>Send inn</button>" in html

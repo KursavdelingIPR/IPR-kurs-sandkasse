@@ -37,7 +37,7 @@ def _kurs(con, kode="G1", **kw):
 
 BASIS = {"kontakt_navn": "Kontakt Person", "kontakt_epost": "kontakt@eksempel.no", "firmanavn": "Eksempel AS",
          "org_nr": "999900003", "faktura_ref": "REF-1", "faktura_adresse": "Eksempelveien 1", "faktura_postnr": "0000",
-         "faktura_sted": "Eksempelby", "samtykke": "on", "deltaker_navn": "Deltaker En",
+         "faktura_sted": "Eksempelby", "samtykke": "on", "samtykke_lagring": "on", "deltaker_navn": "Deltaker En",
          "deltaker_epost": "d1@eksempel.no"}
 
 

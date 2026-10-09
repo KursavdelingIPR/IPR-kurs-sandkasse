@@ -56,18 +56,6 @@
   {% endfor %}
 </ul>
 {% endfor %}
-{% if d.sharepoint %}
-<h3 class="dp-gruppe">Fra kursholder</h3>
-{% if d.sharepoint.ok %}
-<ul class="dp-filer">
-  {% for f in d.sharepoint.filer %}
-  <li class="dp-fil"><span class="dp-filtype dp-filtype-fil" aria-hidden="true">FIL</span>
-    <span class="dp-fil-tekst"><span class="dp-fil-tittel">{{ f.navn }}</span></span>
-    {% if f.url %}<a class="knapp sekundar dp-last-ned" href="{{ f.url }}" aria-label="Last ned {{ f.navn }}">{{ ikon('last-ned') }}<span class="dp-tk">Last ned</span></a>{% endif %}</li>
-  {% endfor %}
-</ul>
-{% else %}<p class="dp-feil-tekst">Kunne ikke hente filene fra kursholder akkurat nå. Prøv igjen senere.</p>{% endif %}
-{% endif %}
 {% endmacro %}
 
 {% macro lenker(d) %}

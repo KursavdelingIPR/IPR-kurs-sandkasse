@@ -66,6 +66,8 @@ async function hovedscenario(s) {
   await s.gaa(side(D.i_dag));
 
   // ---------- grunnbildet
+  // under tung last (hele testsuiten i fire deler) kan målingen komme før siden er ferdig lagt opp: vent til radene har fått høyden
+  await ventTil(s, `Array.from(document.querySelectorAll('[data-rad]')).every((x) => x.getBoundingClientRect().height >= 56)`);
   let r = await rader(s);
   sjekk("listen har alle deltakerne med plass", r.length === N, r.length);
   sjekk("listen er alfabetisk (norsk)", JSON.stringify(r.map((x) => x.navn)) === JSON.stringify(D.navn_sortert), r.map((x) => x.navn).join(","));
@@ -237,7 +239,7 @@ async function hovedscenario(s) {
     (await tilstand(s)).antall === foerAlle && (await rad(s, nina)).til === "0", JSON.stringify(await sporsmal(s)));
   await confirmSpion(s, true);
   await s.klikk("[data-oppmote-alle=merk_alle]");
-  await ventTil(s, `document.getElementById('opp-antall').textContent === '${N}'`);
+  await ventTil(s, `(document.getElementById('opp-antall') || {}).textContent === '${N}'`);
   t = await tilstand(s);
   sjekk("«Merk alle til stede» merker alle", (await teller(s)) === `${N} av ${N} til stede` && t.antall === N && (await rader(s)).every((y) => y.til === "1"), await teller(s));
   // Ola hadde kode-registrering fra før (den overskrives aldri); de andre var uregistrert nå, og er merket manuelt
@@ -255,7 +257,7 @@ async function hovedscenario(s) {
   sjekk("«Fjern alle merkede» spør først, og avbrutt bekreftelse endrer ingenting", (await sporsmal(s)).length === 1 && /Fjerne oppmøtet for/.test((await sporsmal(s))[0]) && (await tilstand(s)).antall === N);
   await confirmSpion(s, true);
   await s.klikk("[data-oppmote-alle=fjern_alle]");
-  await ventTil(s, `document.getElementById('opp-antall').textContent === '0'`);
+  await ventTil(s, `(document.getElementById('opp-antall') || {}).textContent === '0'`);
   t = await tilstand(s);
   sjekk("«Fjern alle merkede» fjerner alle", (await teller(s)) === `0 av ${N} til stede` && t.antall === 0 && (await rader(s)).every((y) => y.til === "0" && y.info === ""), await teller(s));
   await s.klikk("[data-oppmote-alle=fjern_alle]");
@@ -275,6 +277,8 @@ async function hovedscenario(s) {
   // ---------- 390 px: mobil
   await s.storrelse(390, 844, true);
   await s.gaa(side(D.i_dag));
+  // under tung last (hele testsuiten i fire deler) kan målingen komme før siden er ferdig lagt opp: vent til radene har fått høyden
+  await ventTil(s, `Array.from(document.querySelectorAll('[data-rad]')).every((x) => x.getBoundingClientRect().height >= 56)`);
   r = await rader(s);
   sjekk("mobil: alle rader er minst 56 px høye", r.length === N && r.every((y) => y.h >= 56), Math.min(...r.map((y) => y.h)));
   const bredde = await s.js(`({ innhold: document.documentElement.scrollWidth, vindu: window.innerWidth })`);
@@ -341,7 +345,7 @@ async function hovedscenario(s) {
     (await teller(s)) === `0 av ${N} til stede`, await teller(s));
   await bilde(s, "390-uten-js-bekreft", false);
   await s.js(`document.querySelector('#bekreft button').click()`);
-  await ventTil(s, `document.getElementById('opp-antall').textContent === '${N}' && location.search === ''`);
+  await ventTil(s, `(document.getElementById('opp-antall') || {}).textContent === '${N}' && location.search === ''`);
   await vent(300);
   sjekk("uten JavaScript: bekreftet «Merk alle» merker alle, med melding fra tjeneren", (await teller(s)) === `${N} av ${N} til stede` && /merket som til stede/.test(await s.js(`document.querySelector('main .flash') ? document.querySelector('main .flash').textContent : ''`)),
     await teller(s));
@@ -349,7 +353,7 @@ async function hovedscenario(s) {
   await ventTil(s, `location.search === '?bekreft=fjern_alle'`);
   await vent(300);
   await s.js(`document.querySelector('#bekreft button').click()`);
-  await ventTil(s, `document.getElementById('opp-antall').textContent === '0' && location.search === ''`);
+  await ventTil(s, `(document.getElementById('opp-antall') || {}).textContent === '0' && location.search === ''`);
   sjekk("uten JavaScript: «Fjern alle» går også via bekreftelsen", (await teller(s)) === `0 av ${N} til stede`, await teller(s));
   // Zoom uten JavaScript: dag i går har en Zoom-registrering (Mohammed)
   const mohammed = D.pids[D.navn.indexOf("Mohammed Al-Farouk")];

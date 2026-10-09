@@ -1,8 +1,12 @@
 <!doctype html>
 <html lang="no"><head><meta charset="utf-8"><title>Kursbevis – {{ navn }}</title>
+{#- Kursbeviset (A4). Med design (kurs/kursbevisdesign.py): logo, illustrasjon ved overskriften, designets farge og skrift og
+    signaturen. Uten design: som før. Teksten i midten er standardteksten eller kursets egen tekst (innhold). -#}
+{%- set d = design if design is defined else none %}
 <style>
-  @page { size: A4; margin: 2.5cm; }
-  body { font-family: Georgia, "Times New Roman", serif; color: #1d2a33; max-width: 680px; margin: 3rem auto; padding: 0 1rem; }
+  /* Rammen står 0,8 cm fra arkkanten, som i Word-malene (sidekantlinjen der står ca. 0,85 cm inn; Camilla 06.10.2026) */
+  @page { size: A4; margin: 0.8cm; }
+  body { font-family: {{ d.skrift if d else 'Georgia, "Times New Roman", serif' }}; color: #1d2a33; max-width: 680px; margin: 3rem auto; padding: 0 1rem; }
   .ramme { border: 2px solid #1f5c73; padding: 3rem 2.5rem; text-align: center; }
   .liten { font-family: system-ui, sans-serif; letter-spacing: .15em; text-transform: uppercase; font-size: .8rem; color: #1f5c73; }
   h1 { font-size: 2.4rem; margin: .6rem 0 2rem; font-weight: normal; }
@@ -10,35 +14,72 @@
   table { margin: 2rem auto 0; font-family: system-ui, sans-serif; font-size: .9rem; text-align: left; border-collapse: collapse; }
   td { padding: .25rem 1rem; }
   .signatur { margin-top: 3.5rem; font-family: system-ui, sans-serif; font-size: .85rem; }
-  @media print { body { margin: 0; } }
+  /* På papir og PDF fyller rammen hele A4-arket innenfor kanten, med innholdet midt på (Camilla 06.10.2026: beviset så «firkantet» ut). */
+  .ramme { box-sizing: border-box; }
+  .navn { align-self: center; }
+  @media print { body { margin: 0; max-width: none; } .ramme { min-height: 28cm; padding: 2cm 2.2cm; display: flex; flex-direction: column; justify-content: center; } }
 {#- Rammen (kursbevismal.RAMMER): en dobbel linje i kursets farge, eller ingen. Standard (blå) er som før. -#}
 {%- if ramme_farge is defined and ramme_farge != "#1f5c73" %}
   .ramme { {% if ramme_farge %}border: 6px double {{ ramme_farge }};{% else %}border: 0;{% endif %} }
 {%- endif %}
   .egen { text-align: left; font-family: system-ui, "Segoe UI", Arial, sans-serif; }
   .egen img { max-width: 100%; height: auto; }
+{%- if d %}
+  /* Designet: logo øverst, illustrasjonen ved overskriften, overskriften i designets farge, signaturen nederst */
+  .logo { margin: 0 0 1.4rem; } .logo img { max-height: 64px; max-width: 70%; }
+  .figurer { display: flex; align-items: center; justify-content: center; gap: 1.6rem; margin: 0 0 1.2rem; }
+  .figurer img { height: 120px; width: auto; }
+  .figurpar { position: relative; max-width: 560px; margin: 0 auto 1.2rem; align-self: center; width: 100%; }
+  .figurpar img { width: 100%; height: auto; display: block; }
+  .figurpar .midt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  h1.designtittel { color: {{ d.farge }}; margin: 0; }
+  .figurer h1.designtittel, .figurpar h1.designtittel { font-size: 2.2rem; }
+  .signatur img { max-height: 70px; max-width: 240px; display: block; margin: 0 auto -.4rem; }
+{%- endif %}
 {%- if forhandsvisning is defined and forhandsvisning %}
-  html { background: #dfe5e8; } body { background: #fff; margin: 1.5rem auto; padding: 1.5rem; box-shadow: 0 2px 14px rgba(0,0,0,.18); }
-  @media print { html { background: none; } body { box-shadow: none; margin: 0; padding: 0; } }
+  /* Forhåndsvisningen viser et A4-ark (21 × 29,7 cm) med rammen 0,8 cm fra kanten, slik det blir på papir. */
+  html { background: #dfe5e8; }
+  body { background: #fff; width: 21cm; max-width: none; min-height: 29.7cm; margin: 1.5rem auto; padding: 0.8cm; box-sizing: border-box;
+         box-shadow: 0 2px 14px rgba(0,0,0,.18); }
+  .ramme { min-height: 28cm; padding: 2cm 2.2cm; display: flex; flex-direction: column; justify-content: center; }
+  @media print { html { background: none; } body { width: auto; min-height: 0; box-shadow: none; margin: 0; padding: 0; } }
 {%- endif %}
 </style></head>
-<body><div class="ramme">
-{%- if innhold is defined and innhold is not none %}
-<div class="egen">{{ innhold | safe }}</div>
-{%- else %}
-  <div class="liten">Institutt for Psykologisk Rådgivning</div>
-  <h1>Kursbevis</h1>
+{%- macro standardtekst() %}
   <p>Dette bekrefter at</p>
   <p class="navn">{{ navn }}</p>
   <p>{% if samlinger %}har deltatt på {{ samlinger|i_setning }} i{% else %}har gjennomført{% endif %}</p>
   <p style="font-size:1.3rem"><strong>{{ kurs.navn }}</strong></p>
   <table>
     {% if samlinger %}<tr><td>Samlinger</td><td>{{ samlinger }} (av kursets {{ antall_samlinger }})</td></tr>{% endif %}
-    <tr><td>Kursdager</td><td>{{ dager | join(', ') }}</td></tr>
+    <tr><td>Kursdager</td><td>{{ dager_tekst if dager_tekst is defined else dager | join(', ') }}</td></tr>
     <tr><td>Timer</td><td>{{ '%g' % timer }}</td></tr>
     {% if kurs.sted %}<tr><td>Sted</td><td>{{ kurs.sted }}</td></tr>{% endif %}
     {% if lop_timer is not none %}<tr><td>Akkumulert i {{ kurs.spesialistlop }}-løpet</td><td>{{ '%g' % lop_timer }} timer</td></tr>{% endif %}
   </table>
+{%- endmacro %}
+<body><div class="ramme">
+{%- if d %}
+  {% if d.logo %}<div class="logo"><img src="{{ d.logo }}" alt="{{ d.logo_alt }}"></div>{% endif %}
+  {%- set tittel %}<h1 class="designtittel">{{ d.tittel }}</h1>{% endset %}
+  {%- if d.illustrasjon | length == 2 %}
+  <div class="figurer"><img src="{{ d.illustrasjon[0] }}" alt="">{{ tittel }}<img src="{{ d.illustrasjon[1] }}" alt=""></div>
+  {%- elif d.illustrasjon | length == 1 %}
+  <div class="figurpar"><img src="{{ d.illustrasjon[0] }}" alt=""><div class="midt">{{ tittel }}</div></div>
+  {%- else %}
+  <div style="margin-bottom:1.6rem">{{ tittel }}</div>
+  {%- endif %}
+  {%- if innhold is defined and innhold is not none %}
+  <div class="egen">{{ innhold | safe }}</div>
+  {%- else %}{{ standardtekst() }}{% endif %}
+  <div class="signatur">{% if d.signatur %}<img src="{{ d.signatur }}" alt="Signatur">{% endif %}______________________________<br>
+    {%- if d.signatur_navn %}{{ d.signatur_navn }}<br>{% endif %}{{ d.signatur_tittel or ('' if d.signatur_navn else 'Kursansvarlig, IPR') }}</div>
+{%- elif innhold is defined and innhold is not none %}
+<div class="egen">{{ innhold | safe }}</div>
+{%- else %}
+  <div class="liten">Institutt for Psykologisk Rådgivning</div>
+  <h1>Kursbevis</h1>
+  {{ standardtekst() }}
   <div class="signatur">______________________________<br>Kursansvarlig, IPR</div>
 {%- endif %}
 </div></body></html>

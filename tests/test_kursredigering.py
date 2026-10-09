@@ -68,21 +68,6 @@ def test_type_fysisk_nullstiller_zoom_felt(con):
     assert (rad["type"], rad["zoom_url"], rad["zoom_id"], rad["zoom_pw"]) == ("fysisk", None, None, None)
 
 
-def test_kursholder_endring_synker_ikke_leverte_materiellkrav(con):
-    kid = _kurs(con, kursholder_epost="gammel@ipr.no")
-    con.execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
-               (kid, "Gammel", "gammel@ipr.no", date.today().isoformat()))
-    con.execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist, levert_ts) "
-               "VALUES (?,?,?,?,'2020-01-01')", (kid, "Gammel", "gammel@ipr.no", date.today().isoformat()))
-    con.commit()
-    klient = _klient()
-    _logg_inn(klient)
-    klient.post(f"/admin/kurs/{kid}/oppsett", data=_oppsett_data(kursholder_epost="ny@ipr.no"))
-    fersk = _fersk(con)
-    assert fersk.execute("SELECT ansvarlig_epost FROM materiell_krav WHERE levert_ts IS NULL").fetchone()[0] == "ny@ipr.no"
-    assert fersk.execute("SELECT ansvarlig_epost FROM materiell_krav WHERE levert_ts IS NOT NULL").fetchone()[0] == "gammel@ipr.no"
-
-
 # ---------------- laasing av pris/fakturering ----------------
 
 def test_pris_fakturering_redigerbart_for_faktura(con):
@@ -193,7 +178,7 @@ def test_paamelding_stoppes_etter_frist_via_web(con):
     con.execute("UPDATE kurs SET paameldingsfrist=? WHERE id=?", ((date.today() - timedelta(days=1)).isoformat(), kid))
     con.commit()
     klient = _klient()
-    r = klient.post("/kurs/WEB1", data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "samtykke": "on", **ADRESSE,
+    r = klient.post("/kurs/WEB1", data={"fornavn": "A", "etternavn": "Test", "epost": "a@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE,
                                         "betaler": "person"})
     assert r.status_code == 400
     assert "frist" in r.get_data(as_text=True).lower()
@@ -276,16 +261,6 @@ def test_avlyst_kurs_faar_ingen_innkallinger_eller_nytt_zoom(con):
     daglig.kjor(Kjoring(con, idag=date.today()))
     assert not con.execute("SELECT 1 FROM utsending_logg WHERE type='dagfor'").fetchone()
     assert con.execute("SELECT zoom_url FROM kurs WHERE id=?", (kid,)).fetchone()["zoom_url"] is None
-
-
-def test_avlyst_kurs_faar_ingen_materiellpurring(con):
-    kid = _kurs(con)
-    con.execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
-               (kid, "Holder", "holder@ipr.no", date.today().isoformat()))
-    con.execute("UPDATE kurs SET status='avlyst' WHERE id=?", (kid,))
-    con.commit()
-    daglig._purring(Kjoring(con, idag=date.today()))
-    assert not con.execute("SELECT 1 FROM utsending_logg WHERE mottaker='holder@ipr.no'").fetchone()
 
 
 def test_avlyst_kurs_rykker_ikke_opp_venteliste_ved_kapasitetsokning(con):
@@ -380,16 +355,13 @@ def _ny_kurs_data(**over):
 
 
 @pytest.mark.parametrize("verdi", ["-1", "181", "999"])
-def test_ny_kurs_rute_avviser_ugyldig_faktura_dager_for_uten_kurs_eller_sharepoint_mappe(con, monkeypatch, verdi):
-    from kurs.integrasjoner import sharepoint
-    kall = []
-    monkeypatch.setattr(sharepoint, "opprett_kursmappe", lambda kode: kall.append(kode) or f"Kurs/{kode}")
+def test_ny_kurs_rute_avviser_ugyldig_faktura_dager_for_uten_kurs(con, verdi):
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort - før sjekket testen også at ingen SharePoint-mappe ble laget)
     klient = _klient()
     _logg_inn(klient)
     side = klient.post("/admin/kurs/ny", data=_ny_kurs_data(faktura_dager_for=verdi)).get_data(as_text=True)
     assert "Kunne ikke opprette kurs" in side and "mellom 0 og 180" in side
     assert _fersk(con).execute("SELECT COUNT(*) FROM kurs").fetchone()[0] == 0
-    assert kall == []                                                             # ingen ekstern sideeffekt
 
 
 @pytest.mark.parametrize("verdi", ["0", "180"])
@@ -493,3 +465,37 @@ def test_ugyldig_verdi_avvises_ogsaa_naar_oekonomien_er_laast_og_omgaar_ikke_laa
     assert (rad["navn"], rad["faktura_dager_for"]) == ("Testkurs", 14)
     with pytest.raises(db.Paameldingsfeil):
         db.oppdater_kurs_felter(con, kid, {"faktura_dager_for": 181})
+
+# ---------------- ansvarlig og kapasitet lagres sammen (Camilla 05.10.2026) ----------------
+
+def test_ansvarlig_og_kapasitet_lagres_med_samme_knapp(con):
+    """«Lagre» ved Ansvarlig lagret bare ansvarlig, så kapasiteten hun nettopp hadde skrevet inn forsvant. Nå er Ansvarlig en del
+    av kursinnstillingene og lagres med «Lagre kursinnstillinger»."""
+    kid = _kurs(con)
+    admin_id = con.execute("SELECT id FROM admin_bruker").fetchone()["id"]
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    html = klient.get(f"/admin/kurs/{kid}/oppsett").get_data(as_text=True)
+    assert 'id="ansvarligskjema"' not in html and 'form="ansvarligskjema"' not in html
+    klient.post(f"/admin/kurs/{kid}/oppsett", data=_oppsett_data(kapasitet="30", ansvarlig_admin_id=str(admin_id)))
+    rad = _fersk(con).execute("SELECT kapasitet, ansvarlig_admin_id FROM kurs WHERE id=?", (kid,)).fetchone()
+    assert (rad["kapasitet"], rad["ansvarlig_admin_id"]) == (30, admin_id)
+    # Et eldre skjema uten feltet lar ansvarlig stå
+    klient.post(f"/admin/kurs/{kid}/oppsett", data=_oppsett_data(kapasitet="31"))
+    assert _fersk(con).execute("SELECT ansvarlig_admin_id FROM kurs WHERE id=?", (kid,)).fetchone()[0] == admin_id
+    # «– Ikke satt –» fjerner ansvarlig
+    klient.post(f"/admin/kurs/{kid}/oppsett", data=_oppsett_data(kapasitet="31", ansvarlig_admin_id=""))
+    assert _fersk(con).execute("SELECT ansvarlig_admin_id FROM kurs WHERE id=?", (kid,)).fetchone()[0] is None
+
+
+def test_ukjent_ansvarlig_lagrer_ingenting(con):
+    kid = _kurs(con)
+    con.commit()
+    klient = _klient()
+    _logg_inn(klient)
+    r = klient.post(f"/admin/kurs/{kid}/oppsett", data=_oppsett_data(kapasitet="30", ansvarlig_admin_id="99999"),
+                    follow_redirects=True)
+    assert "Ansvarlig finnes ikke lenger" in r.get_data(as_text=True)
+    rad = _fersk(con).execute("SELECT kapasitet, ansvarlig_admin_id FROM kurs WHERE id=?", (kid,)).fetchone()
+    assert (rad["kapasitet"], rad["ansvarlig_admin_id"]) == (None, None)

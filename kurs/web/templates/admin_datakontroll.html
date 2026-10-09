@@ -1,0 +1,36 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{#- Datakontrollen (Camilla 07.10.2026, kurs/datakontroll.py): opplysninger som ser feil ut, på kurs som ikke er avsluttet eller avlyst.
+    Bare forslag: rett opplysningen i deltakervinduet, eller trykk «Det stemmer» hvis den er riktig. -#}
+<h1>Mulig feil i påmeldinger</h1>
+<p class="sub">Opplysninger som ser ut som skrivefeil, for eksempel <em>gmal.com</em> i stedet for <em>gmail.com</em>. Rett dem i deltakervinduet,
+  eller trykk «Det stemmer» hvis de er riktige – da markeres de ikke igjen.</p>
+
+{% for g in grupper %}
+<div class="kort">
+  <h2 style="margin-top:0">{{ g.kurs.kursnr }} {{ g.kurs.navn }}</h2>
+  <table class="liten">
+    <thead><tr><th scope="col">Deltaker</th><th scope="col">Hva</th><th scope="col">Hva ser feil ut</th>{% if admin_rolle != 'lese' %}<th scope="col" aria-label="Handling"></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for r in g.rader %}
+      {% for f in r.funn %}
+      <tr>
+        {% if loop.first %}<td rowspan="{{ r.funn | length }}"><a href="{{ url_for('admin_deltaker', kurs_id=g.kurs.id, paamelding_id=r.p.id) }}"><strong>{{ r.p.navn }}</strong></a><br><span class="dempet">{{ r.p.epost }}</span></td>{% endif %}
+        <td>{{ f.felt }}</td>
+        <td>{{ f.tekst }}</td>
+        {% if admin_rolle != 'lese' %}
+        <td><form method="post" action="{{ url_for('admin_datakontroll_ok') }}" style="margin:0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="paamelding_id" value="{{ r.p.id }}"><input type="hidden" name="kode" value="{{ f.kode }}">
+            <button class="liten sekundar">Det stemmer</button></form></td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="dempet">Ingen opplysninger ser feil ut akkurat nå.</p>
+{% endfor %}
+{% endblock %}

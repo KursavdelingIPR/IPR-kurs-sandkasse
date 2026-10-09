@@ -2,11 +2,13 @@
 
 Laaste krav:
   * `fra` valideres autoritativt (GET og POST): mangler -> vanlig nytt kurs; ugyldig -> 400; ukjent -> 404. Ugyldig blir
-    aldri stille et vanlig kurs, og ingenting (heller ikke SharePoint) skjer foer valideringen.
-  * Kildens skjemaoppsett leses NOYAKTIG EN gang (point-in-time), etter vanlig validering og FOER SharePoint.
-  * SkjemaLesefeil -> 503, ingen SharePoint, ingen DB-endring, ingen fallback.
+    aldri stille et vanlig kurs, og ingenting skjer foer valideringen.
+  * Kildens skjemaoppsett leses NOYAKTIG EN gang (point-in-time), etter vanlig validering og FOER DB-skrivingen.
+  * SkjemaLesefeil -> 503, ingen DB-endring, ingen fallback.
   * Kun gyldige, normaliserte egenskaper kopieres (via db.lagre_skjemafelt) - aldri raa rader/oppdatert/oppdatert_av.
-  * Kurs, kursdager, skjemarader, materiell og hendelser lagres/rulles tilbake samlet.
+  * Kurs, kursdager, skjemarader og hendelser lagres/rulles tilbake samlet.
+(06.10.2026: kursholder-lenken og SharePoint er tatt bort - testene teller ikke lenger SharePoint-kall, og et nytt kurs
+lager ingen SharePoint-mappe.)
 Fiktive testdata."""
 import json
 import sqlite3
@@ -16,7 +18,6 @@ import pytest
 
 from kurs import config, db
 from kurs import skjemafelt as sf
-from kurs.integrasjoner import sharepoint
 
 
 # HPR-nummer er slått av i skjemaene (skjemafelt.HPR_I_SKJEMA = False, Camilla 02.10.2026). Disse testene gjelder koden som viser, validerer og lagrer det
@@ -33,18 +34,6 @@ def con(tmp_path, monkeypatch):
     db.init(c)
     yield c
     c.close()
-
-
-@pytest.fixture
-def sp_kall(monkeypatch):
-    """Teller SharePoint-kall (ekte demo-funksjon kjores fortsatt)."""
-    kall, ekte = [], sharepoint.opprett_kursmappe
-
-    def telle(kode):
-        kall.append(kode)
-        return ekte(kode)
-    monkeypatch.setattr(sharepoint, "opprett_kursmappe", telle)
-    return kall
 
 
 @pytest.fixture
@@ -116,7 +105,7 @@ def _fullt_oppsett(con, kid):
 
 # ============================ 1, 9: vanlig nytt kurs uendret ============================
 
-def test_vanlig_nytt_kurs_uten_fra_er_uendret(con, admin, sp_kall, monkeypatch):
+def test_vanlig_nytt_kurs_uten_fra_er_uendret(con, admin, monkeypatch):
     kid = _kilde(con)
     _fullt_oppsett(con, kid)
     les = []
@@ -125,7 +114,7 @@ def test_vanlig_nytt_kurs_uten_fra_er_uendret(con, admin, sp_kall, monkeypatch):
     r = admin.post("/admin/kurs/ny", data=_grunnlag(), follow_redirects=True)
     ny = _nyeste_kurs(con)
     assert r.status_code == 200 and ny["id"] != kid and ny["status"] == "aapen"
-    assert _rader(con, ny["id"]) == [] and les == [] and len(sp_kall) == 1
+    assert _rader(con, ny["id"]) == [] and les == []
     assert "kunne ikke kopieres" not in r.get_data(as_text=True)
 
 
@@ -135,12 +124,12 @@ def test_vanlig_nytt_kurs_skjema_har_ingen_fra_nokkel(con, admin):
 
 # ============================ 2-8: kopieringssemantikk ============================
 
-def test_gyldig_duplisering_kopierer_alle_overstyringer_til_ny_kurs_id(con, admin, sp_kall):
+def test_gyldig_duplisering_kopierer_alle_overstyringer_til_ny_kurs_id(con, admin):
     kid = _kilde(con)
     _fullt_oppsett(con, kid)
     r = _dupliser(admin, kid)
     ny = _nyeste_kurs(con)
-    assert r.status_code == 302 and ny["id"] != kid and ny["status"] == "utkast" and len(sp_kall) == 1
+    assert r.status_code == 302 and ny["id"] != kid and ny["status"] == "utkast"
     assert _over(con, ny["id"]) == _over(con, kid) == {
         "telefon": sf.Overstyring(synlig=False, rekkefolge=2),
         "arbeidssted": sf.Overstyring(obligatorisk=True, rekkefolge=1, label="Arbeidsgiver",
@@ -148,7 +137,7 @@ def test_gyldig_duplisering_kopierer_alle_overstyringer_til_ny_kurs_id(con, admi
         "hpr_nr": sf.Overstyring(hjelpetekst="Finnes i Helsepersonellregisteret.")}
     assert {r["kurs_id"] for r in _rader(con, ny["id"])} == {ny["id"]} and len(_rader(con, ny["id"])) == 3
     assert _effektivt(con, ny["id"]) == _effektivt(con, kid)
-    assert [f.nokkel for f in _effektivt(con, ny["id"]).deltakerfelt] == ["arbeidssted", "hpr_nr"]
+    assert [f.nokkel for f in _effektivt(con, ny["id"]).deltakerfelt] == ["arbeidssted", "yrkestittel", "hpr_nr"]  # yrkestittel vises som standard (Camilla 05.10.2026)
 
 
 def test_kilde_uten_overstyringer_gir_null_rader(con, admin):
@@ -175,7 +164,7 @@ def test_rekkefolge_folger_med(con, admin):
     _lagre(con, kid, "arbeidssted", rekkefolge=1)
     _dupliser(admin, kid)
     ny = _nyeste_kurs(con)["id"]
-    assert [f.nokkel for f in _effektivt(con, ny).deltakerfelt] == ["arbeidssted", "telefon", "hpr_nr"]
+    assert [f.nokkel for f in _effektivt(con, ny).deltakerfelt] == ["arbeidssted", "telefon", "yrkestittel", "hpr_nr"]  # yrkestittel vises som standard (Camilla 05.10.2026)
 
 
 def test_hpr_hjelpetekst_folger_med_selv_om_kopien_ikke_har_spesialistlop(con, admin):
@@ -253,6 +242,9 @@ def test_kilde_og_kopi_er_uavhengige(con, admin):
     _fullt_oppsett(con, kid)
     _dupliser(admin, kid)
     ny = _nyeste_kurs(con)["id"]
+    # Kopien får spørsmålet «Deling av e-post» automatisk (Camilla 05.10.2026); testen gjelder standardfeltene, så det tas bort her
+    con.execute("DELETE FROM kurs_ekstrafelt WHERE kurs_id=?", (ny,))
+    con.commit()
     kilde_foer = _rader(con, kid)
     data = {}
     for n in (*sf.KONFIGURERBAR_GRUPPE, *sf.FAKTURAFELT, *sf.SENSITIVE_FELT):     # skjemabyggeren, uendret ...
@@ -277,19 +269,19 @@ def test_kilde_og_kopi_er_uavhengige(con, admin):
 
 @pytest.mark.parametrize("fra", ["", " ", "  7  ", "abc", "0", "-1", "+1", "1.5", "1e3", "01", "0x1", "١",
                                  str(2 ** 63), "9" * 40])
-def test_ugyldig_fra_i_post_gir_400_uten_sideeffekter(con, admin, sp_kall, fra):
+def test_ugyldig_fra_i_post_gir_400_uten_sideeffekter(con, admin, fra):
     _kilde(con)
     foer = _telle(con)
     r = admin.post("/admin/kurs/ny", data=_grunnlag(fra=fra))
-    assert r.status_code == 400 and sp_kall == [] and _telle(con) == foer
+    assert r.status_code == 400 and _telle(con) == foer
 
 
-def test_ukjent_kildekurs_gir_404_uten_sideeffekter(con, admin, sp_kall):
+def test_ukjent_kildekurs_gir_404_uten_sideeffekter(con, admin):
     _kilde(con)
     foer = _telle(con)
     for fra in ("9999", str(2 ** 63 - 1)):
         assert admin.post("/admin/kurs/ny", data=_grunnlag(fra=fra)).status_code == 404
-    assert sp_kall == [] and _telle(con) == foer
+    assert _telle(con) == foer
 
 
 @pytest.mark.parametrize("fra,status", [("abc", 400), ("", 400), ("0", 400), ("-1", 400), ("9" * 40, 400),
@@ -305,19 +297,19 @@ def test_gyldig_fra_i_get_forhaandsutfyller_fortsatt(con, admin):
     assert "basert på «Kildekurs»" in html and f'name="fra" value="{kid}"' in html
 
 
-def test_krever_innlogging(con, sp_kall):
+def test_krever_innlogging(con):
     from kurs.web import app as webapp
     kid = _kilde(con)
     foer = _telle(con)
     k = webapp.app.test_client()
     for r in (k.get(f"/admin/kurs/ny?fra={kid}"), k.post("/admin/kurs/ny", data=_grunnlag(fra=str(kid)))):
         assert r.status_code == 302 and "/admin/logg-inn" in r.headers["Location"]
-    assert sp_kall == [] and _telle(con) == foer
+    assert _telle(con) == foer
 
 
 # ============================ SkjemaLesefeil ============================
 
-def test_skjemalesefeil_gir_503_uten_sharepoint_og_uten_db_endring(con, admin, sp_kall, monkeypatch):
+def test_skjemalesefeil_gir_503_uten_db_endring(con, admin, monkeypatch):
     kid = _kilde(con)
     _fullt_oppsett(con, kid)
     foer = _telle(con)
@@ -330,19 +322,19 @@ def test_skjemalesefeil_gir_503_uten_sharepoint_og_uten_db_endring(con, admin, s
     assert r.status_code == 503
     assert ("Skjemainnstillingene til originalkurset kunne ikke leses akkurat nå. Kurset er ikke opprettet. "
             "Prøv igjen om litt.") in html
-    assert sp_kall == [] and _telle(con) == foer
+    assert _telle(con) == foer
     for lekkasje in ("kurs_skjemafelt", "sqlite", "Traceback", "SkjemaLesefeil", "SELECT"):
         assert lekkasje not in html
     assert f'name="fra" value="{kid}"' in html                         # skjemaet vises igjen for samme kilde
 
 
-def test_ekte_lesefeil_gir_503(con, admin, sp_kall):
+def test_ekte_lesefeil_gir_503(con, admin):
     kid = _kilde(con)
     con.execute("DROP TABLE kurs_skjemafelt")
     con.commit()
     foer = _telle_uten_skjema(con)
     assert _dupliser(admin, kid).status_code == 503
-    assert sp_kall == [] and _telle_uten_skjema(con) == foer
+    assert _telle_uten_skjema(con) == foer
 
 
 def _telle_uten_skjema(con):
@@ -351,19 +343,20 @@ def _telle_uten_skjema(con):
 
 # ============================ en lesing / point-in-time ============================
 
-def test_kilden_leses_noyaktig_en_gang_foer_sharepoint(con, admin, sp_kall, monkeypatch):
+def test_kilden_leses_noyaktig_en_gang_foer_db_skrivingen(con, admin, monkeypatch):
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort - «FOER SharePoint-kallet» er nå «FOER det nye kurset lagres»)
     kid = _kilde(con)
     _fullt_oppsett(con, kid)
     hendelser = []
     ekte = db.hent_skjemaoverstyringer
 
     def telle(c, kurs_id):
-        hendelser.append(("les", kurs_id, len(sp_kall)))
+        hendelser.append(("les", kurs_id, c.execute("SELECT COUNT(*) FROM kurs").fetchone()[0]))
         return ekte(c, kurs_id)
     monkeypatch.setattr(db, "hent_skjemaoverstyringer", telle)
     assert _dupliser(admin, kid).status_code == 302
-    assert hendelser == [("les", kid, 0)]                                  # en gang, og FOER SharePoint-kallet
-    assert len(sp_kall) == 1
+    assert hendelser == [("les", kid, 1)]                                  # en gang, og FOER kopien finnes i databasen
+    assert con.execute("SELECT COUNT(*) FROM kurs").fetchone()[0] == 2
 
 
 def test_point_in_time_snapshot_a_og_b(con, admin, monkeypatch):
@@ -392,7 +385,7 @@ def test_point_in_time_snapshot_a_og_b(con, admin, monkeypatch):
 
 # ============================ atomisitet ============================
 
-def test_db_feil_under_kopiering_ruller_tilbake_alt(con, admin, sp_kall, monkeypatch):
+def test_db_feil_under_kopiering_ruller_tilbake_alt(con, admin, monkeypatch):
     kid = _kilde(con)
     _fullt_oppsett(con, kid)
     foer = _telle(con)
@@ -404,10 +397,9 @@ def test_db_feil_under_kopiering_ruller_tilbake_alt(con, admin, sp_kall, monkeyp
             raise sqlite3.IntegrityError("simulert")
         return ekte(*a, **kw)
     monkeypatch.setattr(db, "lagre_skjemafelt", feiler_paa_andre)
-    r = _dupliser(admin, kid, kursholder_epost="k@eksempel.no", materiell_frist="2099-01-01")
+    r = _dupliser(admin, kid, kursholder_epost="k@eksempel.no")
     assert r.status_code == 200 and "Kunne ikke opprette kurs" in r.get_data(as_text=True)
-    assert len(kall) == 2 and _telle(con) == foer                          # kurs/kursdag/skjema/materiell/hendelse
-    assert sp_kall == []                                                   # ingen mappe for et kurs som ikke ble lagret
+    assert len(kall) == 2 and _telle(con) == foer                          # kurs/kursdag/skjema/hendelse
 
 
 # ============================ ingen andre data kopieres ============================

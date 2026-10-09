@@ -4,10 +4,15 @@
 <div class="kort" style="max-width:560px">
 {% if status == 'bekreftet' %}
   <h1>Du er påmeldt!</h1>
-  <p>Takk, {{ fornavn }}. Du har fått plass på <strong>{{ kurs.navn }}</strong>. Bekreftelse er sendt på e-post{% if kurs.pris_nok and kurs.fakturering == 'person' %}, og faktura kommer separat{% endif %}.</p>
+  <p>Takk, {{ fornavn }}. Du har fått plass på <strong>{{ kurs.navn }}</strong>.{% if kurs.pris_nok and kurs.fakturering == 'person' %} Faktura kommer separat.{% endif %}</p>
+  {#- Camilla 09.10.2026: si hvor bekreftelsen er sendt, og hvem de skal kontakte hvis den ikke kommer (Terapiakademiet eller IPR, tema.kontakt_epost) -#}
+  <p>Vi har sendt påmeldingsbekreftelsen til e-postadressen du registrerte ved påmeldingen{% if epost %}: <strong>{{ epost }}</strong>{% endif %}.
+    Ser du den ikke, heller ikke i søppelposten, ta kontakt med <a href="mailto:{{ kontakt }}">{{ kontakt }}</a>.</p>
 {% else %}
   <h1>Du står på venteliste</h1>
   <p>Takk, {{ fornavn }}. <strong>{{ kurs.navn }}</strong> er fullt, men du får automatisk plass og beskjed på e-post hvis noen melder seg av.</p>
+  <p>Vi har sendt en bekreftelse på at du står på venteliste til e-postadressen du registrerte ved påmeldingen{% if epost %}: <strong>{{ epost }}</strong>{% endif %}.
+    Ser du den ikke, heller ikke i søppelposten, ta kontakt med <a href="mailto:{{ kontakt }}">{{ kontakt }}</a>.</p>
 {% endif %}
 {% if firmaopplysninger_mangler %}
   <div class="varselboks" role="status">

@@ -41,7 +41,7 @@ def _program(con, kid):
 
 def _visning(con, kid, did, idag, **kw):
     return deltakerside.bygg_visning(con, _kurs(con, kid), kw.pop("dok", None) or _program(con, kid), deltaker_id=did, idag=idag,
-                                     forhandsvisning=kw.pop("forhandsvisning", False), fil_url=lambda i: f"/fil/{i}", sp_url=lambda n: None, **kw)
+                                     forhandsvisning=kw.pop("forhandsvisning", False), fil_url=lambda i: f"/fil/{i}", **kw)
 
 
 def _side(con, monkeypatch, kid, did, idag) -> str:
@@ -162,11 +162,11 @@ def test_programmet_og_filene_vet_hvilken_samling_dagene_hoerer_til(con):
     meta = {i: {"id": i, "filnavn": f"fil{i}.pdf", "type": "dokument", "storrelse": 2048, "opprettet": "2031-10-01 10:00:00"} for i in (1, 2, 3)}
     b = si._ny_blokk("filer", {"filer": [{"fil_id": 1, "tittel": "Fra samling 2", "gruppe": dager[2]["id"]},
                                          {"fil_id": 2, "tittel": "Fra samling 1", "gruppe": dager[0]["id"]},
-                                         {"fil_id": 3, "tittel": "Felles", "gruppe": None}], "sharepoint": False})
-    med = deltakerside._filer_data(con, kurs, b, meta, dager, IDAG_FOER, lambda i: f"/fil/{i}", lambda n: None, frozenset(), True)
+                                         {"fil_id": 3, "tittel": "Felles", "gruppe": None}]})
+    med = deltakerside._filer_data(con, kurs, b, meta, dager, IDAG_FOER, lambda i: f"/fil/{i}", frozenset(), True)
     tittel = [g["tittel"] for g in med["grupper"]]
     assert tittel[0].startswith("Samling 1 · Dag 1 · ") and tittel[1].startswith("Samling 2 · Dag 3 · ") and tittel[2] == "Øvrige filer"
-    ingen = deltakerside._filer_data(con, kurs, b, meta, dager, IDAG_FOER, lambda i: f"/fil/{i}", lambda n: None)
+    ingen = deltakerside._filer_data(con, kurs, b, meta, dager, IDAG_FOER, lambda i: f"/fil/{i}")
     assert ingen["grupper"][0]["tittel"].startswith("Dag 1 · ") and "Samling" not in ingen["grupper"][0]["tittel"]
 
 

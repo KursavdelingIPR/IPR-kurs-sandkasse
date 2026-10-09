@@ -215,7 +215,7 @@ def test_offentlig_paamelding_overskriver_fortsatt_eksisterende_felt(con):
     con.commit()
     klient = _klient()
     resp = klient.post("/kurs/K2", data={
-        "fornavn": "Kari", "etternavn": "Test", "epost": "kari@x.no", "telefon": "99999999", "samtykke": "on", **ADRESSE})
+        "fornavn": "Kari", "etternavn": "Test", "epost": "kari@x.no", "telefon": "99999999", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     assert resp.status_code == 200
     rad = con.execute("SELECT telefon FROM deltaker WHERE epost='kari@x.no'").fetchone()
     assert rad["telefon"] == "99999999"  # OPPDATERT - motsatt av importens beskyttede modus

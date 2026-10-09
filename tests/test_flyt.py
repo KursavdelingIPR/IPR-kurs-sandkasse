@@ -177,7 +177,7 @@ def test_webflyt_paamelding_og_qr_innsjekk(con, tmp_path, monkeypatch):
     kid = _kurs(con, date.today(), kode="WEB1", status="aapen")
     con.commit()
     klient = webapp.app.test_client()
-    r = klient.post("/kurs/WEB1", data={"fornavn": "Web", "etternavn": "Test", "epost": "web@x.no", "samtykke": "on", **ADRESSE, "betaler": "person"})
+    r = klient.post("/kurs/WEB1", data={"fornavn": "Web", "etternavn": "Test", "epost": "web@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE, "betaler": "person"})
     assert r.status_code == 200 and "påmeldt" in r.get_data(as_text=True)
     token = db.kursdager(con, kid)[0]["innsjekk_token"]
     r = klient.post(f"/innsjekk/{token}", data={"epost": "web@x.no"})          # QR-koden i lokalet (kodesiden /innsjekk er fjernet)

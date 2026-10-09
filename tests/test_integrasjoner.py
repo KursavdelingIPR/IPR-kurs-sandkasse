@@ -1,18 +1,15 @@
-"""Herding av integrasjonene (SharePoint, Zoom): driftsgrenene testes med etterlignet Microsoft Graph / Zoom - ingen
-ekte nettverkskall. Hva som IKKE er testet mot ekte tjenester, står i AZURE-SETUP.md."""
-import io
+"""Herding av integrasjonene (Zoom, Visma): driftsgrenene testes med etterlignede tjenester - ingen ekte nettverkskall.
+Hva som IKKE er testet mot ekte tjenester, står i AZURE-SETUP.md.
+(06.10.2026: kursholder-lenken og SharePoint er tatt bort, og med dem testene av SharePoint-mappene og leveringen.)"""
 import json
 from datetime import date, timedelta
-from urllib.parse import urlsplit
 
 import pytest
 import requests
 
-from kurs import config, daglig, db, lenker, migreringer
-from kurs.integrasjoner import m365, sharepoint, visma, zoom
+from kurs import config, daglig, db, migreringer
+from kurs.integrasjoner import visma, zoom
 from kurs.kjoring import Kjoring
-
-EKTE_OPPRETT_KURSMAPPE = sharepoint.opprett_kursmappe
 
 
 @pytest.fixture
@@ -20,91 +17,13 @@ def con(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "UTBOKS", tmp_path / "utboks")
     monkeypatch.setattr(config, "DEMO", True)
     monkeypatch.setattr(config, "DB_STI", tmp_path / "test.db")
-    monkeypatch.setattr(sharepoint, "DEMO_ROT", tmp_path / "sharepoint_demo")
     c = db.koble(tmp_path / "test.db")
     db.init(c)
     yield c
     c.close()
 
 
-def _http_feil(status: int) -> requests.HTTPError:
-    svar = requests.Response()
-    svar.status_code = status
-    return requests.HTTPError(f"{status}", response=svar)
-
-
-class FalskGraph:
-    """Etterligner m365.graph: husker kallene og svarer med feil for utvalgte (metode, sti)-par."""
-
-    def __init__(self, feil=None):
-        self.kall, self.feil = [], feil or {}
-
-    def __call__(self, metode, sti, **kw):
-        self.kall.append((metode, sti, kw.get("json")))
-        status = self.feil.get((metode, sti, (kw.get("json") or {}).get("name")))
-        if status:
-            raise _http_feil(status)
-        svar = requests.Response()
-        svar.status_code, svar._content = 200, b"innhold"
-        return svar
-
-
-@pytest.fixture
-def drift_graph(monkeypatch):
-    """Driftsgrenen til sharepoint.py med etterlignet Graph."""
-    monkeypatch.setattr(config, "DEMO", False)
-    monkeypatch.setattr(config, "SHAREPOINT_SITE_ID", "site-1")
-    falsk = FalskGraph()
-    monkeypatch.setattr(m365, "graph", falsk)
-    return falsk
-
-
-# ============================ SharePoint: driftsgrenen ============================
-
-def test_kursmappe_lages_niva_for_niva_uten_aa_kunne_erstatte_noe(drift_graph):
-    assert sharepoint.opprett_kursmappe("EFT-2027-2") == "Kurs/EFT-2027-2"
-    rot = "/sites/site-1/drive/root"
-    assert [(m, s, j["name"]) for m, s, j in drift_graph.kall] == [
-        ("POST", f"{rot}/children", "Kurs"),
-        ("POST", f"{rot}:/Kurs:/children", "EFT-2027-2"),
-        ("POST", f"{rot}:/Kurs/EFT-2027-2:/children", "Presentasjoner"),
-        ("POST", f"{rot}:/Kurs/EFT-2027-2:/children", "Deltakere"),
-    ]
-    assert all(j["@microsoft.graph.conflictBehavior"] == "fail" and j["folder"] == {} for _, _, j in drift_graph.kall)
-
-
-def test_eksisterende_mapper_409_er_ok_saa_kallet_er_idempotent(drift_graph):
-    rot = "/sites/site-1/drive/root"
-    drift_graph.feil = {("POST", f"{rot}/children", "Kurs"): 409, ("POST", f"{rot}:/Kurs:/children", "EFT-2027"): 409,
-                        ("POST", f"{rot}:/Kurs/EFT-2027:/children", "Presentasjoner"): 409}
-    assert sharepoint.opprett_kursmappe("EFT-2027") == "Kurs/EFT-2027"
-    assert len(drift_graph.kall) == 4
-
-
-@pytest.mark.parametrize("status", [401, 403, 404, 500, 503])
-def test_andre_graph_feil_sendes_videre(drift_graph, status):
-    drift_graph.feil = {("POST", "/sites/site-1/drive/root:/Kurs:/children", "EFT-2027"): status}
-    with pytest.raises(requests.HTTPError):
-        sharepoint.opprett_kursmappe("EFT-2027")
-
-
-@pytest.mark.parametrize("kode", ["", "../x", "Kurs/EFT", "EFT 2027", "-EFT", "a" * 81, "EFT-2027\n"])
-def test_ugyldig_kurskode_avvises_foer_noe_kall(drift_graph, kode):
-    with pytest.raises(ValueError):
-        sharepoint.opprett_kursmappe(kode)
-    assert drift_graph.kall == []
-
-
-def test_hent_fil_404_fra_graph_blir_filenotfounderror(drift_graph):
-    drift_graph.feil = {("GET", "/sites/site-1/drive/root:/Kurs/X/Presentasjoner/a.pdf:/content", None): 404}
-    with pytest.raises(FileNotFoundError):
-        sharepoint.hent_fil("Kurs/X/Presentasjoner/a.pdf")
-    drift_graph.feil = {("GET", "/sites/site-1/drive/root:/Kurs/X/Presentasjoner/a.pdf:/content", None): 503}
-    with pytest.raises(requests.HTTPError):
-        sharepoint.hent_fil("Kurs/X/Presentasjoner/a.pdf")
-
-
-# ============================ SharePoint: nytt kurs og levering ============================
+# ============================ nytt kurs som ikke kan lagres ============================
 
 def _admin(brukernavn=None, passord=None):
     from kurs.web import app as webapp
@@ -124,85 +43,11 @@ def _nytt_kurs(k, **over):
     return k.post("/admin/kurs/ny", data=data)
 
 
-def _feilende_sharepoint(monkeypatch):
-    kall = []
-
-    def feiler(kode):
-        kall.append(kode)
-        raise requests.ConnectionError("graph nede")
-    monkeypatch.setattr(sharepoint, "opprett_kursmappe", feiler)
-    return kall
-
-
-def test_nytt_kurs_lagres_selv_om_sharepoint_feiler_og_mappen_kan_lages_senere(con, monkeypatch):
-    kall = _feilende_sharepoint(monkeypatch)
-    k = _admin()
-    r = _nytt_kurs(k)
-    kurs = con.execute("SELECT * FROM kurs").fetchone()
-    assert r.status_code == 302 and kurs is not None and kurs["sharepoint_mappe"] is None and kall == [kurs["kode"]]
-    side = k.get(r.headers["Location"]).get_data(as_text=True)
-    assert "SharePoint-mappen kunne ikke lages akkurat nå" in side and "Lag SharePoint-mappe" in side
-    rad = con.execute("SELECT detaljer FROM hendelse WHERE handling='sharepoint_mappe_feilet'").fetchone()
-    assert rad and "graph nede" not in rad["detaljer"]                      # kun sikker feiltekst (type), ikke meldingen
-
-    monkeypatch.setattr(sharepoint, "opprett_kursmappe", EKTE_OPPRETT_KURSMAPPE)   # SharePoint virker igjen (demo)
-    r = k.post(f"/admin/kurs/{kurs['id']}/sharepoint-mappe")
-    assert r.status_code == 302
-    assert con.execute("SELECT sharepoint_mappe FROM kurs").fetchone()[0] == f"Kurs/{kurs['kode']}"
-    assert "SharePoint-mappen er laget." in k.get(r.headers["Location"]).get_data(as_text=True)
-
-
-def test_ingen_sharepoint_mappe_naar_kurset_ikke_blir_lagret(con, monkeypatch):
-    kall = []
-    monkeypatch.setattr(sharepoint, "opprett_kursmappe", lambda kode: kall.append(kode) or f"Kurs/{kode}")
+def test_kurs_som_ikke_kan_lagres_gir_feilmelding_og_ingen_rad(con):
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort - før sjekket testen også at ingen SharePoint-mappe ble laget)
     r = _nytt_kurs(_admin(), fakturering="ugyldig")                         # CHECK-feil i databasen
     assert r.status_code == 200 and "Kunne ikke opprette kurs" in r.get_data(as_text=True)
-    assert kall == [] and con.execute("SELECT COUNT(*) FROM kurs").fetchone()[0] == 0
-
-
-def test_lesetilgang_kan_ikke_lage_sharepoint_mappe(con):
-    kid = db.opprett_kurs(con, kode="L1", navn="Kurs", datoer=["2099-01-01"])
-    db.opprett_admin_bruker(con, "leser", "Leser", "passord-som-holder", rolle="lese")
-    con.commit()
-    k = _admin("leser", "passord-som-holder")
-    assert k.post(f"/admin/kurs/{kid}/sharepoint-mappe").status_code == 403
-    assert "Lag SharePoint-mappe" not in k.get(f"/admin/kurs/{kid}/oppsett").get_data(as_text=True)
-
-
-def _krav(con, sharepoint_mappe=None):
-    kid = db.opprett_kurs(con, kode="LEV-2099", navn="Leveringskurs", datoer=["2099-01-01"],
-                          sharepoint_mappe=sharepoint_mappe)
-    krav = db.sett_inn(con, "INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) "
-                            "VALUES (?,?,?,?)", (kid, "Kursholder", "kh@eksempel.no", "2098-12-01"))
-    con.commit()
-    return kid, krav, urlsplit(lenker.lever_lenke(krav)).path
-
-
-def _last_opp(sti):
-    from kurs.web import app as webapp
-    return webapp.app.test_client().post(sti, data={"fil": (io.BytesIO(b"%PDF-1.4 demo"), "slides.pdf")},
-                                         content_type="multipart/form-data")
-
-
-def test_levering_lager_mappen_ved_behov(con):
-    kid, krav, sti = _krav(con)
-    r = _last_opp(sti)
-    assert r.status_code == 302
-    assert con.execute("SELECT sharepoint_mappe FROM kurs WHERE id=?", (kid,)).fetchone()[0] == "Kurs/LEV-2099"
-    assert (sharepoint.DEMO_ROT / "Kurs/LEV-2099/Presentasjoner/slides.pdf").read_bytes() == b"%PDF-1.4 demo"
-    assert con.execute("SELECT levert_ts FROM materiell_krav WHERE id=?", (krav,)).fetchone()[0]
-
-
-def test_levering_gir_503_og_lagrer_ingenting_naar_sharepoint_feiler(con, monkeypatch):
-    _, krav, sti = _krav(con, sharepoint_mappe="Kurs/LEV-2099")
-
-    def feiler(*a):
-        raise requests.Timeout("tidsavbrudd")
-    monkeypatch.setattr(sharepoint, "last_opp", feiler)
-    r = _last_opp(sti)
-    assert r.status_code == 503 and "kunne ikke lastes opp akkurat nå" in r.get_data(as_text=True)
-    assert con.execute("SELECT levert_ts FROM materiell_krav WHERE id=?", (krav,)).fetchone()[0] is None
-    assert con.execute("SELECT COUNT(*) FROM hendelse WHERE handling='materiell_opplasting_feilet'").fetchone()[0] == 1
+    assert con.execute("SELECT COUNT(*) FROM kurs").fetchone()[0] == 0
 
 
 # ============================ Zoom ============================

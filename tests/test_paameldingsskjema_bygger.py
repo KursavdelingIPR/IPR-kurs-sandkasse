@@ -113,7 +113,7 @@ def _hendelser(con):
     return [dict(r) for r in con.execute("SELECT handling, detaljer FROM hendelse ORDER BY id")]
 
 
-BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": "test.person@eksempel.no", "samtykke": "on", **ADRESSE}
+BASIS = {"fornavn": "Test", "etternavn": "Person", "epost": "test.person@eksempel.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE}
 
 
 def _paamelding(con):
@@ -187,7 +187,8 @@ def test_standardfelt_og_informasjonsboksen_lagres(con, admin):
                tilrettelegging_synlig=None)
     assert r.status_code == 302
     o = db.hent_skjemaoverstyringer(con, kid).overstyringer
-    assert o["yrkestittel"] == sf.Overstyring(synlig=True, obligatorisk=True)
+    # yrkestittel er synlig som standard (Camilla 05.10.2026): bare kravet er et avvik som lagres
+    assert o["yrkestittel"] == sf.Overstyring(obligatorisk=True)
     assert o["faktura_ref"] == sf.Overstyring(obligatorisk=True, hjelpetekst="")      # standard hjelpetekst fjernet
     assert o["vis_pris"] == sf.Overstyring(synlig=False)
     assert o["allergier"] == sf.Overstyring(label="Allergier") and o["tilrettelegging"] == sf.Overstyring(synlig=False)
@@ -268,7 +269,7 @@ def test_flytting_med_rekkefolgen_og_uten_javascript(con, admin):
     assert _lagre(admin, kid, flytt="telefon:opp").status_code == 302          # ▲ uten JavaScript: lagre + flytt
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
     skjema = sf.effektivt_skjema(kurs, db.hent_skjemaoverstyringer(con, kid), db.hent_ekstrafelt(con, kid).felt)
-    assert [f.nokkel for f in skjema.deltakerfelt] == [f"ekstra_{land}", "telefon", "arbeidssted"]
+    assert [f.nokkel for f in skjema.deltakerfelt] == [f"ekstra_{land}", "telefon", "arbeidssted", "yrkestittel"]  # yrkestittel vises som standard (Camilla 05.10.2026)
     assert _lagre(admin, kid, flytt=f"ekstra:{land}:opp").status_code == 302   # øverst allerede: ingen endring
     assert _lagre(admin, kid, flytt="ukjent:ned").status_code == 302
 
@@ -525,7 +526,9 @@ def test_yrkestittel_lagres_paa_deltakeren_naar_feltet_vises(con):
 def test_informasjonsboksen_folger_valgene(con):
     kid = _kurs(con, paameldingsfrist="2099-02-01")
     html = _side()
-    for tekst in ("Kursdager", "02.–03.03.2099", "kl. 09:00–16:00", "Eksempelsted", "4 500 kr eks. mva",
+    # Felles tidspunkt på én linje med punktum i klokkeslettet (Camilla 05.10.2026)
+    for tekst in ("Kursdager", "02.–03.03.2099", "<strong>Tidspunkt:</strong> 09.00–16.00 alle dager", "Eksempelsted",
+                  "4 500 kr eks. mva",
                   "Påmeldingsfrist", "søndag 1. februar 2099"):
         assert tekst in html, tekst
     assert "plasser igjen" not in html and "Ledige plasser" not in html      # antallet vises aldri
@@ -582,7 +585,10 @@ def _firma(**over):
 
 
 def test_firmanavn_og_adresse_kommer_fra_registeret_ikke_fra_skjemaet(con):
-    _kurs(con)
+    kid = _kurs(con)
+    # EHF er skjult som standard (Camilla 05.10.2026) - vises her via kursets skjemaoppsett, slik at verdien lagres
+    db.lagre_skjemafelt(con, kid, "ehf", {"synlig": True})
+    con.commit()
     r = _klient().post("/kurs/S1", data=_firma(org_navn="MANIP AS", org_adresse="Manipveien 1", org_postnr="9999",
                                                org_sted="MANIPBY", faktura_ref="12345", faktura_epost="faktura@eksempel.no",
                                                faktura_kommentar="Avdeling 7", ehf="Ja",

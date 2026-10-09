@@ -30,7 +30,7 @@ from .integrasjoner.epost import Vedlegg
 STANDARD_NAVN = "Kursadministrasjonen"
 # Nøyaktig den faste hilsenen e-postene har i dag (maler/epost/_ramme.html): ingenting endrer seg før dere lager egne
 STANDARD_INNHOLD = "Vennlig hilsen<br>Kursadministrasjonen, Institutt for Psykologisk Rådgivning"
-KURSETS_MALER = frozenset({"ukefor", "dagfor", "kursbevis_klar", "avlysning", "avslag"})
+KURSETS_MALER = frozenset({"ukefor", "dagfor", "kursbevis_klar", "avlysning", "avslag", "evaluering"})
 NAVN_MAKS = 80
 TEGN_MAKS = 20_000
 ALT_MAKS = 200
@@ -363,6 +363,8 @@ def _bildebruk(con) -> dict[int, list[str]]:
     for r in con.execute("SELECT navn, signatur_html FROM kurs WHERE signatur_html IS NOT NULL"):
         for i in bilde_ider(r["signatur_html"]):
             bruk.setdefault(i, []).append(f"kurset «{r['navn']}»")
+    for r in con.execute("SELECT navn, signatur_bilde_id FROM kursbevis_design WHERE signatur_bilde_id IS NOT NULL"):
+        bruk.setdefault(int(r["signatur_bilde_id"]), []).append(f"kursbevis-designet «{r['navn']}»")
     return bruk
 
 

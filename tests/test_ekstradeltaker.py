@@ -96,10 +96,12 @@ def test_ny_database_har_migrering_16_og_kolonnen_sist_i_tabellen(con):
     nr16 = [(n, f.__name__) for n, navn, f in migreringer.MIGRERINGER if n == 16]
     assert nr16 == [(16, "_m16_ekstradeltaker")] and migreringer.MIGRERINGER[15][1] == "ekstradeltaker"
     assert migreringer.gjeldende_versjon(con) >= 16 and migreringer.KODEVERSJON >= 16
-    assert db.kolonner(con, "paamelding")[-1] == "ekstradeltaker_ts"
+    # ekstradeltaker_ts ble lagt sist i tabellen (migrering 16). Migrering 32 (rabattpriser) la sine fem kolonner etter den.
+    etter = ["ekstradeltaker_ts", *(navn for navn, *_ in migreringer._RABATTKOLONNER)]
+    assert db.kolonner(con, "paamelding")[-len(etter):] == etter
     for fil in ("schema.sql", "schema_postgres.sql"):
         tekst = (db._SCHEMA_POSTGRES if fil.endswith("postgres.sql") else db._SCHEMA).read_text(encoding="utf-8")
-        assert migreringer._skjemaets_kolonner(tekst)["paamelding"][-1] == "ekstradeltaker_ts", fil
+        assert migreringer._skjemaets_kolonner(tekst)["paamelding"][-len(etter):] == etter, fil
         assert "CHECK (ekstradeltaker_ts IS NULL OR status='bekreftet')" in tekst, fil
         assert "CHECK (status IN ('bekreftet','venteliste','avmeldt'))" in tekst, fil            # status er urørt
     assert con.execute("SELECT COUNT(*) FROM paamelding WHERE ekstradeltaker_ts IS NOT NULL").fetchone()[0] == 0

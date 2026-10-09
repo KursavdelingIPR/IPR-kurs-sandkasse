@@ -213,9 +213,10 @@ def test_kontakt_telefon_og_epost_valideres_med_merknad():
 
 
 def test_filelementer_faar_dato_og_synlighet_validert():
+    # «sharepoint» er et gammelt felt (06.10.2026: kursholder-lenken og SharePoint er tatt bort): det lagres ikke lenger
     dok = dokument(_blokk("filer", {"filer": [{"fil_id": 1, "synlig_fra": "2027-04-01"}], "sharepoint": True}))
     ren = _valider(dok, fil_ider={1: {"type": "dokument"}})[0]["blokker"][0]["data"]
-    assert ren["filer"][0]["synlig_fra"] == "2027-04-01" and ren["sharepoint"] is True and ren["vis_kommende"] is True
+    assert ren["filer"][0]["synlig_fra"] == "2027-04-01" and "sharepoint" not in ren and ren["vis_kommende"] is True
     with pytest.raises(Sidefeil):
         _valider(dokument(_blokk("filer", {"filer": [{"fil_id": 1, "synlig_fra": "snart"}]})), fil_ider={1: {"type": "dokument"}})
 
@@ -391,18 +392,20 @@ def test_vis_fra_styrer_synligheten(vis_fra, synlig):
 @pytest.mark.parametrize("blokk", [
     _blokk("tekst", {"html": ""}), _blokk("tekst", {"html": "<p> </p><p><br></p>"}), _blokk("tekst", {"html": "<script>x</script>"}),
     _blokk("viktig", {"niva": "advarsel", "tekst": "  "}), _blokk("program", {"dager": [{"punkter": []}]}), _blokk("program", {"dager": []}),
-    _blokk("filer", {"filer": [], "sharepoint": False}), _blokk("lenker", {"lenker": []}), _blokk("lenker", {"lenker": [{"tittel": "x", "url": ""}]}),
+    _blokk("filer", {"filer": []}), _blokk("lenker", {"lenker": []}), _blokk("lenker", {"lenker": [{"tittel": "x", "url": ""}]}),
     _blokk("tabell", {"kolonner": ["a"], "rader": []}), _blokk("tabell", {"kolonner": ["a"], "rader": [[""]]}),
     _blokk("kontakt", {"personer": []}), _blokk("kontakt", {"personer": [{"navn": "", "rolle": "", "telefon": "", "epost": ""}]}),
-    _blokk("bilde", {"fil_id": None, "alt": "x"})])
+    _blokk("bilde", {"fil_id": None, "alt": "x"}),
+    # en gammel Filer-blokk med «kursholders filer» og uten egne filer er nå tom (06.10.2026: kursholder-lenken og SharePoint er tatt bort)
+    _blokk("filer", {"filer": [], "sharepoint": True})])
 def test_tomme_blokker_er_aldri_synlige(blokk):
     assert si.blokk_er_tom(blokk) and not si.blokk_synlig(blokk, IDAG)
 
 
 @pytest.mark.parametrize("blokk", [
     _blokk("tekst", {"html": "<p>x</p>"}), _blokk("viktig", {"niva": "info", "tekst": "x"}),
-    _blokk("program", {"dager": [{"punkter": [{"tema": "x"}]}]}), _blokk("filer", {"filer": [{"fil_id": 1}], "sharepoint": False}),
-    _blokk("filer", {"filer": [], "sharepoint": True}), _blokk("lenker", {"lenker": [{"tittel": "x", "url": "https://a.no"}]}),
+    _blokk("program", {"dager": [{"punkter": [{"tema": "x"}]}]}), _blokk("filer", {"filer": [{"fil_id": 1}]}),
+    _blokk("lenker", {"lenker": [{"tittel": "x", "url": "https://a.no"}]}),
     _blokk("lenker", {"lenker": [{"tittel": "Zoom", "url": "", "kilde": "zoom"}]}), _blokk("tabell", {"kolonner": ["a"], "rader": [["x"]]}),
     _blokk("kontakt", {"personer": [{"navn": "Marte"}]}), _blokk("bilde", {"fil_id": 3})])
 def test_blokker_med_innhold_er_ikke_tomme(blokk):
@@ -590,11 +593,12 @@ def test_program_fra_kursdager_lager_en_dag_per_kursdag():
 def test_standardmal_har_de_fire_blokkene_og_er_gyldig():
     dok = si.standardmal(KURSDAGER)
     assert [b["type"] for b in dok["blokker"]] == ["program", "filer", "lenker", "kontakt"]
-    assert dok["blokker"][1]["data"]["sharepoint"] is True and dok["blokker"][0]["data"]["dager"][0]["kursdag_id"] == 31
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort - Filer-blokken har ikke lenger «sharepoint», og ingen blokk
+    # i malen vises før den er fylt ut; før var Filer-blokken med kursholders filer synlig fra start)
+    assert "sharepoint" not in dok["blokker"][1]["data"] and dok["blokker"][0]["data"]["dager"][0]["kursdag_id"] == 31
     ren, merknader = _valider(dok, kursdag_ider={31, 32})
     assert merknader == [] and len({b["id"] for b in ren["blokker"]}) == 4
-    assert len(si.synlige_blokker(dok, IDAG)) >= 1                                              # tomme blokker vises ikke
-    assert len(si.synlige_blokker(dok, IDAG)) < 4
+    assert si.synlige_blokker(dok, IDAG) == []                                                  # tomme blokker vises ikke
 
 
 def test_standardmalen_har_ingen_velkommen_tekstboks():

@@ -19,7 +19,7 @@
     if (t === "tekst") { return !KS.tekstAvHtml(d.html).trim(); }
     if (t === "viktig") { return !(d.tekst || "").trim(); }
     if (t === "program") { return !(d.dager || []).some(function (x) { return (x.punkter || []).length > 0; }); }
-    if (t === "filer") { return !(d.filer || []).length && !d.sharepoint; }
+    if (t === "filer") { return !(d.filer || []).length; }
     if (t === "lenker") { return !(d.lenker || []).some(function (e) { return e.url || e.kilde === "zoom"; }); }
     if (t === "tabell") { return !(d.rader || []).some(function (r) { return r.some(function (c) { return (c || "").trim(); }); }); }
     if (t === "kontakt") { return !(d.personer || []).some(function (p) { return ["navn", "rolle", "telefon", "epost"].some(function (f) { return (p[f] || "").trim(); }); }); }
@@ -36,7 +36,7 @@
     }
     if (t === "filer") {
       var f = (d.filer || []).length;
-      return (f ? KS.flertall(f, "fil", "filer") : "Ingen filer ennå") + (d.sharepoint ? " + kursholders filer" : "");
+      return f ? KS.flertall(f, "fil", "filer") : "Ingen filer ennå";
     }
     if (t === "lenker") { return KS.flertall((d.lenker || []).length, "lenke", "lenker"); }
     if (t === "tabell") { return KS.flertall((d.rader || []).length, "rad", "rader"); }
@@ -51,7 +51,7 @@
     var data = {
       tekst: { html: "" }, viktig: { niva: "info", tekst: "" },
       program: { dager: D.kursdager.map(function (kd, i) { return { kursdag_id: kd.id, dato: kd.dato, tittel: "Dag " + (i + 1), punkter: [] }; }) },
-      filer: { filer: [], sharepoint: false, vis_kommende: true }, lenker: { lenker: [] },
+      filer: { filer: [], vis_kommende: true }, lenker: { lenker: [] },
       tabell: { kolonner: ["Gruppe", "Deltakere"], rader: [["", ""]] }, kontakt: { personer: [] },
       bilde: { fil_id: null, alt: "", tekst: "", plassering: "bred" }
     }[type];

@@ -1,0 +1,87 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{#- Kursbevis-design (Camilla 06.10.2026, kurs/kursbevisdesign.py): lages én gang og velges per kurs under fanen Kursbevis.
+    Hvert design har farge, logo, illustrasjon, skrift, overskrift og signatur. Til høyre en liten forhåndsvisning (A4). -#}
+{% set lese = admin_rolle == 'lese' %}
+<h1>Kursbevis-design</h1>
+<p class="sub">Velg design for hvert kurs under fanen Kursbevis. Endringer her gjelder alle kurs med designet, for kursbevis som utstedes fra nå av –
+  de som alt er sendt, endres ikke.</p>
+
+{% macro designskjema(d, nytt=false) %}
+{%- set lese = admin_rolle == 'lese' %}
+<form method="post" action="{{ url_for('admin_kursbevis_design') }}" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="design_id" value="{{ d.id if d else '' }}">
+  {% set p = 'ny' if nytt else 'd' ~ d.id %}
+  <div class="designfelt">
+    <div><label for="{{ p }}-navn">Navn</label>
+      <input id="{{ p }}-navn" name="navn" value="{{ d.navn if d else '' }}" maxlength="60" required {{ 'disabled' if lese }}></div>
+    <div><label for="{{ p }}-tittel">Overskrift</label>
+      <input id="{{ p }}-tittel" name="tittel" value="{{ d.tittel if d else 'Kursbevis' }}" maxlength="120" {{ 'disabled' if lese }}></div>
+    <div><label for="{{ p }}-farge">Farge</label>
+      <input id="{{ p }}-farge" type="color" name="farge" value="{{ d.farge if d else '#1f5c73' }}" style="height:40px; padding:2px" {{ 'disabled' if lese }}></div>
+    <div><label for="{{ p }}-logo">Logo</label>
+      <select id="{{ p }}-logo" name="logo" {{ 'disabled' if lese }}>
+        {% for nokkel, (navn, _fil) in logoer.items() %}<option value="{{ nokkel }}" {{ 'selected' if d and d.logo == nokkel }}>{{ navn }}</option>{% endfor %}
+      </select></div>
+    <div><label for="{{ p }}-ill">Illustrasjon</label>
+      <select id="{{ p }}-ill" name="illustrasjon" {{ 'disabled' if lese }}>
+        {% for nokkel, (navn, _filer) in illustrasjoner.items() %}<option value="{{ nokkel }}" {{ 'selected' if d and d.illustrasjon == nokkel }}>{{ navn }}</option>{% endfor %}
+      </select></div>
+    <div><label for="{{ p }}-skrift">Skrift</label>
+      <select id="{{ p }}-skrift" name="skrift" {{ 'disabled' if lese }}>
+        {% for nokkel, (navn, _css) in skrifter.items() %}<option value="{{ nokkel }}" {{ 'selected' if d and d.skrift == nokkel }}>{{ navn }}</option>{% endfor %}
+      </select></div>
+  </div>
+  <h3 class="skjemadel" style="margin-bottom:6px">Signatur</h3>
+  <div class="designfelt">
+    <div><label for="{{ p }}-sig">Signaturbilde</label>
+      <select id="{{ p }}-sig" name="signatur_bilde_id" {{ 'disabled' if lese }}>
+        <option value="">Uten bilde (bare strek)</option>
+        {% for b in bilder %}<option value="{{ b.id }}" {{ 'selected' if d and d.signatur_bilde_id == b.id }}>{{ b.alt }} ({{ b.filnavn }})</option>{% endfor %}
+      </select></div>
+    <div><label for="{{ p }}-signavn">Navn under streken</label>
+      <input id="{{ p }}-signavn" name="signatur_navn" value="{{ d.signatur_navn or '' if d else '' }}" maxlength="120" placeholder="For eksempel daglig leders navn" {{ 'disabled' if lese }}></div>
+    <div><label for="{{ p }}-sigtittel">Tittel under streken</label>
+      <input id="{{ p }}-sigtittel" name="signatur_tittel" value="{{ d.signatur_tittel or '' if d else 'Daglig leder, IPR' }}" maxlength="120" {{ 'disabled' if lese }}></div>
+  </div>
+  {% if not lese %}
+  <details style="margin-top:8px">
+    <summary class="liten">Last opp et nytt signaturbilde</summary>
+    <div class="designfelt" style="margin-top:8px">
+      <div><label for="{{ p }}-sigfil">Bildefil (PNG, JPEG eller GIF, maks 1 MB)</label>
+        <input id="{{ p }}-sigfil" type="file" name="signatur_fil" accept="image/png,image/jpeg,image/gif"></div>
+      <div><label for="{{ p }}-sigalt">Beskrivelse av bildet</label>
+        <input id="{{ p }}-sigalt" name="signatur_alt" placeholder="For eksempel «Signatur, daglig leder»" maxlength="120"></div>
+    </div>
+    <p class="liten dempet" style="margin:6px 0 0">Bildet legges i signaturbiblioteket og brukes i dette designet når du lagrer.</p>
+  </details>
+  <p style="margin:14px 0 0"><button>{{ 'Opprett designet' if nytt else 'Lagre designet' }}</button></p>
+  {% endif %}
+</form>
+{% endmacro %}
+
+{% for d in designer %}
+<div class="kort" id="design-{{ d.id }}">
+  <h2 style="margin-top:0"><span class="designfarge" style="background:{{ d.farge }}" aria-hidden="true"></span> {{ d.navn }}</h2>
+  <div class="designkort">
+    <div>
+      {{ designskjema(d) }}
+      {% set brukt = i_bruk[d.id] %}
+      <p class="liten dempet" style="margin:12px 0 0">{% if brukt %}Brukes på {{ brukt | length }} kurs: {% for k in brukt[:6] %}{{ k.kursnr }}{{ ', ' if not loop.last }}{% endfor %}{% if brukt | length > 6 %} …{% endif %}{% else %}Ingen kurs bruker dette designet ennå.{% endif %}</p>
+    </div>
+    <div>
+      <div class="designbilde"><iframe src="{{ url_for('admin_kursbevis_design_forhandsvis', design_id=d.id) }}" title="Forhåndsvisning av designet {{ d.navn }}" loading="lazy" tabindex="-1"></iframe></div>
+      <p class="liten" style="margin:6px 0 0"><a href="{{ url_for('admin_kursbevis_design_forhandsvis', design_id=d.id) }}" target="_blank" rel="noopener">Se som A4-ark ↗</a></p>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% if not lese %}
+<details class="kort" id="nytt-design">
+  <summary><strong>Nytt design</strong></summary>
+  <div style="margin-top:12px">{{ designskjema(none, nytt=true) }}</div>
+</details>
+{% endif %}
+{% endblock %}

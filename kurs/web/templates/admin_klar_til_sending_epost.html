@@ -1,0 +1,41 @@
+{% extends "admin_base.html" %}
+{% block innhold %}
+{#- Én e-post i «Klar til sending» slik den vil se ut (kurs/godkjenning.py). Innholdet vises i en låst ramme uten skript. Personlige
+    lenker (Min side, opplastingslenke, kvitteringslenke) står som «skjult» her og lages i det e-posten sendes. -#}
+<p class="liten"><a href="{{ url_for('admin_klar_til_sending') }}">← Klar til sending</a></p>
+<div class="epostoverskrift">
+  <h1 class="epostemne">{{ r.emne }}</h1>
+  <span class="merke {{ {'venter': '', 'sendt': 'ok', 'avvist': 'gra', 'utgaatt': 'gul', 'uavklart': 'feil'}.get(r.status, '') }}">{{ statusnavn[r.status] }}</span>
+</div>
+<p class="epostmeta">
+  <span><b>E-post</b> {{ typenavn(r.type) }}</span>
+  {% if r.kursnr %}<span><b>Kurs</b> {{ r.kursnr }} – {{ r.kursnavn }}</span>{% endif %}
+  <span><b>Til</b> {% if r.deltaker_navn %}{{ r.deltaker_navn }}, {% endif %}{{ r.mottaker }}</span>
+  {% if r.utloper and r.status == 'venter' %}<span><b>Kan sendes til og med</b> {{ r.utloper | dagdato }}</span>{% endif %}
+  {% if r.merknad %}<span><b>Merknad</b> {{ r.merknad }}</span>{% endif %}
+</p>
+{% if grunn %}
+<div class="flash info" role="status">Denne e-posten kan ikke sendes: {{ grunn }} Den får status «Utgått» neste gang den behandles.</div>
+{% endif %}
+{% if html %}
+{% if r.status == 'venter' and admin_rolle != 'lese' %}
+<div class="klarknapper">
+  {% if not grunn %}
+  <form method="post" action="{{ url_for('admin_klar_til_sending_send') }}" style="margin:0" data-bekreft="Sende denne e-posten nå?">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="id" value="{{ r.id }}">
+    <button>Send</button>
+  </form>
+  {% endif %}
+  <form method="post" action="{{ url_for('admin_klar_til_sending_avvis') }}" style="margin:0" data-bekreft="Ikke sende denne e-posten? Den blir aldri sendt.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="id" value="{{ r.id }}">
+    <button class="sekundar">Ikke send</button>
+  </form>
+</div>
+{% endif %}
+<h2 class="epostinnhold">Innhold</h2>
+<iframe class="epostramme" sandbox srcdoc="{{ html }}" title="E-posten «{{ r.emne }}» slik den vil se ut"></iframe>
+<p class="liten dempet">Personlige lenker (for eksempel til Min side) står som «skjult» her. De lages i det e-posten sendes.</p>
+{% else %}
+<p class="dempet">Innholdet er slettet fordi e-posten er ferdig behandlet.{% if r.status == 'sendt' %} Det som ble sendt, ligger i e-posthistorikken for deltakeren.{% endif %}</p>
+{% endif %}
+{% endblock %}

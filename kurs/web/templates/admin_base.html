@@ -11,6 +11,7 @@
 <a href="{{ url_for('admin') }}" {% if her in ('admin', 'admin_uavklart') or her.startswith('admin_kurs') or her.startswith('admin_ny_kurs') or her.startswith('admin_deltaker') or her.startswith('admin_epost') or her.startswith('admin_bulk') or her.startswith('admin_import') %}aria-current="page"{% endif %}>Oversikt</a>
 <a href="{{ url_for('admin_kalender') }}" {% if her.startswith('admin_kalender') or her.startswith('admin_aarsplan') %}aria-current="page"{% endif %}>Kalender</a>
 <a href="{{ url_for('admin_maltekster') }}" {% if her.startswith('admin_maltekst') or her.startswith('admin_signatur') %}aria-current="page"{% endif %}>E-postmaler</a>
+<a href="{{ url_for('admin_klar_til_sending') }}" {% if her.startswith('admin_klar_til_sending') %}aria-current="page"{% endif %}>Klar til sending{% if antall_klar_til_sending %} <span class="merke gul">{{ antall_klar_til_sending }}</span>{% endif %}</a>
 {% if assistent_aktiv %}<a href="{{ url_for('admin_kunnskap') }}" {% if her.startswith('admin_kunnskap') %}aria-current="page"{% endif %}>Kunnskapsbase</a>{% endif %}
 {% if admin_rolle == 'system' %}<a href="{{ url_for('admin_daglig') }}" {% if her == 'admin_daglig' %}aria-current="page"{% endif %}>Daglig kjøring</a>
 <a href="{{ url_for('admin_brukere') }}" {% if her == 'admin_brukere' %}aria-current="page"{% endif %}>Brukere</a>{% endif %}

@@ -481,7 +481,7 @@
     var r = KS.klon("ks-mal-filer"); innhold.appendChild(r);
     var rader = KS.felt("rader", r), d = b.data;
     d.filer.forEach(function (el) { rader.appendChild(byggFilRad(b, el)); });
-    bind(r, d, ["sharepoint", "vis_kommende"], function () { endret(b); });
+    bind(r, d, ["vis_kommende"], function () { endret(b); });
     KS.visKvote(r);
     var eks = KS.felt("eksisterende", r);
     S.filer.filter(function (f) { return f.type === "dokument" && !d.filer.some(function (e) { return e.fil_id === f.id; }); })

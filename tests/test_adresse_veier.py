@@ -111,7 +111,7 @@ def _gruppe(kode="A1", **over):
     data = gruppeskjema({
         "kontakt_navn": "Kari HR", "kontakt_epost": "kari.hr@firma.no", "kontakt_telefon": "90000000", "org_nr": FIRMA,
         "faktura_ref": "BEST-1", "deltaker_navn": ["Ola Nordmann"], "deltaker_epost": [EPOST],
-        "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on", **over})
+        "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on", "samtykke_lagring": "on", **over})
     return _klient().post(f"/kurs/{kode}/gruppe", data=data)
 
 
@@ -610,7 +610,7 @@ RENT = {"adresse": "Vei 1", "postnr": "0150", "poststed": "Oslo"}
 
 def test_skjemaet_lagrer_adressen_uten_mellomrom_foran_og_bak(con):
     _kurs(con)
-    r = _klient().post("/kurs/A1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": EPOST, "samtykke": "on",
+    r = _klient().post("/kurs/A1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": EPOST, "samtykke": "on", "samtykke_lagring": "on",
                                          "betaler": "person", **PADDET})
     assert r.status_code == 200
     assert _adresse(_person(con)) == RENT and _faktura(_paamelding(con)) == RENT

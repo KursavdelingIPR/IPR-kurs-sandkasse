@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% set tema_ta = true %}{% set tema_ipr = kurs.merke != 'terapiakademiet' %}
+{#- Evaluering etter kurset (kurs/evaluering.py). Oppsettet etter Forms-skjemaet til IPR (Camilla 09.10.2026: «Ikke i farger, men
+    design»): tittel, internnummer og innledning øverst, og hvert spørsmål i en nummerert boks med hjelpetekst, skala 1–6 som knapper,
+    fritekst eller valg. Fargene er kursets (IPR eller Terapiakademiet). `forhandsvisning`: administrasjonen ser skjemaet, men det kan
+    ikke sendes. -#}
+{% block tittel %}Evaluering – {{ kurs.navn }}{% endblock %}
+{% block hode %}<style>
+  .evf { max-width:900px; margin:0 auto; padding:34px 40px 30px; }
+  .evf h1 { margin:0 0 10px; font-size:30px; line-height:1.25; }
+  .evf-intern { margin:0 0 18px; font-style:italic; color:var(--dempet); }
+  .evf-intro { margin:0 0 30px; line-height:1.6; white-space:pre-line; }
+  .evf-sp { margin:0 0 30px; }
+  .evf-hode { background:rgba(0,0,0,.035); border-radius:6px; padding:0 22px 16px; margin-bottom:14px; }
+  .evf-nr { display:inline-flex; align-items:center; justify-content:center; min-width:34px; height:34px; padding:0 6px; margin:0 0 12px;
+            background:var(--bla); color:#fff; font-weight:600; border-radius:0 0 3px 3px; }
+  .evf-tekst { display:block; margin:0; font-size:18px; line-height:1.45; font-weight:500; }
+  .evf-krav { color:#b3261e; margin-left:4px; }
+  .evf-hjelp { margin:10px 0 0; font-size:15px; color:var(--dempet); line-height:1.55; }
+  .evf-skala { display:flex; flex-wrap:wrap; gap:6px; }
+  .evf-skala label { position:relative; flex:1 1 0; min-width:44px; max-width:146px; }
+  .evf-skala input { position:absolute; opacity:0; width:1px; height:1px; }
+  .evf-skala span { display:block; padding:12px 0; text-align:center; border:1px solid rgba(0,0,0,.18); border-radius:4px; background:#fff;
+                    cursor:pointer; font-size:16px; }
+  .evf-skala label:hover span { border-color:var(--bla); }
+  .evf-skala input:checked + span { background:var(--bla); border-color:var(--bla); color:#fff; font-weight:600; }
+  .evf-skala input:focus-visible + span { outline:3px solid var(--bla); outline-offset:2px; }
+  .evf-valg { display:flex; flex-direction:column; gap:12px; padding:4px 2px; }
+  .evf-valg label { display:flex; align-items:center; gap:12px; font-weight:400; cursor:pointer; margin:0; }
+  .evf-valg input { width:22px; height:22px; margin:0; accent-color:var(--bla); }
+  .evf textarea { width:100%; min-height:48px; padding:12px 14px; font:inherit; border:1px solid rgba(0,0,0,.12); border-radius:4px;
+                  background:#fff; box-sizing:border-box; resize:vertical; }
+  .evf-send { margin-top:6px; padding:12px 28px; font-size:16px; }
+  .evf-fot { margin:26px 0 0; font-size:14px; color:var(--dempet); }
+  .evf-banner { padding:10px 14px; margin-bottom:18px; background:#fbf1d9; border-left:4px solid #b88a16; }
+  @media (max-width:640px) { .evf { padding:22px 16px; } .evf h1 { font-size:24px; } .evf-hode { padding:0 14px 14px; } }
+</style>{% endblock %}
+{% block innhold %}
+<div class="kort evf">
+  {% if forhandsvisning %}<p class="evf-banner" role="status">Forhåndsvisning: slik ser deltakerne skjemaet. Svar kan ikke sendes herfra.</p>{% endif %}
+  <h1>{{ kurs.navn }}{% if runde_navn %}, {{ runde_navn | lower if runde_navn.startswith('Samling') else runde_navn }}{% endif %}</h1>
+  <p class="evf-intern">Internnummer {{ kurs.kursnr }}</p>
+  {% if ferdig %}
+  <p>Takk for svaret! Det hjelper oss å gjøre kursene bedre.</p>
+  {% elif allerede %}
+  <p>Du har allerede svart på denne evalueringen. Takk!</p>
+  {% elif stengt %}
+  <p>Evalueringen er stengt. Takk for interessen!</p>
+  {% else %}
+  <p class="evf-intro">{{ innledning }}</p>
+  {% if feil %}<div class="flash feil" role="alert">{{ feil }}</div>{% endif %}
+  <form method="post"{% if forhandsvisning %} action="#" aria-disabled="true"{% endif %}>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="startet" value="{{ startet }}">
+    {% for s in sporsmal %}
+    {% set hjelp_id = 'h-' ~ s.nokkel %}{% set tittel_id = 't-' ~ s.nokkel %}
+    {% set beskrevet = (' aria-describedby="' ~ hjelp_id ~ '"') | safe if s.hjelpetekst or s.lenke else '' %}
+    <div class="evf-sp">
+      <div class="evf-hode">
+        <span class="evf-nr" aria-hidden="true">{{ loop.index }}</span>
+        <p class="evf-tekst" id="{{ tittel_id }}"><span class="skjul-visuelt">Spørsmål {{ loop.index }}: </span>{{ s.tekst }}{% if s.paakrevd %}<span class="evf-krav" title="Må besvares">*</span>{% endif %}</p>
+        {% if s.hjelpetekst or s.lenke %}<p class="evf-hjelp" id="{{ hjelp_id }}">{{ s.hjelpetekst or '' }}{% if s.lenke %} <a href="{{ s.lenke }}" target="_blank" rel="noopener">{{ s.lenketekst or 'her' }}</a>{% endif %}</p>{% endif %}
+      </div>
+      {% if s.type == 'skala' %}
+      <div class="evf-skala" role="radiogroup" aria-labelledby="{{ tittel_id }}"{{ beskrevet }}>{% for x in skala %}<label><input type="radio" name="{{ s.nokkel }}" value="{{ x }}"{{ ' required' if s.paakrevd and loop.first }}{{ ' checked' if svar.get(s.nokkel)|string == x|string }}><span>{{ x }}</span></label>{% endfor %}</div>
+      {% elif s.type == 'valg' %}
+      <div class="evf-valg" role="radiogroup" aria-labelledby="{{ tittel_id }}"{{ beskrevet }}>{% for v in s.valg %}<label><input type="radio" name="{{ s.nokkel }}" value="{{ v }}"{{ ' required' if s.paakrevd and loop.first }}{{ ' checked' if svar.get(s.nokkel) == v }}>{{ v }}</label>{% endfor %}</div>
+      {% else %}
+      <textarea name="{{ s.nokkel }}" rows="2" maxlength="{{ maks_tekst }}" placeholder="Skriv inn svaret" aria-labelledby="{{ tittel_id }}"{{ beskrevet }}{{ ' required' if s.paakrevd }}>{{ svar.get(s.nokkel, '') }}</textarea>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <button type="submit" class="evf-send"{% if forhandsvisning %} disabled{% endif %}>Send inn</button>
+  </form>
+  <p class="evf-fot">Svarene er anonyme: vi ser ikke hvem som har svart hva.{% if sporsmal | selectattr('paakrevd') | list %} Spørsmål med * må besvares.{% endif %}</p>
+  {% endif %}
+</div>
+{% endblock %}

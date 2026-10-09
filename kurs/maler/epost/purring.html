@@ -1,8 +1,0 @@
-Emne: {% if igjen > 0 %}{{ maltekst.emne_frist_om_dager }}{% else %}{{ maltekst.emne_frist_i_dag }}{% endif %}
-{% extends "_ramme.html" %}{% block innhold %}
-{{ maltekst.innledning }}
-{#- LAAST SYSTEMBLOKK: opplastingslenken. Bygges av systemet fra materiell-kravets id (ikke hemmelig - staar allerede
-    i URL-en i dag), aldri fra admintekst. -#}
-<p><a href="{{ lever_lenke }}">Last opp her</a> – så blir materiellet automatisk tilgjengelig for deltakerne.</p>
-{{ maltekst.avslutning }}
-{% endblock %}

@@ -85,7 +85,7 @@ def test_faste_tekster_fra_spesifikasjonen_star_i_siden(con, kid, admin):
                   "Utkastet lagres automatisk. Deltakerne ser ikke noe før du publiserer.", "flytter blokken", "lagrer nå", "angrer",
                   "Lim inn fra Word: formateringen ryddes", "Overskrifter skriver du i tittelfeltet over",
                   "Datoene kobles til kursdagene, så «I dag» markeres automatisk for deltakerne.", "Hent dager fra kursdatoene", "Kopier fra dag 1",
-                  "Slipp filene her", "Vis også filene kursholder har lastet opp i kursmappen", "Vis «Kommer …» for filer som ikke er synlige ennå",
+                  "Slipp filene her", "Vis «Kommer …» for filer som ikke er synlige ennå",      # (06.10.2026: kursholders filer i SharePoint er tatt bort)
                   "Bare vanlige nettadresser (https)", "Sett inn kursets Zoom-lenke", "Lim inn fra Excel", "Legg til deltakere fra påmeldingslisten",
                   "Navn vises for alle som er påmeldt kurset. Bruk fornavn og forbokstav. Ikke e-post eller telefon. Tabellen tømmes automatisk 30 dager etter kurset.",
                   "Bare arbeidsopplysninger", "Alternativ tekst", "Toppbilde bak tittelen",

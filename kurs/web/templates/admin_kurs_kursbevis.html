@@ -13,6 +13,23 @@
   {% if egen_versjon %}<strong>Dette kurset har sin egen versjon.</strong>{% else %}Kurset bruker standardbeviset; lagrer du her, får det sin egen versjon.{% endif %}</p>
 
 {% set lese = admin_rolle == 'lese' %}
+{#- Design (kurs/kursbevisdesign.py, Camilla 06.10.2026): logo, illustrasjon, farge, skrift og signatur. Teksten under gjelder fortsatt. -#}
+<form method="post" action="{{ url_for('admin_kurs_kursbevis', kurs_id=kurs.id) }}" class="kort kursbevisdesignvalg">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label for="kb-design">Design</label>
+  <div class="rad" style="gap:10px; align-items:center; flex-wrap:wrap">
+    <select id="kb-design" name="design_id" style="width:auto" {{ 'disabled' if lese }}>
+      <option value="">Uten design (som før)</option>
+      {% for d in designer %}<option value="{{ d.id }}" {{ 'selected' if design and design.id == d.id }}>{{ d.navn }}</option>{% endfor %}
+    </select>
+    {% if not lese %}<button class="liten" name="handling" value="design">Bruk designet</button>{% endif %}
+    {% if design %}<span class="designfarge" style="background:{{ design.farge }}" aria-hidden="true"></span>{% endif %}
+    <a class="liten" href="{{ url_for('admin_kursbevis_design') }}">Se og endre designene →</a>
+  </div>
+  <p class="liten dempet" style="margin:6px 0 0">Designet gir logo, illustrasjon, farge, skrift og signatur. Teksten under er midten av kursbeviset
+    {%- if design and egen_versjon %} – <strong>kurset har egen tekst</strong>: står det overskrift eller signatur i den, kommer de to ganger. Fjern dem fra teksten, eller trykk «Tilbakestill til standard»{% endif %}.</p>
+</form>
+
 <form method="post" action="{{ url_for('admin_kurs_kursbevis', kurs_id=kurs.id) }}" class="kort kursbevisskjema">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <label for="kb-ramme">Ramme</label>

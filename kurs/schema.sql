@@ -51,7 +51,12 @@ CREATE TABLE IF NOT EXISTS kurs (
     kursbevis_ramme TEXT,
     -- Arrangør (migrering 26 «kursmerke»): 'terapiakademiet' eller NULL = IPR. Skiller kursene i kurslisten (svak rosa
     -- bakgrunn) og skal senere styre avsenderadresse og utseende per kurs.
-    merke           TEXT
+    merke           TEXT,
+    -- Evaluering etter kurset (migrering 28): 'av' = sendes ikke for dette kurset, NULL = sendes dagen etter siste kursdag
+    evaluering      TEXT,
+    -- Kursbevis-design (migrering 30): kursbevis_design.id, NULL = kursbeviset som før (kurs/kursbevisdesign.py). Ingen
+    -- fremmednøkkel: tabellen står lenger ned i skjemaet (PostgreSQL krever at den finnes først); designer slettes ikke.
+    kursbevis_design_id INTEGER
 );
 
 -- Samlinger (migrering 9): kursdagene gruppert, f.eks. «Samling 1» over fire dager eller en enkelt veiledningsdag. Kursets
@@ -138,6 +143,16 @@ CREATE TABLE IF NOT EXISTS paamelding (
     -- påmeldt (db.antall_bekreftet), får ikke automatisk bekreftelse eller faktura, og deltar på hele kurset eller bare samlingene i
     -- tabellen ekstradeltaker_samling. CHECK: bare på påmeldinger som har plass.
     ekstradeltaker_ts TEXT CHECK (ekstradeltaker_ts IS NULL OR status='bekreftet'),
+    -- Rabattpriser (migrering 32, kurs/rabatter.py). priskategori: rabatten deltakeren valgte (NULL = ordinær pris; feltet står
+    -- igjen når rabatten er avvist, så det synes hva som ble valgt). rabatt_prosent: rabatten slik den var ved påmeldingen
+    -- (NULL = ordinær pris). Prisen er kursets pris minus prosenten, avrundet til hele kroner, og følger kursets pris til
+    -- fakturaen er laget. rabatt_status: NULL = ingen sjekk, 'venter' = en administrator må godkjenne retten til rabatten
+    -- (fakturaen holdes tilbake), 'godkjent', 'avvist' (= ordinær pris). psyflix_*: det Psyflix trenger for å sjekke medlemskapet.
+    priskategori    TEXT,
+    rabatt_prosent  INTEGER CHECK (rabatt_prosent IS NULL OR rabatt_prosent BETWEEN 1 AND 99),
+    rabatt_status   TEXT CHECK (rabatt_status IS NULL OR rabatt_status IN ('venter','godkjent','avvist')),
+    psyflix_org     TEXT,
+    psyflix_epost   TEXT,
     UNIQUE (kurs_id, deltaker_id)
 );
 
@@ -562,8 +577,10 @@ CREATE TABLE IF NOT EXISTS kurs_ekstrafelt (
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
     oppdatert       TEXT NOT NULL DEFAULT (datetime('now')),  -- settes eksplisitt av db.py ved hver endring
     oppdatert_av    TEXT,                           -- aktor, f.eks. 'admin:kari'
+    rolle           TEXT,                           -- 'deling_epost' = kursets spørsmål om deling av e-post (migrering 27)
     CHECK ((vis_naar_felt IS NULL) = (vis_naar_verdi IS NULL))
 );
+-- Unik indeks ux_kurs_ekstrafelt_rolle (kurs_id, rolle) WHERE rolle IS NOT NULL lages av migrering 27 (epostdeling), etter kolonnen.
 
 -- Deltakerens svar på kursets egne felt. Ren tekst; flervalg lagres som JSON-liste. Slettes sammen med påmeldingen og
 -- ved anonymisering. Aldri i e-post, hendelseslogg eller driftslogg.
@@ -785,4 +802,155 @@ CREATE TABLE IF NOT EXISTS samling_booking (
     endret          TEXT,                           -- UTC
     endret_av       TEXT,                           -- 'admin:<brukernavn>'
     UNIQUE (samling_id, type)
+);
+
+-- Evaluering etter kurset (migrering 28, Camilla 05.10.2026). Svarene er ANONYME: evaluering_svar har ingen kobling til påmelding
+-- eller deltaker, og bare datoen (ikke klokkeslett) lagres. evaluering_besvart sier bare AT en påmelding har svart (én gang per
+-- påmelding), ikke hva. Lenken i e-posten er signert (lenker.signatur), ingen token lagres.
+CREATE TABLE IF NOT EXISTS evaluering_besvart (
+    paamelding_id   INTEGER PRIMARY KEY REFERENCES paamelding(id) ON DELETE CASCADE,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    besvart         TEXT NOT NULL                   -- dato (YYYY-MM-DD)
+);
+CREATE TABLE IF NOT EXISTS evaluering_svar (
+    id              INTEGER PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    besvart         TEXT NOT NULL,                  -- dato (YYYY-MM-DD), aldri klokkeslett
+    svar            TEXT NOT NULL,                  -- JSON {spørsmål: svar} (kurs/evaluering.py)
+    -- Migrering 34 (ny evaluering, Camilla 09.10.2026): samlingen svaret gjelder (NULL = hele kurset), hvor det kom fra ('epost' =
+    -- personlig lenke, 'delt' = delt lenke/QR; NULL = eldre svar fra e-post) og tid brukt på skjemaet i sekunder (NULL = ukjent).
+    -- Fortsatt aldri hvem eller klokkeslett.
+    samling_id      INTEGER,
+    kilde           TEXT CHECK (kilde IS NULL OR kilde IN ('epost','delt')),
+    sekunder        INTEGER
+);
+CREATE INDEX IF NOT EXISTS evaluering_svar_kurs ON evaluering_svar (kurs_id);
+
+-- «Klar til sending» (Camilla 05.10.2026, kurs/godkjenning.py): automatiske e-poster som venter på godkjenning før de sendes
+-- (alle unntatt bekreftelse og venteliste). html er det som sendes, men personlige lenker (Min side, opplastingslenke,
+-- kvitteringslenke) er skjult og lages på nytt i det e-posten sendes - de lagres aldri. Innholdet slettes når e-posten er sendt
+-- eller ikke skal sendes (det som ble sendt, ligger i e-posthistorikken). Unik på (nokkel, mottaker, type) som utsending_logg:
+-- samme e-post legges aldri i køen to ganger. status: venter / sendt / avvist (Ikke send) / utgaatt / uavklart.
+CREATE TABLE IF NOT EXISTS epost_godkjenning (
+    id              INTEGER PRIMARY KEY,
+    nokkel          TEXT NOT NULL,
+    mottaker        TEXT NOT NULL,
+    type            TEXT NOT NULL,
+    mal             TEXT,
+    paamelding_id   INTEGER REFERENCES paamelding(id) ON DELETE CASCADE,
+    kurs_id         INTEGER REFERENCES kurs(id) ON DELETE CASCADE,
+    emne            TEXT NOT NULL,
+    html            TEXT,                           -- NULL når e-posten er ferdig behandlet
+    lagre_kopi      INTEGER NOT NULL DEFAULT 1,     -- 0 = e-post med personlig tilgangslenke: ingen kopi i historikken
+    utloper         TEXT,                           -- siste dag den kan sendes (YYYY-MM-DD), NULL = ingen frist
+    status          TEXT NOT NULL DEFAULT 'venter' CHECK (status IN ('venter','sendt','avvist','utgaatt','uavklart')),
+    merknad         TEXT,                           -- hvorfor den ikke ble sendt - aldri personopplysninger
+    opprettet       TEXT NOT NULL,                  -- UTC
+    behandlet       TEXT,                           -- UTC
+    behandlet_av    TEXT,                           -- 'system' eller 'admin:<brukernavn>'
+    UNIQUE (nokkel, mottaker, type)
+);
+CREATE INDEX IF NOT EXISTS epost_godkjenning_status ON epost_godkjenning (status, kurs_id);
+
+-- Kursbevis-design (Camilla 06.10.2026, kurs/kursbevisdesign.py): lages én gang og velges per kurs (kurs.kursbevis_design_id).
+-- logo/illustrasjon/skrift er nøkler i kursbevisdesign.LOGOER/ILLUSTRASJONER/SKRIFTER ('' = ingen). Signaturen er et bilde
+-- fra signaturbiblioteket (signatur_bilde), pluss navn og tittel under streken.
+CREATE TABLE IF NOT EXISTS kursbevis_design (
+    id              INTEGER PRIMARY KEY,
+    navn            TEXT NOT NULL UNIQUE,
+    tittel          TEXT NOT NULL DEFAULT 'Kursbevis',
+    farge           TEXT NOT NULL,                  -- #rrggbb: rammen og overskriften
+    logo            TEXT NOT NULL DEFAULT '',
+    illustrasjon    TEXT NOT NULL DEFAULT '',
+    skrift          TEXT NOT NULL DEFAULT 'serif',
+    signatur_bilde_id INTEGER REFERENCES signatur_bilde(id) ON DELETE SET NULL,
+    signatur_navn   TEXT,
+    signatur_tittel TEXT,
+    opprettet       TEXT NOT NULL,                  -- UTC
+    endret          TEXT                            -- UTC
+);
+
+-- «Det stemmer» i datakontrollen (Camilla 07.10.2026, kurs/datakontroll.py): en verdi som er sjekket og ikke skal markeres igjen.
+-- Bare en sha256 av verdien (aldri en kopi av e-post, navn eller telefon). Endres verdien, kontrolleres den på nytt.
+CREATE TABLE IF NOT EXISTS datakontroll_ok (
+    id              INTEGER PRIMARY KEY,
+    deltaker_id     INTEGER NOT NULL REFERENCES deltaker(id) ON DELETE CASCADE,
+    kode            TEXT NOT NULL,                  -- epost / navn / telefon / postnr / dublett
+    verdi_hash      TEXT NOT NULL,
+    opprettet       TEXT NOT NULL,                  -- UTC
+    av              TEXT NOT NULL,                  -- 'admin:<brukernavn>'
+    UNIQUE (deltaker_id, kode, verdi_hash)
+);
+
+-- Rabattpriser per kurs (migrering 32, kurs/rabatter.py): én rad per rabatt kurset gir. Ingen rad = ingen slik rabatt.
+-- prosent: prisen er kursets pris minus prosenten (hele kroner). maa_godkjennes = 1: en påmelding med rabatten venter på at en
+-- administrator godkjenner retten til den, og fakturaen holdes tilbake til da.
+CREATE TABLE IF NOT EXISTS kurs_rabatt (
+    id              INTEGER PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    kategori        TEXT NOT NULL,                  -- nieft / ipr_terapeut / student / psyflix (rabatter.KATEGORIER)
+    prosent         INTEGER NOT NULL CHECK (prosent BETWEEN 1 AND 99),
+    maa_godkjennes  INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (kurs_id, kategori)
+);
+
+-- Studentbeviset til en studentpris som venter på godkjenning (migrering 32). Bare til administrator har sett på det: raden slettes
+-- når rabatten er godkjent eller avvist, ved anonymisering og når påmeldingen slettes. innhold er base64 (som epost_fil).
+CREATE TABLE IF NOT EXISTS rabatt_bevis (
+    id              INTEGER PRIMARY KEY,
+    paamelding_id   INTEGER NOT NULL UNIQUE REFERENCES paamelding(id) ON DELETE CASCADE,
+    filnavn         TEXT NOT NULL,
+    mimetype        TEXT NOT NULL,                  -- image/png, image/jpeg, image/webp eller application/pdf
+    storrelse       INTEGER NOT NULL,
+    innhold         TEXT NOT NULL,                  -- base64
+    opprettet       TEXT NOT NULL                   -- UTC
+);
+
+-- Kursets egne tekster i e-postmalene (migrering 33, Camilla 09.10.2026: «veldig mange av kursene er forskjellige, med ulike tekster,
+-- ulike regler»): en rad per kurs, mal og felt som er tilpasset for kurset (fanen Kommunikasjon). Ingen rad = fellesteksten under
+-- E-postmaler gjelder. Bare tekst, med samme regler og flettefelt som maltekst (kurs/maltekster.py). Kopieres når kurset dupliseres.
+CREATE TABLE IF NOT EXISTS kurs_maltekst (
+    id              INTEGER PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    mal             TEXT NOT NULL,                  -- bekreftelse (maltekster.KURSVISE_MALER)
+    felt            TEXT NOT NULL,                  -- emne / innledning / avslutning
+    tekst           TEXT NOT NULL,
+    oppdatert       TEXT NOT NULL,                  -- UTC
+    av              TEXT NOT NULL,                  -- 'admin:<brukernavn>'
+    UNIQUE (kurs_id, mal, felt)
+);
+
+-- Ny evaluering (migrering 34, kurs/evaluering.py, Camilla 09.10.2026). Spørsmålene per kurs: ingen rader = standardsettet. nokkel er det
+-- som lagres i svarene (evaluering_svar.svar) og står fast; nr er rekkefølgen. valg er JSON (svaralternativene for type 'valg').
+CREATE TABLE IF NOT EXISTS evaluering_sporsmal (
+    id              INTEGER PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    nr              INTEGER NOT NULL,
+    nokkel          TEXT NOT NULL,
+    type            TEXT NOT NULL CHECK (type IN ('skala','tekst','valg')),
+    tekst           TEXT NOT NULL,
+    hjelpetekst     TEXT,
+    lenketekst      TEXT,
+    lenke           TEXT,
+    valg            TEXT,
+    paakrevd        INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (kurs_id, nokkel)
+);
+
+-- Evalueringens oppsett per kurs (migrering 34): egen innledning (NULL = standardteksten), stengt, og versjonen av den delte lenken
+-- («Ny lenke» øker den, så gamle lenker og QR-koder slutter å virke). Ingen rad = standard.
+CREATE TABLE IF NOT EXISTS evaluering_oppsett (
+    kurs_id         INTEGER PRIMARY KEY REFERENCES kurs(id) ON DELETE CASCADE,
+    innledning      TEXT,
+    stengt          INTEGER NOT NULL DEFAULT 0,
+    delt_versjon    INTEGER NOT NULL DEFAULT 0
+);
+
+-- At en påmelding har svart på evalueringen etter en SAMLING (migrering 34; etter hele kurset: evaluering_besvart). Bare at, aldri hva.
+CREATE TABLE IF NOT EXISTS evaluering_besvart_samling (
+    paamelding_id   INTEGER NOT NULL REFERENCES paamelding(id) ON DELETE CASCADE,
+    samling_id      INTEGER NOT NULL,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE,
+    besvart         TEXT NOT NULL,                  -- dato (YYYY-MM-DD)
+    PRIMARY KEY (paamelding_id, samling_id)
 );

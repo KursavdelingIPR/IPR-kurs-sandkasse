@@ -10,7 +10,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from . import db, kursbevismal, maltekster
+from . import db, kursbevisdesign, kursbevismal, maltekster
 from .kjoring import Kjoring
 
 MIN_ANDEL = 1.0
@@ -36,7 +36,13 @@ def lag_html(con, kurs, v: dict, *, egen: str | None = None, forhandsvisning: bo
     if egen is None:
         egen = kurs["kursbevis_html"]
     innhold = kursbevismal.flett(con, egen, v, db.i_setning) if egen else None
-    return _env.get_template("kursbevis.html").render(**v, innhold=innhold, ramme_farge=kursbevismal.ramme_farge(kurs),
+    # Kursets design (kurs/kursbevisdesign.py): logo, illustrasjon, farge, skrift og signatur. Uten design: som før.
+    design = kursbevisdesign.for_kursbevis(con, kurs)
+    ramme = kursbevismal.ramme_farge(kurs)
+    if design and ramme is not None:
+        ramme = design["farge"]                 # designets farge, med mindre kurset har valgt «Uten ramme»
+    return _env.get_template("kursbevis.html").render(**v, innhold=innhold, ramme_farge=ramme, design=design,
+                                                      dager_tekst=", ".join(kursbevismal.norsk_dato(d) for d in v["dager"]),
                                                       forhandsvisning=forhandsvisning)
 
 

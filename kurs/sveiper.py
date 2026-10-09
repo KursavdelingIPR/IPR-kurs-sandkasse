@@ -16,7 +16,7 @@ import calendar
 from dataclasses import dataclass
 from datetime import date
 
-from . import db, firmaopplysninger, privatadresse
+from . import db, firmaopplysninger, kalender, privatadresse, rabatter
 from .feil import sikker_feiltekst
 from .integrasjoner import visma
 from .kjoring import Kjoring
@@ -24,9 +24,11 @@ from .kjoring import Kjoring
 # Staleness-grensen for 'reservert' (db.UAVKLART_GRENSE_MIN) deles med forsidens teller - aldri automatisk
 # retry uansett alder, se schema.sql/trinn 2.5-designet.
 
-SQL_DELTAKER = """SELECT p.*, d.navn, d.fornavn, d.epost, d.id AS did, k.navn AS kursnavn, k.kode, k.pris_nok, k.fakturering,
-                         k.visma_artikkel, k.type AS kurstype, k.faktura_dager_for
-                  FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id JOIN kurs k ON k.id=p.kurs_id"""
+# pris_nok er DELTAKERENS pris: kursets pris, eller kursets pris minus rabatten (kurs/rabatter.py, avrundet til hele kroner).
+# Den følger kursets pris til fakturaen er laget, som før.
+SQL_DELTAKER = f"""SELECT p.*, d.navn, d.fornavn, d.epost, d.id AS did, k.navn AS kursnavn, k.kode, {rabatter.SQL_PRIS} AS pris_nok,
+                          k.fakturering, k.visma_artikkel, k.type AS kurstype, k.faktura_dager_for
+                   FROM paamelding p JOIN deltaker d ON d.id=p.deltaker_id JOIN kurs k ON k.id=p.kurs_id"""
 
 
 def kjor(k: Kjoring, paamelding_id: int | None = None, *, ignorer_utsatt: bool = False) -> None:
@@ -102,8 +104,9 @@ def _en(k: Kjoring, p) -> None:
     # og _fakturering_ferdig() - e-posten og motoren kan aldri bygge paa hver sin regel. Mailen sendes FOER fakturaforsoket og
     # kan derfor aldri paastaa at faktura er sendt/opprettet.
     plan = _lag_plan(k, p, dager)
+    # Kalenderfil med kursdagene (Camilla 05.10.2026): deltakeren legger dem inn i kalenderen med ett klikk
     k.send_en_gang(nokkel, p["epost"], "bekreftelse", "bekreftelse", paamelding_id=p["id"],
-                   p=p, kurs=kurs, dager=dager, faktura_plan=plan)
+                   p=p, kurs=kurs, dager=dager, faktura_plan=plan, vedlegg=kalender.vedlegg(kurs, dager))
     if not db.allerede_sendt(k.con, nokkel, p["epost"], "bekreftelse"):
         return  # bekreftelsen er ikke trygt bekreftet sendt enda (reservert/feilet/ukjent hos noen -
                 # kanskje denne kjoringen selv) - ikke fakturer, ikke marker ferdig. Tas igjen senere,
@@ -123,6 +126,16 @@ def _lag_plan(k: Kjoring, p, dager=None) -> "FakturaPlan":
     dager = db.kursdager(k.con, p["kurs_id"]) if dager is None else dager
     return faktura_plan(fakturering=p["fakturering"], pris_nok=p["pris_nok"], status=p["status"], betaling=p["betaling"],
                         faktura_onskes_na=p["faktura_onskes_na"], kursdager=[d["dato"] for d in dager], idag=k.idag)
+
+
+def bekreftelse_eksempel(k: Kjoring, kurs, deltaker: dict) -> dict:
+    """Dataene til forhåndsvisningen av påmeldingsbekreftelsen for et kurs (fanen Kommunikasjon, Camilla 09.10.2026): en oppdiktet
+    deltaker med vanlig plass, kursets dager og fakturaplanen etter samme regel som for en ekte påmelding (_lag_plan). Leser bare."""
+    dager = db.kursdager(k.con, kurs["id"])
+    betaling = "per_samling" if kurs["betaling"] == "per_samling" else "samlet"
+    p = {**deltaker, "fakturering": kurs["fakturering"], "pris_nok": kurs["pris_nok"], "status": "bekreftet", "betaling": betaling,
+         "faktura_onskes_na": 0, "kurs_id": kurs["id"], "ekstradeltaker_ts": None}
+    return {"p": p, "kurs": kurs, "dager": dager, "faktura_plan": _lag_plan(k, p, dager)}
 
 
 def _fakturering_ferdig(k: Kjoring, p, plan: "FakturaPlan") -> bool:
@@ -248,14 +261,16 @@ def fakturer(k: Kjoring, p, plan: "FakturaPlan | None" = None) -> None:
         k.con.execute("UPDATE paamelding SET faktura_tidligst_dato=? WHERE id=?", (plan.tidligst_dato.isoformat(), p["id"]))
         k.si(f"  faktura utsatt til {plan.tidligst_dato.isoformat()} (påmelding {p['id']})")
         return
+    # Har deltakeren en rabatt, står prisens navn på fakturaen («Studentpris»)
+    pris = f" – {rabatter.prisnavn(p)}" if rabatter.prisnavn(p) else ""
     if plan.modus == PLAN_NA:
-        _opprett(k, p, None, p["pris_nok"], f"{p['kursnavn']} – {p['navn']}")
+        _opprett(k, p, None, p["pris_nok"], f"{p['kursnavn']} – {p['navn']}{pris}")
         return
     samlinger = samlinger_til_fakturering(k.con, p["kurs_id"])
     for nr, samling, kursdag_id, sum_ in delfakturaer_som_gjenstaar(k.con, p, samlinger):
         if _forfalt(k.idag, samling[0]["dato"], p["faktura_dager_for"]):
             _opprett(k, p, kursdag_id, sum_,
-                     f"{p['kursnavn']} – {p['navn']} – samling {nr} av {len(samlinger)} ({samling[0]['dato']})")
+                     f"{p['kursnavn']} – {p['navn']}{pris} – samling {nr} av {len(samlinger)} ({samling[0]['dato']})")
 
 
 def _forfalt(idag: date, dato: str, dager_for: int) -> bool:
@@ -445,6 +460,12 @@ def _opprett(k: Kjoring, p, kursdag_id: int | None, belop: int, linjetekst: str)
         # ingen faktura uten kundenavn. Ingenting skrives (heller ingen logg, så jobben forblir idempotent) - raden tas
         # igjen ved neste kjøring, siden sveiper_kjort ikke settes, og fakturaen lages når opplysningene er på plass.
         k.si(f"  påmelding {p['id']}: faktura venter - {firmaopplysninger.MERKE.lower()}")
+        return
+    if rabatter.venter(p):
+        # Rabatten venter på godkjenning (studentbevis, NIEFT, IPR-terapeut eller Psyflix): ingen faktura før en administrator har
+        # trykket «Godkjent» eller «Ikke godkjent» - prisen er ikke avgjort. Som sperrene over skrives ingenting: raden tas igjen
+        # ved neste kjøring, og avgjørelsen setter faktureringen i gang med en gang (kurs/rabatter.py, admin_rabatt_avgjor).
+        k.si(f"  påmelding {p['id']}: faktura venter - rabatten er ikke godkjent ennå")
         return
     org = p["betaler"] == "organisasjon"
     fakturaadresse = _fakturaadresse(k.con, p, org)

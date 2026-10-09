@@ -1,7 +1,7 @@
 """Tilgjengelighet og UI-konsistens i malene (statisk kontroll av kildene + rendrede sider).
 
   * hvert skjemafelt (input/select/textarea, unntatt hidden) har en ledetekst: <label for=id>, er inni en <label>,
-    eller har aria-label
+    har aria-label, eller har aria-labelledby som peker paa en id i samme mal (f.eks. spoersmaalet i evalueringen)
   * tabeller har <th scope="col"> (eller scope="row"/"rowgroup" for rad- og gruppeoverskrifter)
   * hopp-til-innhold-lenke og <main id="innhold">
   * flash-meldinger har role=alert/status
@@ -26,6 +26,9 @@ def _har_ledetekst(html: str, m: re.Match) -> bool:
         return True
     ident = re.search(r'\bid="([^"]+)"', attrs)
     if ident and re.search(r'<label\b[^>]*\bfor="' + re.escape(ident.group(1)) + '"', html):
+        return True
+    ledet = re.search(r'\baria-labelledby="([^"]+)"', attrs)
+    if ledet and re.search(r'\bid="' + re.escape(ledet.group(1)) + '"', html):
         return True
     foran = html[:m.start()]
     return foran.rfind("<label") > foran.rfind("</label>")     # inni en <label>...</label>

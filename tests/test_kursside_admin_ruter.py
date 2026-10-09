@@ -76,8 +76,8 @@ def test_kursoverskriften_har_lenke_til_forhandsvisningen_og_aktiviteter_har_kna
     assert f'href="/admin/kurs/{kid}/kursside/forhandsvis?versjon=publisert" target="_blank" rel="noopener"' in html and "Min side ↗" in html
     aktiviteter = admin.get("/admin").get_data(as_text=True)
     # Siden 04.10.2026 et ikon med teksten i aria-label (Camilla: ikoner som i Pindena)
-    assert re.search(rf'href="/admin/kurs/{kid}/kursside" title="Min side[^"]*" aria-label="Min side for', aktiviteter)
-    assert re.search(rf'href="/admin/kurs/{kid}/kursside" title="Min side[^"]*" aria-label="Min side for',
+    assert re.search(rf'href="/admin/kurs/{kid}/kursside" target="_blank" rel="noopener" title="Min side[^"]*" aria-label="Min side for', aktiviteter)
+    assert re.search(rf'href="/admin/kurs/{kid}/kursside" target="_blank" rel="noopener" title="Min side[^"]*" aria-label="Min side for',
                      admin_klient(con, "lese").get("/admin").get_data(as_text=True))       # knappen vises for alle roller
 
 

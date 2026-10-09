@@ -389,6 +389,10 @@ def _database_foer_migrering_9(sti):
     skjema = re.sub(r"CREATE INDEX IF NOT EXISTS planlagt_rolle_\w+ ON planlagt_rolle \([^)]*\);", "", skjema)
     # migrering 24: bookingen har en egen samling_id (til planlagt_samling), ikke den fra migrering 9
     skjema = re.sub(r"CREATE TABLE IF NOT EXISTS samling_booking \(.*?\n\);", "", skjema, flags=re.S)
+    # migrering 34: evalueringen har egne samling_id-er (svar og «har svart» per samling) - tabellen og kolonnen legges til av migrering 34
+    skjema = re.sub(r"CREATE TABLE IF NOT EXISTS evaluering_besvart_samling \(.*?\n\);", "", skjema, flags=re.S)
+    skjema, antall = re.subn(r"\n\s+samling_id\s+INTEGER,(?=\s*\n\s+kilde\s)", "", skjema)
+    assert antall == 1
     # migrering 23: planlagt_samling.kurs_samling_id peker på samling (kolonnen legges til av migrering 23)
     skjema, antall = re.subn(r"\n\s+kurs_samling_id\s+INTEGER REFERENCES samling\(id\) ON DELETE SET NULL,", "", skjema)
     assert antall == 1
@@ -726,59 +730,18 @@ def test_innsjekktabellen_viser_samlinger_og_merknad(con):
     assert '<span class="merke">Veiledningsdag</span>' in side
 
 
-# ============================ Oppsett: presentasjon fra kursholder ============================
+# ============================ Oppsett: lesetilgang ============================
+# (06.10.2026: kursholder-lenken og SharePoint er tatt bort - testene av «Presentasjon fra kursholder» er fjernet)
 
-def test_be_om_presentasjon_lagrer_forespørsel_og_logger_uten_personopplysninger(con):
-    kid = _kurs(con, [_s(_d(40))])
-    k = _klient()
-    r = k.post(f"/admin/kurs/{kid}/materiell", data={"ansvarlig_navn": "Kari Kursholder",
-                                                    "ansvarlig_epost": "kari@example.no", "frist": _d(30).isoformat()})
-    assert r.status_code == 302 and r.headers["Location"].endswith("#kursmateriell")
-    krav = _fersk(con).execute("SELECT * FROM materiell_krav WHERE kurs_id=?", (kid,)).fetchall()
-    assert [(m["ansvarlig_navn"], m["ansvarlig_epost"], m["frist"]) for m in krav] == [
-        ("Kari Kursholder", "kari@example.no", _d(30).isoformat())]
-    logg = _fersk(con).execute("SELECT detaljer FROM hendelse WHERE handling='materiell_bedt_om'").fetchone()[0]
-    assert "kari" not in logg.lower() and "Kari" not in logg
-    side = k.get(f"/admin/kurs/{kid}/oppsett").get_data(as_text=True)
-    assert "Kari Kursholder" in side and "venter" in side
-
-
-@pytest.mark.parametrize("data,melding", [
-    ({"ansvarlig_navn": "", "ansvarlig_epost": "k@example.no", "frist": "2027-01-01"}, "Fyll inn navnet"),
-    ({"ansvarlig_navn": "K", "ansvarlig_epost": "ikke-epost", "frist": "2027-01-01"}, "gyldig e-postadresse"),
-    ({"ansvarlig_navn": "K", "ansvarlig_epost": "k@example.no", "frist": ""}, "gyldig frist"),
-])
-def test_be_om_presentasjon_kontrollerer_feltene(con, data, melding):
-    kid = _kurs(con, [_s(_d(40))])
-    k = _klient()
-    k.post(f"/admin/kurs/{kid}/materiell", data=data)
-    assert melding in k.get(f"/admin/kurs/{kid}/oppsett").get_data(as_text=True)
-    assert _fersk(con).execute("SELECT COUNT(*) FROM materiell_krav").fetchone()[0] == 0
-
-
-def test_forespørsel_kan_fjernes_bare_foer_levering(con):
-    kid = _kurs(con, [_s(_d(40))])
-    apen = db.be_om_materiell(con, kid, navn="A", epost="a@example.no", frist=_d(30).isoformat())
-    levert = db.be_om_materiell(con, kid, navn="B", epost="b@example.no", frist=_d(30).isoformat())
-    con.execute("UPDATE materiell_krav SET levert_ts='2026-01-01' WHERE id=?", (levert,))
-    con.commit()
-    k = _klient()
-    k.post(f"/admin/kurs/{kid}/materiell/{apen}/fjern")
-    k.post(f"/admin/kurs/{kid}/materiell/{levert}/fjern")
-    assert [r[0] for r in _fersk(con).execute("SELECT id FROM materiell_krav")] == [levert]
-
-
-def test_lesebruker_kan_ikke_endre_datoer_eller_be_om_materiell(con):
+def test_lesebruker_kan_ikke_endre_datoer(con):
     kid = _kurs(con, [_s(_d(40))])
     db.opprett_admin_bruker(con, "leser", "Leser", "passord-som-holder", rolle="lese")
     con.commit()
     k = _klient(logg_inn=False)
     k.post("/admin/logg-inn", data={"brukernavn": "leser", "passord": "passord-som-holder"})
     assert k.post(f"/admin/kurs/{kid}/kursdatoer", data={"s-0-fra": _d(50).isoformat()}).status_code == 403
-    assert k.post(f"/admin/kurs/{kid}/materiell", data={"ansvarlig_navn": "X", "ansvarlig_epost": "x@example.no",
-                                                       "frist": _d(30).isoformat()}).status_code == 403
     side = k.get(f"/admin/kurs/{kid}/oppsett").get_data(as_text=True)
-    assert "Lagre kursdatoer" not in side and "Be kursholder om presentasjon" not in side
+    assert "Lagre kursdatoer" not in side
 
 
 # ============================ visning for deltakere ============================
@@ -788,9 +751,11 @@ def test_paameldingssiden_viser_datoene_gruppert_og_aldri_intern_kommentar(con):
     kode = con.execute("SELECT kode FROM kurs WHERE id=?", (kid,)).fetchone()[0]
     side = _klient(logg_inn=False).get(f"/kurs/{kode}").get_data(as_text=True)
     tekst = " ".join(re.sub(r"<[^>]+>", " ", side).split())   # synlig tekst: klokkeslettet står på egen linje
-    assert f"Samling 1: {kursdatoer.periode(_d(40), _d(42))} kl. 09:00–16:00" in tekst
-    assert f"Samling 2: {kursdatoer.kort_dato(_d(70))} kl. 09:00–16:00" in tekst
-    assert side.count('<span class="dempet">kl. 09:00–16:00</span>') == 2
+    # Bare «N. samling: fra – til» per samling og ett felles tidspunkt under (Camilla 05.10.2026)
+    assert f"1. samling: {kursdatoer.kort_dato(_d(40))} – {kursdatoer.kort_dato(_d(42))}" in tekst
+    assert f"2. samling: {kursdatoer.kort_dato(_d(70))}" in tekst
+    assert "Tidspunkt: 09.00–16.00 alle dager" in tekst
+    assert '<span class="dempet">kl.' not in side            # klokkeslettet står ikke lenger på hver linje
     assert "HEMMELIG-INTERNT" not in side
 
 

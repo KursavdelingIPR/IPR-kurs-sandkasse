@@ -50,8 +50,10 @@ Region: **Norway East**. Hvilke innstillinger appen leser: `DEPLOYMENT.md`, avsn
 Brukes bare til å logge inn ansatte. Ingen Graph-tillatelser utover innlogging.
 
 1. Entra ID → App registrations → New: «IPR Kurs admin (sandbox)», single tenant.
-2. Platform **Web**, redirect URI: `https://<app-adresse>/admin/logg-inn/entra/svar`
-3. Certificates & secrets → client secret → Key Vault (`ENTRA_CLIENT_SECRET`). Noter tenant-id og client-id.
+2. Platform **Web** (ikke «Single-page application»: da avviser Microsoft innloggingen fra serveren, AADSTS9002327),
+   redirect URI: `https://<app-adresse>/admin/logg-inn/entra/svar`
+3. Certificates & secrets → sertifikat (se 5a; `ENTRA_SERTIFIKAT`, eller samme som e-post når registreringen er felles)
+   eller client secret → Key Vault (`ENTRA_CLIENT_SECRET`). Noter tenant-id og client-id.
 4. API permissions: bare de delegerte `openid`, `profile`, `email` (standard, ingen admin consent nødvendig).
 5. **App roles** (Allowed member types: Users/Groups), med disse verdiene:
    - `ipr.system` – Systemadministrator (brukere, daglig kjøring, sletting etter GDPR)
@@ -64,31 +66,45 @@ Brukes bare til å logge inn ansatte. Ingen Graph-tillatelser utover innlogging.
 Alternativ til app-roller: sikkerhetsgrupper (`ENTRA_GRUPPER=<objekt-id>=system,...`) – krever at gruppe-claims er slått
 på i tokenet. App-roller anbefales.
 
-## 5. App-registrering 2: e-post og SharePoint (Microsoft Graph, applikasjonstillatelser)
+## 5. App-registrering 2: e-post (Microsoft Graph, applikasjonstillatelser)
 
-Brukes av tjenesten selv (ingen innlogget bruker). Tillatelsene begrenses til **én postboks** og **én SharePoint-site**.
+Brukes av tjenesten selv (ingen innlogget bruker). Tillatelsene begrenses til **kurspostboksene**. Kurssystemet bruker ikke SharePoint (Camilla 06.10.2026: kursholder-lenken og SharePoint er tatt bort; filene til deltakerne ligger i kurssystemet).
 
-1. Ny app-registrering «IPR Kurs tjeneste (sandbox)». Client secret → Key Vault (`M365_CLIENT_SECRET`).
+1. Ny app-registrering «IPR Kurs tjeneste (sandbox)». **Sertifikat** (anbefalt av Serit og Microsoft, se 5a) eller
+   client secret → Key Vault (`M365_SERTIFIKAT` / `M365_CLIENT_SECRET`). (I IPRs tenant heter registreringen
+   «IPR Kurssystem», laget av Serit 04.10.2026.)
 2. API permissions (Application), **grant admin consent**:
    - `Mail.Send` – sende fra kurs-postboksen
-   - `Sites.Selected` – bare sites appen eksplisitt får tilgang til
 3. **Begrens Mail.Send til kurs-postboksen** i Exchange Online (RBAC for Applications, eller Application Access Policy):
    appen skal bare kunne sende som `AVSENDER_EPOST` (i sandbox: en egen testpostboks).
-4. **Gi appen skrivetilgang til kurs-siten** (Sites.Selected): en SharePoint-/Global-admin gir rollen `write` på siten
-   via Graph (`POST /sites/{site-id}/permissions`) eller PnP PowerShell (`Grant-PnPAzureADAppSitePermission`).
-5. Finn site-id (`GET /sites/{vert}:/sites/{navn}`) → `SHAREPOINT_SITE_ID`.
+### 5a. Sertifikat i stedet for client secret
+
+Appen signerer en kortlevd JWT med sertifikatets private nøkkel (`kurs/integrasjoner/sertifikat.py`); den private nøkkelen
+ligger bare i Key Vault og i appens minne.
+
+1. Key Vault → **Certificates** → **Generate/Import**: Generate, navn `m365-sertifikat`, **Self-signed certificate**,
+   subject `CN=ipr-kurssystem-test` (prod: `-prod`), gyldighet 12–24 måneder, **Content type: PKCS #12**,
+   Lifetime action: **e-postvarsel** før utløp (ikke automatisk fornyelse: et nytt sertifikat må lastes opp i
+   app-registreringen først).
+2. Åpne sertifikatet → gjeldende versjon → **Download in CER format**. Det er bare den offentlige delen og kan sendes
+   til IT, som laster den opp i app-registreringen (Certificates & secrets → Certificates → Upload).
+3. App Setting `M365_SERTIFIKAT` = `@Microsoft.KeyVault(VaultName=<vault>;SecretName=m365-sertifikat)` (Key Vault lager en
+   hemmelighet med samme navn som sertifikatet; web-appens identitet trenger bare **Key Vault Secrets User**).
+   `M365_SERTIFIKAT_PASSORD` trengs ikke (Key Vault lager PFX uten passord).
+4. Innloggingen bruker samme sertifikat når den bruker samme app-registrering (ingen egen `ENTRA_CLIENT_ID`); har den
+   egen registrering, settes `ENTRA_SERTIFIKAT` på samme måte.
+5. Kontroll fra App Service-konsollen (SSH): `python -m kurs.m365_sjekk` (sender ingenting, skriver aldri
+   ut nøkler: viser om sertifikatet kan leses, om Microsoft godtar innloggingen og hvilke tillatelser appen har).
+6. Fornyelse: lag ny versjon i Key Vault, last opp den nye CER-filen hos IT **før** den gamle utløper. Referansen uten
+   versjon henter nyeste versjon (innen et døgn, eller straks ved omstart av appen).
+   Et sertifikat som ikke kan leses, stopper oppstarten i drift med én linje i loggen (`M365_SERTIFIKAT: …`).
 
 Kall appen gjør (alle dokumentert i Microsoft Graph v1.0):
 
 | Hva | Kall | Tillatelse |
 |---|---|---|
 | Sende e-post | `POST /users/{AVSENDER_EPOST}/sendMail` | Mail.Send (begrenset) |
-| Lage kursmappe | `POST /sites/{site}/drive/root[:/{sti}:]/children` (conflictBehavior `fail`, 409 = finnes) | Sites.Selected (write) |
-| Liste/hente materiell | `GET …/drive/root:/{sti}:/children`, `GET …:/content` | Sites.Selected |
-| Laste opp materiell | `PUT …/drive/root:/{sti}:/content` | Sites.Selected (write) |
 
-Mappestruktur: `Kurs/<kurskode>/Presentasjoner` og `Kurs/<kurskode>/Deltakere`. Deltakere får aldri direkte tilgang til
-SharePoint – appen henter filene for dem etter tilgangskontroll.
 
 ## 6. Zoom (Server-to-Server OAuth)
 
@@ -129,6 +145,6 @@ Appen og morgenjobben må nå: `login.microsoftonline.com`, `graph.microsoft.com
 | Web-app | Røyktest i Chromium mot demoserver; alle sider og hovedflyter | App Service (gunicorn, ProxyFix bak Azure front end) |
 | Brønnøysundregistrene | Driftsgrenen med etterlignet register (oppslag, underenheter, søk, feil og tidsavbrudd). Ekte oppslag kontrollert med `python -m kurs.brreg_sjekk` 28.09.2026 | Fra App Service (utgående nettverk) |
 | Entra-innlogging | Hele flyten med etterlignet token-endepunkt (state, nonce, PKCE, claims, roller) | Mot ekte tenant |
-| Graph e-post/SharePoint | Driftsgrenen med etterlignet Graph (kallene, 409/404-håndtering) | Mot ekte tenant, postboksbegrensning, Sites.Selected |
+| Graph e-post | Driftsgrenen med etterlignet Graph | Mot ekte tenant, postboksbegrensning |
 | Zoom | Demo-gren og lagring/idempotens | Mot ekte Zoom-konto |
 | Visma | Token-rotasjon og feilklassifisering med etterlignet token-endepunkt | Hele fakturaflyten mot Visma (produkt ikke avklart) |

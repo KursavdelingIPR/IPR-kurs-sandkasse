@@ -351,7 +351,7 @@ def test_p_post_mot_preview_url_gir_405_ikke_paamelding(con):
     con.commit()
     k = _innlogget()
     r = k.post(f"/admin/kurs/{kid}/forhandsvis-paamelding",
-              data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", **ADRESSE})
+              data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     assert r.status_code == 405
     assert _antall(con, "paamelding") == 0
 
@@ -360,7 +360,7 @@ def test_p2_post_mot_et_kurs_som_ikke_er_offentlig_gir_404_ogsaa_for_admin(con):
     _kurs(con, status="utkast")
     con.commit()
     for k in (_innlogget(), _klient()):
-        r = k.post("/kurs/P1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", **ADRESSE})
+        r = k.post("/kurs/P1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
         assert r.status_code == 404
     assert _antall(con, "paamelding") == 0
 
@@ -407,7 +407,7 @@ def test_q_offentlig_ordinaer_paamelding_fungerer_fortsatt_uendret(con, monkeypa
     assert "<button>Meld meg på</button>" in h
     assert "Forhåndsvisning – dette er slik påmeldingssiden vil se ut." not in h
     assert "fieldset disabled" not in h
-    r2 = k.post("/kurs/P1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", **ADRESSE}, follow_redirects=True)
+    r2 = k.post("/kurs/P1", data={"fornavn": "Ola", "etternavn": "Nordmann", "epost": "ola@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE}, follow_redirects=True)
     assert r2.status_code == 200
     assert _antall(con, "paamelding") == 1
     assert con.execute("SELECT navn FROM deltaker").fetchone()[0] == "Ola Nordmann"

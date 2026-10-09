@@ -1,0 +1,26 @@
+{#- Skjemaet for ett spørsmål i evalueringen (legg til / endre), fanen Evaluering. Variabler: f (spørsmålet), url, knapp, laast (noen har
+    svart: typen kan ikke endres), prefiks (unike id-er). Valgene vises bare for «Valg» (data-vis-naar, static/app.js). -#}
+<form method="post" action="{{ url }}" style="margin:8px 0 4px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="rad">
+    <div><label for="{{ prefiks }}-type">Type</label>
+      {% if laast %}<input type="hidden" name="type" value="{{ f.type }}"><p class="feltverdi" id="{{ prefiks }}-type">{{ typer[f.type] }} <span class="liten dempet">(har svar)</span></p>
+      {% else %}<select id="{{ prefiks }}-type" name="type">{% for verdi, tekst in typer.items() %}<option value="{{ verdi }}"{{ ' selected' if verdi == f.type }}>{{ tekst }}</option>{% endfor %}</select>{% endif %}</div>
+    <div style="align-self:end"><label class="valg" style="margin:0"><input type="checkbox" name="paakrevd" value="1"{{ ' checked' if f.paakrevd }}> Må besvares</label></div>
+  </div>
+  <label for="{{ prefiks }}-tekst">Spørsmål</label>
+  <input id="{{ prefiks }}-tekst" name="tekst" maxlength="300" required value="{{ f.tekst or '' }}">
+  <label for="{{ prefiks }}-hjelp">Hjelpetekst <span class="liten dempet">(valgfritt, f.eks. «{{ skala_hjelp }}»)</span></label>
+  <input id="{{ prefiks }}-hjelp" name="hjelpetekst" maxlength="600" value="{{ f.hjelpetekst or '' }}">
+  <div class="rad">
+    <div><label for="{{ prefiks }}-lenketekst">Lenketekst <span class="liten dempet">(valgfritt)</span></label>
+      <input id="{{ prefiks }}-lenketekst" name="lenketekst" maxlength="80" value="{{ f.lenketekst or '' }}" placeholder="her"></div>
+    <div><label for="{{ prefiks }}-lenke">Lenke til</label>
+      <input id="{{ prefiks }}-lenke" name="lenke" type="url" maxlength="500" value="{{ f.lenke or '' }}" placeholder="https://"></div>
+  </div>
+  <div data-vis-naar="type" data-vis-verdi="valg"{% if f.type != 'valg' %} hidden{% endif %}>
+    <label for="{{ prefiks }}-valg">Svaralternativer <span class="liten dempet">(ett på hver linje)</span></label>
+    <textarea id="{{ prefiks }}-valg" name="valg" rows="3"{{ ' disabled' if f.type != 'valg' }}>{{ (f.valg or []) | join('\n') }}</textarea>
+  </div>
+  <button class="liten" style="margin-top:8px">{{ knapp }}</button>
+</form>

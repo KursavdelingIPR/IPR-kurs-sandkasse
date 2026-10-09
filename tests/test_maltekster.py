@@ -58,11 +58,12 @@ def _hendelser(con):
 # ============================ 1-3: registeret ============================
 
 def test_registeret_har_noyaktig_de_8_godkjente_malene():
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og «purring» og «eskalering» med dem)
     assert sorted(MALER) == sorted(["bekreftelse", "venteliste", "ukefor", "dagfor", "avlysning", "kursbevis_klar",
-                                    "firmapaamelding_kvittering", "purring"])
+                                    "firmapaamelding_kvittering", "evaluering"])
 
 
-@pytest.mark.parametrize("last", ["innlogging", "eskalering", "admin_melding", "_ramme", "kursbevis"])
+@pytest.mark.parametrize("last", ["innlogging", "admin_melding", "_ramme", "kursbevis"])
 def test_laaste_maler_finnes_ikke_i_registeret_og_kan_ikke_lagres(con, last):
     assert last not in MALER
     _feil(UKJENT_MAL, maltekster.lagre_maltekst, con, last, "emne", "Hei")
@@ -111,10 +112,9 @@ def test_emnefelt_tillater_aldri_lenkekoder_og_kun_avlysning_har_sporsmal_url():
                 assert (mnavn, fnavn) == ("avlysning", "tekst")
 
 
-def test_dagfor_har_tre_varianter_av_emne_og_innledning_og_purring_to_emner():
+def test_dagfor_har_tre_varianter_av_emne_og_innledning():
     assert set(MALER["dagfor"].felt) == {"emne_forste", "emne_midt", "emne_siste", "innledning_forste", "innledning_midt",
                                          "innledning_siste", "avslutning"}
-    assert set(MALER["purring"].felt) == {"emne_frist_om_dager", "emne_frist_i_dag", "innledning", "avslutning"}
 
 
 # ============================ 4-8: mal/felt/tom ============================
@@ -157,7 +157,6 @@ def test_for_lang_tekst_avvises():
 def test_gyldige_koder_aksepteres_og_bare_fra_feltets_whitelist():
     assert maltekster.valider("bekreftelse", "innledning", "Hei {navn}, velkommen til {kursnavn} som starter {startdato}")
     assert maltekster.valider("dagfor", "emne_midt", "Dag {dagnummer} av {antall_dager}: {kursnavn} ({dato})")
-    assert maltekster.valider("purring", "innledning", "{beskrivelse} {beskrivelse_liten} {frist} {dager_igjen}")
 
 
 @pytest.mark.parametrize("mal,felt,tekst", [
@@ -315,15 +314,12 @@ def test_standardtekstene_gir_dagens_setninger_fra_12a_naar_de_rendres():
     """Bro til 12B2: standardtekstene reproduserer setningene som er laast av 12A-gullstandarden."""
     v = {"fornavn": "Ola", "navn": "Ola Nordmann", "kursnavn": "Veiledning i praksis", "startdato": "2027-03-01",
          "dato": "2027-03-02",
-         "dagnummer": "2", "antall_dager": "3", "firmanavn": "Firma AS", "antall_deltakere": "3 deltakere",
-         "beskrivelse": "Kurspresentasjon", "beskrivelse_liten": "kurspresentasjon", "frist": "2027-02-20", "dager_igjen": "7",
-         "dager_igjen_tekst": "7 dager"}
+         "dagnummer": "2", "antall_dager": "3", "firmanavn": "Firma AS", "antall_deltakere": "3 deltakere"}
     h = lambda m, f: " ".join(maltekster.felttekst_til_html(m, f, maltekster.standard_tekst(m, f), v).split())  # noqa: E731
     e = lambda m, f: maltekster.felttekst_til_emne(m, f, maltekster.standard_tekst(m, f), v)  # noqa: E731
     assert e("bekreftelse", "emne") == "Bekreftelse: Veiledning i praksis"
     assert h("bekreftelse", "innledning") == ("<p>Hei Ola,</p> <p>Takk for påmeldingen! Du har fått plass på "
                                               "<strong>Veiledning i praksis</strong>.</p>")          # hilsen med fornavn
-    assert h("purring", "innledning").startswith("<p>Hei Ola Nordmann,</p>")    # kursholdere: fortsatt fullt navn
     assert e("venteliste", "emne") == "Venteliste: Veiledning i praksis"
     assert "<strong>Veiledning i praksis</strong> er dessverre fullt, men du står nå på venteliste." in h("venteliste", "tekst")
     assert e("ukefor", "emne") == "Velkommen til Veiledning i praksis – praktisk informasjon"
@@ -337,10 +333,7 @@ def test_standardtekstene_gir_dagens_setninger_fra_12a_naar_de_rendres():
     assert e("kursbevis_klar", "emne") == "Kursbevis: Veiledning i praksis"
     assert e("firmapaamelding_kvittering", "emne") == "Bedriftspåmelding til Veiledning i praksis – kvittering"
     assert "Takk for påmeldingen av 3 deltakere fra Firma AS til <strong>Veiledning i praksis</strong>." in h("firmapaamelding_kvittering", "innledning")
-    assert e("purring", "emne_frist_om_dager") == "Påminnelse: Kurspresentasjon til Veiledning i praksis – frist om 7 dager"
-    assert e("purring", "emne_frist_i_dag") == "Frist i dag: Kurspresentasjon til Veiledning i praksis"
-    assert ("Vi minner om at <strong>kurspresentasjon</strong> til <strong>Veiledning i praksis</strong> skal leveres "
-            "innen <strong>2027-02-20</strong>.") in h("purring", "innledning")
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og «purring» med dem)
 
 
 def test_ingen_sensitive_koder_finnes():
@@ -444,7 +437,7 @@ def test_db_lesefeil_gir_malfeil_simulert_laast_database(con, monkeypatch):
     def laast(*a, **kw):
         raise sqlite3.OperationalError("database is locked")
     monkeypatch.setattr(db, "hent_overstyringer_for_mal", laast)
-    _feil(DB_LESEFEIL, maltekster.effektive_tekster, con, "purring")
+    _feil(DB_LESEFEIL, maltekster.effektive_tekster, con, "ukefor")             # (06.10.2026: før «purring», som er tatt bort)
 
 
 def test_db_lesefeil_gir_malfeil_lukket_forbindelse(con):
@@ -516,7 +509,7 @@ def test_tilbakestilling_logges_ikke_naar_raden_ikke_fantes(con):
 
 def test_ren_lesing_logger_ingen_hendelser(con):
     maltekster.effektive_tekster(con, "bekreftelse")
-    maltekster.effektiv_tekst(con, "purring", "innledning")
+    maltekster.effektiv_tekst(con, "ukefor", "innledning")                     # (06.10.2026: før «purring», som er tatt bort)
     maltekster.er_tilpasset(con, "dagfor", "avslutning")
     assert _hendelser(con) == [] and not con.in_transaction
 
@@ -560,7 +553,7 @@ def test_avhengigheten_gaar_én_vei_epost_kan_importere_maltekster_men_ikke_omve
 # ============================ mal-ID = Jinja-filnavn = faktisk `mal` i send_en_gang (hindrer navnedrift) ============================
 
 REDIGERBARE = ["bekreftelse", "venteliste", "ukefor", "dagfor", "avlysning", "kursbevis_klar", "firmapaamelding_kvittering",
-               "purring"]
+               "evaluering"]          # (06.10.2026: «purring» er tatt bort med kursholder-lenken og SharePoint)
 
 
 def test_de_8_redigerbare_malnoklene_er_noyaktig_disse():
@@ -589,7 +582,7 @@ def _send_en_gang_mal_argumenter() -> dict:
     from pathlib import Path
     rot = Path(maltekster.__file__).resolve().parent
     funn = {}
-    for fil in [rot / "sveiper.py", rot / "daglig.py", rot / "kursbevis.py", rot / "web" / "app.py"]:
+    for fil in [rot / "sveiper.py", rot / "daglig.py", rot / "kursbevis.py", rot / "evaluering.py", rot / "web" / "app.py"]:
         for node in ast.walk(ast.parse(fil.read_text(encoding="utf-8"))):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
                 continue
@@ -612,7 +605,8 @@ def test_hver_redigerbar_mal_sendes_faktisk_via_send_en_gang_under_noyaktig_dett
     brukt = _send_en_gang_mal_argumenter()
     for mal in REDIGERBARE:
         assert mal in brukt, f"{mal} sendes ikke under dette navnet (navnedrift?)"
-    # alle andre maler som sendes via send_en_gang/render_for_sending er de LASTE (ikke redigerbare): eskalering (til admin),
+    # alle andre maler som sendes via send_en_gang/render_for_sending er de LASTE (ikke redigerbare):
     # avslag (fase 17 - det viktige innholdet er begrunnelsen admin skriver i hver sak; kan gjoeres redigerbar senere) og
-    # sjekkliste_paaminnelse (morgen-e-posten om sjekklistene til kurspostboksen, 02.10.2026)
-    assert set(brukt) - set(MALER) == {"eskalering", "avslag", "sjekkliste_paaminnelse"}
+    # sjekkliste_paaminnelse (morgen-e-posten om sjekklistene til kurspostboksen, 02.10.2026).
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og «eskalering» til admin med dem)
+    assert set(brukt) - set(MALER) == {"avslag", "sjekkliste_paaminnelse"}

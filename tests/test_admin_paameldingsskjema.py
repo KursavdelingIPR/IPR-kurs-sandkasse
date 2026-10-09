@@ -122,7 +122,8 @@ def test_standardverdier_vises(con, admin):
     assert "Påmeldingsskjema" in html and "Eksempelkurs" in html
     assert 'name="telefon_synlig" checked' in html and 'name="arbeidssted_synlig" checked' in html
     assert not _avkrysset(html, "telefon_obligatorisk") and not _avkrysset(html, "arbeidssted_obligatorisk")
-    assert not _avkrysset(html, "yrkestittel_synlig")                 # yrkestittel er skjult som standard
+    # yrkestittel vises som standard, men er ikke obligatorisk (Camilla 05.10.2026)
+    assert _avkrysset(html, "yrkestittel_synlig") and not _avkrysset(html, "yrkestittel_obligatorisk")
     assert 'name="telefon_label" maxlength="80" value="Telefon"' in html
     assert 'name="arbeidssted_label" maxlength="80" value="Arbeidssted"' in html
     assert 'name="rekkefolge_om_deg" value="telefon,arbeidssted,yrkestittel"' in html
@@ -179,8 +180,8 @@ def test_alle_kursfaner_rendres_og_fanelenkene_peker_til_registrerte_ruter(con, 
     forventet = {"Oppsett": "admin_kurs_oppsett", "Nettside": "admin_kurs_nettside",
                  "Påmeldingsskjema": "admin_kurs_paameldingsskjema", "Min side": "admin_kursside",
                  "Deltakere": "admin_kurs_deltakere", "Kommunikasjon": "admin_kurs_kommunikasjon",
-                 "Kursbevis": "admin_kurs_kursbevis"}
-    for side in ("oppsett", "nettside", "paameldingsskjema", "kursside", "deltakere", "kommunikasjon", "kursbevis"):
+                 "Kursbevis": "admin_kurs_kursbevis", "Evaluering": "admin_kurs_evaluering"}
+    for side in ("oppsett", "nettside", "paameldingsskjema", "kursside", "deltakere", "kommunikasjon", "kursbevis", "evaluering"):
         r = admin.get(f"/admin/kurs/{kid}/{side}")
         assert r.status_code == 200, side
         faner = r.get_data(as_text=True).split('<nav class="faner">')[1].split("</nav>")[0]
@@ -243,7 +244,8 @@ def test_rekkefolge_kan_byttes_og_tilbake(con, admin):
     _lagre(admin, kid, rekkefolge="arbeidssted_forst")
     assert _over(con, kid) == {"telefon": sf.Overstyring(rekkefolge=2), "arbeidssted": sf.Overstyring(rekkefolge=1)}
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
-    assert [f.nokkel for f in sf.effektivt_skjema(kurs, _over(con, kid)).deltakerfelt] == ["arbeidssted", "telefon"]
+    assert [f.nokkel for f in sf.effektivt_skjema(kurs, _over(con, kid)).deltakerfelt] == [
+        "arbeidssted", "telefon", "yrkestittel"]  # yrkestittel vises som standard (Camilla 05.10.2026)
     _lagre(admin, kid, rekkefolge="telefon_forst")
     assert _rader(con, kid) == []
 
@@ -290,7 +292,7 @@ def test_hpr_laasene_kan_ikke_omgaas_med_manipulert_post(con, admin):
     assert _rader(con, kid) == []
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
     s = sf.effektivt_skjema(kurs, _over(con, kid))
-    assert [f.nokkel for f in s.deltakerfelt] == ["telefon", "arbeidssted", "hpr_nr"]
+    assert [f.nokkel for f in s.deltakerfelt] == ["telefon", "arbeidssted", "yrkestittel", "hpr_nr"]  # yrkestittel vises som standard (Camilla 05.10.2026)
     assert s.deltakerfelt[-1] == sf.EffektivtFelt("hpr_nr", "HPR-nummer", False)
 
 
@@ -481,7 +483,7 @@ def test_admin_til_offentlig_skjema_til_post(con, admin):
     assert ('<label class="pm-etikett" for="f-telefon">Mobilnummer <span class="pm-krav">(krav)</span></label>'
             in html and "Nummer vi kan nå deg på" in html)
     assert 'name="arbeidssted"' not in html
-    basis = {"fornavn": "Test", "etternavn": "Person", "epost": "test@eksempel.no", "samtykke": "on", **ADRESSE,
+    basis = {"fornavn": "Test", "etternavn": "Person", "epost": "test@eksempel.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE,
              "arbeidssted": "MANIPULERT"}
     r = k.post("/kurs/A1", data=basis)
     assert r.status_code == 400 and "Fyll inn «Mobilnummer»." in r.get_data(as_text=True)

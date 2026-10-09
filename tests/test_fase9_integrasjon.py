@@ -203,7 +203,7 @@ def test_paameldingsfrist_blokkerer_offentlig_men_ikke_admin(con):
     klient = _klient()
 
     offentlig = klient.post(f"/kurs/FRIST1", data={
-        "fornavn": "Ute", "etternavn": "Nordmann", "epost": "ute@x.no", "samtykke": "on", **ADRESSE,
+        "fornavn": "Ute", "etternavn": "Nordmann", "epost": "ute@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE,
     })
     assert offentlig.status_code == 400
     assert con.execute("SELECT COUNT(*) FROM paamelding").fetchone()[0] == 0
@@ -276,7 +276,7 @@ def test_samlet_personvernkontroll_hendelseslogg(con):
     # offentlig paamelding med sensitive data og organisasjon som betaler
     klient.post("/kurs/PV1", data={
         "fornavn": "Fyller", "etternavn": "Kapasitet", "epost": "fyller@sensitiv-domene.no", "telefon": "90000000",
-        "samtykke": "on", **SPORBAR_ADRESSE, "allergier": "Skalldyrallergi", "tilrettelegging": "Rullestol",
+        "samtykke": "on", "samtykke_lagring": "on", **SPORBAR_ADRESSE, "allergier": "Skalldyrallergi", "tilrettelegging": "Rullestol",
     })
 
     _logg_inn(klient)

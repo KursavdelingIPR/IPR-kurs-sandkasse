@@ -14,7 +14,6 @@ import pytest
 from kurs import config, db, deltakerside
 from kurs import sideinnhold as si
 from kurs import sidelager
-from kurs.integrasjoner import sharepoint
 
 from kurssidehjelp import (IDAG, admin_klient, dokument, deltaker_klient, fast_dato, gif, lag_deltaker, lag_kurs, ny_database, pdf, png, skriv_side,
                            tekstblokk)
@@ -27,8 +26,6 @@ NOYTRAL = ("Vi finner ikke siden, eller du har ikke tilgang til den. Min side er
 def con(tmp_path, monkeypatch):
     c = ny_database(tmp_path, monkeypatch)
     fast_dato(monkeypatch)
-    monkeypatch.setattr(sharepoint, "DEMO_ROT", tmp_path / "sharepoint_demo")
-    deltakerside.nullstill_sp_cache()
     yield c
     c.close()
 
@@ -469,63 +466,19 @@ def test_siden_har_maler_for_mobil_og_pc_og_ingen_horisontal_styring_i_html(con,
     assert "container-type: inline-size" in tekst and "@container dp (min-width: 880px)" in tekst and "@container dp (max-width: 720px)" in tekst
 
 
-# ============================ kursholders filer (SharePoint) ============================
+# ============================ gamle sider med «kursholders filer» ============================
+# (06.10.2026: kursholder-lenken og SharePoint er tatt bort - testene av listen «Fra kursholder» er fjernet)
 
-def _sp_side(con, kid):
-    skriv_side(con, kid, dokument({"id": "b_filer001", "type": "filer", "tittel": "Presentasjoner og dokumenter", "data": {"filer": [], "sharepoint": True}}))
-
-
-def test_sharepoint_filer_vises_som_fra_kursholder_via_appen(con, kid, tmp_path):
-    mappe = tmp_path / "sharepoint_demo" / "Kurs" / "K1" / "Presentasjoner"
-    mappe.mkdir(parents=True)
-    (mappe / "Dag 1 – Grunnmodell.pptx").write_bytes(b"demo")
-    _sp_side(con, kid)
-    html = _hent(deltaker_klient(_meld(con, kid))).get_data(as_text=True)
-    assert "Fra kursholder" in html and "Dag 1 – Grunnmodell.pptx" in html
-    assert f"/materiell/{kid}/Dag%201%20%E2%80%93%20Grunnmodell.pptx" in html
-    assert "sharepoint" not in html.lower().replace("fra kursholder", "")                       # aldri direkte SharePoint-adresser
-
-
-def test_sharepoint_blokk_uten_filer_og_uten_feil_vises_ikke(con, kid):
-    _sp_side(con, kid)
-    html = _hent(deltaker_klient(_meld(con, kid))).get_data(as_text=True)
-    assert "Fra kursholder" not in html and 'id="blokk-b_filer001"' not in html
-
-
-def test_sharepoint_feil_gir_vennlig_tekst_og_ikke_ingen_filer(con, kid, monkeypatch):
-    monkeypatch.setattr(sharepoint, "list_filer_med_status", lambda mappe: ([], False))
-    _sp_side(con, kid)
-    html = _hent(deltaker_klient(_meld(con, kid))).get_data(as_text=True)
-    assert "Kunne ikke hente filene fra kursholder akkurat nå. Prøv igjen senere." in html and 'id="blokk-b_filer001"' in html
-
-
-def test_sharepoint_listen_caches_i_60_sekunder_og_hentes_bare_for_dette_kurset(con, kid, monkeypatch):
-    kall = []
-    monkeypatch.setattr(sharepoint, "list_filer_med_status", lambda mappe: (kall.append(mappe) or [{"navn": "a.pdf"}], True))
-    _sp_side(con, kid)
-    k = deltaker_klient(_meld(con, kid))
-    _hent(k)
-    _hent(k)
-    assert kall == ["Kurs/K1/Presentasjoner"]
-    deltakerside.nullstill_sp_cache()
-    _hent(k)
-    assert len(kall) == 2
-
-
-def test_sharepoint_demo_gren_gjor_ingen_nettverkskall(con, kid, monkeypatch):
-    def nettverk(*a, **kw):
-        raise AssertionError("nettverkskall i demo")
-    monkeypatch.setattr(sharepoint.m365, "graph", nettverk)
-    assert sharepoint.list_filer_med_status("Kurs/K1/Presentasjoner") == ([], True)
-    _sp_side(con, kid)
-    assert _hent(deltaker_klient(_meld(con, kid))).status_code == 200
-
-
-def test_sharepoint_feil_i_drift_skiller_feil_fra_ingen_filer(con, monkeypatch):
-    monkeypatch.setattr(config, "DEMO", False)
-    monkeypatch.setattr(sharepoint.m365, "graph", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("nede")))
-    assert sharepoint.list_filer_med_status("Kurs/K1/Presentasjoner") == ([], False)
-    assert sharepoint.list_filer("Kurs/K1/Presentasjoner") == []                                  # eldre funksjon: uendret (ingen feilstatus)
+def test_gammel_lagret_side_med_sharepoint_valget_og_uten_egne_filer_viser_ingen_filblokk(con, kid):
+    """En side lagret før 06.10.2026 kan ha «sharepoint»: true i Filer-blokken. Feltet leses ikke lenger: blokken uten egne
+    filer vises ikke, og «Fra kursholder» kommer aldri tilbake."""
+    skriv_side(con, kid, dokument(tekstblokk()))
+    gammel = dokument({"id": "b_filer001", "type": "filer", "tittel": "Presentasjoner og dokumenter", "data": {"filer": [], "sharepoint": True}})
+    con.execute("UPDATE kursside SET publisert=? WHERE kurs_id=?", (json.dumps(gammel), kid))
+    con.commit()
+    r = _hent(deltaker_klient(_meld(con, kid)))
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200 and "Fra kursholder" not in html and 'id="blokk-b_filer001"' not in html
 
 
 # ============================ landing og visningsdata ============================
@@ -597,7 +550,7 @@ def _visning(con, kid, did, dok=None, **kw):
     kurs = con.execute("SELECT * FROM kurs WHERE id=?", (kid,)).fetchone()
     dok = dok or sidelager.hent_publisert(con, kid)
     return deltakerside.bygg_visning(con, kurs, dok, deltaker_id=did, idag=kw.pop("idag", IDAG), forhandsvisning=kw.pop("forhandsvisning", False),
-                                     fil_url=lambda f: f"/fil/{f}", sp_url=lambda n: f"/sp/{n}", **kw)
+                                     fil_url=lambda f: f"/fil/{f}", **kw)
 
 
 def test_kursdager_faar_status_mott_ikke_og_kommer_og_dagens_dag_utheves(con):

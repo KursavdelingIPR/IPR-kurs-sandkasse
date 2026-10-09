@@ -327,7 +327,7 @@ def installer(app, con, *, krever_admin, admin_okt_gyldig, aktor, hent_kurs, ida
         dag_id = int(dag) if re.fullmatch(r"[0-9]{1,9}", dag) else None      # aldri isdigit(): «²» og tusen sifre ga ValueError
         v = deltakerside.bygg_visning(
             con(), kurs, dok, deltaker_id=None, idag=idag(), forhandsvisning=True,
-            fil_url=lambda fid: url_for("admin_kursside_fil", kurs_id=kurs_id, fil_id=fid), sp_url=lambda navn: None,
+            fil_url=lambda fid: url_for("admin_kursside_fil", kurs_id=kurs_id, fil_id=fid),
             simuler_kursdag_id=dag_id,
             sist_publisert=side["publisert_tid"] if bruk_publisert else None,
             forh_tekst=forh_tekst)

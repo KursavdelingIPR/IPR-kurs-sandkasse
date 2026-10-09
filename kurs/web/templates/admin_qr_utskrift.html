@@ -1,0 +1,69 @@
+<!doctype html>
+{#- QR-kodene for innsjekk til utskrift (Camilla 05.10.2026): én A4-side per kursdag med logo øverst (NIEFT på IPR-kurs, Terapiakademiet
+    på Terapiakademiet-kurs), kursnavn, dato, «dag n av m», kort forklaring og dagens kode som reserve. «Skriv ut / lagre som PDF»
+    bruker nettleserens utskrift (velg «Lagre som PDF» som skriver). Hver QR-kode virker bare på sin egen kursdag. -#}
+<html lang="no"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR-koder – {{ kurs.navn }}</title>
+<style>
+  :root { --aksent:{{ '#562a3e' if kurs.merke == 'terapiakademiet' else '#1f5c73' }}; --tekst:#1d2a33; --dempet:#55626b; --linje:#dfe5e8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; color:var(--tekst); background:#e9edef; line-height:1.4; }
+  .verktoy { position:sticky; top:0; display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; padding:10px 20px; background:#fff; border-bottom:1px solid var(--linje); font-size:15px; z-index:2; }
+  .verktoy a { color:var(--aksent); }
+  .verktoy button { font:inherit; padding:8px 18px; border-radius:7px; border:1px solid var(--aksent); background:var(--aksent); color:#fff; cursor:pointer; font-weight:600; }
+  .verktoy .dempet { color:var(--dempet); }
+  .ark { width:210mm; height:297mm; overflow:hidden; margin:18px auto; padding:14mm 18mm 12mm; background:#fff; box-shadow:0 2px 12px rgba(0,0,0,.15);
+         display:flex; flex-direction:column; align-items:center; text-align:center; }
+  .logo { height:17mm; max-width:115mm; object-fit:contain; margin:0 0 5mm; }
+  .over { margin:0; font-size:13pt; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--aksent); }
+  h1 { margin:2mm 0 2mm; font-size:22pt; line-height:1.15; font-weight:650; max-width:170mm; }
+  .dato { margin:0; font-size:16pt; color:var(--tekst); }
+  .samling { margin:1mm 0 0; font-size:12pt; color:var(--dempet); }
+  .qr { margin:6mm 0 5mm; padding:3mm; border:1.5pt solid var(--linje); border-radius:4mm; }
+  .qr svg { display:block; width:98mm; height:98mm; }
+  .steg { margin:0; padding:0; list-style:none; counter-reset:steg; text-align:left; font-size:13pt; max-width:160mm; }
+  .steg li { counter-increment:steg; display:flex; gap:3mm; align-items:baseline; margin:2mm 0; }
+  .steg li::before { content:counter(steg); flex:none; width:7mm; height:7mm; border-radius:50%; background:var(--aksent); color:#fff;
+                     display:inline-grid; place-items:center; font-size:11pt; font-weight:700; }
+  .reserve { margin-top:auto; width:100%; padding-top:5mm; border-top:1.5pt solid var(--linje); font-size:12pt; color:var(--dempet); }
+  .reserve strong { color:var(--tekst); }
+  .kode { display:block; margin-top:1mm; font-family:Consolas,"Courier New",monospace; font-size:28pt; letter-spacing:.15em; font-weight:700; color:var(--aksent); }
+  .tom { max-width:600px; margin:40px auto; padding:20px; background:#fff; border-radius:8px; }
+  @page { size:A4 portrait; margin:0; }
+  @media print {
+    body { background:#fff; }
+    .ikke-utskrift { display:none !important; }
+    .ark { margin:0; box-shadow:none; break-after:page; page-break-after:always; }
+    .ark:last-child { break-after:auto; page-break-after:auto; }
+    .steg li::before, .kode, .over { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
+</style>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+<div class="verktoy ikke-utskrift">
+  <a href="{{ url_for('admin_kurs_deltakere', kurs_id=kurs.id) }}">‹ Tilbake til kurset</a>
+  {% if ark %}<button type="button" data-skriv-ut>Skriv ut / lagre som PDF</button>{% endif %}
+  <span class="dempet">{{ ark|length }} side{{ 'r' if ark|length != 1 }}, én per kursdag. Velg «Lagre som PDF» som skriver for å få en PDF-fil. QR-koden virker bare på sin egen kursdag.</span>
+</div>
+{% for a in ark %}
+<section class="ark" aria-label="QR-kode for dag {{ a.nr }}">
+  <img class="logo" src="{{ url_for('static', filename=logo) }}" alt="{{ logo_navn }}">
+  <p class="over">Innsjekk · dag {{ a.nr }} av {{ a.av }}</p>
+  <h1>{{ kurs.navn }}</h1>
+  <p class="dato">{{ a.dato_lang }}</p>
+  {% if a.samling %}<p class="samling">{{ a.samling }}</p>{% endif %}
+  <div class="qr" role="img" aria-label="QR-kode for innsjekk dag {{ a.nr }}">{{ a.svg }}</div>
+  <ol class="steg">
+    <li>Åpne kameraet på telefonen og hold det mot QR-koden.</li>
+    <li>Trykk på lenken som kommer opp.</li>
+    {% if krever_innlogging %}<li>Skriv e-postadressen du meldte deg på med, klikk på lenken du får på e-post, og trykk «Registrer oppmøte».</li>
+    {% else %}<li>Skriv e-postadressen du meldte deg på med, og trykk «Registrer oppmøte».</li>{% endif %}
+  </ol>
+  <div class="reserve">Får du ikke skannet? Logg inn på <strong>{{ kode_url|replace('https://', '')|replace('http://', '') }}</strong>,
+    trykk «Registrer oppmøte» og skriv koden:<span class="kode">{{ a.kode }}</span></div>
+</section>
+{% else %}
+<p class="tom">Kurset har ingen kursdager ennå. Legg inn datoene under Oppsett først.</p>
+{% endfor %}
+</body></html>

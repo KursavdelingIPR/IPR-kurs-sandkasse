@@ -208,7 +208,7 @@ def test_avslaatt_deltaker_kan_ikke_melde_seg_paa_igjen_selv(con, sendt):
     con.rollback()
     from kurs.web import app as webapp
     r = webapp.app.test_client().post(f"/kurs/AR", data={"fornavn": "Dag", "etternavn": "Test", "epost": "dag@eksempel.no",
-                                                          "samtykke": "1", **ADRESSE})
+                                                          "samtykke": "1", "samtykke_lagring": "1", **ADRESSE})
     assert r.status_code == 400 and "ikke godkjent" in r.get_data(as_text=True)
 
 

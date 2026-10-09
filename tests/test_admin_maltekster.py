@@ -40,7 +40,7 @@ def _flash(resp):
     return [t.strip() for t in re.findall(r'class="flash[^"]*"[^>]*>\s*([^<]+)', side)]
 
 
-LAASTE = ["innlogging", "eskalering", "admin_melding"]
+LAASTE = ["innlogging", "admin_melding"]       # (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og «eskalering» med dem)
 
 
 # ============================ oversikt ============================
@@ -57,7 +57,7 @@ def test_alle_8_maler_vises_i_oversikten(con):
     for mal, m in MALER.items():
         assert m.navn in html, mal
         assert m.beskrivelse in html, mal
-    assert len(MALER) == 8
+    assert len(MALER) == 8                       # (06.10.2026: «purring» er tatt bort med kursholder-lenken og SharePoint)
 
 
 @pytest.mark.parametrize("mal", LAASTE)
@@ -220,12 +220,6 @@ def test_variant_preview_dagfor_viser_alle_tre_varianter(con):
     assert "I morgen starter" in html and "Siste kursdag i morgen" in html
 
 
-def test_variant_preview_purring_viser_alle_tre_varianter(con):
-    html = _innlogget().get("/admin/e-postmaler/purring/forhandsvis").get_data(as_text=True)
-    assert "Frist om 7 dager" in html and "Frist om 2 dager" in html and "Frist i dag" in html
-    assert "frist om 7 dager" in html and "frist om 2 dager" in html and "Frist i dag:" in html
-
-
 def test_variant_override_slaar_ut_i_alle_varianter(con):
     k = _innlogget()
     k.post("/admin/e-postmaler/dagfor/innledning_midt", data={"tekst": "Egen midt-tekst {navn}."})
@@ -235,9 +229,10 @@ def test_variant_override_slaar_ut_i_alle_varianter(con):
 
 
 def test_korrupt_override_gir_trygg_admin_feil_i_preview(con):
-    con.execute("INSERT INTO mal_tekst (mal, felt, tekst) VALUES ('purring', 'innledning', 'Hei {ukjent}')")
+    # (06.10.2026: «purring» er tatt bort med kursholder-lenken og SharePoint - samme sjekk med «ukefor»)
+    con.execute("INSERT INTO mal_tekst (mal, felt, tekst) VALUES ('ukefor', 'innledning', 'Hei {ukjent}')")
     con.commit()
-    r = _innlogget().get("/admin/e-postmaler/purring/forhandsvis")
+    r = _innlogget().get("/admin/e-postmaler/ukefor/forhandsvis")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
     assert "flash feil" in html or "kunne ikke" in html.lower()

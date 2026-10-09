@@ -183,9 +183,9 @@ def test_offentlig_skjema_har_egne_felt_og_krever_begge(con):
     k = _klient()
     html = k.get("/kurs/FN1").get_data(as_text=True)
     assert 'name="fornavn"' in html and 'name="etternavn"' in html and 'name="navn"' not in html
-    r = k.post("/kurs/FN1", data={"fornavn": "Kari", "etternavn": "", "epost": "k@x.no", "samtykke": "on", **ADRESSE})
+    r = k.post("/kurs/FN1", data={"fornavn": "Kari", "etternavn": "", "epost": "k@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     assert r.status_code == 400 and "Fyll inn fornavn, etternavn og gyldig e-post." in r.get_data(as_text=True)
-    r = k.post("/kurs/FN1", data={"fornavn": "Kari", "etternavn": "Nordmann", "epost": "k@x.no", "samtykke": "on", **ADRESSE})
+    r = k.post("/kurs/FN1", data={"fornavn": "Kari", "etternavn": "Nordmann", "epost": "k@x.no", "samtykke": "on", "samtykke_lagring": "on", **ADRESSE})
     assert r.status_code == 200 and "Takk, Kari." in r.get_data(as_text=True)
     d = _fersk().execute("SELECT navn, fornavn, etternavn FROM deltaker WHERE epost='k@x.no'").fetchone()
     assert tuple(d) == ("Kari Nordmann", "Kari", "Nordmann")
@@ -234,7 +234,7 @@ def test_bedriftspaamelding_lagrer_kontaktperson_og_deltakere_med_egne_felt(con)
     data = {"kontakt_fornavn": "Kari", "kontakt_etternavn": "Hansen", "kontakt_epost": "kari@firma.no",
             "kontakt_telefon": "", "firmanavn": "Firma AS", "org_nr": "999900003", "faktura_ref": "",
             "deltaker_fornavn": ["Ola Johan"], "deltaker_etternavn": ["Nordmann"], "deltaker_epost": ["ola@firma.no"],
-            "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on", **gruppeadresse()}
+            "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on", "samtykke_lagring": "on", **gruppeadresse()}
     assert _klient().post("/kurs/FN1/gruppe", data=data, follow_redirects=True).status_code == 200
     fersk = _fersk()
     kontakt = fersk.execute("SELECT kontakt_navn, kontakt_fornavn, kontakt_etternavn FROM firmapaamelding").fetchone()
@@ -251,7 +251,7 @@ def test_bedriftspaamelding_krever_fornavn_og_etternavn_paa_hver_deltaker(con):
     con.commit()
     data = {"kontakt_fornavn": "Kari", "kontakt_etternavn": "Hansen", "kontakt_epost": "kari@firma.no",
             "firmanavn": "Firma AS", "org_nr": "999900003", "deltaker_fornavn": ["Ola"], "deltaker_etternavn": [""],
-            "deltaker_epost": ["ola@firma.no"], "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on",
+            "deltaker_epost": ["ola@firma.no"], "deltaker_telefon": [""], "deltaker_arbeidssted": [""], "samtykke": "on", "samtykke_lagring": "on",
             **gruppeadresse()}
     r = _klient().post("/kurs/FN1/gruppe", data=data)
     assert r.status_code == 400 and "Deltaker 1: fyll inn fornavn, etternavn" in r.get_data(as_text=True)
@@ -301,18 +301,15 @@ def test_csv_eksport_har_fornavn_og_etternavn_i_egne_kolonner(con):
 
 # ============================ e-post ============================
 
+# (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og med dem «purring» til kursholdere, som brukte fullt navn;
+# alle de 8 redigerbare malene går nå til deltakere eller kontaktpersoner)
 @pytest.mark.parametrize("mal", ["bekreftelse", "venteliste", "ukefor", "dagfor", "avlysning", "kursbevis_klar",
-                                 "firmapaamelding_kvittering"])
+                                 "firmapaamelding_kvittering", "evaluering"])
 def test_alle_maler_til_deltakere_tillater_fornavn_og_navn(mal):
     for felt in maltekster.MALER[mal].felt.values():
         assert {"fornavn", "navn"} <= felt.kode
     assert all(f.standard.startswith("Hei {fornavn},") for f in maltekster.MALER[mal].felt.values()
                if f.standard.startswith("Hei "))
-
-
-def test_purring_til_kursholdere_bruker_fortsatt_fullt_navn():
-    assert maltekster.standard_tekst("purring", "innledning").startswith("Hei {navn},")
-    assert "fornavn" not in maltekster.MALER["purring"].felt["innledning"].kode
 
 
 def test_standardhilsen_bruker_fornavn_og_navn_gir_fortsatt_fullt_navn():

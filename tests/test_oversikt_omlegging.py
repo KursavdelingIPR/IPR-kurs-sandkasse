@@ -254,9 +254,10 @@ def test_lesetilgang_ser_oversikten_uten_nytt_kurs_men_med_soek_og_oppmoteliste(
 
 
 def test_oppfoelgingskortene_og_detaljene_under_kurslisten_er_uendret(con):
-    """Firma- og adressekontrollen og materiell som mangler ligger fortsatt på Oversikten, og kortene lenker til dem."""
+    """Firma- og adressekontrollen ligger fortsatt på Oversikten, og kortene lenker til dem.
+    (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og kortet «Mangler materiell» med dem)"""
     html = _html(admin_klient(con).get("/admin"))
-    for etikett in ("Mangler materiell", "Firmaopplysninger må kontrolleres", "Uavklarte operasjoner som krever manuell kontroll"):
+    for etikett in ("Firmaopplysninger må kontrolleres", "Uavklarte operasjoner som krever manuell kontroll"):
         assert etikett in html, etikett
     assert "Trenger oppfølging" in html
     assert html.index('<h2 id="kurs">Kurs</h2>') < html.index("<h2>Status</h2>") < html.index("Trenger oppfølging")     # Kurs, så Status
@@ -362,3 +363,19 @@ def test_terapiakademiet_kurs_merkes_i_kurslisten_og_arrangoer_velges_i_skjemaet
     assert "merke-ta" in klasser["Terapiakademiet-kurset"] and "merke-ta" not in klasser["IPR-kurset"]
     oppsett = _html(admin_klient(con).get(f"/admin/kurs/{ta}/oppsett"))
     assert '<select id="f-merke" name="merke"' in oppsett and '<option value="terapiakademiet" selected>' in oppsett
+
+
+def test_qr_kodene_kan_skrives_ut_med_riktig_logo_en_side_per_dag(con):
+    """Camilla 05.10.2026: QR-kodene til utskrift, NIEFT-logo på IPR-kurs og Terapiakademiet-logo på Terapiakademiet-kurs."""
+    ipr = _kurs(con, "QR1", "IPR-kurset", IDAG + timedelta(days=30))
+    ta = _kurs(con, "QR2", "TA-kurset", IDAG + timedelta(days=31))
+    con.execute("UPDATE kurs SET merke='terapiakademiet' WHERE id=?", (ta,))
+    con.commit()
+    k = admin_klient(con)
+    html = _html(k.get(f"/admin/kurs/{ipr}/qr-utskrift"))
+    dager = con.execute("SELECT innsjekk_kode FROM kursdag WHERE kurs_id=? ORDER BY dato", (ipr,)).fetchall()
+    assert html.count('<section class="ark"') == len(dager) and "logo/nieft.png" in html and "<svg" in html
+    assert all(d[0] in html for d in dager) and f"dag 1 av {len(dager)}" in html
+    assert "logo/terapiakademiet.png" in _html(k.get(f"/admin/kurs/{ta}/qr-utskrift"))
+    assert f'href="/admin/kurs/{ipr}/qr-utskrift"' in _html(k.get(f"/admin/kurs/{ipr}/deltakere"))
+    assert f'href="/admin/kurs/{ipr}/qr-utskrift"' in _html(k.get(f"/admin/kurs/{ipr}/oppsett"))

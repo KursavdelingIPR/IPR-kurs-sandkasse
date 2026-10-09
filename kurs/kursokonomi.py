@@ -1,14 +1,15 @@
 """Kursoversikten øverst i Rapporter (Camilla 04.10.2026): antall påmeldte og inntekter per kurs og til sammen.
 
-Steg 1: forventet inntekt = kursets pris × påmeldte (fullverdige), og fakturert = fakturaer laget i systemet. Senere
-kommer priskategorier (ordinær, NIEFT, student …) og utgifter (honorar, lokaler, lunsj …) per kurs.
+Forventet inntekt = summen av det hver påmeldt (fullverdig) skal betale: kursets pris, eller rabattprisen (kurs/rabatter.py,
+09.10.2026). Rabatt = det som er gitt i rabatt (pris × påmeldte − inntekt). Fakturert = fakturaer laget i systemet. Senere kommer
+utgifter (honorar, lokaler, lunsj …) per kurs.
 Krediterte og feilede fakturaer teller ikke i «Fakturert» (som i økonomirapporten, okonomi.TELLER_IKKE).
 Ekstradeltakere teller ikke som påmeldte og er ikke med i forventet inntekt (de betaler ofte for et utvalg samlinger);
 det de faktisk er fakturert for, er med i «Fakturert».
 """
 from dataclasses import dataclass
 
-from . import okonomi
+from . import okonomi, rabatter
 
 # Kurs i disse statusene er ikke med (utkast er ikke satt opp ennå)
 UTELATT = ("utkast",)
@@ -21,6 +22,7 @@ class Totalt:
     ekstra: int = 0
     venteliste: int = 0
     forventet: int = 0
+    rabatt: int = 0
     fakturert: int = 0
 
 
@@ -32,6 +34,10 @@ def kursoversikt(con, fra: str = "", til: str = "") -> tuple[list[dict], Totalt]
                    MIN(kd.dato) AS start, MAX(kd.dato) AS slutt,
                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='bekreftet'
                        AND p.ekstradeltaker_ts IS NULL) AS paameldte,
+                   (SELECT COALESCE(SUM({rabatter.SQL_PRIS}),0) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='bekreftet'
+                       AND p.ekstradeltaker_ts IS NULL) AS sum_priser,
+                   (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='bekreftet'
+                       AND p.ekstradeltaker_ts IS NULL AND p.rabatt_prosent IS NOT NULL) AS med_rabatt,
                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='bekreftet'
                        AND p.ekstradeltaker_ts IS NOT NULL) AS ekstra,
                    (SELECT COUNT(*) FROM paamelding p WHERE p.kurs_id=k.id AND p.status='venteliste') AS venteliste,
@@ -44,12 +50,16 @@ def kursoversikt(con, fra: str = "", til: str = "") -> tuple[list[dict], Totalt]
             ORDER BY start, k.kursnr""", (*okonomi.TELLER_IKKE, *UTELATT, fra, fra, til, til)).fetchall()
     ut, t = [], Totalt()
     for r in rader:
-        forventet = 0 if r["status"] == "avlyst" else (r["pris_nok"] or 0) * r["paameldte"]
-        ut.append({**dict(r), "forventet": forventet})
+        avlyst = r["status"] == "avlyst"
+        sum_priser = int(r["sum_priser"] or 0)        # PostgreSQL: SUM gir Decimal
+        forventet = 0 if avlyst else sum_priser
+        rabatt = 0 if avlyst else (r["pris_nok"] or 0) * r["paameldte"] - sum_priser
+        ut.append({**dict(r), "forventet": forventet, "rabatt": rabatt})
         t.kurs += 1
         t.paameldte += r["paameldte"]
         t.ekstra += r["ekstra"]
         t.venteliste += r["venteliste"]
         t.forventet += forventet
+        t.rabatt += rabatt
         t.fakturert += r["fakturert"]
     return ut, t

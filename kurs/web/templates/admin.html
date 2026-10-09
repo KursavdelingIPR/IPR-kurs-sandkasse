@@ -102,7 +102,7 @@
       {#- Ikoner i stedet for tekstknapper, som i Pindena (Camilla 04.10.2026). Teksten står i title og aria-label. -#}
       <div class="ikonknapper">
         <a class="ikonknapp" href="{{ url_for('admin_forhandsvis_paamelding', kurs_id=k.id) }}" target="_blank" rel="noopener" title="Forhåndsvis påmeldingsskjemaet (ny fane)" aria-label="Forhåndsvis påmeldingsskjemaet for «{{ k.navn }}» (åpnes i ny fane)">{{ handlingsikon('ekstern') }}</a>
-        <a class="ikonknapp" href="{{ url_for('admin_kursside', kurs_id=k.id) }}" title="Min side: siden deltakerne ser etter innlogging" aria-label="Min side for «{{ k.navn }}»">{{ handlingsikon('minside') }}</a>
+        <a class="ikonknapp" href="{{ url_for('admin_kursside', kurs_id=k.id) }}" target="_blank" rel="noopener" title="Min side: siden deltakerne ser etter innlogging (ny fane)" aria-label="Min side for «{{ k.navn }}» (åpnes i ny fane)">{{ handlingsikon('minside') }}</a>
         {% if admin_rolle != 'lese' %}<a class="ikonknapp" href="{{ url_for('admin_ny_kurs', fra=k.id) }}" title="Dupliser kurset" aria-label="Dupliser «{{ k.navn }}»">{{ handlingsikon('kopi') }}</a>{% endif %}
         <a class="ikonknapp" href="{{ url_for('admin_kurs_oppsett', kurs_id=k.id) }}" title="Rediger kurset" aria-label="Rediger «{{ k.navn }}»">{{ handlingsikon('penn') }}</a>
       </div>
@@ -129,7 +129,12 @@
 </div>
 <h3 class="statgruppe">Trenger oppfølging</h3>
 <div class="statkort oppfolging">
-  <div class="kort{{ ' krever' if mangler }}"><div class="liten dempet">Mangler materiell</div><div class="stat" style="color:{{ 'var(--gul)' if mangler else 'inherit' }}">{{ mangler | length }}</div>{% if mangler %}<p class="liten" style="margin:6px 0 0"><a href="#materiell">Se kursene →</a></p>{% endif %}</div>
+  <div class="kort{{ ' krever' if klar_til_sending }}"><div class="liten dempet">E-poster klar til sending</div><div class="stat" style="color:{{ 'var(--gul)' if klar_til_sending else 'inherit' }}">{{ klar_til_sending }}</div>{% if klar_til_sending %}<div class="liten dempet">Venter på godkjenning før de sendes.</div>
+    <p class="liten" style="margin:6px 0 0"><a href="{{ url_for('admin_klar_til_sending') }}">Se og godkjenn →</a></p>{% endif %}</div>
+  <div class="kort{{ ' krever' if datakontroll_antall }}"><div class="liten dempet">Mulig feil i påmeldinger</div><div class="stat" style="color:{{ 'var(--gul)' if datakontroll_antall else 'inherit' }}">{{ datakontroll_antall }}</div>{% if datakontroll_antall %}<div class="liten dempet">For eksempel skrivefeil i e-postadressen.</div>
+    <p class="liten" style="margin:6px 0 0"><a href="{{ url_for('admin_datakontroll') }}">Se og rett →</a></p>{% endif %}</div>
+  <div class="kort{{ ' krever' if rabatter_ventende }}"><div class="liten dempet">Rabatter som venter på godkjenning</div><div class="stat" style="color:{{ 'var(--gul)' if rabatter_ventende else 'inherit' }}">{{ rabatter_ventende }}</div>{% if rabatter_ventende %}<div class="liten dempet">Fakturaen sendes når rabatten er avgjort.</div>
+    <p class="liten" style="margin:6px 0 0"><a href="{{ url_for('admin_rabatter') }}">Se og godkjenn →</a></p>{% endif %}</div>
   <div class="kort{{ ' krever' if firma_mangler }}"><div class="liten dempet">{{ FIRMA_MERKE }}</div><div class="stat" style="color:{{ 'var(--gul)' if firma_mangler else 'inherit' }}">{{ firma_mangler | length }}</div>{% if firma_mangler %}<div class="liten dempet">Firmanavn og adresse er ikke hentet fra Enhetsregisteret.</div>
     <p class="liten" style="margin:6px 0 0"><a href="#firmakontroll">Se påmeldingene →</a></p>{% endif %}</div>
   <div class="kort{{ ' krever' if adresse_venter }}"><div class="liten dempet">{{ FAKTURA_HOLDT_ADRESSE }}</div><div class="stat" style="color:{{ 'var(--gul)' if adresse_venter else 'inherit' }}">{{ adresse_venter | length }}</div>{% if adresse_venter %}<div class="liten dempet">Privat faktura lages ikke uten adresse, postnummer og poststed.</div>
@@ -186,15 +191,4 @@
 </table></div>
 {% endif %}
 
-{% if mangler %}
-<h2 id="materiell">Materiell som mangler</h2>
-<div class="tabellboks"><table>
-  <tr><th scope="col">Kurs</th><th scope="col">Ansvarlig</th><th scope="col">Frist</th><th scope="col"><span class="skjul-visuelt">Lenke</span></th></tr>
-  {% for m in mangler %}
-  <tr><td>{{ m.kursnr }} {{ m.kursnavn }}</td><td>{{ m.ansvarlig_navn }}<div class="liten dempet">{{ m.ansvarlig_epost }}</div></td>
-      <td><span class="merke {{ 'feil' if m.frist < idag else 'gul' }}">{{ m.frist }}</span></td>
-      <td class="liten"><a href="{{ lever_lenke(m.id) }}">Opplastingslenke</a> · purres automatisk</td></tr>
-  {% endfor %}
-</table></div>
-{% endif %}
 {% endblock %}

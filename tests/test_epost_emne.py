@@ -49,12 +49,7 @@ def test_bekreftelse_emne_er_ren_tekst_men_kroppen_escapes():
      dict(kontakt={"navn": "K Test", "fornavn": "K", "firmanavn": "F"}, kurs=KURS, antall_totalt=1, antall_bekreftet=1, antall_venteliste=0,
           antall_feilet=0, kvittering_url="/x"),
      "Bedriftspåmelding til Kurs A & B <x> – kvittering"),
-    ("purring", dict(m={"ansvarlig_navn": "P", "beskrivelse": "A & B <c>", "kursnavn": FARLIG, "frist": "2027-01-01", "id": 1},
-                     igjen=7),
-     "Påminnelse: A & B <c> til Kurs A & B <x> – frist om 7 dager"),
-    ("eskalering", dict(m={"ansvarlig_navn": "P", "ansvarlig_epost": "p@x.no", "beskrivelse": "M", "kode": "K",
-                           "kursnavn": FARLIG, "frist": "2027-01-01"}, igjen=-2),
-     "Mangler materiell: Kurs A & B <x> (2 dager over frist)"),
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og «purring» og «eskalering» med dem)
 ])
 def test_alle_maler_har_ren_tekst_emne_og_escapet_kropp(mal, data, forventet):
     emne, html = epost.render(mal, **data)

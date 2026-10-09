@@ -352,7 +352,11 @@ def visning(dager, kurs) -> list[dict]:
                   "merknad": x["merknad"] or ""}
                  for x in g["dager"] if x["merknad"] or (x["start"], x["slutt"]) != (g["start"], g["slutt"])]
         navn = g["navn"] or (f"Samling {nr}" if flere and g["sid"] is not None else "")
-        ut.append({"navn": navn, "periode": datoliste([x["dato"] for x in g["dager"]]),
+        forst, sist = g["dager"][0]["dato"], g["dager"][-1]["dato"]
+        # Påmeldingssiden (Camilla 05.10.2026): bare «1. samling: 14.06.2027 – 15.06.2027», uten samlingens eget navn
+        ut.append({"navn": navn, "etikett": f"{nr}. samling" if flere and g["sid"] is not None else "",
+                   "fra_til": kort_dato(forst) + ("" if sist == forst else " – " + kort_dato(sist)),
+                   "periode": datoliste([x["dato"] for x in g["dager"]]),
                    "tid": f"{g['start']}–{g['slutt']}", "antall_dager": len(g["dager"]), "avvik": avvik,
                    "sid": g["sid"], "ider": [x["id"] for x in g["dager"]]})
     return ut

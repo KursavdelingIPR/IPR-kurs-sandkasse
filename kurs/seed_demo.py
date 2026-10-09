@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 from . import config, daglig, db, deltakerside, firmaopplysninger, sidelager
 from . import sideinnhold as si
-from .integrasjoner import brreg, sharepoint
+from .integrasjoner import brreg
 from .kjoring import Kjoring
 
 PERSONER = [   # (fornavn, etternavn, e-post, arbeidssted, (adresse, postnr, poststed))
@@ -64,7 +64,7 @@ def _demo_kursside(con, parterapi_id: int, eft_s2_id: int) -> None:
         {"id": "b_filer", "type": "filer", "tittel": "Presentasjoner og dokumenter", "skjult": False, "vis_fra": None, "i_meny": True,
          "data": {"filer": [{"fil_id": pdf_id, "tittel": "Dag 1 – Parterapi grunnmodell", "gruppe": dager[0]["id"], "synlig_fra": None},
                             {"fil_id": png_id, "tittel": "Skjema for øvelsen", "gruppe": None, "synlig_fra": None}],
-                  "sharepoint": True, "vis_kommende": True}},
+                  "vis_kommende": True}},
         {"id": "b_lenker", "type": "lenker", "tittel": "Litteratur og lenker", "skjult": False, "vis_fra": None, "i_meny": True,
          "data": {"lenker": [{"tittel": "Zoom-møtet", "url": "", "tekst": "Samme lenke alle dagene", "nivaa": None, "kilde": "zoom"},
                              {"tittel": "Innføring i parterapi (artikkel)", "url": "https://example.com/parterapi-artikkel", "tekst": "Leses før dag 1",
@@ -92,7 +92,7 @@ def main():
         raise SystemExit("Nekter å kjøre seed_demo i prod.")
     if config.DB_STI.exists():
         config.DB_STI.unlink()
-    for mappe in (config.UTBOKS, config.ROT / "data" / "sharepoint_demo", config.ROT / "data" / "kursbevis"):
+    for mappe in (config.UTBOKS, config.ROT / "data" / "kursbevis"):
         shutil.rmtree(mappe, ignore_errors=True)
 
     con = db.koble()
@@ -104,7 +104,7 @@ def main():
     # 1) Avsluttet EFT-samling (for 3 uker siden) – gir kursbevis + timer i spesialistlop
     k1 = db.opprett_kurs(con, kode="EFT-S1", navn="EFT spesialistutdanning – samling 1", datoer=[d(-22), d(-21)],
                          type="fysisk", sted="IPR, Bergen", pris_nok=14500, spesialistlop="EFT", timer_pr_dag=7,
-                         kapasitet=16, status="aktiv", sharepoint_mappe=sharepoint.opprett_kursmappe("EFT-S1"),
+                         kapasitet=16, status="aktiv",
                          ansvarlig_admin_id=standardadmin)
     # 2) EFT samling 2 – starter om 6 dager (ukefor-mail), 2 dager
     k2 = db.opprett_kurs(con, kode="EFT-S2", navn="EFT spesialistutdanning – samling 2", datoer=[d(6), d(7)],
@@ -112,21 +112,17 @@ def main():
                          kapasitet=16, kursholder_epost="psykolog.a@ipr.no",
                          betaling="deltaker_velger", faktura_dager_for=14,
                          notat="Lunsj er inkludert. Ta med egne case-notater (anonymisert).",
-                         sharepoint_mappe=sharepoint.opprett_kursmappe("EFT-S2"),
                          ansvarlig_admin_id=standardadmin)
     # 3) Digitalt kurs med kursdag I DAG (QR/kode-demo + Zoom)
     k3 = db.opprett_kurs(con, kode="PAR-DIG", navn="Parterapi i praksis – digitalt fordypningskurs",
                          datoer=[d(-7), d(0), d(7)], type="hybrid", sted="Zoom / IPR Bergen", pris_nok=4900,
-                         start_kl="12:00", slutt_kl="15:00", timer_pr_dag=3,
-                         sharepoint_mappe=sharepoint.opprett_kursmappe("PAR-DIG"))
+                         start_kl="12:00", slutt_kl="15:00", timer_pr_dag=3)
     # 4) Lite kurs som er fullt -> venteliste
     k4 = db.opprett_kurs(con, kode="SUPERV-1", navn="Veiledning i gruppe – introduksjon", datoer=[d(20)],
-                         type="fysisk", sted="IPR, Bergen", pris_nok=2500, kapasitet=3,
-                         sharepoint_mappe=sharepoint.opprett_kursmappe("SUPERV-1"))
+                         type="fysisk", sted="IPR, Bergen", pris_nok=2500, kapasitet=3)
     # 5) Bedriftskurs fakturert samlet
     db.opprett_kurs(con, kode="BHT-2027", navn="Stressmestring for ledere (bedriftsinternt)", datoer=[d(35)],
-                    type="fysisk", sted="Kundens lokaler", pris_nok=0, fakturering="organisasjon",
-                    sharepoint_mappe=sharepoint.opprett_kursmappe("BHT-2027"))
+                    type="fysisk", sted="Kundens lokaler", pris_nok=0, fakturering="organisasjon")
 
     def meld(kurs_id, idx, **kw):
         fornavn, etternavn, epost_, arb, (adresse, postnr, poststed) = PERSONER[idx]
@@ -163,16 +159,9 @@ def main():
         db.registrer_oppmote(con, pid, dag3["id"], "zoom", 170)
     db.marker_sendt(con, f"zoomimport:{dag3['id']}", "-", "import")
 
-    # Materiell: presentasjon lastet opp for kurs 3, purring for kurs 2 (frist om 2 dager) og kurs 4 (over frist)
-    sharepoint.last_opp("Kurs/PAR-DIG/Presentasjoner", "Dag 1 – Parterapi grunnmodell.pptx", b"demo")
-    sharepoint.last_opp("Kurs/EFT-S1/Presentasjoner", "Samling 1 – EFT tilknytningsteori.pdf", b"demo")
-    con.execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
-                (k2, "Psykolog A", "psykolog.a@ipr.no", d(2)))
-    con.execute("INSERT INTO materiell_krav (kurs_id, ansvarlig_navn, ansvarlig_epost, frist) VALUES (?,?,?,?)",
-                (k3, "Psykolog B", "psykolog.b@ipr.no", d(-1)))
     # Personlig kontrakt for spesialistkandidat
     con.execute("INSERT INTO dokument (kurs_id, deltaker_id, type, tittel, url) VALUES (?,?,?,?,?)",
-                (k1, 1, "kontrakt", "Utdanningskontrakt EFT 2026–2028", "https://example.sharepoint.com/demo-kontrakt"))
+                (k1, 1, "kontrakt", "Utdanningskontrakt EFT 2026–2028", "https://example.com/demo-kontrakt"))
     # Kunnskapsbase – OPPDIKTEDE eksempeltekster. Reelle regler og tekster skrives og godkjennes av adm.
     kunnskap = [
         ("avmelding", "Hva er fristen for å melde seg av?\nKan jeg melde meg av kurset?\nHvordan melder jeg meg av?",
@@ -200,7 +189,7 @@ def main():
     _demo_kursside(con, k3, k2)
     con.commit()
 
-    # Kjor daglig jobb for i dag: sveiper (bekreftelser+faktura), Zoom, innkallinger, kursbevis, purring
+    # Kjor daglig jobb for i dag: sveiper (bekreftelser+faktura), Zoom, innkallinger, kursbevis
     daglig.kjor(Kjoring(con, idag=i))
     print(f"\nDemo klar. Database: {config.DB_STI}")
 

@@ -665,8 +665,8 @@ def _valider_filer(d: dict, ctx: _Ctx, tittel: str) -> dict:
             gruppe = None
         elementer.append({"fil_id": fid, "tittel": _tekst(e.get("tittel"), MAKS_TITTEL, "Filtittel"), "gruppe": gruppe,
                           "synlig_fra": _dato(e.get("synlig_fra"), "Synlig fra")})
-    return {"filer": elementer, "sharepoint": _bool(d.get("sharepoint"), False),
-            "vis_kommende": _bool(d.get("vis_kommende"), True)}
+    # «sharepoint» (kursholders filer) er tatt bort (Camilla 06.10.2026): et gammelt felt i lagrede sider leses ikke lenger
+    return {"filer": elementer, "vis_kommende": _bool(d.get("vis_kommende"), True)}
 
 
 def _valider_lenker(d: dict, ctx: _Ctx, tittel: str) -> dict:
@@ -834,7 +834,7 @@ def _blokk_er_tom(blokk: dict) -> bool:
     if typ == "program":
         return not any(dag.get("punkter") for dag in d.get("dager", []))
     if typ == "filer":
-        return not d.get("filer") and not d.get("sharepoint")
+        return not d.get("filer")
     if typ == "lenker":
         return not any((e.get("url") or e.get("kilde") == "zoom") for e in d.get("lenker", []))
     if typ == "tabell":
@@ -970,8 +970,6 @@ def _endringer_i_blokk(a: dict, b: dict) -> list[str]:
             ut.append(f"{_flertall(len(borte), 'fil', 'filer')} fjernet")
         if endret:
             ut.append(f"{_flertall(len(endret), 'fil', 'filer')} endret")
-        if da.get("sharepoint") != db_.get("sharepoint"):
-            ut.append("Kursholders filer vises" if db_.get("sharepoint") else "Kursholders filer vises ikke lenger")
         if da.get("vis_kommende") != db_.get("vis_kommende"):
             ut.append("«Kommer»-visningen er endret")
     elif typ == "lenker":
@@ -1206,7 +1204,7 @@ def _ny_blokk(typ: str, data: dict, tittel: str | None = None, **felt) -> dict:
 def ny_blokk(typ: str) -> dict:
     """En ny, tom blokk av typen (til redigeringsvisningen og testene)."""
     tom = {"tekst": {"html": ""}, "viktig": {"niva": "info", "tekst": ""}, "program": {"dager": []},
-           "filer": {"filer": [], "sharepoint": False, "vis_kommende": True}, "lenker": {"lenker": []},
+           "filer": {"filer": [], "vis_kommende": True}, "lenker": {"lenker": []},
            "tabell": {"kolonner": ["Gruppe", "Deltakere"], "rader": []}, "kontakt": {"personer": []},
            "bilde": {"fil_id": None, "alt": "", "tekst": "", "plassering": "bred"}}
     if typ not in BLOKKTYPER:
@@ -1215,13 +1213,13 @@ def ny_blokk(typ: str) -> dict:
 
 
 def standardmal(kursdager: list[dict]) -> dict:
-    """Program (fra kursdatoene), Presentasjoner og dokumenter (også kursholders filer), Litteratur og lenker, Kontakt.
+    """Program (fra kursdatoene), Presentasjoner og dokumenter, Litteratur og lenker, Kontakt.
     Blokkene uten innhold vises ikke for deltakerne før de er fylt ut. Ingen «Velkommen»-tekstboks (Camilla 02.10.2026: «Velkommen-boksen går
     ut av malen»): den sto ved siden av velkomsten øverst på siden. Kursholder kan legge til en tekstblokk selv."""
     dok = tomt_dokument()
     dok["blokker"] = [
         _ny_blokk("program", {"dager": program_fra_kursdager(kursdager)}),
-        _ny_blokk("filer", {"filer": [], "sharepoint": True, "vis_kommende": True}),
+        _ny_blokk("filer", {"filer": [], "vis_kommende": True}),
         _ny_blokk("lenker", {"lenker": []}),
         _ny_blokk("kontakt", {"personer": []}),
     ]

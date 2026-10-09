@@ -2,5 +2,5 @@
   <a href="{{ url_for('admin_kursside_forhandsvis', kurs_id=kurs.id, versjon='publisert') }}" target="_blank" rel="noopener" title="Siden deltakerne ser etter innlogging (åpner i ny fane)">Min side ↗</a></p>
 <h1>{{ kurs.navn }}</h1>
 <p class="sub">Kursnr. {{ kurs.kursnr }} · {{ {'fysisk':'fysisk','digital':'online','hybrid':'hybrid'}.get(kurs.type, kurs.type) }}{% if kurs.sted %} · {{ kurs.sted }}{% endif %} · <span class="merke">{{ kurs.status }}</span>
-  · {{ kurs.pris_nok }} kr · fakturering: {{ kurs.fakturering }}
-  · betaling: {{ {'samlet':'samlet','per_samling':'per samling (' ~ kurs.faktura_dager_for ~ ' dager før)','deltaker_velger':'deltakeren velger'}[kurs.betaling] }}{% if kurs.spesialistlop %} · løp: {{ kurs.spesialistlop }}{% endif %}</p>
+  · {{ kurs.pris_nok }} kr</p>
+{#- Fakturering, betaling og løp er tatt bort fra toppen (Camilla 05.10.2026); de står under Oppsett. -#}

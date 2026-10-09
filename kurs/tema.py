@@ -8,8 +8,11 @@ Fjernes filene, står navnet på systemet som tekst i toppen, og bunnen har bare
 """
 from pathlib import Path
 
+from . import config
+
 LOGO_MAPPE = Path(__file__).resolve().parent / "web" / "static" / "logo"
-_FILER = {"topp": ("terapiakademiet.svg", "terapiakademiet.png"), "bunn": ("terapiakademiet-lys.svg", "terapiakademiet-lys.png")}
+_FILER = {"topp": ("terapiakademiet.svg", "terapiakademiet.png"), "bunn": ("terapiakademiet-lys.svg", "terapiakademiet-lys.png"),
+          "ipr": ("ipr.svg", "ipr.png")}          # IPR-logoen i toppen av Min side for IPR-kurs (static/tema-ipr.css)
 
 
 def logo(plass: str) -> str | None:
@@ -18,3 +21,13 @@ def logo(plass: str) -> str | None:
         if (LOGO_MAPPE / navn).is_file():
             return f"logo/{navn}"
     return None
+
+
+def kontakt_epost(kurs) -> str:
+    """Adressen deltakerne skal kontakte om kurset (Camilla 09.10.2026): post@terapiakademiet.no for Terapiakademiet-kurs
+    (kurs.merke), ellers kurs@ipr.no."""
+    try:
+        merke = kurs["merke"]
+    except (KeyError, IndexError, TypeError):
+        merke = None
+    return config.TERAPIAKADEMIET_EPOST if merke == "terapiakademiet" else config.AVSENDER_EPOST

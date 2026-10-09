@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from flask import abort, g, render_template, request, session
 
 from .. import config, lenker
+from ..integrasjoner import sertifikat
 
 logg = logging.getLogger("kurs.sikkerhet")
 
@@ -96,6 +97,7 @@ GRENSER = {
     "innloggingslenke_epost": (3, 15 * 60),
     "sporsmal": (10, 10 * 60),
     "paamelding": (20, 10 * 60),
+    "evaluering": (30, 10 * 60),         # svar på evalueringen etter kurset (/evaluering/<lenke>)
     "enhetsoppslag": (120, 10 * 60),     # firmaoppslag i påmeldingsskjemaet (Enhetsregisteret)
     "min_side_lenke": (200, 10 * 60),    # den personlige lenken til Min side (/min/<lenke>), per IP: kurslokaler og store arbeidsplasser deler IP
     "innsjekk_qr": (120, 10 * 60),       # QR-skann: nøkkel = ip + «|» + token
@@ -105,7 +107,6 @@ GRENSER = {
     "kursside_fil": (60, 10 * 60),       # nedlasting av dokumenter (kan være 15 MB) fra kurssiden: nøkkel = deltaker-id
     "kursside_bilde": (600, 10 * 60),    # bilder på kurssiden (hver sidevisning henter dem): nøkkel = deltaker-id
     "webhook": (60, 60),
-    "lever": (20, 60 * 60),
     "admin_sok": (120, 60),        # deltakersøket (rullegardin og resultatside, felles teller): 2 per sekund varig, mer enn tasting
 }
 
@@ -220,7 +221,16 @@ def produksjonsfeil() -> list[str]:
         feil.append("WEBHOOK_HEMMELIG maa vaere en tilfeldig streng paa minst 32 tegn")
     if not config.BASE_URL.startswith("https://"):
         feil.append("BASE_URL maa vaere https:// i drift")
-    entra_ok = bool(config.ENTRA_TENANT_ID and config.ENTRA_CLIENT_ID and config.ENTRA_CLIENT_SECRET)
+    entra_ok = bool(config.ENTRA_TENANT_ID and config.ENTRA_CLIENT_ID and (config.ENTRA_SERTIFIKAT or config.ENTRA_CLIENT_SECRET))
+    # Et sertifikat som ikke kan leses, stopper oppstarten med en tydelig linje i stedet for at innlogging og e-post
+    # feiler senere (innholdet skrives aldri ut)
+    for navn, sert, passord in (("M365_SERTIFIKAT", config.M365_SERTIFIKAT, config.M365_SERTIFIKAT_PASSORD),
+                                ("ENTRA_SERTIFIKAT", config.ENTRA_SERTIFIKAT, config.ENTRA_SERTIFIKAT_PASSORD)):
+        if sert:
+            try:
+                sertifikat.kontroller(sert, passord)
+            except sertifikat.Sertifikatfeil as e:
+                feil.append(f"{navn}: {e}")
     if not entra_ok and not config.ADMIN_LOKAL_INNLOGGING:
         feil.append("Ingen innloggingsvei for admin: sett opp Entra ID (ENTRA_*) eller ADMIN_LOKAL_INNLOGGING=1")
     return feil
@@ -230,7 +240,6 @@ def produksjonsfeil() -> list[str]:
 
 def installer(app) -> None:
     app.jinja_env.globals["csrf_token"] = csrf_token
-    app.jinja_env.globals["lever_lenke"] = lenker.lever_lenke
 
     @app.before_request
     def _forbered():
