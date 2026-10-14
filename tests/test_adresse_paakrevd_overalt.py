@@ -107,7 +107,9 @@ def test_webhook_med_delvis_adresse_avvises_med_standardinnstillingene(con, stan
 def test_skjemabyggeren_kan_ikke_skjule_adressen_eller_gjoere_den_valgfri_ogsaa_med_manipulert_innsending(con, standard):
     kid = _kurs(con)
     felt = (*skjemafelt.ADRESSEFELT, "faktura_adresse", "faktura_postnr", "faktura_sted")
-    manip = {f"{f}_{e}": v for f in felt for e, v in (("synlig", ""), ("obligatorisk", ""), ("label", "HACK"), ("hjelpetekst", "HACK"))}
+    manip = {f"{f}_{e}": v for f in felt for e, v in (("synlig", ""), ("obligatorisk", ""), ("label", "HACK"), ("hjelpetekst", "HACK"))
+             # hjelpeteksten på adressefeltene kan endres (Camilla 09.10.2026) - den er ikke en manipulering
+             if not (e == "hjelpetekst" and f in skjemafelt.ADRESSEFELT)}
     assert _lagre(_admin(), kid, **manip).status_code == 302
     assert _rader(con, kid) == []                                             # ingen overstyring lagret for noe felt
     html = _klient().get("/kurs/A1").get_data(as_text=True)

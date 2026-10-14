@@ -302,9 +302,9 @@ def test_csv_eksport_har_fornavn_og_etternavn_i_egne_kolonner(con):
 # ============================ e-post ============================
 
 # (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og med dem «purring» til kursholdere, som brukte fullt navn;
-# alle de 8 redigerbare malene går nå til deltakere eller kontaktpersoner)
+# alle de redigerbare malene går nå til deltakere eller kontaktpersoner - også rabatt_avklaring fra 09.10.2026)
 @pytest.mark.parametrize("mal", ["bekreftelse", "venteliste", "ukefor", "dagfor", "avlysning", "kursbevis_klar",
-                                 "firmapaamelding_kvittering", "evaluering"])
+                                 "firmapaamelding_kvittering", "evaluering", "rabatt_avklaring"])
 def test_alle_maler_til_deltakere_tillater_fornavn_og_navn(mal):
     for felt in maltekster.MALER[mal].felt.values():
         assert {"fornavn", "navn"} <= felt.kode

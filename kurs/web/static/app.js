@@ -1644,6 +1644,14 @@
       if (e.target instanceof Element && e.target.matches("input[data-epost-sjekk]")) { vis(e.target); }
     });
   });
+  // Også mens man skriver (Camilla 14.10.2026: hun så ikke forslaget før hun gikk ut av feltet): 800 ms etter siste tastetrykk
+  var venter = null;
+  document.addEventListener("input", function (e) {
+    if (!(e.target instanceof Element) || !e.target.matches("input[data-epost-sjekk]")) { return; }
+    var felt = e.target;
+    clearTimeout(venter);
+    venter = setTimeout(function () { vis(felt); }, 800);
+  });
 })();
 
 // Rabattpriser (kurs/rabatter.py, Camilla 09.10.2026).

@@ -81,6 +81,9 @@ KODER: dict[str, Kode] = {
     "frist": Kode("Frist", "fet"),
     "dager_igjen": Kode("Dager til frist", "vanlig"),
     "dager_igjen_tekst": Kode("Dager til frist, med riktig entall/flertall (f.eks. «1 dag» / «2 dager»)", "vanlig"),
+    "prisnavn": Kode("Rabatten deltakeren valgte (f.eks. «studentpris»)", "vanlig"),
+    "rabattpris": Kode("Prisen med rabatt (f.eks. «4 950 kr»)", "vanlig"),
+    "ordinaer_pris": Kode("Ordinær pris (f.eks. «9 900 kr»)", "vanlig"),
     "min_side": Kode("Lenke til Min side", "system"),
     "sporsmal_url": Kode("Adressen til «Spør oss»", "system"),
 }
@@ -135,6 +138,7 @@ _D = "Hei {fornavn},\n\n"
 _PAAMELDTE = db.PAAMELDINGSSTATUSER_FLERTALL["paameldt"].lower()      # de som har plass (beskrivelsene av malene)
 _EKSTRA = db.PAAMELDINGSSTATUSER_FLERTALL["ekstradeltaker"]           # er på kurset, men bare på samlingene de er satt opp på
 _P = {"fornavn", "navn"}            # mottakerens navnekoder i alle maler til deltakere/kontaktpersoner
+_RABATT = {"kursnavn", "prisnavn", "rabattpris", "ordinaer_pris"}     # rabatt_avklaring
 
 MALER: dict[str, Mal] = {
     "bekreftelse": Mal(
@@ -203,8 +207,33 @@ MALER: dict[str, Mal] = {
          "innledning": _hoved("Innledning", _D + "Takk for påmeldingen av {antall_deltakere} fra {firmanavn} til {kursnavn}.",
                               _P | {"kursnavn", "firmanavn", "antall_deltakere"}),
          "avslutning": _tillegg("Avslutning", "", _P | {"kursnavn", "firmanavn", "antall_deltakere"})}),
+    # Camilla 09.10.2026: «da må vi sende en e-post til deltakeren hvor vi forklarer at vi enten trenger mer informasjon, rett
+    # informasjon, eller at de blir belastet for ordinær pris. Avhengig av situasjonen.» Ikke en automatisk e-post (VINDUSMALER).
+    "rabatt_avklaring": Mal(
+        "Rabatt som ikke kan godkjennes ennå", "Sendes aldri automatisk. Teksten kommer opp i e-postvinduet når du trykker «Be om mer "
+        "informasjon», «Be om riktig informasjon» eller «Ikke godkjent – ordinær pris» ved rabatten i deltakervinduet, og du kan endre "
+        "den der før du sender. Står det [Skriv …] i teksten, må du skrive inn det deltakeren skal vite.",
+        {"emne_info": _emne("Emne – trenger mer informasjon", "Vi trenger litt mer informasjon: {kursnavn}", _P | _RABATT),
+         "tekst_info": _hoved("Tekst – trenger mer informasjon",
+                              _D + "Takk for påmeldingen til {kursnavn}. Du har valgt {prisnavn} ({rabattpris}). For at vi skal kunne "
+                                   "godkjenne den, trenger vi litt mer informasjon fra deg:\n\n[Skriv hva som mangler]\n\nSvar gjerne på "
+                                   "denne e-posten. Fakturaen sendes når vi har fått det vi trenger.", _P | _RABATT),
+         "emne_riktig": _emne("Emne – trenger riktig informasjon", "Vi trenger riktige opplysninger: {kursnavn}", _P | _RABATT),
+         "tekst_riktig": _hoved("Tekst – trenger riktig informasjon",
+                                _D + "Takk for påmeldingen til {kursnavn}. Du har valgt {prisnavn} ({rabattpris}), men opplysningene vi "
+                                     "har fått, stemmer ikke helt:\n\n[Skriv hva som må rettes]\n\nSvar gjerne på denne e-posten med "
+                                     "riktige opplysninger. Fakturaen sendes når alt stemmer.", _P | _RABATT),
+         "emne_ordinaer": _emne("Emne – ordinær pris", "Om prisen for {kursnavn}", _P | _RABATT),
+         "tekst_ordinaer": _hoved("Tekst – ordinær pris",
+                                  _D + "Takk for påmeldingen til {kursnavn}. Vi kunne dessverre ikke godkjenne {prisnavn}, og du blir "
+                                       "derfor fakturert ordinær pris: {ordinaer_pris}.\n\nHar du spørsmål, kan du svare på denne "
+                                       "e-posten.", _P | _RABATT)}),
 }
 # avlysning tillater i tillegg {sporsmal_url}; ingen av de andre malene gjor det.
+
+# Maler som aldri sendes automatisk: teksten fyller e-postvinduet i deltakervinduet (vindustekst, web/app.py), og administrator kan
+# endre den før e-posten sendes som en vanlig e-post fra vinduet. Redigeres i E-postmaler som de andre.
+VINDUSMALER = frozenset({"rabatt_avklaring"})
 
 
 def _slaa_opp(mal: str, felt: str) -> tuple[Mal, Felt]:
@@ -392,6 +421,26 @@ def felttekst_til_emne(mal: str, felt: str, tekst: str, verdier: dict) -> str:
     return emne
 
 
+def felttekst_til_ren_tekst(mal: str, felt: str, tekst: str, verdier: dict) -> str:
+    """Admin-/standardtekst for et TEKSTFELT -> ren tekst med avsnittene beholdt, til e-postvinduet (VINDUSMALER). Kodene byttes med
+    verdiene, unntatt {min_side}: den står igjen og byttes med mottakerens egen lenke når e-posten sendes (MANUELLE_KODER)."""
+    _, f = _slaa_opp(mal, felt)
+    if f.type != TEKST:
+        raise MalFeil(FEIL_FELTTYPE, mal, felt, "Dette er ikke et tekstfelt.")
+    ren = valider(mal, felt, tekst)
+    ut = []
+    for slag, verdi in _parse(ren, f.kode, mal, felt):
+        if slag == "tekst":
+            ut.append(verdi)
+        elif verdi in verdier:
+            ut.append(_rens_verdi(verdier[verdi]))
+        elif verdi in MANUELLE_KODER:
+            ut.append("{" + verdi + "}")
+        else:
+            raise MalFeil(MANGLER_VERDI, mal, felt, f"Verdien for {{{verdi}}} mangler.")
+    return "".join(ut).strip()
+
+
 # ============================ egenskrevet e-post til deltakere (admin_melding) ============================
 
 # Koder admin kan bruke i en egenskrevet e-post til én eller flere deltakere. Det legges ikke til noen automatisk hilsen -
@@ -561,13 +610,14 @@ def _kurs_id(data) -> int | None:
 
 # ============================ kobling til utsending (12B2A) ============================
 
-# Alle 8 redigerbare maler er koblet til den faktiske utsendingen (fase 12B2A-12B2C-5). Kun de LAASTE malene
+# Alle de redigerbare malene er koblet til den faktiske utsendingen (fase 12B2A-12B2C-5) - rabatt_avklaring til e-postvinduet
+# (VINDUSMALER, 09.10.2026), de andre til den automatiske utsendingen. Kun de LAASTE malene
 # (innlogging, admin_melding) rendres utenfor dette systemet. EKSPLISITT liste (IKKE frozenset(MALER)):
 # en fremtidig ny mal i MALER-registeret skal ALDRI bli automatisk aktivert bare fordi den er registrert - den
 # maa faa sin egen verdibygger og eksplisitt legges til her foerst (fail-closed). lagre_maltekst() nekter
 # fortsatt aa lagre for enhver mal som ikke staar i denne listen, slik at en override aldri blir stille ignorert.
 AKTIVE_MALER = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor", "kursbevis_klar",
-                          "firmapaamelding_kvittering", "evaluering"})
+                          "firmapaamelding_kvittering", "evaluering", "rabatt_avklaring"})
 
 
 def _person(rad) -> dict:
@@ -646,11 +696,45 @@ def _firmapaamelding_kvittering_verdier(data) -> dict:
             "antall_deltakere": f"{antall} deltaker{'e' if antall != 1 else ''}"}
 
 
+def _kroner(belop) -> str:
+    """9900 -> «9 900 kr» (hardt mellomrom, som filteret kr i adminsidene)."""
+    return f"{int(belop or 0):,}".replace(",", " ") + " kr"
+
+
+def _rabatt_avklaring_verdier(data) -> dict:
+    """KUN det registeret tillater: mottakerens navn, kursnavn, rabattens navn midt i en setning («studentpris», «NIEFT-pris»), prisen
+    med rabatt og ordinær pris. Aldri studentbeviset, e-post eller annet om personen. `p` er påmeldingen (priskategori, rabatt_prosent)."""
+    from . import rabatter       # importeres her: rabatter bruker db
+    p, kurs = data["p"], data["kurs"]
+    return {**_person(data["d"]), "kursnavn": kurs["navn"],
+            "prisnavn": rabatter.PRISNAVN_I_SETNING.get(p["priskategori"], "rabattprisen"),
+            "rabattpris": _kroner(rabatter.deltakerpris(kurs["pris_nok"], p["rabatt_prosent"])),
+            "ordinaer_pris": _kroner(kurs["pris_nok"])}
+
+
 _VERDIER = {"venteliste": _venteliste_verdier, "avlysning": _avlysning_verdier, "bekreftelse": _bekreftelse_verdier,
             "ukefor": _ukefor_verdier, "dagfor": _dagfor_verdier, "kursbevis_klar": _kursbevis_klar_verdier,
             "firmapaamelding_kvittering": _firmapaamelding_kvittering_verdier,
-            "evaluering": _evaluering_verdier,
+            "evaluering": _evaluering_verdier, "rabatt_avklaring": _rabatt_avklaring_verdier,
             }    # mal -> funksjon(malens data) -> {kode: rå tekstverdi}
+
+
+def vindustekst(con, mal: str, variant: str, data) -> tuple[str, str]:
+    """(emne, tekst) til e-postvinduet for en VINDUSMAL: den effektive teksten (egen tekst fra E-postmaler, ellers standardteksten) med
+    verdiene satt inn, som ren tekst administrator kan endre før sending. `variant` velger feltene emne_<variant> og tekst_<variant>.
+    Leser bare. Ukjent mal eller variant -> MalFeil."""
+    if mal not in VINDUSMALER:
+        raise MalFeil(UKJENT_MAL, mal, None, "Denne malen brukes ikke i e-postvinduet.")
+    emnefelt, tekstfelt = f"emne_{variant}", f"tekst_{variant}"
+    if emnefelt not in MALER[mal].felt or tekstfelt not in MALER[mal].felt:
+        raise MalFeil(UKJENT_FELT, mal, None, "Ukjent variant.")
+    tekster = effektive_tekster(con, mal)
+    try:
+        verdier = _VERDIER[mal](data)
+    except (KeyError, IndexError, TypeError) as e:
+        raise MalFeil(MANGLER_VERDI, mal, None, "Data til malen mangler.") from e
+    return (felttekst_til_emne(mal, emnefelt, tekster[emnefelt], verdier),
+            felttekst_til_ren_tekst(mal, tekstfelt, tekster[tekstfelt], verdier))
 
 
 def _bygg(mal: str, tekster: dict, data) -> dict:

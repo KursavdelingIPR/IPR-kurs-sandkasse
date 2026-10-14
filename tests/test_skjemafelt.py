@@ -52,10 +52,14 @@ def test_yrkestittel_vises_som_standard():
     assert [f.nokkel for f in skjult.deltakerfelt] == ["telefon", "arbeidssted"]     # kan fortsatt skjules per kurs
 
 
-def test_navn_epost_adresse_samtykke_er_laast_synlige_obligatoriske_og_uten_overstyring():
-    for n in ("fornavn", "etternavn", "epost", "adresse", "postnr", "poststed", "samtykke"):
+def test_navn_epost_adresse_samtykke_er_laast_synlige_obligatoriske_og_bare_hjelpeteksten_kan_endres():
+    # Camilla 09.10.2026: «Vi skal kunne redigere hjelpetekst, ja» - feltnavn og krav står fast. Samtykket er helt låst.
+    for n in ("fornavn", "etternavn", "epost", "adresse", "postnr", "poststed"):
         f = sf.REGISTER[n]
-        assert (f.kategori, f.synlig, f.obligatorisk, f.overstyrbart) == (sf.LAAST, True, True, frozenset())
+        assert (f.kategori, f.synlig, f.obligatorisk, f.overstyrbart) == (sf.LAAST, True, True, frozenset({sf.HJELPETEKST}))
+    assert sf.FASTE_DELTAKERFELT == ("fornavn", "etternavn", "epost", "adresse", "postnr", "poststed")
+    f = sf.REGISTER["samtykke"]
+    assert (f.kategori, f.synlig, f.obligatorisk, f.overstyrbart) == (sf.LAAST, True, True, frozenset())
     assert sf.REGISTER["fornavn"].label == "Fornavn" and sf.REGISTER["etternavn"].label == "Etternavn"
     assert sf.REGISTER["epost"].label == "E-post" and "navn" not in sf.REGISTER     # fullt navn er ikke et skjemafelt
 

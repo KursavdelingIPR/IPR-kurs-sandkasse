@@ -80,6 +80,13 @@ def gjenopprett_lenker(k, rad, html: str) -> str:
         if token is None:
             raise ValueError("Bedriftspåmeldingen finnes ikke lenger.")
         html = html.replace("/gruppe/kvittering/skjult", f"/gruppe/kvittering/{token}")
+    skjult_evaluering = f"{config.BASE_URL}/evaluering/skjult"
+    if skjult_evaluering in html:
+        if not rad["paamelding_id"]:
+            raise ValueError("Evalueringslenken kan ikke lages uten påmeldingen.")
+        from . import evaluering     # importeres her: evaluering bruker db
+        html = html.replace(skjult_evaluering,
+                            evaluering.lenke(rad["paamelding_id"], evaluering.samling_fra_nokkel(rad["nokkel"])))
     return html
 
 

@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from . import db
+from . import db, norsk_tid
 
 # Rekkefølgen her er rekkefølgen overalt (skjemaene, oppsettet og listene)
 KATEGORIER = {"nieft": "NIEFT-medlem", "ipr_terapeut": "IPR-terapeut", "student": "Student", "psyflix": "Psyflix-medlem"}
@@ -31,7 +31,10 @@ ORDINAER_NAVN = "Ordinær pris"
 VENTER, GODKJENT, AVVIST = "venter", "godkjent", "avvist"
 
 BEVIS_ENDELSER = ("pdf", "png", "jpg", "jpeg", "webp")
-BEVIS_MAKS_MB = 10
+# Mobilbilder er ofte 5–10 MB og opptil 12 000 piksler brede (gjennomgangen 09.10.2026: før gjaldt kurssidens grenser på 5 MB og
+# 6 000 piksler for bilder, og deltakeren fikk beskjed om at filen «ikke kunne leses»)
+BEVIS_MAKS_MB = 15
+BEVIS_MAKS_PIKSLER = 12000
 _MIMETYPE = {"pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}
 
 # Prisen i SQL (samme regel som deltakerpris): kursets pris, eller kursets pris minus rabatten avrundet til hele kroner.
@@ -203,8 +206,11 @@ def kontroller_bevis(filnavn: str, data: bytes) -> tuple[str, str, bytes]:
     if len(data) > BEVIS_MAKS_MB * 1024 * 1024:
         raise Rabattfeil(f"Filen med studentbeviset er for stor (maks {BEVIS_MAKS_MB} MB). Ta et nytt bilde, eller lagre den som PDF.")
     try:
-        sidelager.kontroller_fil(navn, data)
+        sidelager.kontroller_fil(navn, data, maks_mb=BEVIS_MAKS_MB, maks_piksler=BEVIS_MAKS_PIKSLER)
     except sidelager.Sidefeil as e:
+        if e.status == 413:
+            raise Rabattfeil(f"Bildet av studentbeviset er for stort (maks {BEVIS_MAKS_PIKSLER} piksler i bredden og høyden). "
+                             "Ta et nytt bilde med lavere oppløsning, eller lagre det som PDF.") from e
         raise Rabattfeil("Filen med studentbeviset kunne ikke leses som et bilde eller en PDF.") from e
     return navn, _MIMETYPE[endelse], data
 
@@ -289,17 +295,30 @@ def _oppdater(con, paamelding_id: int, felter: dict) -> None:
                 [*felter.values(), na, paamelding_id])
 
 
+_IKKE_VENTENDE = "Rabatten venter ikke på godkjenning (den kan være avgjort av noen andre)."
+
+
 def _ventende_rad(con, paamelding_id: int):
     p = con.execute("SELECT id, kurs_id, priskategori, rabatt_status FROM paamelding WHERE id=?", (paamelding_id,)).fetchone()
     if not p or p["rabatt_status"] != VENTER:
-        raise Rabattfeil("Rabatten venter ikke på godkjenning (den kan være avgjort av noen andre).")
+        raise Rabattfeil(_IKKE_VENTENDE)
     return p
+
+
+def _avgjor(con, paamelding_id: int, felter: dict) -> None:
+    """Avgjørelsen skrives bare når rabatten fortsatt venter: trykker to administratorer «Godkjent» og «Ikke godkjent» samtidig, gjelder
+    den første, og den andre får beskjed (gjennomgangen 09.10.2026 - før kunne den siste overskrive den første etter at fakturaen var laget)."""
+    na = datetime.now().isoformat(timespec="seconds")
+    cur = con.execute(f"UPDATE paamelding SET {','.join(f'{k}=?' for k in felter)}, oppdatert=? WHERE id=? AND rabatt_status=?",
+                      [*felter.values(), na, paamelding_id, VENTER])
+    if cur.rowcount != 1:
+        raise Rabattfeil(_IKKE_VENTENDE)
 
 
 def godkjenn(con, paamelding_id: int, *, aktor: str) -> None:
     """«Godkjent»: rabatten står, og fakturaen kan lages. Studentbeviset slettes. Kalleren committer og setter faktureringen i gang."""
     p = _ventende_rad(con, paamelding_id)
-    _oppdater(con, paamelding_id, {"rabatt_status": GODKJENT})
+    _avgjor(con, paamelding_id, {"rabatt_status": GODKJENT})
     con.execute("DELETE FROM rabatt_bevis WHERE paamelding_id=?", (paamelding_id,))
     db.logg(con, "rabatt_godkjent", {"paamelding_id": paamelding_id, "kurs_id": p["kurs_id"], "kategori": p["priskategori"]},
             aktor=aktor)
@@ -309,10 +328,54 @@ def avvis(con, paamelding_id: int, *, aktor: str) -> None:
     """«Ikke godkjent»: ordinær pris, og fakturaen kan lages. Kategorien står igjen (så det synes hva som ble valgt), men prosenten
     fjernes. Studentbeviset slettes. Kalleren committer."""
     p = _ventende_rad(con, paamelding_id)
-    _oppdater(con, paamelding_id, {"rabatt_status": AVVIST, "rabatt_prosent": None})
+    _avgjor(con, paamelding_id, {"rabatt_status": AVVIST, "rabatt_prosent": None})
     con.execute("DELETE FROM rabatt_bevis WHERE paamelding_id=?", (paamelding_id,))
     db.logg(con, "rabatt_avvist", {"paamelding_id": paamelding_id, "kurs_id": p["kurs_id"], "kategori": p["priskategori"]},
             aktor=aktor)
+
+
+# ============================ e-post når rabatten ikke kan godkjennes ============================
+# Camilla 09.10.2026: «da må vi sende en e-post til deltakeren hvor vi forklarer at vi enten trenger mer informasjon, rett
+# informasjon, eller at de blir belastet for ordinær pris. Avhengig av situasjonen.» Knappene står ved rabatten i deltakervinduet og
+# åpner e-postvinduet med teksten fra E-postmaler (maltekster: rabatt_avklaring). Ordinær pris = «Ikke godkjent» (avvis); mer eller
+# riktig informasjon = rabatten venter fortsatt, og fakturaen holdes tilbake til den er avgjort.
+
+AVKLAR_INFO, AVKLAR_RIKTIG, AVKLAR_ORDINAER = "info", "riktig", "ordinaer"
+SITUASJONER = {AVKLAR_INFO: "Be om mer informasjon", AVKLAR_RIKTIG: "Be om riktig informasjon", AVKLAR_ORDINAER: "Ikke godkjent – ordinær pris"}
+# Standardtekstene har [Skriv …] der administrator må skrive det deltakeren skal vite: e-posten sendes ikke før det er gjort
+PLASSHOLDER = "[Skriv"
+
+
+def be_om_opplysninger(con, paamelding_id: int, situasjon: str, *, aktor: str, utsending_id: int | None = None) -> bool:
+    """«Be om mer informasjon» / «Be om riktig informasjon»: rabatten venter fortsatt. Bare at det ble spurt (og når) lagres, i
+    loggen - én gang per e-post (`utsending_id`), så et dobbeltklikk på Send ikke gir to rader. False når det alt er lagret.
+    Kalleren committer."""
+    if situasjon not in (AVKLAR_INFO, AVKLAR_RIKTIG):
+        raise Rabattfeil("Ukjent valg.")
+    p = _ventende_rad(con, paamelding_id)
+    if utsending_id is not None and con.execute(
+            "SELECT 1 FROM hendelse WHERE handling='rabatt_info_bedt' AND detaljer LIKE ?",
+            (f'%"utsending_id": {int(utsending_id)}}}',)).fetchone():
+        return False
+    detaljer = {"paamelding_id": paamelding_id, "kurs_id": p["kurs_id"], "kategori": p["priskategori"], "situasjon": situasjon}
+    if utsending_id is not None:
+        detaljer["utsending_id"] = int(utsending_id)
+    db.logg(con, "rabatt_info_bedt", detaljer, aktor=aktor)
+    return True
+
+
+def siste_foresporsel(con, paamelding_id: int) -> dict | None:
+    """Sist det ble bedt om mer eller riktig informasjon om rabatten: {"ts": UTC-tid, "dato": «09.10.2026» (norsk tid),
+    "situasjon": "info" | "riktig"}, ellers None.
+    `detaljer` er JSON fra db.logg, så '"paamelding_id": 12,' treffer nøyaktig 12 (som i hendelseslogg)."""
+    r = con.execute(
+        """SELECT ts, detaljer FROM hendelse WHERE handling='rabatt_info_bedt' AND (detaljer LIKE ? OR detaljer LIKE ?)
+           ORDER BY id DESC LIMIT 1""",
+        (f'%"paamelding_id": {int(paamelding_id)},%', f'%"paamelding_id": {int(paamelding_id)}}}%')).fetchone()
+    if not r:
+        return None
+    situasjon = AVKLAR_INFO if f'"situasjon": "{AVKLAR_RIKTIG}"' not in (r["detaljer"] or "") else AVKLAR_RIKTIG
+    return {"ts": r["ts"], "dato": norsk_tid.dato(norsk_tid.fra_utc(r["ts"])), "situasjon": situasjon}
 
 
 def endre(con, kurs, paamelding_id: int, kategori: str | None, *, aktor: str) -> bool:
@@ -370,7 +433,8 @@ def ventende(con, idag: date) -> list[dict]:
                                               "rader": []})
         g["rader"].append({"p": r, "pris": deltakerpris(r["pris_nok"], r["rabatt_prosent"]),
                            "merke": SJEKK_TEKST.get(r["priskategori"]), "prisnavn": PRISNAVN.get(r["priskategori"]),
-                           "psyflix_aar": r["priskategori"] == "psyflix" and psyflix_siste_aar(con, r["deltaker_id"], r["id"], idag)})
+                           "psyflix_aar": r["priskategori"] == "psyflix" and psyflix_siste_aar(con, r["deltaker_id"], r["id"], idag),
+                           "foresporsel": siste_foresporsel(con, r["id"])})
     return list(grupper.values())
 
 

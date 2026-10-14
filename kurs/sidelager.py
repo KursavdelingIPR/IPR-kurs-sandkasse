@@ -359,15 +359,18 @@ def for_stor_tekst(maks_mb: int) -> str:
             "eller legg filen i kursmappen i SharePoint og velg «Vis også filene kursholder har lastet opp» i Filer-blokken.")
 
 
-def kontroller_fil(navn: str, data: bytes) -> dict:
+def kontroller_fil(navn: str, data: bytes, *, maks_mb: float | None = None, maks_piksler: int | None = None) -> dict:
     """Kontrollerer en fil ut fra endelsen OG innholdet (aldri klientens Content-Type). Returnerer type, mimetype, bredde og
-    høyde. Sidefeil(415) for filtype som ikke er tillatt eller innhold som ikke passer, Sidefeil(413) for for stor."""
+    høyde. Sidefeil(415) for filtype som ikke er tillatt eller innhold som ikke passer, Sidefeil(413) for for stor.
+    `maks_mb` / `maks_piksler` erstatter kurssidens grenser når kalleren har egne (studentbeviset i rabatter.py: mobilbilder er
+    ofte større enn bildene på kurssiden)."""
     endelse = _endelse(navn)
     if endelse not in TILLATTE_ENDELSER:
         raise Sidefeil(f"Filtypen «.{endelse}» er ikke tillatt. Du kan laste opp {FILTYPE_TEKST}." if endelse
                        else f"Filen mangler filendelse. Du kan laste opp {FILTYPE_TEKST}.", 415)
     er_bilde = endelse in _BILDE_ENDELSER
-    maks_mb = config.KURSSIDE_BILDE_MAKS_MB if er_bilde else config.KURSSIDE_FIL_MAKS_MB
+    maks_mb = maks_mb or (config.KURSSIDE_BILDE_MAKS_MB if er_bilde else config.KURSSIDE_FIL_MAKS_MB)
+    maks_piksler = maks_piksler or MAKS_BILDE_PIKSLER
     if len(data) > maks_mb * _MB:
         raise Sidefeil(for_stor_tekst(maks_mb), 413)
     passer = True
@@ -401,8 +404,8 @@ def kontroller_fil(navn: str, data: bytes) -> dict:
                 and (mime == "image/jpeg") == (endelse in ("jpg", "jpeg"))
     if not passer:
         raise Sidefeil(f"Innholdet i filen passer ikke med filendelsen «.{endelse}». Filen ble ikke lastet opp.", 415)
-    if er_bilde and bredde is not None and not (0 < bredde <= MAKS_BILDE_PIKSLER and 0 < hoyde <= MAKS_BILDE_PIKSLER):
-        raise Sidefeil(f"Bildet er for stort eller har ugyldig størrelse (maks {MAKS_BILDE_PIKSLER} piksler).", 413)
+    if er_bilde and bredde is not None and not (0 < bredde <= maks_piksler and 0 < hoyde <= maks_piksler):
+        raise Sidefeil(f"Bildet er for stort eller har ugyldig størrelse (maks {maks_piksler} piksler).", 413)
     return {"type": "bilde" if er_bilde else "dokument", "mimetype": _MIMETYPER[endelse], "bredde": bredde, "hoyde": hoyde}
 
 

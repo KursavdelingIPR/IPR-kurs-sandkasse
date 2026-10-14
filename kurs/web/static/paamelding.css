@@ -93,6 +93,9 @@
 .pm-hjelp { margin:6px 0 0; font-size:13px; line-height:1.45; color:var(--dempet); white-space:pre-line; max-width:520px;
   text-wrap:pretty; overflow-wrap:anywhere; }
 .pm-tekst { margin:0; padding-top:11px; overflow-wrap:anywhere; }
+/* Betalingsvilkårene under «Betaling» (Camilla 09.10.2026) */
+.pm-vilkar { margin:0; padding:11px 0 0 18px; font-size:14px; line-height:1.5; max-width:560px; overflow-wrap:anywhere; }
+.pm-vilkar li { margin:0 0 4px; }
 .pm-personvern { margin-top:0; }
 .pm-felt input[readonly], .pm-felt input.pm-auto { background:#e9eef1; color:var(--tekst); border-color:#d3dbe0; }
 .pm-felt input[readonly]:hover, .pm-felt input.pm-auto:hover { border-color:#d3dbe0; }

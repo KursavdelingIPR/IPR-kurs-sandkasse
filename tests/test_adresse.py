@@ -128,7 +128,8 @@ def test_adressefeltene_er_laaste_synlige_og_obligatoriske():
     assert sf.ADRESSEFELT == ("adresse", "postnr", "poststed")
     for n in sf.ADRESSEFELT:
         f = sf.REGISTER[n]
-        assert (f.kategori, f.synlig, f.obligatorisk, f.overstyrbart) == (sf.LAAST, True, True, frozenset())
+        # 09.10.2026 (Camilla: «Vi skal kunne redigere hjelpetekst, ja»): bare hjelpeteksten kan endres - aldri vis, krav eller feltnavn
+        assert (f.kategori, f.synlig, f.obligatorisk, f.overstyrbart) == (sf.LAAST, True, True, frozenset({sf.HJELPETEKST}))
     assert [sf.REGISTER[n].label for n in sf.ADRESSEFELT] == ["Adresse", "Postnummer", "Poststed"]
     assert sf.REGISTER["postnr"].hjelpetekst == "4 siffer i Norge."
 
@@ -138,7 +139,7 @@ def test_adressefeltene_kan_ikke_skjules_eller_gjoeres_valgfrie(con, felt):
     for egenskaper in ({"synlig": False}, {"obligatorisk": False}, {"label": "Noe annet"}, {"rekkefolge": 0}):
         with pytest.raises(sf.SkjemafeltFeil) as e:
             sf.normaliser_overstyring(felt, egenskaper)
-        assert e.value.grunn == sf.LAAST_FELT
+        assert e.value.grunn == sf.IKKE_TILLATT          # (09.10.2026: hjelpeteksten er det eneste som kan endres)
     kid = _kurs(con)
     with pytest.raises(sf.SkjemafeltFeil):
         db.lagre_skjemafelt(con, kid, felt, {"synlig": False})
@@ -166,7 +167,9 @@ def test_en_laast_rad_i_databasen_gjor_ikke_feltet_valgfritt(con):
     con.execute("INSERT INTO kurs_skjemafelt (kurs_id, felt, synlig, obligatorisk) VALUES (?, 'adresse', 0, 0)", (kid,))
     con.commit()
     les = db.hent_skjemaoverstyringer(con, kid)
-    assert [(a.grunn, a.felt) for a in les.advarsler] == [(sf.LAAST_FELT, "adresse")]
+    assert sorted((a.grunn, a.felt, a.egenskap) for a in les.advarsler) == [(sf.IKKE_TILLATT, "adresse", "obligatorisk"),
+                                                                           (sf.IKKE_TILLATT, "adresse", "synlig")]
+    assert dict(les.overstyringer) == {}
     r = _post(**{k: v for k, v in ADRESSE.items() if k != "adresse"})            # uten adresse: fortsatt avvist
     assert r.status_code == 400 and _person(con) is None
 

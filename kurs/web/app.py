@@ -839,7 +839,7 @@ def kurs_gruppe_kvittering(kode, token):
     # Vises så lenge en av påmeldingene venter på firmaopplysninger fra registeret (forsvinner når de er hentet)
     firma_mangler = any(r["paamelding_status"] and firmaopplysninger.mangler(r) for r in rader)
     return render_template("kurs_gruppe_kvittering.html", kurs=kurs, firma=firma, rader=rader,
-                           firmaopplysninger_mangler=firma_mangler)
+                           firmaopplysninger_mangler=firma_mangler, kontakt_epost=tema.kontakt_epost(kurs))
 
 
 # ---------- innsjekk ----------
@@ -2054,12 +2054,16 @@ def admin_kalender_malpunkt_slett(mal_id, punkt_id):
 # ------- uavklarte operasjoner (e-post og faktura med ukjent utfall) -------
 
 def _foreslatt_belop(rad) -> int:
-    """Beloepet motoren ville fakturert: hele prisen, eller denne samlingens andel (samme deling som sveiper)."""
+    """Beloepet motoren ville fakturert: deltakerens pris (kursets pris, eller minus rabatten), eller denne samlingens andel - samme
+    regnestykke som sveiper (delfakturaer_som_gjenstaar). Gjennomgangen 09.10.2026: før ble kursets fulle pris foreslått også for deltakere
+    med rabatt, og delfakturaen ble delt på antall kursdager i stedet for samlinger."""
+    pris = rabatter.deltakerpris(rad["pris_nok"], rad["rabatt_prosent"])
     if rad["kursdag_id"] is None:
-        return rad["pris_nok"]
-    dager = [d["id"] for d in db.kursdager(con(), rad["kurs_id"])]
-    andeler = sveiper.delbelop(rad["pris_nok"], len(dager)) if dager else []
-    return andeler[dager.index(rad["kursdag_id"])] if rad["kursdag_id"] in dager else rad["pris_nok"]
+        return pris
+    p = {"id": rad["paamelding_id"], "pris_nok": pris}
+    samlinger = sveiper.samlinger_til_fakturering(con(), rad["kurs_id"])
+    return next((belop for _nr, _samling, kursdag_id, belop in sveiper.delfakturaer_som_gjenstaar(con(), p, samlinger)
+                 if kursdag_id == rad["kursdag_id"]), pris)
 
 
 def _kurs_fra_nokkel(nokkel: str):
@@ -2630,7 +2634,7 @@ def _skjema_admin_verdier(overstyringer, egne, antall_svar=None) -> dict:
     """Det skjemabyggeren skal vise for dagens oppsett: effektive verdier (standard der ingen overstyring finnes)."""
     antall_svar = antall_svar or {}
     verdier = {}
-    for n in (*_STANDARDFELT_I_BYGGEREN, *skjemafelt.INFOFELT, "hpr_nr"):
+    for n in (*_STANDARDFELT_I_BYGGEREN, *skjemafelt.INFOFELT, "hpr_nr", *skjemafelt.FASTE_DELTAKERFELT):
         f, o = skjemafelt.REGISTER[n], overstyringer.get(n) or skjemafelt.Overstyring()
         verdier[n] = {"synlig": f.synlig if o.synlig is None else o.synlig,
                       "obligatorisk": f.obligatorisk if o.obligatorisk is None else o.obligatorisk,
@@ -2671,6 +2675,16 @@ def _skjema_admin_innsendt(form, overstyringer, egne, antall_svar=None) -> tuple
         verdier[n] = {**egenskaper[n], "tilpasset": None}
     egenskaper["hpr_nr"] = {"hjelpetekst": form.get("hpr_nr_hjelpetekst", "")}
     verdier["hpr_nr"] = {"hjelpetekst": egenskaper["hpr_nr"]["hjelpetekst"], "tilpasset": None}
+    # De faste feltene under «Om deg» (fornavn ... poststed): bare hjelpeteksten (Camilla 09.10.2026). Sendes den ikke (en eldre side),
+    # står den lagrede hjelpeteksten urørt.
+    for n in skjemafelt.FASTE_DELTAKERFELT:
+        if f"{n}_hjelpetekst" in form:
+            egenskaper[n] = {"hjelpetekst": form.get(f"{n}_hjelpetekst", "")}
+            hjelpetekst = egenskaper[n]["hjelpetekst"]
+        else:
+            o = overstyringer.get(n)
+            hjelpetekst = o.hjelpetekst if o is not None and o.hjelpetekst is not None else (skjemafelt.REGISTER[n].hjelpetekst or "")
+        verdier[n] = {"hjelpetekst": hjelpetekst, "label": skjemafelt.REGISTER[n].label, "tilpasset": None}
 
     ekstra = {}
     for x in egne:
@@ -3405,12 +3419,14 @@ def admin_deltaker(kurs_id, paamelding_id):
     faktura_venter_adresse = privatadresse.venter(con(), paamelding_id)       # fakturaen holdes tilbake: privat adresse mangler
     return render_template(
         "admin_deltaker.html", kurs=kurs, p=p, fane="deltaker", faktura_venter_adresse=faktura_venter_adresse,
+        planlagt_faktura=_planlagt_faktura(kurs, p),
         fakturastatus=_fakturastatus(kurs, {**dict(p), "faktura_venter_adresse": faktura_venter_adresse}),
         # Rabattprisen (kurs/rabatter.py): rabattene kurset gir, om prisen kan endres (ingen faktura ennå), studentbeviset og
         # varselet om Psyflix-rabatt de siste 12 månedene
         rabatter_kurs=rabatter.for_kurs(con(), kurs), pris_kan_endres=rabatter.kan_endres(con(), paamelding_id),
         har_rabattbevis=rabatter.har_bevis(con(), paamelding_id),
         psyflix_aar=p["priskategori"] == "psyflix" and rabatter.psyflix_siste_aar(con(), p["deltaker_id"], paamelding_id, _idag()),
+        rabatt_foresporsel=rabatter.siste_foresporsel(con(), paamelding_id) if rabatter.venter(p) else None,
         skjemasvar=_skjemasvar(kurs_id, paamelding_id),
         andre_paameldinger=andre_paameldinger, prisvalg_redigerbar=prisvalg_redigerbar, prisvalg_grunn=prisvalg_grunn,
         kurs_plan_tekst=_PLAN_SOM_TEKST.get(kurs["betaling"], kurs["betaling"]),
@@ -3915,6 +3931,8 @@ def admin_deltaker_behandle(kurs_id, paamelding_id):
               + " faktureres ikke automatisk: fakturaen lager du selv, utenfor systemet.", "ok")
     elif res.kode == behandling.FULLFORT and res.arsak_kode == behandling.ARSAK_FAKTURA_VENTER:
         flash("Bekreftelsen er sendt (eller var sendt fra før).", "ok")
+    elif res.kode == behandling.FULLFORT and res.arsak_kode == behandling.ARSAK_FAKTURA_VENTER_RABATT:
+        flash("Bekreftelsen er sendt (eller var sendt fra før). Fakturaen lages når rabatten er godkjent eller ikke godkjent.", "ok")
     elif res.kode == behandling.FULLFORT and p["status"] == "bekreftet":
         flash(("Bekreftelsen var allerede sendt til denne e-postadressen, så den er ikke sendt på nytt. Fakturering er behandlet."
                if res.epost_var_sendt else "Bekreftelse er sendt og fakturering er behandlet."), "ok")
@@ -3934,6 +3952,38 @@ def admin_deltaker_behandle(kurs_id, paamelding_id):
              "opp automatisk igjen ved neste daglige kjøring.", "feil")
     if res.forsokt and privatadresse.venter(con(), paamelding_id):      # også når bekreftelsen gikk ut: ingen faktura uten privat adresse
         flash(privatadresse.FAKTURA_HOLDT_GENERELT + ". " + privatadresse.TEKST_HOLDT, "feil")
+    return tilbake
+
+
+def _planlagt_faktura(kurs, p) -> str | None:
+    """Datoen («20.03.2027») en planlagt samlet faktura sendes (sveiper.planlagt_faktura), eller None. Da vises «Send fakturaen nå»."""
+    dato = sveiper.planlagt_faktura(kurs, p, _idag())
+    return f"{dato.day:02d}.{dato.month:02d}.{dato.year}" if dato else None
+
+
+@app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/faktura-naa")
+@krever_admin
+def admin_deltaker_faktura_naa(kurs_id, paamelding_id):
+    """«Send fakturaen nå»: en planlagt samlet faktura (tidligst seks måneder før første kursdag) lages med en gang, når deltakeren har
+    bedt om det. Den vanlige motoren kjøres for akkurat denne påmeldingen (sveiper.send_planlagt_faktura_naa):
+    samme sperrer som ellers (aldri to fakturaer, rabatt som venter, privat adresse, firmaopplysninger). Lesetilgang kan ikke POSTe."""
+    kurs = _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)             # 404 når påmeldingen ikke hører til kurset
+    tilbake = redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    planlagt = _planlagt_faktura(kurs, p)
+    if not planlagt:
+        flash("Det er ingen planlagt faktura å sende for denne påmeldingen (den er kanskje laget allerede).", "feil")
+        return tilbake
+    sveiper.send_planlagt_faktura_naa(Kjoring(con(), idag=_idag(), aktor=_aktor()), p)
+    if con().execute("SELECT 1 FROM faktura WHERE paamelding_id=? AND kursdag_id IS NULL", (paamelding_id,)).fetchone():
+        flash(f"Fakturaen til {p['navn']} er laget og sendt (den var planlagt {planlagt}).", "ok")
+    elif rabatter.venter(p):
+        flash("Fakturaen lages så snart rabatten er godkjent eller ikke godkjent.", "info")
+    elif privatadresse.venter(con(), paamelding_id):
+        flash(privatadresse.FAKTURA_HOLDT_GENERELT + ". " + privatadresse.TEKST_HOLDT, "feil")
+    else:
+        flash("Fakturaen ble ikke laget nå (for eksempel venter den på firmaopplysninger, eller Visma svarte ikke). Den er merket "
+              "«sendes nå», så den lages ved neste morgenjobb. Se «Uavklarte operasjoner» på forsiden hvis den ikke kommer.", "feil")
     return tilbake
 
 
@@ -4286,7 +4336,8 @@ def _evaluering_side(kurs, samling_id=None, **kw):
     runde_navn = next((r["navn"] for r in evaluering.runder(con(), kurs) if r["samling_id"] == samling_id), None) if samling_id else None
     return render_template("evaluering.html", kurs=kurs, sporsmal=evaluering.sporsmal(con(), kurs), skala=evaluering.SKALA,
                            maks_tekst=evaluering.MAKS_TEKST, innledning=evaluering.oppsett(con(), kurs)["innledning"],
-                           runde_navn=runde_navn, startet=int(time.time()), **{"svar": {}, **kw})
+                           runde_navn=runde_navn, startet=int(time.time()), kontakt_epost=tema.kontakt_epost(kurs),
+                           **{"svar": {}, **kw})
 
 
 def _evaluering_innsending(kurs, samling_id, paamelding_id, kilde):
@@ -4345,14 +4396,42 @@ def evaluering_delt(token):
     return _evaluering_innsending(kurs, samling_id, None, "delt")
 
 
+@app.get("/evaluering/resultat/<token>")
+def evaluering_resultat(token):
+    """Resultatene for kursholderne (Camilla 09.10.2026: «svarene fra evalueringen må enkelt kunne deles med kursholderne»): oversikten
+    for kurset eller én samling, bare lesing og uten innlogging. Lenken lages i fanen Evaluering og sendes av administrator; den kan
+    stenges, og «Lag ny lenke» gjør de gamle ugyldige. Kursholderne ser alt i oversikten (hennes svar). Svarene er anonyme."""
+    lest = evaluering.les_resultat_token(token)
+    kurs = con().execute("SELECT * FROM kurs WHERE id=?", (lest[0],)).fetchone() if lest else None
+    oppsett = evaluering.oppsett(con(), kurs) if kurs else None
+    gyldig = kurs is not None and kurs["status"] != "utkast" and oppsett["resultat_versjon"] == lest[1] \
+        and not oppsett["resultat_stengt"]
+    samling_id = lest[2] if lest else None
+    samlinger = {s["id"]: s["tittel"] for s in db.kursets_samlinger(con(), kurs["id"])} if gyldig and samling_id else {}
+    if gyldig and samling_id and samling_id not in samlinger:
+        gyldig = False
+    if not gyldig:
+        return render_template("feil.html", tittel="Lenken virker ikke",
+                               tekst="Lenken til resultatene er stengt eller byttet ut. Be kursadministrasjonen om en ny."), 404
+    svar = make_response(render_template(
+        "evaluering_resultat.html", kurs=kurs, runde_navn=samlinger.get(samling_id), idag=_idag(), skala=evaluering.SKALA,
+        tid_tekst=evaluering.tid_tekst, kontakt_epost=tema.kontakt_epost(kurs),
+        res=evaluering.resultater(con(), kurs, samling_id or evaluering.ALLE, _idag())))
+    svar.headers["Cache-Control"] = "no-store"
+    svar.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return svar
+
+
 def _runde_arg(kurs, runder) -> tuple[str, object]:
-    """Runden i adressen (?runde=): («alle» | samling-id som tekst | «»), og verdien til evaluering.resultater."""
+    """Runden i adressen (?runde=): («alle» | samling-id som tekst | «»), og verdien til evaluering.resultater. Med bare én runde vises
+    alle svarene til kurset: har noen byttet «Send evalueringen» etter at det kom svar, er også svarene fra den andre måten med
+    (gjennomgangen 09.10.2026 - før forsvant de fra oversikten og Excel-filen)."""
     tekst = (request.args.get("runde") or "").strip()
     if len(runder) > 1:
         if tekst != evaluering.ALLE and tekst.isdigit() and int(tekst) in {r["samling_id"] for r in runder}:
             return tekst, int(tekst)
         return evaluering.ALLE, evaluering.ALLE
-    return "", runder[0]["samling_id"]
+    return "", evaluering.ALLE
 
 
 @app.get("/admin/kurs/<int:kurs_id>/evaluering")
@@ -4366,12 +4445,16 @@ def _render_evaluering(kurs, evalueringsfeil: str | None = None, status: int = 2
     for r in runder:
         r["delt_lenke"] = evaluering.delt_lenke(con(), kurs, r["samling_id"])
     valgt_runde, runde = _runde_arg(kurs, runder)
+    # Resultatlenken til kursholderne følger samlingen som er valgt (alle samlinger / hele kurset: uten samling)
+    resultat_samling = runde if isinstance(runde, int) else None
+    resultat_navn = next((r["navn"] for r in runder if r["samling_id"] == resultat_samling), None) if resultat_samling else None
     return render_template(
         "admin_kurs_evaluering.html", kurs=kurs, fane="evaluering", modus=evaluering.modus(kurs), modusvalg=evaluering.MODUS,
         flere_samlinger=len(db.kursets_samlinger(con(), kurs["id"])) > 1, oppsett=evaluering.oppsett(con(), kurs), runder=runder,
         sporsmal=evaluering.sporsmal(con(), kurs), egne_sporsmal=evaluering.har_egne_sporsmal(con(), kurs["id"]),
         besvarte=evaluering._besvarte_nokler(con(), kurs["id"]), typer=evaluering.TYPER, ferdige=evaluering.FERDIGE,
         skala=evaluering.SKALA, skala_hjelp=evaluering.SKALA_HJELP, tid_tekst=evaluering.tid_tekst, valgt_runde=valgt_runde,
+        resultatlenke=evaluering.resultat_lenke(con(), kurs, resultat_samling), resultat_navn=resultat_navn,
         res=evaluering.resultater(con(), kurs, runde, _idag()), evalueringsfeil=evalueringsfeil, apne_skjema=bool(evalueringsfeil)), status
 
 
@@ -4416,6 +4499,26 @@ def admin_kurs_evaluering_ny_lenke(kurs_id):
         evaluering.ny_delt_lenke(con(), kurs["id"], aktor=_aktor())
         return "Ny delt lenke er laget. De gamle lenkene og QR-kodene virker ikke lenger."
     return _evaluering_endring(kurs_id, ny)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/resultatlenke/ny")
+@krever_admin
+def admin_kurs_evaluering_ny_resultatlenke(kurs_id):
+    def ny(kurs):
+        evaluering.ny_resultatlenke(con(), kurs["id"], aktor=_aktor())
+        return "Nye lenker til resultatene er laget. Lenkene du har sendt til kursholderne, virker ikke lenger."
+    return _evaluering_endring(kurs_id, ny)
+
+
+@app.post("/admin/kurs/<int:kurs_id>/evaluering/resultatlenke/stengt")
+@krever_admin
+def admin_kurs_evaluering_resultatlenke_stengt(kurs_id):
+    stengt = request.form.get("stengt") == "1"
+
+    def sett(kurs):
+        evaluering.sett_resultat_stengt(con(), kurs["id"], stengt, aktor=_aktor())
+        return "Lenken til resultatene er stengt." if stengt else "Lenken til resultatene virker igjen."
+    return _evaluering_endring(kurs_id, sett)
 
 
 @app.post("/admin/kurs/<int:kurs_id>/evaluering/innledning")
@@ -4507,9 +4610,9 @@ def admin_kurs_evaluering_csv(kurs_id):
     _, runde = _runde_arg(kurs, evaluering.runder(con(), kurs))
     db.logg(con(), "evaluering_lastet_ned", {"kurs_id": kurs_id}, aktor=_aktor())
     con().commit()
-    return Response(evaluering.som_csv(con(), kurs, runde), mimetype="text/csv",
-                    headers={"Content-Disposition": f"attachment; filename=evaluering-{kurs['kursnr']}.csv",
-                             "Cache-Control": "no-store"})
+    # Fritekst fra den delte lenken kan skrives av hvem som helst: _csv_respons gjør formler ufarlige (sikkerhet.csv_trygg)
+    overskrifter, rader = evaluering.som_tabell(con(), kurs, runde)
+    return _csv_respons(overskrifter, rader, f"evaluering-{kurs['kursnr']}.csv")
 
 
 @app.route("/admin/kurs/<int:kurs_id>/kursbevis", methods=["GET", "POST"])
@@ -4653,12 +4756,13 @@ def _epost_feil(emne: str, tekst: str) -> list[str]:
     return feil
 
 
-def _epost_i_vindu(kurs, p, emne="", tekst="", signatur_valgt=None, skjemanokkel=None, signatur_html=None):
+def _epost_i_vindu(kurs, p, emne="", tekst="", signatur_valgt=None, skjemanokkel=None, signatur_html=None, rabatt=None):
     """«Send e-post» i deltakervinduet, fanen E-poster (Camilla 03.10.2026: «Vil ikke hoppe til en annen side», «Vi trenger
     ikke forhåndsvisning. Signaturen skal automatisk komme på bunnen inne i e-postvinduet», «jeg kan fortsatt ikke redigere
     signaturen»). Den valgte signaturen står under teksten og kan redigeres der; endringen gjelder bare denne e-posten.
     Skjemanøkkelen følger skjemaet og blir utsendelsens nøkkel, så et dobbeltklikk på Send aldri sender to ganger.
-    `signatur_html` er en redigert signatur som skal stå i skjemaet igjen etter en feil (alltid renset)."""
+    `signatur_html` er en redigert signatur som skal stå i skjemaet igjen etter en feil (alltid renset). `rabatt` er valget ved
+    rabatten (rabatter.SITUASJONER): e-posten om en rabatt som ikke kan godkjennes, se _rabatt_epost_send."""
     if signatur_valgt is None:
         signatur_valgt = signaturer.for_admin(con(), session.get("admin_id"))["id"]
     return render_template("admin_deltaker_epost_ny.html", kurs=kurs, p=p, emne=emne, tekst=tekst,
@@ -4666,13 +4770,30 @@ def _epost_i_vindu(kurs, p, emne="", tekst="", signatur_valgt=None, skjemanokkel
                            skjemanokkel=skjemanokkel or secrets.token_hex(8), signatur_html=signatur_html,
                            vedlegg_accept=vedlegg.ACCEPT, vedlegg_typer=vedlegg.GODTATTE,
                            signaturliste=_signaturliste(), signatur_valgt=signatur_valgt, fane="kommunikasjon",
-                           **_EPOST_KODER)
+                           rabatt=rabatt, rabatt_valg=rabatter.SITUASJONER.get(rabatt),
+                           rabatt_ordinaer=rabatt == rabatter.AVKLAR_ORDINAER, **_EPOST_KODER)
 
 
 @app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/epost/ny")
 @krever_admin
 def admin_deltaker_epost_ny(kurs_id, paamelding_id):
-    return _epost_i_vindu(_hent_kurs(kurs_id), _hent_paamelding(kurs_id, paamelding_id))
+    """Ny e-post fra deltakervinduet. Med ?rabatt=info|riktig|ordinaer (knappene ved rabatten) står forslaget fra E-postmaler
+    (rabatt_avklaring) i vinduet, med deltakerens navn, kurset og prisene satt inn."""
+    kurs, p = _hent_kurs(kurs_id), _hent_paamelding(kurs_id, paamelding_id)
+    rabatt = request.args.get("rabatt")
+    if not rabatt:
+        return _epost_i_vindu(kurs, p)
+    if rabatt not in rabatter.SITUASJONER:
+        abort(404)
+    if not rabatter.venter(p):
+        flash("Rabatten venter ikke lenger på godkjenning.", "info")
+        return redirect(url_for("admin_deltaker", kurs_id=kurs_id, paamelding_id=paamelding_id))
+    try:
+        emne, tekst = maltekster.vindustekst(con(), "rabatt_avklaring", rabatt, {"d": p, "p": p, "kurs": kurs})
+    except maltekster.MalFeil as e:
+        flash(f"Teksten fra E-postmaler kunne ikke brukes ({e.forklaring or 'ukjent feil'}). Skriv e-posten selv.", "feil")
+        emne = tekst = ""
+    return _epost_i_vindu(kurs, p, emne=emne, tekst=tekst, rabatt=rabatt)
 
 
 def _utsending_fra_skjema(kurs_id: int, mottaker_ider: list[int]):
@@ -4738,14 +4859,60 @@ def _utsending_fra_skjema(kurs_id: int, mottaker_ider: list[int]):
 @app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/epost/send")
 @krever_admin
 def admin_deltaker_epost_send(kurs_id, paamelding_id):
-    """Sender e-posten fra vinduet direkte (ingen forhåndsvisning) til denne ene påmeldingen, og viser fanen E-poster."""
+    """Sender e-posten fra vinduet direkte (ingen forhåndsvisning) til denne ene påmeldingen, og viser fanen E-poster. E-posten om
+    en rabatt (skjult felt `rabatt`) går via _rabatt_epost_send."""
     kurs = _hent_kurs(kurs_id)
     p = _hent_paamelding(kurs_id, paamelding_id)
+    if request.form.get("rabatt"):
+        return _rabatt_epost_send(kurs, p, request.form["rabatt"])
     utsending_id, filer, igjen = _utsending_fra_skjema(kurs_id, [p["id"]])
     if igjen is not None:
         return _epost_i_vindu(kurs, p, **igjen)
     return _send_utsending(kurs_id, utsending_id,
                            url_for("admin_deltaker_kommunikasjon", kurs_id=kurs_id, paamelding_id=p["id"]), filer)
+
+
+def _rabatt_epost_send(kurs, p, situasjon: str):
+    """E-posten når en rabatt ikke kan godkjennes (Camilla 09.10.2026: «da må vi sende en e-post til deltakeren hvor vi forklarer at vi
+    enten trenger mer informasjon, rett informasjon, eller at de blir belastet for ordinær pris»). Mer/riktig informasjon: rabatten
+    venter fortsatt, og fakturaen holdes tilbake. Ordinær pris: rabatten blir ikke godkjent (som «Ikke godkjent»), og fakturaen lages
+    etter den vanlige planen. Avgjørelsen lagres FØR e-posten sendes, og bare mens rabatten venter (rabatter._avgjor): er den alt
+    avgjort av noen andre, sendes ingenting. Står [Skriv …] fortsatt i teksten, sendes ingenting (og ingen utsending lages)."""
+    if situasjon not in rabatter.SITUASJONER:
+        abort(400)
+    vindu = url_for("admin_deltaker", kurs_id=kurs["id"], paamelding_id=p["id"])
+    if not rabatter.venter(p):
+        flash("Rabatten venter ikke lenger på godkjenning (den kan være avgjort av noen andre). E-posten er ikke sendt.", "feil")
+        return redirect(vindu)
+    if rabatter.PLASSHOLDER in request.form.get("tekst", ""):
+        flash("Skriv inn det deltakeren skal vite der det står [Skriv …], før du sender.", "feil")
+        raa_signatur = request.form.get("signatur_html")
+        return _epost_i_vindu(kurs, p, emne=request.form.get("emne", "").strip(), tekst=request.form.get("tekst", "").strip(),
+                              signatur_valgt=request.form.get("signatur_valg", type=int),
+                              skjemanokkel=request.form.get("skjemanokkel"), rabatt=situasjon,
+                              signatur_html=_trygg_signatur(_ta_vare_paa_innlimte(raa_signatur)) if raa_signatur is not None else None)
+    utsending_id, filer, igjen = _utsending_fra_skjema(kurs["id"], [p["id"]])
+    if igjen is not None:
+        return _epost_i_vindu(kurs, p, rabatt=situasjon, **igjen)
+    try:
+        if situasjon == rabatter.AVKLAR_ORDINAER:
+            rabatter.avvis(con(), p["id"], aktor=_aktor())
+        else:
+            rabatter.be_om_opplysninger(con(), p["id"], situasjon, aktor=_aktor(), utsending_id=utsending_id)
+    except rabatter.Rabattfeil as e:
+        con().rollback()
+        flash(f"{e} E-posten er ikke sendt.", "feil")
+        return redirect(vindu)
+    con().commit()
+    svar = _send_utsending(kurs["id"], utsending_id, vindu, filer)
+    if situasjon == rabatter.AVKLAR_ORDINAER:
+        if p["status"] == "bekreftet":
+            _fakturaplan_videre(p["id"])
+        flash("Rabatten er ikke godkjent. Fakturaen lages med ordinær pris, etter den vanlige fakturaplanen.", "ok")
+    else:
+        flash("Rabatten venter fortsatt, og fakturaen holdes tilbake til du trykker «Godkjent» eller «Ikke godkjent – ordinær pris».",
+              "ok")
+    return svar
 
 
 # ------- admin: e-post til flere i et vindu over deltakerlisten -------
@@ -5612,7 +5779,11 @@ app.jinja_env.globals["EPOST_SJEKK"] = datakontroll.for_skjema()      # «Mente 
 # Rabattpriser (kurs/rabatter.py): det gule merket, prisens navn og deltakerens pris i listene og deltakervinduet
 app.jinja_env.filters["pris_i_setning"] = rabatter.i_setning      # «studentpris», men «NIEFT-pris»
 app.jinja_env.globals.update(rabatt_merke=rabatter.merke, rabatt_prisnavn=rabatter.prisnavn, deltakerpris=rabatter.deltakerpris,
-                             RABATT_PRISNAVN=rabatter.PRISNAVN, RABATT_VENTER=rabatter.VENTER, RABATT_AVVIST=rabatter.AVVIST)
+                             RABATT_PRISNAVN=rabatter.PRISNAVN, RABATT_VENTER=rabatter.VENTER, RABATT_AVVIST=rabatter.AVVIST,
+                             BEVIS_MAKS_MB=rabatter.BEVIS_MAKS_MB, RABATT_SITUASJONER=rabatter.SITUASJONER)
+# Fakturagebyret per faktura i betalingsvilkårene på påmeldingssiden (Camilla 09.10.2026). Selve gebyret legges på i Visma.
+FAKTURAGEBYR_KR = 89
+app.jinja_env.globals["FAKTURAGEBYR_KR"] = FAKTURAGEBYR_KR
 
 
 @app.template_filter("statusmerke")
@@ -5776,12 +5947,17 @@ _BETALINGSPLANER = ("samlet", "per_samling", "deltaker_velger")
 _GYLDIG_EPOST = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 
+# Fakturaen for en samling sendes så mange dager før samlingen på nye kurs (Camilla 09.10.2026: «ja» til 30 i stedet for 14 - vilkårene
+# sier ca. én måned før samlingen). Kurs som finnes, beholder sitt tall; det endres under Oppsett.
+STANDARD_FAKTURA_DAGER_FOR = 30
+
+
 def _standardverdier() -> dict:
     """Kursskjemaet for et helt nytt kurs: fysisk, faktura til hver deltaker, deltakeren velger fakturaplan (bare når
-    kurset har flere samlinger - ellers én vanlig faktura), 14 dager, og den innloggede brukeren som ansvarlig.
+    kurset har flere samlinger - ellers én vanlig faktura), 30 dager, og den innloggede brukeren som ansvarlig.
     Påmeldingsfristen foreslås ut fra datoene."""
     return {"navn": "", "type": "fysisk", "sted": "", "zoom_url": "", "kapasitet": "", "pris_nok": "0", "faktura": True,
-            "fakturering": "person", "betaling": "deltaker_velger", "faktura_dager_for": "14", "notat": "",
+            "fakturering": "person", "betaling": "deltaker_velger", "faktura_dager_for": str(STANDARD_FAKTURA_DAGER_FOR), "notat": "",
             "paameldingsfrist": "", "paameldingsfrist_manuell": "0", "ansvarlig_admin_id": str(session.get("admin_id") or ""),
             "merke": "ipr"}
 
@@ -5878,7 +6054,7 @@ def _les_okonomi(f, *, bare_innsendte: bool = False) -> tuple[dict, list[str]]:
             feil.append("Ugyldig fakturaplan.")
     if med("faktura_dager_for"):
         try:
-            felter["faktura_dager_for"] = db.valider_faktura_dager_for(int(f.get("faktura_dager_for") or 14))
+            felter["faktura_dager_for"] = db.valider_faktura_dager_for(int(f.get("faktura_dager_for") or STANDARD_FAKTURA_DAGER_FOR))
         except ValueError:
             feil.append("«Dager før hver samling» må være tall – hele dager, f.eks. 14.")
         except db.Paameldingsfeil as e:
@@ -6037,7 +6213,7 @@ def _opprett_kurs_gammelt_skjema(f, kilde):
         paameldingsfrist = f.get("paameldingsfrist") or None
         if paameldingsfrist:
             date.fromisoformat(paameldingsfrist)
-        faktura_dager_for = db.valider_faktura_dager_for(int(f.get("faktura_dager_for") or 14))   # foer SharePoint/DB
+        faktura_dager_for = db.valider_faktura_dager_for(int(f.get("faktura_dager_for") or STANDARD_FAKTURA_DAGER_FOR))   # foer SharePoint/DB
         # 12C4B: kildens skjemaoppsett leses EN gang her - etter vanlig validering, FOER SharePoint og DB-skriving.
         kopiplan, kopi_advarsel = _skjema_kopiplan(kilde["id"]) if er_duplikat else ([], False)
         ekstraplan, ekstra_advarsel = _ekstrafelt_kopiplan(kilde["id"]) if er_duplikat else ([], False)

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% set tema_ta = true %}{% set tema_ipr = kurs.merke != 'terapiakademiet' %}
+{#- Resultatene av evalueringen for kursholderne (Camilla 09.10.2026: «svarene fra evalueringen må enkelt kunne deles med kursholderne,
+    altså de som holdt kurset eller samlingen»). Lenken (evaluering.resultat_lenke) kopieres i fanen Evaluering og sendes av
+    administrator. Bare lesing, ingen innlogging; samme oversikt som i fanen, og kursholderne ser alt (hennes svar). Svarene er anonyme. -#}
+{% block tittel %}Evaluering – {{ kurs.navn }}{% endblock %}
+{% block hode %}<style>
+  .evr { max-width:900px; margin:0 auto; }
+  .evr h1 { margin:0 0 6px; font-size:28px; line-height:1.25; }
+  .evr-topp { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px; margin:0 0 6px; }
+  @media print { .ikke-utskrift, header, nav { display:none !important; } .kort { break-inside:avoid; } }
+</style>{% endblock %}
+{% block nav %}{% endblock %}
+{% block innhold %}
+<div class="evr">
+  <div class="evr-topp">
+    <div>
+      <h1>{{ kurs.navn }}</h1>
+      <p class="dempet" style="margin:0">Evaluering{{ ' – ' ~ runde_navn if runde_navn }} · oppdatert {{ idag.strftime('%d.%m.%Y') }}</p>
+    </div>
+    <button type="button" class="sekundar liten ikke-utskrift" data-skriv-ut>Skriv ut</button>
+  </div>
+  <p class="liten dempet">Svarene er anonyme: ingen kan se hvem som har svart hva.</p>
+  {% include "_evaluering_oversikt.html" %}
+</div>
+{% endblock %}

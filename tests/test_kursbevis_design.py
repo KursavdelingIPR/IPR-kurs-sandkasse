@@ -106,19 +106,21 @@ def test_eft_designet_gir_logo_to_stoler_farge_og_signatur(con):
     html = _utstedt(con, kid)
     assert '<div class="logo"><img src="data:image/png;base64,' in html and 'alt="NIEFT"' in html
     figurer = re.search(r'<div class="figurer">(.*?)</div>', html, re.S).group(1)
-    assert figurer.count("data:image/png") == 2 and 'class="designtittel">Kursbevis</h1>' in figurer
+    assert figurer.count("data:image/png") == 2 and "designtittel" not in figurer
+    assert html.index('alt="Signatur"') < html.index('<div class="figurer">')       # stolene står under signaturen (Camilla 14.10.2026)
     assert "h1.designtittel { color: #2f9e44" in html and "border: 6px double #2f9e44" in html
     assert 'alt="Signatur"' in html and "Ola Leder<br>Daglig leder, IPR" in html
     assert "Dette bekrefter at" in html and '<p class="navn">Kari Nordmann</p>' in html
     assert "Institutt for Psykologisk Rådgivning</div>" not in html            # designets logo erstatter den gamle toppteksten
 
 
-def test_efst_designet_har_strutsene_som_ett_bilde_med_overskriften_i_midten(con):
+def test_efst_designet_har_strutsene_som_ett_bilde_under_signaturen(con):
     kid = _kurs(con)
     kursbevisdesign.velg_for_kurs(con, kid, _design(con, "EFST")["id"], aktor="admin:test")
     con.commit()
     html = _utstedt(con, kid)
-    assert re.search(r'<div class="figurpar"><img src="data:image/png;base64,[^"]+" alt=""><div class="midt"><h1 class="designtittel">', html)
+    assert re.search(r'<div class="figurer"><img src="data:image/png;base64,[^"]+" alt=""></div>', html)
+    assert html.index("Daglig leder, IPR</div>") < html.index('<div class="figurer">')     # under signaturen (Camilla 14.10.2026)
     assert "______________________________<br>Daglig leder, IPR</div>" in html     # standardtittelen, uten navn
 
 
@@ -149,7 +151,7 @@ def test_fanen_kan_velge_og_fjerne_design(con):
     assert "Designet er valgt" in r.get_data(as_text=True)
     assert con.execute("SELECT kursbevis_design_id FROM kurs WHERE id=?", (kid,)).fetchone()[0] == efst["id"]
     forhandsvis = k.get(f"/admin/kurs/{kid}/kursbevis/forhandsvis").get_data(as_text=True)
-    assert "figurpar" in forhandsvis and "width: 21cm" in forhandsvis
+    assert '<div class="figurer">' in forhandsvis and "width: 21cm" in forhandsvis
     k.post(f"/admin/kurs/{kid}/kursbevis", data={"handling": "design", "design_id": ""})
     assert con.execute("SELECT kursbevis_design_id FROM kurs WHERE id=?", (kid,)).fetchone()[0] is None
 

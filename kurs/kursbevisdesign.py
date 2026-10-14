@@ -24,8 +24,8 @@ LOGOER = {
     "terapiakademiet": ("Terapiakademiet", "logo/terapiakademiet.png"),
     "": ("Ingen logo", None),
 }
-# Illustrasjonene ved overskriften. To filer = én på hver side (vender mot hverandre); én fil = et bilde med begge figurene
-# og plass til overskriften i midten (strutsene i EFST-malen).
+# Illustrasjonene under signaturen (Camilla 14.10.2026). To filer = to figurer som vender mot hverandre; én fil = et bilde med begge
+# figurene (strutsene i EFST-malen).
 ILLUSTRASJONER = {
     "stoler": ("To stoler (EFT)", ("kursbevis/stol-venstre.png", "kursbevis/stol-hoyre.png")),
     "strutser": ("To strutser (EFST)", ("kursbevis/strutser.png",)),

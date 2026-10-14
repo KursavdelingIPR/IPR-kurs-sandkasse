@@ -131,10 +131,14 @@ def roter_for_deltaker(con, deltaker_id: int, aktor: str, grunn: str) -> int:
 
 
 def skjul_i_kopi(html: str) -> str:
-    """E-posthistorikken lagrer en kopi av hver e-post, men aldri personlige tilgangslenker: lenken til Min side skjules i kopien (resten
-    av e-posten er lik). Den som ble sendt, er uendret."""
+    """E-posthistorikken lagrer en kopi av hver e-post, men aldri personlige tilgangslenker: lenken til Min side og den personlige lenken
+    til evalueringen skjules i kopien (resten av e-posten er lik). Den som ble sendt, er uendret. Evalueringslenken ville ellers vist
+    hvem som har svart, og latt alle med tilgang til historikken svare i deltakerens navn (gjennomgangen 09.10.2026). Den delte
+    evalueringslenken (/evaluering/delt/...) er ikke personlig og står urørt."""
     monster = re.escape(config.BASE_URL) + r"/min/[0-9]+\.[0-9]+\.[0-9a-f]{32}"
-    return re.sub(monster, f"{config.BASE_URL}/min/skjult", html)
+    html = re.sub(monster, f"{config.BASE_URL}/min/skjult", html)
+    evaluering = re.escape(config.BASE_URL) + r"/evaluering/[0-9]+(?:\.s[0-9]+)?\.[0-9a-f]{32}"
+    return re.sub(evaluering, f"{config.BASE_URL}/evaluering/skjult", html)
 
 
 # ============================ «Mine opplysninger» ============================

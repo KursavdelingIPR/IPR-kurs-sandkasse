@@ -112,7 +112,6 @@ KURSNIVAA = {
     ("kurs/sveiper.py", "samlinger_til_fakturering"): "delfakturaene følger kursets samlinger",
     ("kurs/sveiper.py", "oppdater_faktura_hold_etter_kursdagendring"): "fakturadatoen følger kursets første dag",
     ("kurs/web/app.py", "kursside"): "den offentlige påmeldingssiden viser kurset, ikke en deltaker",
-    ("kurs/web/app.py", "_foreslatt_belop"): "delbeløp per samling i kurset",
     ("kurs/web/app.py", "_render_oppsett"): "kursoppsettet (administrasjon): dagene i kurset",
     ("kurs/web/app.py", "admin_kurs_deltakere"): "kolonnene i oppmøtematrisen er kursets dager; hver rad nedtones utenfor sine egne",
     ("kurs/web/app.py", "admin_deltaker_ny"): "skjemaet viser kursets dager",

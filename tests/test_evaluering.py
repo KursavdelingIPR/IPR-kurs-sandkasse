@@ -317,3 +317,166 @@ def test_oversikten_per_samling(con):
     assert evaluering.resultater(con, kurs, evaluering.ALLE)["sporsmal"][0]["snitt"] == 4.0
     side = _admin().get(f"/admin/kurs/{kid}/evaluering?runde={s2}").get_data(as_text=True)
     assert "Alle samlinger" in side and re.search(r"2,00", side)
+
+
+# ============================ rettinger fra gjennomgangen 09.10.2026 ============================
+
+def test_personlig_lenke_skjules_i_kopien_og_lages_paa_nytt(con):
+    from kurs.integrasjoner import epost
+    kid, (a, _) = _kurs(con)
+    _send(con, SISTE + timedelta(days=1))
+    tok = evaluering.token(a)
+    kopi = con.execute("SELECT html FROM sendt_epost WHERE type='evaluering' AND paamelding_id=?", (a,)).fetchone()["html"]
+    assert tok not in kopi and f"{config.BASE_URL}/evaluering/skjult" in kopi       # ingen kan se hvem som har svart
+    (ut,) = [m for m in epost.les_utboks() if m["til"] == "d1@eksempel.no"]
+    assert tok in ut["html"]                                                         # e-posten som gikk ut, har lenken
+    # i «Klar til sending»: skjult i køen og laget på nytt for riktig samling når e-posten sendes
+    s_tok = evaluering.token(a, 7)
+    delt = evaluering.delt_lenke(con, _kursrad(con, kid))
+    skjult = godkjenning.skjul_lenker(f'<a href="{config.BASE_URL}/evaluering/{s_tok}">Svar</a> {delt}')
+    assert s_tok not in skjult and delt in skjult                                    # den delte lenken er ikke personlig
+    k = Kjoring(con, idag=SISTE)
+    assert f"{config.BASE_URL}/evaluering/{s_tok}" in godkjenning.gjenopprett_lenker(
+        k, {"paamelding_id": a, "nokkel": f"evaluering:{kid}:s7"}, skjult)
+    with pytest.raises(ValueError):
+        godkjenning.gjenopprett_lenker(k, {"paamelding_id": None, "nokkel": f"evaluering:{kid}"}, skjult)
+
+
+def test_en_hel_klasse_kan_svare_via_qr_koden(con):
+    kid, _ = _kurs(con)
+    url = evaluering.delt_lenke(con, _kursrad(con, kid)).split(config.BASE_URL, 1)[1]
+    k = _klient()                       # alle fra samme nett (samme IP)
+    for _ in range(40):
+        assert k.post(url, data=_gyldige_svar()).status_code == 200
+    assert evaluering.resultater(con, _kursrad(con, kid), evaluering.ALLE)["antall_svar"] == 40
+
+
+def test_excel_filen_gjor_formler_ufarlige(con):
+    kid, _ = _kurs(con)
+    url = evaluering.delt_lenke(con, _kursrad(con, kid)).split(config.BASE_URL, 1)[1]
+    _klient().post(url, data=_gyldige_svar(forslag="=SUM(A1:A2)"))
+    csv = _admin().get(f"/admin/kurs/{kid}/evaluering.csv").get_data(as_text=True)
+    assert "'=SUM(A1:A2)" in csv and ";=SUM" not in csv
+
+
+def test_svarene_vises_etter_bytte_av_naar_evalueringen_sendes(con):
+    kid, (a, _) = _kurs(con, datoer=(DAG1, DAG2, DAG3))
+    evaluering.sett_modus(con, kid, "samling", aktor="admin:test")
+    con.commit()
+    s1 = evaluering.runder(con, _kursrad(con, kid))[0]["samling_id"]
+    _klient().post(f"/evaluering/{evaluering.token(a, s1)}", data=_gyldige_svar(forslag="Svar etter samling 1"))
+    evaluering.sett_modus(con, kid, "slutt", aktor="admin:test")
+    con.commit()
+    side = _admin().get(f"/admin/kurs/{kid}/evaluering").get_data(as_text=True)
+    assert "Svar etter samling 1" in side
+    assert "Svar etter samling 1" in _admin().get(f"/admin/kurs/{kid}/evaluering.csv").get_data(as_text=True)
+
+
+def test_stengt_evaluering_sendes_ikke(con):
+    kid, _ = _kurs(con)
+    evaluering.sett_stengt(con, kid, True, aktor="admin:test")
+    con.commit()
+    _send(con, SISTE + timedelta(days=1))
+    assert _sendt(con, f"evaluering:{kid}") == 0
+
+
+def test_bytte_av_naar_gir_ingen_to_evalueringer(con):
+    kid, _ = _kurs(con, datoer=(DAG1, DAG2, DAG3))
+    evaluering.sett_modus(con, kid, "samling", aktor="admin:test")
+    con.commit()
+    s2 = evaluering.runder(con, _kursrad(con, kid))[1]["samling_id"]
+    _send(con, DAG3 + timedelta(days=1))                     # etter siste samling
+    assert _sendt(con, f"evaluering:{kid}:s{s2}") == 2
+    evaluering.sett_modus(con, kid, "slutt", aktor="admin:test")
+    con.commit()
+    _send(con, DAG3 + timedelta(days=2))
+    assert _sendt(con, f"evaluering:{kid}") == 0              # de fikk nettopp evalueringen etter siste samling
+
+
+def test_bytte_av_naar_gir_ingen_to_evalueringer_ogsaa_motsatt_vei(con):
+    kid, _ = _kurs(con, datoer=(DAG1, DAG2, DAG3))
+    _send(con, DAG3 + timedelta(days=1))                     # etter siste kursdag (hele kurset)
+    assert _sendt(con, f"evaluering:{kid}") == 2
+    evaluering.sett_modus(con, kid, "samling", aktor="admin:test")
+    con.commit()
+    s2 = evaluering.runder(con, _kursrad(con, kid))[1]["samling_id"]
+    _send(con, DAG3 + timedelta(days=2))
+    assert _sendt(con, f"evaluering:{kid}:s{s2}") == 0
+
+
+def test_evalueringssiden_viser_kontakten_til_merket(con):
+    kid, (a, _) = _kurs(con)
+    con.execute("UPDATE kurs SET merke='terapiakademiet' WHERE id=?", (kid,))
+    con.commit()
+    side = _klient().get(f"/evaluering/{evaluering.token(a)}").get_data(as_text=True)
+    assert config.TERAPIAKADEMIET_EPOST in side and "kurs@ipr.no" not in side
+
+
+# ============================ «har svart» uten påmelding og resultatlenken til kursholderne (09.10.2026) ============================
+
+def test_har_svart_lagres_uten_paamelding_og_dato(con):
+    kid, (a, b) = _kurs(con)
+    k = _klient()
+    assert k.post(f"/evaluering/{evaluering.token(a)}", data=_gyldige_svar()).status_code == 200
+    assert con.execute("SELECT COUNT(*) FROM evaluering_besvart").fetchone()[0] == 0          # ikke lenger med påmeldingen
+    (rad,) = con.execute("SELECT * FROM evaluering_besvart_kode").fetchall()
+    assert rad["kurs_id"] == kid and set(rad.keys()) == {"kode", "kurs_id"} and str(a) not in rad["kode"]
+    assert "allerede svart" in k.post(f"/evaluering/{evaluering.token(a)}", data=_gyldige_svar()).get_data(as_text=True)
+    assert con.execute("SELECT COUNT(*) FROM evaluering_svar").fetchone()[0] == 1
+    # svar gitt før endringen (med påmeldingen i den gamle tabellen) gjelder fortsatt
+    assert not evaluering.har_svart(con, b)
+    con.execute("INSERT INTO evaluering_besvart (paamelding_id, kurs_id, besvart) VALUES (?,?,?)", (b, kid, "2099-03-04"))
+    con.commit()
+    assert evaluering.har_svart(con, b)
+
+
+def test_resultatlenken_viser_oversikten_uten_innlogging(con):
+    kid, (a, _) = _kurs(con)
+    _klient().post(f"/evaluering/{evaluering.token(a)}", data=_gyldige_svar(forslag="Mer rollespill"))
+    adminside = _admin().get(f"/admin/kurs/{kid}/evaluering").get_data(as_text=True)
+    lenke = evaluering.resultat_lenke(con, _kursrad(con, kid))
+    assert "Del resultatene med kursholderne" in adminside and lenke in adminside
+    sti = lenke.split(config.BASE_URL, 1)[1]
+    r = _klient().get(sti)
+    side = r.get_data(as_text=True)
+    assert r.status_code == 200 and "Evalueringskurs" in side and "Mer rollespill" in side and "Gjennomsnittlig vurdering" in side
+    assert r.headers["Cache-Control"] == "no-store" and "noindex" in r.headers["X-Robots-Tag"]
+    assert "Last ned (Excel)" not in side and "Steng lenken" not in side and "/admin/kurs/" not in side     # bare lesing
+    # stengt, åpnet igjen og ny lenke
+    _admin().post(f"/admin/kurs/{kid}/evaluering/resultatlenke/stengt", data={"stengt": "1"})
+    assert _klient().get(sti).status_code == 404
+    _admin().post(f"/admin/kurs/{kid}/evaluering/resultatlenke/stengt", data={"stengt": "0"})
+    assert _klient().get(sti).status_code == 200
+    _admin().post(f"/admin/kurs/{kid}/evaluering/resultatlenke/ny")
+    assert _klient().get(sti).status_code == 404
+    ny = evaluering.resultat_lenke(con, _kursrad(con, kid)).split(config.BASE_URL, 1)[1]
+    assert ny != sti and _klient().get(ny).status_code == 200
+    # forfalsket lenke
+    assert _klient().get(sti[:-4] + "0000").status_code == 404
+    assert evaluering.les_resultat_token("r1.0.0." + "a" * 32) is None
+
+
+def test_resultatlenken_for_en_samling_viser_bare_den(con):
+    kid, (a, _) = _kurs(con, datoer=(DAG1, DAG2, DAG3))
+    evaluering.sett_modus(con, kid, "samling", aktor="admin:test")
+    con.commit()
+    s1, s2 = (r["samling_id"] for r in evaluering.runder(con, _kursrad(con, kid)))
+    _klient().post(f"/evaluering/{evaluering.token(a, s1)}", data=_gyldige_svar(forslag="Om samling 1"))
+    _klient().post(f"/evaluering/{evaluering.token(a, s2)}", data=_gyldige_svar(forslag="Om samling 2"))
+    adminside = _admin().get(f"/admin/kurs/{kid}/evaluering?runde={s2}").get_data(as_text=True)
+    lenke = evaluering.resultat_lenke(con, _kursrad(con, kid), s2)
+    assert lenke in adminside
+    side = _klient().get(lenke.split(config.BASE_URL, 1)[1]).get_data(as_text=True)
+    assert "Om samling 2" in side and "Om samling 1" not in side
+    alle = _klient().get(evaluering.resultat_lenke(con, _kursrad(con, kid)).split(config.BASE_URL, 1)[1]).get_data(as_text=True)
+    assert "Om samling 1" in alle and "Om samling 2" in alle
+
+
+def test_lesetilgang_kan_ikke_stenge_eller_bytte_resultatlenken(con):
+    kid, _ = _kurs(con)
+    db.opprett_admin_bruker(con, "leser", "Leser", "passord-som-holder", rolle="lese")
+    con.commit()
+    lese = _admin("leser", "passord-som-holder")
+    assert "Del resultatene med kursholderne" in lese.get(f"/admin/kurs/{kid}/evaluering").get_data(as_text=True)
+    assert lese.post(f"/admin/kurs/{kid}/evaluering/resultatlenke/ny").status_code == 403
+    assert lese.post(f"/admin/kurs/{kid}/evaluering/resultatlenke/stengt", data={"stengt": "1"}).status_code == 403

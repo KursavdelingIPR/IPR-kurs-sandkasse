@@ -169,15 +169,28 @@ def _antall(con):
             con.execute("SELECT COUNT(*) FROM hendelse").fetchone()[0])
 
 
-@pytest.mark.parametrize("felt", ["fornavn", "etternavn", "epost", "samtykke"])
-def test_laast_felt_avvises(con, felt):
+def test_laast_felt_avvises(con):
     kid = _kurs(con)
     foer = _antall(con)
-    for egenskaper in ({"label": "X"}, {"synlig": False}, {"obligatorisk": False}, {}):
+    for egenskaper in ({"label": "X"}, {"synlig": False}, {"obligatorisk": False}, {"hjelpetekst": "H"}, {}):
         with pytest.raises(SkjemafeltFeil) as e:
-            db.lagre_skjemafelt(con, kid, felt, egenskaper)
-        assert (e.value.grunn, e.value.felt) == (sf.LAAST_FELT, felt)
+            db.lagre_skjemafelt(con, kid, "samtykke", egenskaper)
+        assert (e.value.grunn, e.value.felt) == (sf.LAAST_FELT, "samtykke")
     assert _antall(con) == foer
+
+
+@pytest.mark.parametrize("felt", ["fornavn", "etternavn", "epost", "adresse", "postnr", "poststed"])
+def test_faste_felt_bare_hjelpeteksten_kan_endres(con, felt):
+    """Camilla 09.10.2026: hjelpeteksten på de faste feltene under «Om deg» kan endres - feltnavn, krav og vis står fast."""
+    kid = _kurs(con)
+    foer = _antall(con)
+    for e in ({"label": "X"}, {"synlig": False}, {"obligatorisk": False}):
+        with pytest.raises(SkjemafeltFeil) as feil:
+            db.lagre_skjemafelt(con, kid, felt, e)
+        assert (feil.value.grunn, feil.value.felt) == (sf.IKKE_TILLATT, felt)
+    assert _antall(con) == foer
+    assert db.lagre_skjemafelt(con, kid, felt, {"hjelpetekst": "Slik skriver du det"}) is True
+    assert [(r["felt"], r["hjelpetekst"]) for r in _rader(con, kid)] == [(felt, "Slik skriver du det")]
 
 
 @pytest.mark.parametrize("felt", ["betaler", "org_nr", "org_navn", "org_adresse", "betaling", "ekstra:1", "ekstra_1",
@@ -448,7 +461,10 @@ def test_default_uten_overstyringer_er_kodet_standard():
         (),
         (sf.EffektivtFelt("allergier", "Allergier eller spesialkost", False, tekst["allergier"], "langtekst"),
          sf.EffektivtFelt("tilrettelegging", "Behov for tilrettelegging", False, None, "langtekst")),
-        info=sf.INFO_STANDARD)     # navngitt: EffektivtSkjema har fått feltet nederstfelt foran info
+        info=sf.INFO_STANDARD,     # navngitt: EffektivtSkjema har fått feltet nederstfelt foran info
+        # fornavn, etternavn og e-post (09.10.2026: hjelpeteksten kan endres, derfor med i det effektive skjemaet)
+        navnefelt=(sf.EffektivtFelt("fornavn", "Fornavn", True), sf.EffektivtFelt("etternavn", "Etternavn", True),
+                   sf.EffektivtFelt("epost", "E-post", True)))
     tomt = sf.Leseresultat(sf.MappingProxyType({}), ())
     for skjema in (sf.effektivt_skjema(KURS_LOP), sf.effektivt_skjema(KURS_LOP, None),
                    sf.effektivt_skjema(KURS_LOP, {}), sf.effektivt_skjema(KURS_LOP, tomt),
@@ -559,10 +575,16 @@ def test_hpr_folger_spesialistlop_uansett_overstyring():
 
 def test_laaste_felt_og_systemblokker_paavirkes_aldri():
     over = {n: Overstyring(synlig=False, obligatorisk=False, label="X", rekkefolge=0, hjelpetekst="H")
-            for n in ("navn", "fornavn", "etternavn", "epost", "samtykke", "betaler", "faktura", "sensitivt", "org_nr",
-                      "org_navn", "betaling", "ekstra:1")}
+            for n in ("navn", "samtykke", "betaler", "faktura", "sensitivt", "org_nr", "org_navn", "betaling", "ekstra:1")}
     for kurs in (KURS, KURS_LOP, {**KURS, "type": "digital"}, {**KURS, "fakturering": "ingen"}):
         assert sf.effektivt_skjema(kurs, over) == sf.effektivt_skjema(kurs)
+    # De faste feltene under «Om deg»: bare hjelpeteksten slipper gjennom (Camilla 09.10.2026)
+    faste = {n: Overstyring(synlig=False, obligatorisk=False, label="X", rekkefolge=0, hjelpetekst="H") for n in sf.FASTE_DELTAKERFELT}
+    s = sf.effektivt_skjema(KURS, faste)
+    for f in (*s.navnefelt, *s.adressefelt):
+        assert (f.label, f.obligatorisk, f.hjelpetekst) == (sf.REGISTER[f.nokkel].label, True, "H"), f.nokkel
+    assert [f.nokkel for f in s.navnefelt] == ["fornavn", "etternavn", "epost"] and s.fast("epost").hjelpetekst == "H"
+    assert s.deltakerfelt == sf.effektivt_skjema(KURS).deltakerfelt
 
 
 def test_sensitive_felt_blir_aldri_obligatoriske_eller_flyttes_av_haandlaget_overstyring():
@@ -616,12 +638,21 @@ def test_ukjent_felt_ignoreres_med_advarsel_uten_feltnavn(con):
     assert "hemmelig" not in repr(les.advarsler).lower()
 
 
-@pytest.mark.parametrize("felt", ["fornavn", "etternavn", "epost", "samtykke"])
-def test_rad_for_laast_felt_ignoreres(con, felt):
+def test_rad_for_laast_felt_ignoreres(con):
     kid = _kurs(con)
-    _sett_inn(con, kid, felt, synlig=0, obligatorisk=0, label="X")
+    _sett_inn(con, kid, "samtykke", synlig=0, obligatorisk=0, label="X")
     les = _les(con, kid)
-    assert dict(les.overstyringer) == {} and les.advarsler == (Advarsel(sf.LAAST_FELT, felt),)
+    assert dict(les.overstyringer) == {} and les.advarsler == (Advarsel(sf.LAAST_FELT, "samtykke"),)
+
+
+@pytest.mark.parametrize("felt", ["fornavn", "etternavn", "epost"])
+def test_rad_for_fast_felt_gir_bare_hjelpeteksten(con, felt):
+    kid = _kurs(con)
+    _sett_inn(con, kid, felt, synlig=0, obligatorisk=0, label="X", hjelpetekst="H")
+    les = _les(con, kid)
+    assert dict(les.overstyringer) == {felt: Overstyring(hjelpetekst="H")}
+    assert sorted(les.advarsler, key=repr) == sorted([Advarsel(sf.IKKE_TILLATT, felt, e) for e in ("synlig", "obligatorisk", "label")],
+                                                     key=repr)
 
 
 @pytest.mark.parametrize("kol,verdi", [("label", "Annet"), ("synlig", 0), ("synlig", 1), ("obligatorisk", 1),
@@ -696,7 +727,7 @@ def test_flere_korrupte_rader_gir_en_advarsel_per_problem_og_er_pii_frie(con):
     les = _les(con, kid)
     assert dict(les.overstyringer) == {"telefon": Overstyring(synlig=False), "arbeidssted": Overstyring(label="Gyldig")}
     assert sorted(les.advarsler, key=repr) == sorted([
-        Advarsel(sf.UKJENT_FELT), Advarsel(sf.LAAST_FELT, "fornavn"),
+        Advarsel(sf.UKJENT_FELT), Advarsel(sf.IKKE_TILLATT, "fornavn", "label"),
         Advarsel(sf.IKKE_TILLATT, "hpr_nr", "synlig"), Advarsel(sf.IKKE_TILLATT, "hpr_nr", "label"),
         Advarsel(sf.KONTROLLTEGN, "telefon", "label"), Advarsel(sf.FOR_LANG, "telefon", "hjelpetekst")], key=repr)
     assert "PII" not in repr(les.advarsler) and "x" * 10 not in repr(les.advarsler)

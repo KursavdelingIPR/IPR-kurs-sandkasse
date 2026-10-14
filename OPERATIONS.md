@@ -63,14 +63,22 @@ Hva som skal følges med på, og hva man gjør når noe går galt. Utrulling: `D
 
 - Ny utgave 09.10.2026 (Camilla, etter Forms-skjemaet deres). Alt ligger i fanen **Evaluering** på kurset.
 - **Når:** dagen etter siste kursdag (standard), **dagen etter hver samling**, eller ikke i det hele tatt. Deltakerne får en personlig
-  lenke på e-post (godkjennes først i Klar til sending) og kan svare én gang per runde.
+  lenke på e-post (godkjennes først i Klar til sending) og kan svare én gang per runde. Den personlige lenken er skjult i kopien under
+  E-poster og i Klar til sending (ingen kan se hvem som har svart, eller svare for andre); den lages på nytt når e-posten sendes.
+  Er evalueringen stengt, sendes den ikke. Bytter du «når» midt i perioden, får ingen den to ganger.
 - **Lenke du kan dele** og **QR-kode** (til skjermen den siste dagen): alle som har lenken, kan svare. Den kan ikke hindre at noen svarer
-  to ganger. **Lag ny delt lenke** gjør de gamle lenkene og QR-kodene ugyldige. **Steng evalueringen** stopper alle svar.
+  to ganger. **Lag ny delt lenke** gjør de gamle lenkene og QR-kodene ugyldige. **Steng evalueringen** stopper alle svar. En hel klasse
+  på samme trådløse nett kan svare samtidig (grensen er 200 svar per 10 minutter fra samme nett).
 - **Spørsmålene:** et nytt kurs har standardsettet (11 spørsmål fra Forms-skjemaet, skala 1–6). Legg til, endre, flytt og slett under
   «Innledning og spørsmål». «+ Har du planer om å delta på EFT 2. år?» legger til det ferdige spørsmålet (legg inn lenken under
   «Endre»). Har noen svart, kan et spørsmål bare få ny tekst. Spørsmålene følger med når kurset dupliseres.
 - **Svar:** antall, svarprosent, gjennomsnittstid, hvor lenge evalueringen har vært åpen, gjennomsnitt og søyler per nivå, valg i prosent
-  og alle fritekstene. Per samling eller alle samlinger samlet. **Last ned (Excel)** og **Skriv ut**. Svarene er anonyme.
+  og alle fritekstene. Per samling eller alle samlinger samlet; med bare én runde vises alle svarene til kurset (også fra før et bytte
+  av «når»). **Last ned (Excel)** og **Skriv ut** (tekst som ser ut som en formel, vises som tekst i Excel). Svarene er anonyme – også for
+  den som har tilgang til selve databasen: at noen har svart, lagres bare som en kode som krever systemets hemmelige nøkkel (migrering 35).
+- **Del resultatene med kursholderne** (under «Svar»): kopier lenken og send den selv, for eksempel på e-post eller Teams. Kursholderne ser
+  hele oversikten (Camilla 09.10.2026: «de skal se alt»), uten å logge inn. Velg en samling først for å dele bare den samlingen.
+  **Steng lenken** stopper alle lenkene til resultatene for kurset; **Lag ny lenke** gjør lenkene du har sendt, ugyldige.
 
 ## 2h2. Påmeldingsbekreftelsen per kurs
 
@@ -91,13 +99,22 @@ Hva som skal følges med på, og hva man gjør når noe går galt. Utrulling: `D
 - **Én rabatt per person.** I påmeldingsskjemaet velger deltakeren pris. I bedriftspåmeldingen velges prisen per deltaker. Med «Legg til
   deltaker» og i deltakervinduet velger administrator (da regnes prisen som godkjent).
 - **Må godkjennes** (standard for alle fire): påmeldingen får et gult merke («Sjekk studentbevis», «Sjekk NIEFT-medlemskap» osv.), og
-  **fakturaen venter** til dere har trykket **Godkjent** (rabattprisen) eller **Ikke godkjent** (ordinær pris) – i deltakervinduet eller på
-  siden **Rabatter som venter** (kortet på Oversikten). Fakturaen lages med en gang etter avgjørelsen, etter den vanlige fakturaplanen.
-  Deltakeren får ikke beskjed automatisk; send en e-post fra deltakervinduet ved behov.
-  - **Student:** studentbeviset lastes opp i skjemaet (bilde eller PDF, maks 10 MB). Det slettes når rabatten er avgjort.
+  **fakturaen venter** til rabatten er avgjort. Påmeldingsbekreftelsen går ut med en gang som før; dere sjekker i etterkant (Camilla
+  09.10.2026). **Godkjent** (rabattprisen) trykker du i deltakervinduet eller på siden **Rabatter som venter** (kortet på Oversikten).
+  Fakturaen lages med en gang etter avgjørelsen, etter den vanlige fakturaplanen.
+  - **Student:** studentbeviset lastes opp i skjemaet (bilde eller PDF, maks 15 MB og 12 000 piksler – vanlige mobilbilder går). Det
+    slettes når rabatten er avgjort.
   - **NIEFT:** deltakeren bruker e-posten fra NIEFT-innmeldingen; sjekk den mot medlemsoversikten (ellers navnet).
   - **Psyflix:** deltakeren oppgir organisasjonen avtalen går gjennom, og samtykker til sjekken. **Kopier liste** på siden Rabatter som
     venter gir teksten til én e-post til Psyflix. Har personen fått Psyflix-rabatt hos IPR de siste 12 månedene, står det et varsel.
+- **Kan rabatten ikke godkjennes, får deltakeren alltid en e-post** (Camilla 09.10.2026). Ved rabatten i deltakervinduet velger du:
+  - **Be om mer informasjon** eller **Be om riktig informasjon**: e-postvinduet åpnes med en ferdig tekst. Skriv inn det deltakeren skal
+    vite der det står [Skriv …] (e-posten sendes ikke før det er gjort). Rabatten venter fortsatt, og fakturaen holdes tilbake. Datoen
+    står ved rabatten og i listen («Ba om mer informasjon 09.10.2026»). Når svaret er kommet: trykk Godkjent, eller velg ordinær pris.
+  - **Ikke godkjent – ordinær pris**: e-posten sier at deltakeren faktureres ordinær pris. Når du trykker «Send og sett ordinær pris»,
+    blir rabatten ikke godkjent, og fakturaen lages med ordinær pris.
+  - Tekstene endres under **E-postmaler → Rabatt som ikke kan godkjennes ennå** (sendes aldri automatisk), og kan også endres i
+    e-postvinduet før hver sending. Trykker to administratorer samtidig, gjelder den første avgjørelsen.
 - Fjerner dere avkrysningen for «Må godkjennes», faktureres rabattprisen med en gang.
 - Prisen kan endres i deltakervinduet til fakturaen er laget. Økonomi viser inntekten som summen av prisene, og hvor mye som er gitt i rabatt.
 - Å melde på flere personer og betale for alle (privatperson) kommer sammen med kortbetaling.
@@ -284,6 +301,12 @@ seks måneder er 181–184 dager). Første kursdag er den første datoen i kurse
   20.09.2027 gir 20.03.2027, og 31.08.2027 gir 28.02.2027, siste dag i måneden når dagen ikke finnes), og morgenjobben (steg 1c) lager fakturaen den dagen datoen
   nås. Melder noen seg på dagen før datoen, venter fakturaen til morgenjobben på datoen; melder noen seg på **på** datoen, lages den straks.
 - Betaling **per samling** har egen regel (én delfaktura per samling, som forfaller et bestemt antall dager før samlingen) og berøres ikke av seks-månedersregelen.
+  Nye kurs får **30 dager** som standard (Camilla 09.10.2026; før 14). Kurs som finnes, beholder tallet sitt (Oppsett → Betaling).
+- **Betalingsvilkårene** står på påmeldingssiden under «Betaling» (Camilla 09.–10.10.2026): mottakeren kan ikke endres, tidligst seks måneder
+  før kursstart (vil deltakeren ha fakturaen tidligere, sendes en e-post til kurs@ipr.no, på Terapiakademiet-kurs post@terapiakademiet.no),
+  delfakturaene før hver samling, og **89 kr i fakturagebyr per faktura** (står også ved valget «Delt opp»). Teksten er fast; si fra hvis
+  den skal endres. NB: det finnes ennå ingen knapp for å sende en planlagt faktura tidligere (sveiper.utsatte_fakturaer har bare «sømmen»
+  for det); ber noen om fakturaen tidligere, må det foreløpig ordnes i Visma.
 - Påmeldinger fra «Legg til deltaker» og CSV-import holdes tilbake til du behandler dem (deltakervinduet).
 
 **«Privat adresse mangler» / «Privat adresse er ufullstendig».** Personer som er registrert uten komplett privat adresse (ingenting lagt inn = «mangler», bare noen av de tre feltene = «ufullstendig»; det som er mottatt, er tatt vare på) (eldre deltakere og testdata fra før adressen ble påkrevd, eller påmeldinger som kom inn mens nødbremsen var på) er

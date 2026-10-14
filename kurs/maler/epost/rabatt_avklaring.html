@@ -1,0 +1,6 @@
+Emne: {% if situasjon == 'info' %}{{ maltekst.emne_info }}{% elif situasjon == 'riktig' %}{{ maltekst.emne_riktig }}{% else %}{{ maltekst.emne_ordinaer }}{% endif %}
+{% extends "_ramme.html" %}{% block innhold %}
+{#- Sendes aldri automatisk (maltekster.VINDUSMALER): filen brukes bare til forhåndsvisningen i E-postmaler. Selve e-posten skrives i
+    e-postvinduet i deltakervinduet, med denne teksten som forslag, og sendes som en vanlig e-post fra vinduet (admin_melding). -#}
+{% if situasjon == 'info' %}{{ maltekst.tekst_info }}{% elif situasjon == 'riktig' %}{{ maltekst.tekst_riktig }}{% else %}{{ maltekst.tekst_ordinaer }}{% endif %}
+{% endblock %}

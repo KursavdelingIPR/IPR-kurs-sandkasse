@@ -13,10 +13,13 @@ også lage en fin oversikt på svarene med ulike detaljer». Plan: OneDrive Plan
   delte lenken kan ikke hindre dobbeltsvar (Camilla: «ja, det er ok»). «Ny lenke» gjør den gamle ugyldig (evaluering_oppsett.delt_versjon),
   og evalueringen kan stenges (evaluering_oppsett.stengt).
 * Anonymt: evaluering_svar har kurs, samling, dato, kilde (epost/delt), tid brukt (sekunder) og svarene - aldri hvem eller klokkeslett.
-  evaluering_besvart og evaluering_besvart_samling sier bare AT en påmelding har svart i runden (i samme transaksjon som svaret).
+  At en påmelding har svart i runden, lagres som en kode uten påmelding og dato (evaluering_besvart_kode, migrering 35): den kan bare
+  lages med systemets hemmelige nøkkel, så heller ikke den som har tilgang til databasen kan se hvem som har svart (Camilla 09.10.2026).
+  evaluering_besvart og evaluering_besvart_samling (med påmeldingen) gjelder bare svar gitt før det.
+* Resultatlenken (Camilla 09.10.2026: «svarene fra evalueringen må enkelt kunne deles med kursholderne»): en lenke til oversikten for
+  kurset eller én samling, som administrator kopierer og sender selv. Kursholderne ser alt i oversikten. Den kan stenges, og «Ny lenke»
+  gjør de gamle ugyldige (evaluering_oppsett.resultat_versjon / resultat_stengt).
 """
-import csv
-import io
 import json
 import re
 from datetime import date, timedelta
@@ -120,10 +123,12 @@ def standard_innledning(kurs) -> str:
 
 
 def oppsett(con, kurs) -> dict:
-    r = con.execute("SELECT innledning, stengt, delt_versjon FROM evaluering_oppsett WHERE kurs_id=?", (kurs["id"],)).fetchone()
+    r = con.execute("""SELECT innledning, stengt, delt_versjon, resultat_versjon, resultat_stengt FROM evaluering_oppsett
+                       WHERE kurs_id=?""", (kurs["id"],)).fetchone()
     return {"innledning": (r["innledning"] if r and r["innledning"] else standard_innledning(kurs)),
             "egen_innledning": bool(r and r["innledning"]), "stengt": bool(r and r["stengt"]),
-            "delt_versjon": int(r["delt_versjon"]) if r else 0}
+            "delt_versjon": int(r["delt_versjon"]) if r else 0,
+            "resultat_versjon": int(r["resultat_versjon"]) if r else 0, "resultat_stengt": bool(r and r["resultat_stengt"])}
 
 
 def _sikre_oppsett(con, kurs_id: int) -> None:
@@ -151,6 +156,20 @@ def ny_delt_lenke(con, kurs_id: int, *, aktor: str) -> None:
     _sikre_oppsett(con, kurs_id)
     con.execute("UPDATE evaluering_oppsett SET delt_versjon=delt_versjon+1 WHERE kurs_id=?", (kurs_id,))
     db.logg(con, "evaluering_ny_lenke", {"kurs_id": kurs_id}, aktor=aktor)
+
+
+def ny_resultatlenke(con, kurs_id: int, *, aktor: str) -> None:
+    """Lager nye lenker til resultatene: de gamle (til kursholderne) slutter å virke."""
+    _sikre_oppsett(con, kurs_id)
+    con.execute("UPDATE evaluering_oppsett SET resultat_versjon=resultat_versjon+1 WHERE kurs_id=?", (kurs_id,))
+    db.logg(con, "evaluering_ny_resultatlenke", {"kurs_id": kurs_id}, aktor=aktor)
+
+
+def sett_resultat_stengt(con, kurs_id: int, stengt: bool, *, aktor: str) -> None:
+    """Stenger (eller åpner igjen) lenkene til resultatene. Svarene og evalueringen påvirkes ikke."""
+    _sikre_oppsett(con, kurs_id)
+    con.execute("UPDATE evaluering_oppsett SET resultat_stengt=? WHERE kurs_id=?", (1 if stengt else 0, kurs_id))
+    db.logg(con, "evaluering_resultatlenke_stengt" if stengt else "evaluering_resultatlenke_aapnet", {"kurs_id": kurs_id}, aktor=aktor)
 
 
 # ============================ spørsmålene ============================
@@ -379,6 +398,31 @@ def delt_lenke(con, kurs, samling_id: int | None = None) -> str:
     return f"{config.BASE_URL}/evaluering/delt/{delt_token(kurs['id'], oppsett(con, kurs)['delt_versjon'], samling_id)}"
 
 
+# Resultatlenken til kursholderne (Camilla 09.10.2026): samling 0 = alle svarene til kurset
+_RESULTAT = re.compile(r"r([1-9][0-9]{0,11})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,11})\.([0-9a-f]{32})")
+
+
+def resultat_token(kurs_id: int, versjon: int, samling_id: int | None = None) -> str:
+    sid = int(samling_id or 0)
+    return f"r{int(kurs_id)}.{int(versjon)}.{sid}.{lenker.signatur('evaluering-resultat', int(kurs_id), int(versjon), sid)}"
+
+
+def les_resultat_token(tekst) -> tuple[int, int, int | None] | None:
+    """(kurs, versjon, samling eller None for hele kurset), eller None når lenken er feil eller forfalsket."""
+    treff = _RESULTAT.fullmatch(tekst or "") if isinstance(tekst, str) else None
+    if not treff:
+        return None
+    kid, versjon, sid = int(treff[1]), int(treff[2]), int(treff[3])
+    if not lenker.signatur_ok(treff[4], "evaluering-resultat", kid, versjon, sid):
+        return None
+    return kid, versjon, sid or None
+
+
+def resultat_lenke(con, kurs, samling_id: int | None = None) -> str:
+    from . import config
+    return f"{config.BASE_URL}/evaluering/resultat/{resultat_token(kurs['id'], oppsett(con, kurs)['resultat_versjon'], samling_id)}"
+
+
 # ============================ svarene ============================
 
 def tolk(form, sporsmal_: list[dict]) -> dict:
@@ -405,7 +449,16 @@ def tolk(form, sporsmal_: list[dict]) -> dict:
     return svar
 
 
+def _besvart_kode(paamelding_id: int, samling_id: int | None) -> str:
+    """«Har svart»-koden for påmeldingen i runden: en signatur med systemets hemmelige nøkkel (lenker.signatur). Bare den som har nøkkelen,
+    kan lage den - i databasen sier den ingenting om hvem som har svart (migrering 35, gjennomgangen 09.10.2026)."""
+    return lenker.signatur("evaluering-besvart", int(paamelding_id), int(samling_id or 0))
+
+
 def har_svart(con, paamelding_id: int, samling_id: int | None = None) -> bool:
+    if con.execute("SELECT 1 FROM evaluering_besvart_kode WHERE kode=?", (_besvart_kode(paamelding_id, samling_id),)).fetchone():
+        return True
+    # Svar gitt før migrering 35 står i de gamle tabellene (med påmeldingen): de gjelder fortsatt
     if samling_id:
         return con.execute("SELECT 1 FROM evaluering_besvart_samling WHERE paamelding_id=? AND samling_id=?",
                            (paamelding_id, samling_id)).fetchone() is not None
@@ -424,16 +477,15 @@ def sekunder_brukt(startet, naa: float) -> int | None:
 def lagre(con, kurs_id: int, paamelding_id: int | None, svar: dict, idag: date, *, samling_id: int | None = None,
           kilde: str = "epost", sekunder: int | None = None) -> bool:
     """Lagrer et anonymt svar. Fra en personlig lenke: False når påmeldingen alt har svart i runden (ingenting skrives). Fra den delte
-    lenken (paamelding_id None): alltid lagret. Kalleren committer."""
+    lenken (paamelding_id None): alltid lagret. At påmeldingen har svart, lagres bare som en kode uten påmelding og dato
+    (_besvart_kode): heller ikke den som har tilgang til databasen, kan koble svaret til personen. Kalleren committer."""
     if paamelding_id is not None:
+        if har_svart(con, paamelding_id, samling_id):
+            return False
         try:
-            if samling_id:
-                con.execute("INSERT INTO evaluering_besvart_samling (paamelding_id, samling_id, kurs_id, besvart) VALUES (?,?,?,?)",
-                            (paamelding_id, samling_id, kurs_id, idag.isoformat()))
-            else:
-                con.execute("INSERT INTO evaluering_besvart (paamelding_id, kurs_id, besvart) VALUES (?,?,?)",
-                            (paamelding_id, kurs_id, idag.isoformat()))
-        except db.IntegritetsFeil:
+            con.execute("INSERT INTO evaluering_besvart_kode (kode, kurs_id) VALUES (?,?)",
+                        (_besvart_kode(paamelding_id, samling_id), kurs_id))
+        except db.IntegritetsFeil:          # to innsendinger samtidig: den andre lagres ikke
             return False
     con.execute("INSERT INTO evaluering_svar (kurs_id, besvart, svar, samling_id, kilde, sekunder) VALUES (?,?,?,?,?,?)",
                 (kurs_id, idag.isoformat(), json.dumps(svar, ensure_ascii=False), samling_id, kilde, sekunder))
@@ -501,17 +553,14 @@ def resultater(con, kurs, samling=None, idag: date | None = None) -> dict:
             "apen_siden": start, "apen_dager": (idag - start).days + 1 if start else None, "sporsmal": ut}
 
 
-def som_csv(con, kurs, samling=ALLE) -> str:
-    """Svarene som CSV (Excel): én rad per svar, én kolonne per spørsmål. Ingen dato, rekkefølgen er ikke tidsbestemt."""
+def som_tabell(con, kurs, samling=ALLE) -> tuple[list[str], list[list]]:
+    """Svarene til Excel: (overskriftene, radene) - én rad per svar, én kolonne per spørsmål. Ingen dato, rekkefølgen er ikke
+    tidsbestemt. Selve CSV-filen lages i web/app.py (_csv_respons), som også gjør fritekster ufarlige for Excel (formler)."""
     s_liste = sporsmal(con, kurs)
     rader = sorted((json.loads(r["svar"]) for r in _svarrader(con, kurs["id"], samling)),
                    key=lambda x: json.dumps(x, ensure_ascii=False, sort_keys=True))
-    ut = io.StringIO()
-    skriver = csv.writer(ut, delimiter=";")
-    skriver.writerow([f"{nr}. {s['tekst']}" for nr, s in enumerate(s_liste, start=1)])
-    for x in rader:
-        skriver.writerow([x.get(s["nokkel"], "") for s in s_liste])
-    return "﻿" + ut.getvalue()
+    return ([f"{nr}. {s['tekst']}" for nr, s in enumerate(s_liste, start=1)],
+            [[x.get(s["nokkel"], "") for s in s_liste] for x in rader])
 
 
 def tid_tekst(sekunder) -> str:
@@ -524,10 +573,11 @@ def tid_tekst(sekunder) -> str:
 
 def kjor(k) -> None:
     """Sender evalueringen dagen etter siste dag i runden (høyst DAGER_ETTER dager etter): for hele kurset til alle med plass, eller
-    (modus 'samling') for hver samling til alle med plass som er på samlingen."""
+    (modus 'samling') for hver samling til alle med plass som er på samlingen. En stengt evaluering sendes ikke (lenken ville ikke
+    virket), og den som nettopp har fått evalueringen på den andre måten, får den ikke én gang til (_fikk_annen_runde)."""
     idag = k.idag
     for kurs in k.con.execute("SELECT * FROM kurs WHERE status NOT IN ('avlyst', 'utkast')").fetchall():
-        if not er_paa(kurs):
+        if not er_paa(kurs) or oppsett(k.con, kurs)["stengt"]:
             continue
         mottakere = None
         for runde in runder(k.con, kurs):
@@ -542,8 +592,26 @@ def kjor(k) -> None:
                     return
                 if runde["samling_id"] and not _er_paa_samling(k.con, m, runde["samling_id"]):
                     continue
+                if _fikk_annen_runde(k.con, kurs["id"], runde["samling_id"], m["epost"]):
+                    continue
                 k.send_en_gang(nokkel(kurs["id"], runde["samling_id"]), m["epost"], "evaluering", "evaluering", paamelding_id=m["id"],
                                kurs_id=kurs["id"], d=m, kurs=kurs, evaluering_url=lenke(m["id"], runde["samling_id"]))
+
+
+def _fikk_annen_runde(con, kurs_id: int, samling_id: int | None, epost: str) -> bool:
+    """Evalueringen for hele kurset og evalueringen for den SISTE samlingen gjelder samme dager og sendes samme dag. Har mottakeren
+    fått den ene (eller ligger den i «Klar til sending»), sendes ikke den andre: bytter noen «Send evalueringen» midt i perioden, skal
+    ingen få to evalueringer (gjennomgangen 09.10.2026). Evalueringene for de andre samlingene påvirkes ikke."""
+    rad = con.execute("SELECT samling_id FROM kursdag WHERE kurs_id=? ORDER BY dato DESC LIMIT 1", (kurs_id,)).fetchone()
+    siste = rad["samling_id"] if rad else None
+    if not siste or (samling_id and samling_id != siste):
+        return False
+    andre = nokkel(kurs_id, siste) if samling_id is None else nokkel(kurs_id)
+    if con.execute("""SELECT 1 FROM utsending_logg WHERE nokkel=? AND type='evaluering' AND mottaker=?
+                      AND status IN ('sendt','reservert','ukjent') LIMIT 1""", (andre, epost)).fetchone():
+        return True
+    return con.execute("""SELECT 1 FROM epost_godkjenning WHERE nokkel=? AND type='evaluering' AND mottaker=? AND status IN ('venter','sendt')
+                          LIMIT 1""", (andre, epost)).fetchone() is not None
 
 
 def _er_paa_samling(con, p, samling_id: int) -> bool:

@@ -42,6 +42,12 @@ attributtet `data-epost-sjekk` (domenelistene til «Mente du …?», kurs/datako
 09.10.2026 (Camilla: kvitteringen skal si at bekreftelsen er sendt til e-postadressen som ble registrert, og hvem de kontakter hvis den ikke
 kommer) ble bildet laget på nytt (inne i pytest, med HPR). Eneste forskjell: kvitteringsteksten i scenarioet
 «post_skjult_fakturablokk_ignorerer_manipulerte_felt» (det eneste som viser kvitteringen). Påmeldingsskjemaet og statuskodene er uendret.
+
+10.10.2026 (Camilla: betalingsvilkårene med fakturagebyret på påmeldingssiden, «dersom de ønsker så kan faktura sendes tidligere enn 6
+måneder, men da må de sende en e-post til kurs@ipr.no» - «eller post@terapiakademiet», og «ja» til gebyrteksten ved «Delt opp») ble bildet
+laget på nytt (inne i pytest, med HPR). Eneste forskjeller: blokken «Betalingsvilkår» (div#betalingsvilkar) i alle scenarier med fakturadel,
+og « – 89 kr i fakturagebyr per faktura» etter valget «Delt opp» der deltakeren velger. Hjelpeteksten på de faste feltene (samme dag) gir
+ingen forskjell uten egen tekst. Ingen statuskoder er endret.
 """
 import json
 from datetime import date

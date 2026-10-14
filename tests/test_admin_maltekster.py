@@ -52,12 +52,14 @@ def test_admin_maa_vaere_innlogget(con):
     assert _klient().post("/admin/e-postmaler/bekreftelse/emne", data={"tekst": "x"}).status_code == 302
 
 
-def test_alle_8_maler_vises_i_oversikten(con):
+def test_alle_malene_vises_i_oversikten(con):
     html = _innlogget().get("/admin/e-postmaler").get_data(as_text=True)
     for mal, m in MALER.items():
         assert m.navn in html, mal
         assert m.beskrivelse in html, mal
-    assert len(MALER) == 8                       # (06.10.2026: «purring» er tatt bort med kursholder-lenken og SharePoint)
+    # (06.10.2026: «purring» er tatt bort med kursholder-lenken og SharePoint. 09.10.2026: rabatt_avklaring, teksten i e-postvinduet
+    # når en rabatt ikke kan godkjennes)
+    assert len(MALER) == 9
 
 
 @pytest.mark.parametrize("mal", LAASTE)

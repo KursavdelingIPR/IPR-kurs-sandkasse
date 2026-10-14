@@ -77,12 +77,20 @@
       (<a href="{{ url_for('admin_rabatter') }}">liste til Psyflix</a>)</li>
       {% if psyflix_aar %}<li><strong>Har fått Psyflix-rabatt hos IPR de siste 12 månedene.</strong> Vilkåret er én videreutdanning med rabatt per år.</li>{% endif %}{% endif %}
   </ul>
+  {% if rabatt_foresporsel %}<p class="liten" style="margin:0 0 8px"><strong>Du ba om {{ 'riktig' if rabatt_foresporsel.situasjon == 'riktig' else 'mer' }}
+    informasjon {{ rabatt_foresporsel.dato }}.</strong> Se e-posten under E-poster.</p>{% endif %}
   {% if admin_rolle != 'lese' %}
-  <form method="post" action="{{ url_for('admin_rabatt_avgjor', paamelding_id=p.id) }}" style="margin:0; display:flex; gap:6px; flex-wrap:wrap">
+  {#- Camilla 09.10.2026: kan rabatten ikke godkjennes, skal deltakeren alltid få en e-post (mer informasjon, riktig informasjon
+      eller ordinær pris). Knappene åpner e-postvinduet med teksten fra E-postmaler (rabatt_avklaring). -#}
+  <form method="post" action="{{ url_for('admin_rabatt_avgjor', paamelding_id=p.id) }}" style="margin:0 0 8px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="tilbake" value="vindu">
     <button name="beslutning" value="godkjent" class="liten">Godkjent</button>
-    <button name="beslutning" value="avvist" class="liten sekundar">Ikke godkjent (ordinær pris)</button>
   </form>
+  <p class="liten" style="margin:0 0 4px">Kan den ikke godkjennes nå? Send deltakeren en e-post – du ser og kan endre teksten før du sender:</p>
+  <div style="display:flex; gap:6px; flex-wrap:wrap">
+    {% for kode, navn in RABATT_SITUASJONER.items() %}<a class="knapp liten sekundar" data-i-vindu
+       href="{{ url_for('admin_deltaker_epost_ny', kurs_id=kurs.id, paamelding_id=p.id, rabatt=kode) }}">{{ navn }}</a>{% endfor %}
+  </div>
   {% endif %}
 </div>
 {% endif %}
@@ -157,6 +165,13 @@
   <div class="seksjonsknapper"><button>Lagre personopplysninger</button></div>
 </form>
 
+{#- «Send fakturaen nå» (Camilla 14.10.2026): eget tomt skjema, knappen står i «Påmelding og faktura» (et skjema kan ikke ligge i et annet) -#}
+{% if planlagt_faktura and admin_rolle != 'lese' %}
+<form id="skjema-faktura-naa" method="post" action="{{ url_for('admin_deltaker_faktura_naa', kurs_id=kurs.id, paamelding_id=p.id) }}"
+      data-bekreft="Send fakturaen til {{ p.navn }} nå i stedet for {{ planlagt_faktura }}? Den kan ikke trekkes tilbake her (bare krediteres i Visma).">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+</form>
+{% endif %}
 <form id="skjema-paamelding" method="post" action="{{ url_for('admin_deltaker_paamelding', kurs_id=kurs.id, paamelding_id=p.id) }}"
       data-skjemanavn="Påmelding og faktura">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -169,6 +184,13 @@
   <div class="varselboks gul" role="note" style="margin:0 0 14px">
     <strong>Det er laget {{ p.faktura_antall }} faktura{{ 'er' if p.faktura_antall != 1 }} til {{ p.navn }}.</strong>
     Fakturaer som er laget, endres ikke når du endrer her: de står i Visma og må rettes der. Det gjelder også hvem som betaler, og fakturaplanen.
+  </div>
+  {% endif %}
+  {% if planlagt_faktura %}
+  <div class="varselboks" id="planlagt-faktura" role="note" style="margin:0 0 14px">
+    <strong>Fakturaen er planlagt sendt {{ planlagt_faktura }}</strong>
+    <p class="liten dempet" style="margin:6px 0 {{ '10px' if admin_rolle != 'lese' else '0' }}">Den sendes tidligst seks måneder før første kursdag.{% if admin_rolle != 'lese' %} Har {{ p.navn }} bedt om å få fakturaen tidligere, kan du sende den nå.{% endif %}</p>
+    {% if admin_rolle != 'lese' %}<button type="submit" class="sekundar" form="skjema-faktura-naa">Send fakturaen nå</button>{% endif %}
   </div>
   {% endif %}
   {#- Prisen (kurs/rabatter.py): kursets pris, eller rabattprisen. Kan endres her til fakturaen er laget, når kurset gir rabatter;

@@ -393,6 +393,30 @@ def utsatte_fakturaer(k: Kjoring, paamelding_id: int | None = None) -> None:
             k.si(f"  FEIL utsatt faktura for påmelding {p['id']}: {feil}")
 
 
+def planlagt_faktura(kurs, p, idag: date) -> date | None:
+    """Datoen en planlagt (holdt) samlet faktura sendes, når den ligger fram i tid og ingen faktura er laget ennå, ellers None. Brukes til
+    «Send fakturaen nå» i deltakervinduet (Camilla 14.10.2026: deltakerne kan be om fakturaen tidligere enn seks måneder før). Ren lesing.
+    `p` er en påmeldingsrad med faktura_antall (antall fakturaer)."""
+    if (kurs["fakturering"] != "person" or not kurs["pris_nok"] or kurs["status"] in ("avlyst", "utkast")
+            or p["status"] != "bekreftet" or p["betaling"] == "per_samling" or db.er_ekstradeltaker(p)
+            or not p["sveiper_kjort"] or p["faktura_antall"] or not p["faktura_tidligst_dato"]):
+        return None
+    dato = date.fromisoformat(p["faktura_tidligst_dato"])
+    return dato if dato > idag else None
+
+
+def send_planlagt_faktura_naa(k: Kjoring, p) -> None:
+    """«Send fakturaen nå»: lagrer faktura_onskes_na=1 (så morgenjobben tar den hvis noe holder den igjen nå), logger og lager fakturaen med en
+    gang via utsatte_fakturaer for akkurat denne påmeldingen: samme motor og sperrer som ellers (aldri to fakturaer, rabatt, privat adresse,
+    firmaopplysninger). Kalleren har sjekket planlagt_faktura. Committer."""
+    k.con.execute("UPDATE paamelding SET faktura_onskes_na=1 WHERE id=?", (p["id"],))
+    db.logg(k.con, "faktura_tidligere", {"paamelding_id": p["id"], "kurs_id": p["kurs_id"], "planlagt": p["faktura_tidligst_dato"]},
+            aktor=k.aktor)
+    k.con.commit()
+    utsatte_fakturaer(k, p["id"])
+    k.con.commit()
+
+
 def oppdater_faktura_hold_etter_kursdagendring(con, kurs_id: int) -> int:
     """SKAL kalles i SAMME transaksjon som enhver endring av kursets kursdager (db.lagre_samlinger gjoer det - en vakttest
     feiler hvis annen kode skriver til kursdag uten aa gaa via denne). Holder lagrede faktura_tidligst_dato i takt med foerste

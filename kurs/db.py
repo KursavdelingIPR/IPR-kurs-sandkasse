@@ -2232,7 +2232,7 @@ def uavklarte_fakturaer(con) -> list:
     """Fakturaforsoek med uavklart utfall, med det admin trenger for aa kontrollere i Visma."""
     return con.execute(
         """SELECT f.id, f.paamelding_id, f.kursdag_id, f.status, f.feilmelding, f.opprettet,
-                  d.navn, p.kurs_id, k.kursnr, k.navn AS kursnavn, k.pris_nok, kd.dato AS kursdag_dato
+                  d.navn, p.kurs_id, p.rabatt_prosent, k.kursnr, k.navn AS kursnavn, k.pris_nok, kd.dato AS kursdag_dato
            FROM faktura_forsok f JOIN paamelding p ON p.id=f.paamelding_id JOIN deltaker d ON d.id=p.deltaker_id
            JOIN kurs k ON k.id=p.kurs_id LEFT JOIN kursdag kd ON kd.id=f.kursdag_id
            WHERE f.status='ukjent' OR (f.status='reservert' AND f.opprettet < ?) ORDER BY f.opprettet, f.id""",

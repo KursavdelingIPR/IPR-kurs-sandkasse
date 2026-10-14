@@ -294,9 +294,25 @@ def _paamelding_endret(d, o, h):
     return rader
 
 
+def _rabattnavn(d, *, i_setning: bool = False) -> str:
+    """«Studentpris» (eller «studentpris» midt i en setning) for rabatten i hendelsen (kurs/rabatter.py)."""
+    from . import rabatter       # importeres her: rabatter bruker db
+    navn = rabatter.PRISNAVN_I_SETNING if i_setning else rabatter.PRISNAVN
+    return navn.get(d.get("kategori"), "rabatten" if i_setning else "Rabatten")
+
+
+def _rabatt_info_bedt(d, o, h):
+    hva = "riktig" if d.get("situasjon") == "riktig" else "mer"
+    return [(f"Ba om {hva} informasjon om {_rabattnavn(d, i_setning=True)} (e-post)",
+             ["Rabatten venter fortsatt, og fakturaen holdes tilbake til den er avgjort."])]
+
+
 _TEKSTER = {
     "paamelding": _paamelding,
     "status_endret": _status_endret,
+    "rabatt_godkjent": lambda d, o, h: [(f"{_rabattnavn(d)} godkjent", [])],
+    "rabatt_avvist": lambda d, o, h: [(f"{_rabattnavn(d)} ikke godkjent – ordinær pris", [])],
+    "rabatt_info_bedt": _rabatt_info_bedt,
     "ekstradeltaker_utvalg": _utvalg_endret,
     "avmelding": lambda d, o, h: [("Avmeldt", [])],
     "paamelding_avslatt": lambda d, o, h: [("Avslått", _status_for_og_ny(d, "avslatt"))],
@@ -304,6 +320,8 @@ _TEKSTER = {
     "manuell_behandling_utlost": _manuell_behandling,
     "fakturert": _fakturert,
     "faktura_feil": _faktura_feil,
+    "faktura_tidligere": lambda d, o, h: [("Fakturaen ble sendt tidligere enn planlagt (etter ønske)",
+                                            [f"Planlagt dato var {date.fromisoformat(d['planlagt']):%d.%m.%Y}."] if d.get("planlagt") else [])],
     "faktura_feilet": lambda d, o, h: [("Fakturering feilet – prøves igjen automatisk", _samling(d, o))],
     "faktura_ukjent": lambda d, o, h: [("Fakturering uavklart – må kontrolleres i Visma", _samling(d, o))],
     "faktura_reservert_gammel": lambda d, o, h: [("Fakturering uavklart – må kontrolleres i Visma", _samling(d, o))],

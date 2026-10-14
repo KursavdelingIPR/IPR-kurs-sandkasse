@@ -20,6 +20,7 @@ RAMMER = {
     "rod": ("Rød", "#b3261e"),
     "gronn": ("Grønn", "#2e7d4f"),
     "lilla": ("Lilla", "#6b4c9a"),
+    "gul": ("Gul", "#f2b705"),                 # Camilla 14.10.2026
     "gull": ("Gull", "#b08d2e"),
     "gra": ("Grå", "#667788"),
     "ingen": ("Uten ramme", None),

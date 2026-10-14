@@ -514,6 +514,24 @@ def _m34_ny_evaluering(con) -> None:
             con.execute(f"ALTER TABLE evaluering_svar ADD COLUMN {navn} {pg_def if pg else sqlite_def}")
 
 
+_RESULTATKOLONNER = (
+    ("resultat_versjon", "INTEGER NOT NULL DEFAULT 0", "BIGINT NOT NULL DEFAULT 0"),
+    ("resultat_stengt", "INTEGER NOT NULL DEFAULT 0", "BIGINT NOT NULL DEFAULT 0"),
+)
+
+
+def _m35_evaluering_deling(con) -> None:
+    """Gjennomgangen 09.10.2026 (Camilla): (1) at noen har svart på evalueringen lagres som en kode uten påmelding og dato
+    (ny tabell evaluering_besvart_kode), så svarene er anonyme også for den som har tilgang til databasen; (2) lenken til resultatene
+    for kursholderne: to nye kolonner på evaluering_oppsett (versjon og stengt). Ingen eksisterende kolonne endres. evaluering_besvart og
+    evaluering_besvart_samling står igjen for svar som ble gitt før (de leses fortsatt, men det skrives ikke lenger til dem)."""
+    _opprett_tabell_fra_skjema(con, "evaluering_besvart_kode")
+    pg = db.er_postgres(con)
+    for navn, sqlite_def, pg_def in _RESULTATKOLONNER:
+        if not db.har_kolonne(con, "evaluering_oppsett", navn):
+            con.execute(f"ALTER TABLE evaluering_oppsett ADD COLUMN {navn} {pg_def if pg else sqlite_def}")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
@@ -549,6 +567,7 @@ MIGRERINGER = [
     (32, "rabattpriser", _m32_rabattpriser),
     (33, "kursmaltekster", _m33_kursmaltekster),
     (34, "ny_evaluering", _m34_ny_evaluering),
+    (35, "evaluering_deling", _m35_evaluering_deling),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

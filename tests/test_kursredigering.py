@@ -372,11 +372,11 @@ def test_ny_kurs_rute_godtar_grensene(con, verdi):
     assert _fersk(con).execute("SELECT faktura_dager_for FROM kurs").fetchone()[0] == int(verdi)
 
 
-def test_ny_kurs_rute_tomt_felt_gir_fortsatt_default_14_og_ikke_tall_avvises_som_for(con):
+def test_ny_kurs_rute_tomt_felt_gir_standarden_30_og_ikke_tall_avvises_som_for(con):
     klient = _klient()
     _logg_inn(klient)
     klient.post("/admin/kurs/ny", data=_ny_kurs_data(faktura_dager_for=""))
-    assert _fersk(con).execute("SELECT faktura_dager_for FROM kurs").fetchone()[0] == 14
+    assert _fersk(con).execute("SELECT faktura_dager_for FROM kurs").fetchone()[0] == 30    # Camilla 09.10.2026: 30 i stedet for 14
     for ugyldig in ("abc", "14.5"):
         klient.post("/admin/kurs/ny", data=_ny_kurs_data(faktura_dager_for=ugyldig, navn="Annet"))
     assert _fersk(con).execute("SELECT COUNT(*) FROM kurs").fetchone()[0] == 1
@@ -407,7 +407,7 @@ def test_oppsett_godtar_grensene(con, verdi):
     assert _dager_for(con, kid) == verdi
 
 
-def test_oppsett_tomt_felt_gir_default_14_og_ikke_numerisk_avvises_som_for(con):
+def test_oppsett_tomt_felt_gir_standarden_og_ikke_numerisk_avvises_som_for(con):
     kid = _kurs(con, faktura_dager_for=30)
     con.commit()
     klient = _klient()
@@ -416,8 +416,10 @@ def test_oppsett_tomt_felt_gir_default_14_og_ikke_numerisk_avvises_som_for(con):
         side = _post_oppsett(klient, kid, faktura_dager_for=ugyldig, navn="Nei")
         assert "må være tall" in side
     assert _dager_for(con, kid) == 30                                             # uendret etter avvisning
+    _post_oppsett(klient, kid, faktura_dager_for="14")
+    assert _dager_for(con, kid) == 14
     _post_oppsett(klient, kid, faktura_dager_for="")
-    assert _dager_for(con, kid) == 14                                             # dagens semantikk: tomt = default
+    assert _dager_for(con, kid) == 30                                 # tomt = standarden (30 fra 09.10.2026, Camilla)
 
 
 def test_db_oppdater_kurs_felter_avviser_ugyldig_faktura_dager_for_foer_noe_skrives(con):

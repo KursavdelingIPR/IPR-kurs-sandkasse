@@ -97,7 +97,8 @@ GRENSER = {
     "innloggingslenke_epost": (3, 15 * 60),
     "sporsmal": (10, 10 * 60),
     "paamelding": (20, 10 * 60),
-    "evaluering": (30, 10 * 60),         # svar på evalueringen etter kurset (/evaluering/<lenke>)
+    "evaluering": (200, 10 * 60),        # svar på evalueringen (/evaluering/<lenke> og den delte lenken/QR-koden), per IP: var 30, men en
+                                         # hel klasse som svarer via QR-koden på samme trådløse nett deler IP (gjennomgangen 09.10.2026)
     "enhetsoppslag": (120, 10 * 60),     # firmaoppslag i påmeldingsskjemaet (Enhetsregisteret)
     "min_side_lenke": (200, 10 * 60),    # den personlige lenken til Min side (/min/<lenke>), per IP: kurslokaler og store arbeidsplasser deler IP
     "innsjekk_qr": (120, 10 * 60),       # QR-skann: nøkkel = ip + «|» + token

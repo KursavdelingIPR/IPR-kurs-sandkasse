@@ -797,7 +797,14 @@ CREATE TABLE IF NOT EXISTS evaluering_oppsett (
     kurs_id         BIGINT PRIMARY KEY REFERENCES kurs(id) ON DELETE CASCADE,
     innledning      TEXT,
     stengt          BIGINT NOT NULL DEFAULT 0,
-    delt_versjon    BIGINT NOT NULL DEFAULT 0
+    delt_versjon    BIGINT NOT NULL DEFAULT 0,
+    resultat_versjon BIGINT NOT NULL DEFAULT 0,
+    resultat_stengt BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS evaluering_besvart_kode (
+    kode            TEXT PRIMARY KEY,
+    kurs_id         BIGINT NOT NULL REFERENCES kurs(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS evaluering_besvart_samling (

@@ -3,11 +3,12 @@
     ([data-vis-signatur] og input[name=signatur_html] i static/app.js), vedlegg ([data-vedlegg]) og Send til høyre ved
     flettefeltene. Importeres «with context» (signaturliste, skjemanokkel, emne, tekst, … fra ruten). -#}
 {% from "_kodeknapper.html" import kodeknapper %}
-{% macro epostskjema(action, bekreft, mottakere=()) -%}
+{% macro epostskjema(action, bekreft, mottakere=(), skjulte={}, sendtekst="Send e-post") -%}
 <form method="post" action="{{ action }}" class="vindu-epost" enctype="multipart/form-data"
       data-skjemanavn="E-posten" data-bekreft="{{ bekreft }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="skjemanokkel" value="{{ skjemanokkel }}">
+  {% for navn, verdi in skjulte.items() %}<input type="hidden" name="{{ navn }}" value="{{ verdi }}">{% endfor %}
   {% for m in mottakere %}<input type="hidden" name="paamelding_id" value="{{ m.id }}">{% endfor %}
   <label for="v-emne">Emne * <span class="liten dempet">(maks {{ emne_maks }} tegn)</span></label>
   <input id="v-emne" name="emne" required maxlength="{{ emne_maks }}" value="{{ emne }}">
@@ -33,7 +34,7 @@
       {#- Filvelgeren er usynlig, men kan nås med tastatur; knappen er etiketten. Valgte filer vises i listen under -#}
       <input type="file" id="v-vedlegg" name="vedlegg" multiple accept="{{ vedlegg_accept }}" class="skjult-fil" data-vedlegg="v-vedleggliste">
       <label class="knapp sekundar vedleggknapp" for="v-vedlegg">📎 Legg ved fil</label>
-      <button class="sendknapp">Send e-post</button>
+      <button class="sendknapp">{{ sendtekst }}</button>
     </span>
   </div>
   <ul id="v-vedleggliste" class="vedleggvalg" aria-live="polite"></ul>

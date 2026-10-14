@@ -40,6 +40,8 @@ IKKE_FORSOKT = "ikke_forsokt"
 
 # Årsakskode for FULLFORT når bare fakturaen gjenstår fordi privat adresse mangler (se privatadresse.py)
 ARSAK_FAKTURA_VENTER = "faktura_venter_adresse"
+# ... eller fordi rabatten venter på godkjenning (se rabatter.py)
+ARSAK_FAKTURA_VENTER_RABATT = "faktura_venter_rabatt"
 
 # Visningsnavn (rolig norsk, ingen tekniske ord)
 KATEGORI_NAVN = {
@@ -160,6 +162,12 @@ def _utfall(k: Kjoring, kurs_id: int, paamelding_id: int, rad) -> Behandlingsres
         # feil: holdet oppheves, og daglig jobb (eller lagring av adressen i deltakervinduet) lager fakturaen når adressen er på plass.
         return _r(FULLFORT, ARSAK_FAKTURA_VENTER, "Bekreftelsen er sendt. Fakturaen venter på privat adresse (adresse, postnummer "
                   "og poststed må fylles inn først).", forsokt=True)
+    if (rad["status"] == "bekreftet" and db.allerede_sendt(con, f"kurs:{kurs_id}", rad["epost"], "bekreftelse")
+            and rabatter.venter(con.execute("SELECT rabatt_status FROM paamelding WHERE id=?", (paamelding_id,)).fetchone())):
+        # Bekreftelsen er sendt, men fakturaen lages ikke før rabatten er avgjort (rabatter.py). Ikke en teknisk feil: holdet oppheves,
+        # og «Godkjent» / «Ikke godkjent» setter faktureringen i gang (gjennomgangen 09.10.2026 - før sto det «Teknisk feil»).
+        return _r(FULLFORT, ARSAK_FAKTURA_VENTER_RABATT, "Bekreftelsen er sendt. Fakturaen venter til rabatten er godkjent eller "
+                  "ikke godkjent.", forsokt=True)
     uavklart = db.uavklart_status_for_paamelding(con, kurs_id, rad["epost"], paamelding_id, _epost_type(rad))
     if uavklart:
         return _r(UAVKLART, uavklart, _UAVKLART_TEKST[uavklart], forsokt=True)

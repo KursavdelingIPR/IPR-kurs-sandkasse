@@ -57,10 +57,12 @@ def _hendelser(con):
 
 # ============================ 1-3: registeret ============================
 
-def test_registeret_har_noyaktig_de_8_godkjente_malene():
-    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og «purring» og «eskalering» med dem)
+def test_registeret_har_noyaktig_de_godkjente_malene():
+    # (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og «purring» og «eskalering» med dem. 09.10.2026: rabatt_avklaring,
+    # teksten i e-postvinduet når en rabatt ikke kan godkjennes - sendes aldri automatisk, maltekster.VINDUSMALER)
     assert sorted(MALER) == sorted(["bekreftelse", "venteliste", "ukefor", "dagfor", "avlysning", "kursbevis_klar",
-                                    "firmapaamelding_kvittering", "evaluering"])
+                                    "firmapaamelding_kvittering", "evaluering", "rabatt_avklaring"])
+    assert maltekster.VINDUSMALER == {"rabatt_avklaring"}
 
 
 @pytest.mark.parametrize("last", ["innlogging", "admin_melding", "_ramme", "kursbevis"])
@@ -337,9 +339,10 @@ def test_standardtekstene_gir_dagens_setninger_fra_12a_naar_de_rendres():
 
 
 def test_ingen_sensitive_koder_finnes():
+    # (09.10.2026: prisnavn, rabattpris og ordinaer_pris til rabatt_avklaring - kursets pris og rabattens navn, ikke personopplysninger)
     assert set(KODER) == {"fornavn", "navn", "kursnavn", "startdato", "dato", "dagnummer", "antall_dager", "firmanavn",
                           "antall_deltakere", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
-                          "dager_igjen_tekst", "min_side", "sporsmal_url"}
+                          "dager_igjen_tekst", "min_side", "sporsmal_url", "prisnavn", "rabattpris", "ordinaer_pris"}
     for forbudt in ("allergi", "tilrettelegging", "epost", "telefon", "adresse", "fodsel", "personnummer", "passord",
                     "token", "zoom", "org_nr", "faktura"):
         assert not [k for k in KODER if forbudt in k], forbudt
@@ -553,10 +556,10 @@ def test_avhengigheten_gaar_én_vei_epost_kan_importere_maltekster_men_ikke_omve
 # ============================ mal-ID = Jinja-filnavn = faktisk `mal` i send_en_gang (hindrer navnedrift) ============================
 
 REDIGERBARE = ["bekreftelse", "venteliste", "ukefor", "dagfor", "avlysning", "kursbevis_klar", "firmapaamelding_kvittering",
-               "evaluering"]          # (06.10.2026: «purring» er tatt bort med kursholder-lenken og SharePoint)
+               "evaluering", "rabatt_avklaring"]    # (06.10.2026: «purring» er tatt bort med kursholder-lenken og SharePoint)
 
 
-def test_de_8_redigerbare_malnoklene_er_noyaktig_disse():
+def test_de_redigerbare_malnoklene_er_noyaktig_disse():
     assert sorted(MALER) == sorted(REDIGERBARE)
     assert "firmapaamelding" not in MALER          # ingen forkortet alias - intern ID er identisk med Jinja-malen
 
@@ -578,7 +581,9 @@ def _send_en_gang_mal_argumenter() -> dict:
         send_ferdigrendret_en_gang() - heller ikke via send_en_gang(mal=...) eller render_for_sending().
     Alle tre kall-formene binder likevel malnavnet til en strengliteral, saa navnedrift fanges uansett hvilken som
     brukes. Variable mal-argumenter (f.eks. daglig.py sin preflight-loekke over flere maler) hopper vi over her -
-    de dekkes av sine egne, literale send_en_gang-kall andre steder."""
+    de dekkes av sine egne, literale send_en_gang-kall andre steder.
+    En fjerde form, maltekster.vindustekst(), gjelder VINDUSMALER (rabatt_avklaring, 09.10.2026): teksten fyller e-postvinduet i
+    deltakervinduet og sendes som en vanlig e-post derfra - merket «(vindu)» i listen."""
     from pathlib import Path
     rot = Path(maltekster.__file__).resolve().parent
     funn = {}
@@ -598,6 +603,10 @@ def _send_en_gang_mal_argumenter() -> dict:
                 arg = node.args[1] if len(node.args) > 1 else next((k.value for k in node.keywords if k.arg == "mal"), None)
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     funn.setdefault(arg.value, []).append(f"{fil.name}:{node.lineno}")
+            elif node.func.attr == "vindustekst":
+                arg = node.args[1] if len(node.args) > 1 else next((k.value for k in node.keywords if k.arg == "mal"), None)
+                assert isinstance(arg, ast.Constant) and isinstance(arg.value, str), f"{fil.name}:{node.lineno} mal er ikke en streng"
+                funn.setdefault(arg.value, []).append(f"{fil.name}:{node.lineno} (vindu)")
     return funn
 
 
@@ -605,6 +614,9 @@ def test_hver_redigerbar_mal_sendes_faktisk_via_send_en_gang_under_noyaktig_dett
     brukt = _send_en_gang_mal_argumenter()
     for mal in REDIGERBARE:
         assert mal in brukt, f"{mal} sendes ikke under dette navnet (navnedrift?)"
+    # VINDUSMALER sendes aldri automatisk - bare via e-postvinduet - og de andre malene aldri via vinduet
+    for mal, steder in brukt.items():
+        assert all(s.endswith("(vindu)") for s in steder) == (mal in maltekster.VINDUSMALER), (mal, steder)
     # alle andre maler som sendes via send_en_gang/render_for_sending er de LASTE (ikke redigerbare):
     # avslag (fase 17 - det viktige innholdet er begrunnelsen admin skriver i hver sak; kan gjoeres redigerbar senere) og
     # sjekkliste_paaminnelse (morgen-e-posten om sjekklistene til kurspostboksen, 02.10.2026).

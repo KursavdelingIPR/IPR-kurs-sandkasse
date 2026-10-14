@@ -50,4 +50,9 @@ def eksempler(mal: str) -> list[tuple[str, dict]]:
         return [("", dict(kontakt={"navn": "Kari HR", "fornavn": "Kari", "firmanavn": "Eksempel AS"}, kurs=KURS,
                           kvittering_url="/kurs/EKS-1/gruppe/kvittering/eksempel-token",
                           antall_totalt=3, antall_bekreftet=2, antall_venteliste=1, antall_feilet=0))]
+    if mal == "rabatt_avklaring":
+        p = {"priskategori": "student", "rabatt_prosent": 50}
+        return [(navn, dict(d=DELTAKER, p=p, kurs=KURS, situasjon=situasjon))
+                for situasjon, navn in (("info", "Trenger mer informasjon"), ("riktig", "Trenger riktig informasjon"),
+                                        ("ordinaer", "Ordinær pris"))]
     raise ValueError(f"Ingen eksempeldata for mal {mal!r}")

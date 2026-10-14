@@ -209,15 +209,16 @@ def test_epost_py_importerer_ikke_db_og_gjor_ingen_override_oppslag():
     assert "maltekst_for_utsending" not in inspect.getsource(epost)      # oppslaget skjer i Kjoring/maltekster
 
 
-# ============================ alle 8 redigerbare maler er aktivert (12B2C-5, evaluering 05.10.2026) ============================
-# (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og «purring» og «eskalering» med dem)
+# ============================ alle redigerbare maler er aktivert (12B2C-5, evaluering 05.10.2026) ============================
+# (06.10.2026: kursholder-lenken og SharePoint er tatt bort, og «purring» og «eskalering» med dem. 09.10.2026: rabatt_avklaring,
+# som bare fyller e-postvinduet - maltekster.VINDUSMALER)
 
 # AKTIVE_MALER er en EKSPLISITT liste i maltekster.py (IKKE frozenset(MALER)) - fail-closed: en fremtidig ny mal i
 # MALER-registeret blir ALDRI automatisk aktivert av seg selv. Denne konstanten er derfor ogsaa eksplisitt her,
 # og testen under sammenligner den mot frozenset(MALER) for AA FANGE akkurat det scenariet (noen legger en ny mal
 # i registeret uten aa huske aa legge den til i AKTIVE_MALER og gi den en verdibygger).
 AKTIVE = frozenset({"venteliste", "avlysning", "bekreftelse", "ukefor", "dagfor", "kursbevis_klar",
-                    "firmapaamelding_kvittering", "evaluering"})
+                    "firmapaamelding_kvittering", "evaluering", "rabatt_avklaring"})
 IKKE_AKTIVE: list[str] = []
 
 

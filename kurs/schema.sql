@@ -938,12 +938,23 @@ CREATE TABLE IF NOT EXISTS evaluering_sporsmal (
 );
 
 -- Evalueringens oppsett per kurs (migrering 34): egen innledning (NULL = standardteksten), stengt, og versjonen av den delte lenken
--- («Ny lenke» øker den, så gamle lenker og QR-koder slutter å virke). Ingen rad = standard.
+-- («Ny lenke» øker den, så gamle lenker og QR-koder slutter å virke). Ingen rad = standard. Migrering 35: lenken til resultatene
+-- for kursholderne har sin egen versjon og kan stenges.
 CREATE TABLE IF NOT EXISTS evaluering_oppsett (
     kurs_id         INTEGER PRIMARY KEY REFERENCES kurs(id) ON DELETE CASCADE,
     innledning      TEXT,
     stengt          INTEGER NOT NULL DEFAULT 0,
-    delt_versjon    INTEGER NOT NULL DEFAULT 0
+    delt_versjon    INTEGER NOT NULL DEFAULT 0,
+    resultat_versjon INTEGER NOT NULL DEFAULT 0,
+    resultat_stengt INTEGER NOT NULL DEFAULT 0
+);
+
+-- At noen har svart på evalueringen (migrering 35, gjennomgangen 09.10.2026): bare en kode laget av påmeldingen, runden og systemets
+-- hemmelige nøkkel (lenker.signatur) - aldri påmeldingen selv og aldri dato. Uten nøkkelen kan ingen med tilgang til databasen se hvem
+-- som har svart, heller ikke ved å sammenligne rekkefølgen med svarene. Slettes med kurset.
+CREATE TABLE IF NOT EXISTS evaluering_besvart_kode (
+    kode            TEXT PRIMARY KEY,
+    kurs_id         INTEGER NOT NULL REFERENCES kurs(id) ON DELETE CASCADE
 );
 
 -- At en påmelding har svart på evalueringen etter en SAMLING (migrering 34; etter hele kurset: evaluering_besvart). Bare at, aldri hva.

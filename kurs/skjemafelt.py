@@ -13,6 +13,8 @@ Prinsipper:
   * Modulen er REN: ingen SQL, ingen database, ingen request-kontekst, ingen global tilstand. Lagring/lesing av
     overstyringer (tabellen kurs_skjemafelt) ligger i db.py, som bruker valideringen her FOER skriving.
   * fornavn, etternavn, epost og samtykke er LAAST (alltid synlige og obligatoriske, fast tekst) og rendres fast i kurs.html.
+    Unntak fra 09.10.2026 (Camilla): HJELPETEKSTEN til fornavn, etternavn, epost og adressefeltene kan endres per kurs
+    (FASTE_DELTAKERFELT); feltnavn og krav står fast. Samtykket er helt låst.
   * ADRESSE (adresse, postnr, poststed) er ogsaa LAAST: deltakerens PRIVATE adresse kreves av ALLE nye paameldinger i dette
     skjemaet (paa ALLE kurs, ogsaa naar arbeidsgiver betaler: ikke alle betaler selv, og fakturaen maa kunne sendes til
     deltakeren). Feltene staar rett etter e-post, kan aldri skjules eller gjoeres valgfrie, og lagres paa personen (tabellen
@@ -103,15 +105,18 @@ class Systemblokk:
 
 # ============================ register ============================
 
-_FORNAVN = Skjemafelt("fornavn", "Fornavn", LAAST, True, True, frozenset())
-_ETTERNAVN = Skjemafelt("etternavn", "Etternavn", LAAST, True, True, frozenset())
-_EPOST = Skjemafelt("epost", "E-post", LAAST, True, True, frozenset())
+# De faste feltene under «Om deg» er alltid med og alltid krav, men hjelpeteksten kan endres per kurs (Camilla 09.10.2026: «Vi skal
+# kunne redigere hjelpetekst, ja» - feltnavn og krav står fast). Samtykket og fakturaadressen er helt låst.
+_FAST_HJELP = frozenset({HJELPETEKST})
+_FORNAVN = Skjemafelt("fornavn", "Fornavn", LAAST, True, True, _FAST_HJELP)
+_ETTERNAVN = Skjemafelt("etternavn", "Etternavn", LAAST, True, True, _FAST_HJELP)
+_EPOST = Skjemafelt("epost", "E-post", LAAST, True, True, _FAST_HJELP)
 _SAMTYKKE = Skjemafelt("samtykke", "Samtykke til vilkår og personvernerklæring", LAAST, True, True, frozenset())
 # Deltakerens private adresse: alltid synlig og alltid krav. Utenlandske adresser er lov, saa postnummeret kontrolleres
 # bare for at det er fylt inn og ikke for langt (valider_adresse) - hjelpeteksten sier hva som gjelder i Norge.
-_ADRESSE = Skjemafelt("adresse", "Adresse", LAAST, True, True, frozenset())
-_POSTNR = Skjemafelt("postnr", "Postnummer", LAAST, True, True, frozenset(), hjelpetekst="4 siffer i Norge.")
-_POSTSTED = Skjemafelt("poststed", "Poststed", LAAST, True, True, frozenset())
+_ADRESSE = Skjemafelt("adresse", "Adresse", LAAST, True, True, _FAST_HJELP)
+_POSTNR = Skjemafelt("postnr", "Postnummer", LAAST, True, True, _FAST_HJELP, hjelpetekst="4 siffer i Norge.")
+_POSTSTED = Skjemafelt("poststed", "Poststed", LAAST, True, True, _FAST_HJELP)
 _TELEFON = Skjemafelt("telefon", "Telefon", KONFIGURERBAR, True, False, EGENSKAPER, rekkefolge=1)
 _ARBEIDSSTED = Skjemafelt("arbeidssted", "Arbeidssted", KONFIGURERBAR, True, False, EGENSKAPER, rekkefolge=2)
 _YRKESTITTEL = Skjemafelt("yrkestittel", "Yrkestittel", KONFIGURERBAR, True, False, EGENSKAPER, rekkefolge=3)
@@ -144,6 +149,8 @@ REGISTER = MappingProxyType({f.nokkel: f for f in (
 # alltid fast etter gruppen.
 KONFIGURERBAR_GRUPPE = ("telefon", "arbeidssted", "yrkestittel")
 ADRESSEFELT = ("adresse", "postnr", "poststed")      # deltakerens private adresse (LAAST, rett etter e-post)
+NAVNEFELT = ("fornavn", "etternavn", "epost")        # først i skjemaet (LAAST, fast markup i kurs.html)
+FASTE_DELTAKERFELT = (*NAVNEFELT, *ADRESSEFELT)      # de faste feltene under «Om deg»: bare hjelpeteksten kan endres
 FAKTURAFELT = ("faktura_ref", "faktura_epost", "faktura_kommentar", "ehf")
 # Felt som fantes i tidligere utgaver og er FJERNET: den private fakturaadressen er nå deltakerens egen adresse (ADRESSEFELT),
 # og «Ledige plasser» (vis_plasser) er ikke lenger et valg: antall ledige plasser vises aldri for deltakerne (brukerens
@@ -474,11 +481,16 @@ class EffektivtSkjema:
     sensitive_felt: tuple = ()
     nederstfelt: tuple = ()     # kursets egne felt «nederst» (etter samtykket, rett over Meld på-knappen)
     info: frozenset = INFO_STANDARD     # det informasjonsboksen viser
+    navnefelt: tuple = ()       # fornavn, etternavn og e-post (alltid med, alltid krav; bare hjelpeteksten kan endres)
 
     @property
     def egne_felt(self) -> tuple:
         """Kursets egne felt i skjemaet, i visningsrekkefolge."""
         return tuple(f for f in (*self.deltakerfelt, *self.sluttfelt, *self.nederstfelt) if f.ekstra_id is not None)
+
+    def fast(self, nokkel: str):
+        """Et av navnefeltene (fornavn, etternavn, epost) - til hjelpeteksten i kurs.html. None når skjemaet er laget uten dem."""
+        return next((f for f in self.navnefelt if f.nokkel == nokkel), None)
 
 
 # HPR-nummer samles ikke inn lenger (Camilla 02.10.2026: «ta bort HPR-nummer»). Feltet, lagringen og alt som finnes fra før er beholdt (deltakervinduet,
@@ -614,8 +626,10 @@ def effektivt_skjema(kurs, overstyringer=None, ekstrafelt=()) -> EffektivtSkjema
 
     sensitive = tuple(_effektivt(REGISTER[n], avvik[n]) for n in SENSITIVE_FELT
                       if synlig(n)) if vis_sensitive_felt(kurs) else ()
-    adresse = tuple(_effektivt(REGISTER[n], {}) for n in ADRESSEFELT)      # laast: ingen overstyring kan endre dem
+    # Laast: alltid med og alltid krav - bare hjelpeteksten kan overstyres (_FAST_HJELP, _gyldige_avvik slipper ikke gjennom noe annet)
+    adresse = tuple(_effektivt(REGISTER[n], avvik[n]) for n in ADRESSEFELT)
     return EffektivtSkjema(tuple(om_deg), blokk, bool(sensitive), adresse, fakturafelt(ORGANISASJON),
                            tuple(del_av_skjemaet(TIL_SLUTT)), sensitive,
                            nederstfelt=tuple(del_av_skjemaet(NEDERST)),
-                           info=frozenset(n for n in INFOFELT if synlig(n)))
+                           info=frozenset(n for n in INFOFELT if synlig(n)),
+                           navnefelt=tuple(_effektivt(REGISTER[n], avvik[n]) for n in NAVNEFELT))

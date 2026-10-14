@@ -1,11 +1,31 @@
 {% extends "admin_deltaker_ramme.html" %}
 {#- «Send e-post» i deltakervinduet, fanen E-poster (Camilla 03.10.2026: «Vil ikke hoppe til en annen side»). Skjemaet er
     felles med e-post til flere (_epostskjema.html); det sendes i bakgrunnen (static/app.js), og etter sendingen står man i
-    E-poster med den nye e-posten øverst. -#}
+    E-poster med den nye e-posten øverst. Med `rabatt` (knappene ved rabatten, Camilla 09.10.2026) står forslaget fra E-postmaler
+    i feltene, og etter sendingen står man i deltakervinduet igjen. -#}
 {% from "_epostskjema.html" import epostskjema with context %}
 {% block deltakerinnhold %}
+{% if rabatt %}
+<p class="liten"><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}" data-i-vindu>← Tilbake til deltakeren</a></p>
+{% else %}
 <p class="liten"><a href="{{ url_for('admin_deltaker_kommunikasjon', kurs_id=kurs.id, paamelding_id=p.id) }}" data-i-vindu>← Alle e-poster</a></p>
+{% endif %}
 <h2 class="epostemne">Ny e-post til {{ p.navn }}</h2>
+{% if rabatt %}
+<div class="varselboks gul" id="rabattepost">
+  <strong>{{ rabatt_valg }}</strong>
+  <p class="liten" style="margin:6px 0 0">{% if rabatt_ordinaer %}Når du sender, blir rabatten ikke godkjent, og fakturaen lages med
+    ordinær pris ({{ kurs.pris_nok | kr }}).{% else %}Rabatten venter fortsatt, og fakturaen holdes tilbake til du trykker «Godkjent»
+    eller «Ikke godkjent – ordinær pris».{% endif %} Teksten er forslaget fra E-postmaler, og du kan endre den her.
+    {%- if '[Skriv' in tekst %} <strong>Skriv inn det deltakeren skal vite der det står [Skriv …].</strong>{% endif %}</p>
+</div>
+{{ epostskjema(url_for('admin_deltaker_epost_send', kurs_id=kurs.id, paamelding_id=p.id),
+               ("Sende e-posten til " ~ p.navn ~ " og sette ordinær pris? Dette kan ikke angres." if rabatt_ordinaer
+                else "Sende e-posten til " ~ p.navn ~ "? Dette kan ikke angres."),
+               skjulte={"rabatt": rabatt},
+               sendtekst=("Send og sett ordinær pris" if rabatt_ordinaer else "Send e-post")) }}
+{% else %}
 {{ epostskjema(url_for('admin_deltaker_epost_send', kurs_id=kurs.id, paamelding_id=p.id),
                "Sende e-posten til " ~ p.navn ~ "? Dette kan ikke angres.") }}
+{% endif %}
 {% endblock %}

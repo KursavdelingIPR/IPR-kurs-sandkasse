@@ -31,6 +31,27 @@
 </tr>
 {%- endmacro -%}
 
+{#- Et fast felt under «Om deg» (fornavn ... poststed): alltid med og alltid krav, men hjelpeteksten kan endres under «Mer»
+    (Camilla 09.10.2026: «Vi skal kunne redigere hjelpetekst, ja»). -#}
+{%- macro fasthjelprad(n, navn, tekst) -%}
+{%- set x = v.get(n, {}) -%}
+<tbody class="sb-felt" id="felt-{{ n }}">
+  <tr class="sb-fastrad">
+    <td class="sb-flytt"></td>
+    <td class="sb-navn"><span class="sb-fast">{{ navn }}</span></td>
+    <td class="sb-type">{{ tekst }}{% if x.tilpasset %} <span class="merke gul">Tilpasset</span>{% endif %}</td>
+    <td class="sb-sjekk"><input type="checkbox" checked disabled aria-label="Krav: {{ navn }}"></td>
+    <td class="sb-sjekk"><input type="checkbox" checked disabled aria-label="Vis: {{ navn }}"></td>
+    <td class="sb-merkol">{{ merknapp('mer-' ~ n) }}</td>
+  </tr>
+  <tr class="sb-mer" id="mer-{{ n }}"{% if n not in aapne %} hidden{% endif %}><td colspan="6">
+    <label for="f-{{ n }}_hjelpetekst">Hjelpetekst <span class="dempet">(valgfri, maks {{ maks_hjelpetekst }} tegn)</span></label>
+    <textarea id="f-{{ n }}_hjelpetekst" name="{{ n }}_hjelpetekst" rows="2" maxlength="{{ maks_hjelpetekst }}">{{ x.hjelpetekst }}</textarea>
+    <p class="dempet">Bare hjelpeteksten kan endres. Feltet er alltid med og alltid krav.</p>
+  </td></tr>
+</tbody>
+{%- endmacro -%}
+
 {#- Et standardfelt (telefon, fakturafeltene, allergier ...). `seksjon`: kan flyttes innenfor «Om deg». -#}
 {%- macro standardrad(n, seksjon=none) -%}
 {%- set f = register[n] %}{% set x = v[n] -%}
@@ -174,14 +195,12 @@
     <thead><tr><th scope="col"><span class="skjul-visuelt">Flytt</span></th><th scope="col">Feltnavn</th><th scope="col">Type</th><th scope="col" class="sb-sjekk">Krav</th><th scope="col" class="sb-sjekk">Vis</th><th scope="col"><span class="skjul-visuelt">Mer</span></th></tr></thead>
 
     <tbody class="sb-seksjon"><tr><th scope="rowgroup" colspan="6">Om deg</th></tr></tbody>
-    <tbody class="sb-fast">
-      {{ fastrad('Fornavn', 'Fast felt') }}
-      {{ fastrad('Etternavn', 'Fast felt') }}
-      {{ fastrad('E-post', 'Fast felt – brukes til bekreftelse og Min side') }}
-      {{ fastrad('Adresse', 'Fast felt – deltakerens private adresse, lagres på personen. Krav for alle deltakere') }}
-      {{ fastrad('Postnummer', 'Fast felt – 4 siffer i Norge') }}
-      {{ fastrad('Poststed', 'Fast felt') }}
-    </tbody>
+    {{ fasthjelprad('fornavn', 'Fornavn', 'Fast felt') }}
+    {{ fasthjelprad('etternavn', 'Etternavn', 'Fast felt') }}
+    {{ fasthjelprad('epost', 'E-post', 'Fast felt – brukes til bekreftelse og Min side') }}
+    {{ fasthjelprad('adresse', 'Adresse', 'Fast felt – deltakerens private adresse, lagres på personen. Krav for alle deltakere') }}
+    {{ fasthjelprad('postnr', 'Postnummer', 'Fast felt – 4 siffer i Norge') }}
+    {{ fasthjelprad('poststed', 'Poststed', 'Fast felt') }}
     {%- for n in v.rekkefolge.om_deg %}
     {% if n in register %}{{ standardrad(n, 'om_deg') }}{% else %}{{ egetrad(n, 'om_deg') }}{% endif %}
     {%- endfor %}

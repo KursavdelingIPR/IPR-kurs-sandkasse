@@ -302,7 +302,9 @@ def test_laaste_felt_systemblokker_og_ukjent_kan_ikke_injiseres(con, admin):
     kid = _kurs(con)
     manip = {f"{felt}_{e}": v for felt in ("navn", "fornavn", "etternavn", "epost", "samtykke", "betaler", "faktura",
                                            "org_nr", "org_navn", "org_adresse", "betaling", "eget_felt", "ekstra_1")
-             for e, v in (("synlig", ""), ("obligatorisk", "on"), ("label", "HACK"), ("hjelpetekst", "HACK"))}
+             for e, v in (("synlig", ""), ("obligatorisk", "on"), ("label", "HACK"), ("hjelpetekst", "HACK"))
+             # hjelpeteksten på fornavn/etternavn/e-post kan endres (Camilla 09.10.2026): den er ikke en injeksjon
+             if not (e == "hjelpetekst" and felt in ("fornavn", "etternavn", "epost"))}
     # Egenskaper som ikke kan endres for felt som ellers kan tilpasses: allergier/tilrettelegging/EHF er aldri krav,
     # informasjonsboksen er bare vis/skjul, og plassen i fakturablokken er fast.
     manip |= {"allergier_obligatorisk": "on", "tilrettelegging_obligatorisk": "on", "ehf_obligatorisk": "on",
@@ -500,3 +502,26 @@ def test_lagring_logger_uten_tekstinnhold(con, admin):
             con.execute("SELECT * FROM hendelse WHERE handling LIKE 'skjema%'")]
     assert logg and all(a == f"admin:{config.ADMIN_BRUKERNAVN}" for _, a, _ in logg)
     assert "HEMMELIG" not in json.dumps(logg)
+
+
+# ============================ hjelpetekst på de faste feltene (Camilla 09.10.2026) ============================
+
+def test_hjelpetekst_paa_de_faste_feltene_kan_endres(con, admin):
+    """«Vi skal kunne redigere hjelpetekst, ja»: fornavn, etternavn, e-post og adressefeltene får egen hjelpetekst under «Mer». Feltnavn,
+    krav og vis står fast, samtykket er helt låst, og uten egen hjelpetekst er påmeldingsskjemaet som før."""
+    kid = _kurs(con)
+    side = admin.get(_url(kid)).get_data(as_text=True)
+    for n in sf.FASTE_DELTAKERFELT:
+        assert f'name="{n}_hjelpetekst"' in side, n
+    assert 'name="samtykke_hjelpetekst"' not in side and 'name="fornavn_label"' not in side
+    foer = admin.get("/kurs/A1").get_data(as_text=True)
+    assert 'aria-describedby="hjelp-fornavn"' not in foer
+    assert _lagre(admin, kid, fornavn_hjelpetekst="Som i passet", postnr_hjelpetekst="Postnummeret der du bor").status_code == 302
+    assert {r["felt"]: r["hjelpetekst"] for r in _rader(con, kid)} == {"fornavn": "Som i passet", "postnr": "Postnummeret der du bor"}
+    skjema = admin.get("/kurs/A1").get_data(as_text=True)
+    assert 'aria-describedby="hjelp-fornavn"' in skjema and ">Som i passet</p>" in skjema
+    assert "Postnummeret der du bor" in skjema and "4 siffer i Norge." not in skjema
+    assert "Tilpasset" in admin.get(_url(kid)).get_data(as_text=True)
+    # tilbake til standard: tom tekst der det ikke er noen standard, og standardteksten der det er én (tom = bevisst ingen hjelpetekst)
+    _lagre(admin, kid, fornavn_hjelpetekst="", postnr_hjelpetekst="4 siffer i Norge.")
+    assert _rader(con, kid) == [] and "4 siffer i Norge." in admin.get("/kurs/A1").get_data(as_text=True)

@@ -130,15 +130,15 @@
 
   <div class="pm-rad">
     <label class="pm-etikett" for="f-fornavn">Fornavn <span class="pm-krav">(krav)</span></label>
-    <div class="pm-felt"><input id="f-fornavn" name="fornavn" required autocomplete="given-name" value="{{ f.fornavn }}"></div>
+    <div class="pm-felt"><input id="f-fornavn" name="fornavn" required autocomplete="given-name" value="{{ f.fornavn }}"{{ beskrevet(skjema.fast('fornavn')) }}>{{ hjelp(skjema.fast('fornavn')) }}</div>
   </div>
   <div class="pm-rad">
     <label class="pm-etikett" for="f-etternavn">Etternavn <span class="pm-krav">(krav)</span></label>
-    <div class="pm-felt"><input id="f-etternavn" name="etternavn" required autocomplete="family-name" value="{{ f.etternavn }}"></div>
+    <div class="pm-felt"><input id="f-etternavn" name="etternavn" required autocomplete="family-name" value="{{ f.etternavn }}"{{ beskrevet(skjema.fast('etternavn')) }}>{{ hjelp(skjema.fast('etternavn')) }}</div>
   </div>
   <div class="pm-rad">
     <label class="pm-etikett" for="f-epost">E-post <span class="pm-krav">(krav)</span></label>
-    <div class="pm-felt"><input id="f-epost" name="epost" type="email" required autocomplete="email" value="{{ f.epost }}" data-epost-sjekk="{{ EPOST_SJEKK }}"></div>
+    <div class="pm-felt"><input id="f-epost" name="epost" type="email" required autocomplete="email" value="{{ f.epost }}" data-epost-sjekk="{{ EPOST_SJEKK }}"{{ beskrevet(skjema.fast('epost')) }}>{{ hjelp(skjema.fast('epost')) }}</div>
   </div>
   {#- Skrives inn to ganger, så en skrivefeil oppdages før påmeldingen sendes (Camilla 05.10.2026, alle påmeldingsskjema) -#}
   <div class="pm-rad">
@@ -181,7 +181,7 @@
     <div class="pm-rad">
       <label class="pm-etikett" for="f-studentbevis">Studentbevis <span class="pm-krav">(krav)</span></label>
       <div class="pm-felt"><input id="f-studentbevis" name="studentbevis" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required aria-describedby="hjelp-studentbevis"{{ ' disabled' if not vist }}>
-        <p id="hjelp-studentbevis" class="pm-hjelp">Et bilde eller en PDF av gyldig studentbevis (maks 10 MB). Vi sletter det når vi har sjekket det.{% if vist %} Velg filen på nytt.{% endif %}</p></div>
+        <p id="hjelp-studentbevis" class="pm-hjelp">Et bilde eller en PDF av gyldig studentbevis (maks {{ BEVIS_MAKS_MB }} MB). Vi sletter det når vi har sjekket det.{% if vist %} Velg filen på nytt.{% endif %}</p></div>
     </div>
     {%- elif r.kategori == 'nieft' %}
     <div class="pm-rad"><span class="pm-etikett" aria-hidden="true"></span>
@@ -246,7 +246,7 @@
     <span class="pm-etikett" id="e-betaling">Betaling</span>
     <div class="pm-felt pm-valg">
       <label><input type="radio" name="betaling" value="samlet"{{ ' checked' if f.betaling != 'per_samling' }}>{{ valgtekst('Hele beløpet i én faktura (', '{:,}'.format(kurs.pris_nok).replace(',', ' '), ' kr)') }}</label>
-      <label><input type="radio" name="betaling" value="per_samling"{{ ' checked' if f.betaling == 'per_samling' }}>{{ valgtekst('Delt opp – én faktura før hver samling (ca. ', '{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' '), ' kr × ' ~ antall_samlinger ~ ')', antall_samlinger) }}</label>
+      <label><input type="radio" name="betaling" value="per_samling"{{ ' checked' if f.betaling == 'per_samling' }}>{{ valgtekst('Delt opp – én faktura før hver samling (ca. ', '{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' '), ' kr × ' ~ antall_samlinger ~ ') – ' ~ FAKTURAGEBYR_KR ~ ' kr i fakturagebyr per faktura', antall_samlinger) }}</label>
     </div>
   </div>
   {%- elif kurs.betaling == 'per_samling' and antall_samlinger > 1 %}
@@ -255,6 +255,22 @@
     <div class="pm-felt"><p class="pm-tekst">Kurset faktureres per samling: ca. {{ belop('{:,}'.format((kurs.pris_nok / antall_samlinger)|round(0,'floor')|int).replace(',', ' '), antall_samlinger) }} kr før hver av de {{ antall_samlinger }} samlingene.</p></div>
   </div>
   {%- endif %}
+  {#- Betalingsvilkårene (Camilla 09.10.2026: teksten godkjent, «dersom de ønsker så kan faktura sendes tidligere enn 6 måneder, men da må
+      de sende en e-post til kurs@ipr.no» - «eller post@terapiakademiet», etter kurset: kontakt_epost). -#}
+  {%- set deling = antall_samlinger > 1 and kurs.betaling in ('deltaker_velger', 'per_samling') %}
+  {%- set tid = 'ca. én måned' if 28 <= kurs.faktura_dager_for <= 31 else kurs.faktura_dager_for ~ ' dager' %}
+  <div class="pm-rad" id="betalingsvilkar">
+    <span class="pm-etikett">Betalingsvilkår</span>
+    <div class="pm-felt"><ul class="pm-vilkar">
+      <li>Fakturamottakeren kan ikke endres etter påmeldingen.</li>
+      <li>Fakturaen sendes tidligst seks måneder før kursstart. Melder du deg på senere, sendes den rett etter påmeldingen. Ønsker du
+        fakturaen tidligere, send en e-post til <a href="mailto:{{ kontakt_epost }}">{{ kontakt_epost }}</a>.</li>
+      {%- if deling %}
+      <li>{% if kurs.betaling == 'per_samling' %}Fakturaen for hver samling sendes{% else %}Deler du opp betalingen, sendes fakturaen for hver samling{% endif %} {{ tid }} før samlingen.</li>
+      {%- endif %}
+      <li>Fakturagebyr: {{ FAKTURAGEBYR_KR }} kr per faktura. Fakturaen må være betalt før {{ 'samlingen' if antall_samlinger > 1 else 'kurset' }} starter.</li>
+    </ul></div>
+  </div>
   {%- endif %}
 
   {%- if skjema.sluttfelt or skjema.sensitive_felt %}

@@ -1,0 +1,65 @@
+{#- Oversikten over evalueringssvarene (anonyme): tallene øverst, og per spørsmål gjennomsnitt og søyler (skala), valg i prosent eller
+    alle tekstene. Felles for fanen Evaluering og resultatlenken til kursholderne (evaluering_resultat.html, Camilla 09.10.2026: «svarene
+    fra evalueringen må enkelt kunne deles med kursholderne»). Trenger res (evaluering.resultater), skala og tid_tekst. -#}
+<style>
+  .ev-stat { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:12px; margin:12px 0 18px; }
+  .ev-stat .kort { margin:0; }
+  .ev-stat .tall { font-size:28px; font-weight:600; color:var(--bla-mork); line-height:1.2; }
+  .ev-sp { max-width:900px; }
+  .ev-sp h3 { margin:0 0 10px; font-size:17px; }
+  .ev-snitt { display:flex; flex-wrap:wrap; gap:26px; align-items:center; }
+  .ev-snitt .stort { font-size:40px; font-weight:600; line-height:1; }
+  .ev-soyler { flex:1 1 320px; display:grid; grid-template-columns:auto 1fr auto; gap:6px 10px; align-items:center; font-size:14px; }
+  .ev-soyle { height:16px; background:var(--bla); border-radius:2px; min-width:2px; }
+  .ev-soyle.ev-tom { background:transparent; }
+  .ev-tekster { margin:0; padding-left:20px; }
+  .ev-tekster li { margin:6px 0; white-space:pre-wrap; }
+</style>
+<div class="ev-stat">
+  <div class="kort"><div class="liten dempet">Svar</div><div class="tall">{{ res.antall_svar }}</div>
+    {% if res.via_delt %}<div class="liten dempet">{{ res.via_delt }} via delt lenke</div>{% endif %}</div>
+  <div class="kort"><div class="liten dempet">Svarprosent</div><div class="tall">{{ (res.svarprosent ~ ' %') if res.svarprosent is not none else '–' }}</div>
+    <div class="liten dempet">{% if res.invitert %}{{ res.via_epost }} av {{ res.invitert }} som fikk lenken på e-post{% else %}Ingen har fått lenken på e-post ennå{% endif %}</div></div>
+  <div class="kort"><div class="liten dempet">Gjennomsnittstid</div><div class="tall">{{ tid_tekst(res.snitt_sekunder) }}</div>
+    <div class="liten dempet">minutter:sekunder på skjemaet</div></div>
+  <div class="kort"><div class="liten dempet">Åpen</div><div class="tall">{{ res.apen_dager if res.apen_dager else '–' }}{% if res.apen_dager %} <span style="font-size:15px; font-weight:400">{{ 'dag' if res.apen_dager == 1 else 'dager' }}</span>{% endif %}</div>
+    {% if res.apen_siden %}<div class="liten dempet">siden {{ res.apen_siden.strftime('%d.%m.%Y') }}{% if res.siste %} · siste svar {{ res.siste.strftime('%d.%m.%Y') }}{% endif %}</div>{% endif %}</div>
+</div>
+
+{% if not res.antall_svar %}
+<p class="dempet">Ingen svar ennå.</p>
+{% else %}
+{% for s in res.sporsmal %}
+<div class="kort ev-sp">
+  <h3>{{ s.nr }}. {{ s.tekst }}</h3>
+  {% if s.type == 'skala' %}
+  <div class="ev-snitt">
+    <div style="text-align:center; min-width:150px">
+      <div class="stort">{{ ('%.2f'|format(s.snitt)).replace('.', ',') if s.snitt is not none else '–' }}</div>
+      <div class="liten dempet">Gjennomsnittlig vurdering<br>{{ s.antall }} svar</div>
+    </div>
+    <div class="ev-soyler" role="list" aria-label="Fordeling">
+      {% for n in skala|reverse %}{% set antall = s.fordeling[n] %}
+      <span role="listitem">Nivå {{ n }}</span>
+      <span><span class="ev-soyle{{ ' ev-tom' if not antall }}" style="display:block; width:{{ (100 * antall / s.maks)|round|int if s.maks else 0 }}%"></span></span>
+      <strong>{{ antall }}</strong>
+      {% endfor %}
+    </div>
+  </div>
+  {% elif s.type == 'valg' %}
+  <div class="ev-soyler" style="max-width:640px" role="list" aria-label="Fordeling">
+    {% for t in s.telling %}
+    <span role="listitem">{{ t.valg }}</span>
+    <span><span class="ev-soyle{{ ' ev-tom' if not t.antall }}" style="display:block; width:{{ (100 * t.antall / s.maks)|round|int if s.maks else 0 }}%"></span></span>
+    <strong>{{ t.antall }} <span class="liten dempet" style="font-weight:400">({{ t.prosent }} %)</span></strong>
+    {% endfor %}
+  </div>
+  <p class="liten dempet" style="margin:8px 0 0">{{ s.antall }} svar</p>
+  {% else %}
+  {% if s.tekster %}<p class="liten dempet" style="margin:0 0 6px">{{ s.antall }} svar</p>
+  <ul class="ev-tekster">{% for t in s.tekster %}<li>{{ t }}</li>{% endfor %}</ul>
+  {% else %}<p class="dempet" style="margin:0">Ingen har skrevet noe her.</p>{% endif %}
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
