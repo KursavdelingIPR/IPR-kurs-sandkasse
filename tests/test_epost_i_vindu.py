@@ -55,7 +55,7 @@ def test_fanen_e_poster_aapner_skjemaet_i_vinduet_med_signaturen_under_teksten(c
     k = _klient()
     fane = k.get(f"/admin/kurs/{kid}/deltaker/{pid}/kommunikasjon").get_data(as_text=True)
     assert f'href="/admin/kurs/{kid}/deltaker/{pid}/epost/ny" data-i-vindu>Send e-post til Tove Test</a>' in fane
-    assert '<a class="knapp liten" href="' in fane                                    # fylt knapp, ikke hvit
+    assert '<a class="knapp vinduknapp" href="' in fane                                # fylt knapp, ikke hvit (litt større 15.10.2026)
     skjema = _skjema(k, kid, pid)
     assert f'action="/admin/kurs/{kid}/deltaker/{pid}/epost/send"' in skjema and "forhandsvis" not in skjema
     assert 'name="emne"' in skjema and 'name="tekst"' in skjema and 'name="signatur_valg"' in skjema

@@ -1,4 +1,6 @@
 {% extends "admin_base.html" %}
+{#- Bred side og kompakte kolonner: hele deltakerlisten skal synes uten å bla sidelengs på PC (Camilla 14.10.2026) -#}
+{% block sideklasse %} class="bred"{% endblock %}
 {% block innhold %}
 {% include "admin_kurs_header.html" %}
 {% include "admin_kurs_faner.html" %}
@@ -83,13 +85,12 @@
   {% if deltakere %}<label style="font-weight:normal; margin-left:10px"><input type="checkbox" id="velg-alle-synlige"> Velg alle synlige</label>
   <span id="antall-valgt" class="dempet"></span>{% endif %}</p>
 <div class="tabellboks"><table>
-  <tr><th scope="col"></th><th scope="col">Navn</th><th scope="col">E-post</th><th scope="col">Telefon</th><th scope="col">Arbeidssted</th><th scope="col">Fakturastatus</th><th scope="col">Påmeldingsstatus</th><th scope="col">Sist oppdatert</th><th scope="col"></th></tr>
+  <tr><th scope="col"></th><th scope="col">Navn</th><th scope="col">E-post og telefon</th><th scope="col">Arbeidssted</th><th scope="col">Fakturastatus</th><th scope="col">Påmeldingsstatus</th><th scope="col">Sist oppdatert</th><th scope="col"></th></tr>
   {% for p in deltakere %}
   <tr data-filtrer="deltaker" data-status="{{ p.statusnokkel }}" data-sok="{{ p.sokbar }}" {{ 'hidden' if not p.synlig }}{% if p.status == 'avmeldt' %} class="inaktiv"{% endif %} id="rad-{{ p.id }}">
     <td><input type="checkbox" class="valgt-deltaker" name="paamelding_id" value="{{ p.id }}" form="valgte-deltakere" aria-label="Velg {{ p.navn }}"></td>
     <td><a href="{{ url_for('admin_deltaker', kurs_id=kurs.id, paamelding_id=p.id) }}" data-deltaker-vindu><strong>{{ p.navn }}</strong></a>{% if p.kontroll %}<div><span class="merke gul" title="{% for f in p.kontroll %}{{ f.felt }}: {{ f.tekst }}{{ ' ' if not loop.last }}{% endfor %}">Sjekk opplysningene</span></div>{% endif %}{% if rabatt_merke(p) %}<div><span class="merke gul">{{ rabatt_merke(p) }}</span></div>{% elif rabatt_prisnavn(p) %}<div><span class="merke">{{ rabatt_prisnavn(p) }}</span></div>{% endif %}{% if p.firma_mangler %}<div><span class="merke gul">{{ FIRMA_MERKE }}</span></div>{% endif %}{% if p.adresse_merke %}<div><span class="merke gul" title="{{ 'Bare en del av den private adressen er lagt inn. Åpne deltakeren og fyll inn det som mangler under Personopplysninger.' if p.adresse_merke == ADRESSE_UFULLSTENDIG_MERKE else 'Privat adresse er ikke lagt inn. Åpne deltakeren og fyll den inn under Personopplysninger.' }}{% if p.faktura_venter_adresse %} Fakturaen holdes tilbake til alle tre feltene er lagt inn.{% endif %}">{{ p.adresse_merke }}</span></div>{% endif %}</td>
-    <td class="liten">{{ p.epost }}</td>
-    <td class="liten">{{ p.telefon or '' }}</td>
+    <td class="liten">{{ p.epost }}{% if p.telefon %}<div class="dempet">{{ p.telefon }}</div>{% endif %}</td>
     <td class="liten">{{ p.arbeidssted or '' }}</td>
     <td><span class="merke {{ {'Betalt':'ok','Fakturert':'gul','Delvis betalt':'gul','Venter på privat adresse':'gul'}.get(p.fakturastatus, 'gra') }}">{{ p.fakturastatus }}</span></td>
     <td class="statuscelle">{% if p.status_tekster is defined %}
@@ -108,12 +109,12 @@
       </form>
       {%- else %}<span class="merke {{ p|statusmerke }}">{{ p|paameldingsstatus }}</span>{% endif %}
       {%- if p.utvalg_tekst %}<div class="liten dempet utvalg-tekst" title="Samlingene {{ STATUS.ekstradeltaker|lower }}en deltar på">{{ p.utvalg_tekst }}</div>{% endif %}</td>
-    <td class="liten dempet">{{ p.oppdatert[:16].replace('T', ' ') }}</td>
+    <td class="liten dempet" style="white-space:nowrap" title="{{ p.oppdatert[:16].replace('T', ' kl. ') }}">{{ p.oppdatert[8:10] }}.{{ p.oppdatert[5:7] }}.{{ p.oppdatert[:4] }}</td>
     <td>{% if p.status != 'avmeldt' and kurs.status != 'avsluttet' %}<form method="post" action="{{ url_for('admin_meld_av', pid=p.id) }}" data-bekreft="Melde av {{ p.navn }}?" style="margin:0">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="liten sekundar">Meld av</button></form>{% endif %}</td>
   </tr>
-  {% else %}<tr><td colspan="9" class="dempet">Ingen deltakere er registrert ennå.</td></tr>{% endfor %}
-  {% if deltakere %}<tr data-ingen-treff="deltaker" {{ 'hidden' if synlige }}><td colspan="9" class="dempet">Ingen deltakere matcher søket.</td></tr>{% endif %}
+  {% else %}<tr><td colspan="8" class="dempet">Ingen deltakere er registrert ennå.</td></tr>{% endfor %}
+  {% if deltakere %}<tr data-ingen-treff="deltaker" {{ 'hidden' if synlige }}><td colspan="8" class="dempet">Ingen deltakere matcher søket.</td></tr>{% endif %}
 </table></div>
 {% if deltakere %}
 <p class="liten" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">

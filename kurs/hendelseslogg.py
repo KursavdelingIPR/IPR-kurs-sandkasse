@@ -315,6 +315,7 @@ _TEKSTER = {
     "rabatt_info_bedt": _rabatt_info_bedt,
     "ekstradeltaker_utvalg": _utvalg_endret,
     "avmelding": lambda d, o, h: [("Avmeldt", [])],
+    "bekreftelse_sendt_paa_nytt": lambda d, o, h: [("Påmeldingsbekreftelsen ble sendt på nytt", [])],
     "paamelding_avslatt": lambda d, o, h: [("Avslått", _status_for_og_ny(d, "avslatt"))],
     "flyttet_fra_venteliste": _flyttet_opp,
     "manuell_behandling_utlost": _manuell_behandling,

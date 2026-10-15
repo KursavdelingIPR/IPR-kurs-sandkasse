@@ -408,7 +408,7 @@ def test_forfalte_punkter_er_roede_i_kalender_aarsplan_og_listen(con):
     maaned = k.get("/admin/aktiviteter/kalender?aar=2031&maned=3").get_data(as_text=True)
     assert re.search(r'class="hendelse kursfarge-\d+ planlagt[^"]* forfalt"', maaned)
     assert '<span class="prove forfalt">&nbsp;</span> forfalt i sjekklisten' in maaned          # forklaringen
-    aar = k.get("/admin/aktiviteter/aarsplan?aar=2031").get_data(as_text=True)
+    aar = k.get("/admin/aktiviteter/aarsplan?aar=2031&vis=maaneder").get_data(as_text=True)
     assert re.search(r'class="miniblokk kursfarge-\d+ planlagt[^"]* forfalt"', aar)
     assert "3 forfalt i sjekklisten" in k.get("/admin/aktiviteter/planlagte-kurs").get_data(as_text=True)
     oversikt = k.get("/admin/aktiviteter/kalender").get_data(as_text=True)

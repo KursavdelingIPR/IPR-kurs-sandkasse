@@ -2,7 +2,17 @@
 {% block deltakerinnhold %}
 <div class="seksjonstopp">
   <p class="liten dempet">E-poster som er sendt for denne påmeldingen, nyeste først. Klikk på emnet for å se når den ble sendt, til hvem, hva som sto i den og eventuelle vedlegg.</p>
-  {% if admin_rolle != 'lese' %}<a class="knapp liten" href="{{ url_for('admin_deltaker_epost_ny', kurs_id=kurs.id, paamelding_id=p.id) }}" data-i-vindu>Send e-post til {{ p.navn }}</a>{% endif %}
+  {#- «Send påmeldingsbekreftelse» ved siden av «Send e-post», samme stil (Camilla 15.10.2026): den samme bekreftelsen som ved påmeldingen,
+      bare e-posten (ingen faktura). Bare for påmeldte. -#}
+  {% if admin_rolle != 'lese' %}<div class="vinduknapper">
+    <a class="knapp vinduknapp" href="{{ url_for('admin_deltaker_epost_ny', kurs_id=kurs.id, paamelding_id=p.id) }}" data-i-vindu>Send e-post til {{ p.navn }}</a>
+    {% if p.status == 'bekreftet' %}<form method="post" action="{{ url_for('admin_deltaker_bekreftelse', kurs_id=kurs.id, paamelding_id=p.id) }}"
+          data-bekreft="Send påmeldingsbekreftelsen til {{ p.navn }} ({{ p.epost }}){{ ' på nytt' if bekreftelse_sendt }}? Det lages ingen ny faktura.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="skjemanokkel" value="{{ bekreftelse_nokkel }}">
+      <button class="vinduknapp">Send påmeldingsbekreftelse</button>
+    </form>{% endif %}
+  </div>{% endif %}
 </div>
 <div class="tabellboks"><table class="eposttabell">
   <thead><tr><th scope="col">Emne</th><th scope="col">Dato</th><th scope="col">Kl.</th><th scope="col">Til</th>

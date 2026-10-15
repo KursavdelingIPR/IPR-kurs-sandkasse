@@ -190,7 +190,7 @@ def test_opprett_og_slett_logger_uten_fritekst(con):
 def test_siden_viser_aaret_kurs_overlapp_og_ledige_perioder(con):
     _kurs(con, "G1", "Grunnkurs i EFT", ["2031-03-10"])
     _kurs(con, "G2", "Parterapi", ["2031-03-10"])
-    html = _admin().get(f"/admin/aktiviteter/aarsplan?aar={AAR}").get_data(as_text=True)
+    html = _admin().get(f"/admin/aktiviteter/aarsplan?aar={AAR}&vis=maaneder").get_data(as_text=True)
     assert "<h1>Årsplan 2031</h1>" in html and 'aria-current="page">Kalender</a>' in html
     assert 'class="aktiv" href="/admin/aktiviteter/aarsplan">Årsplan</a>' in html
     assert '<h2 id="mnd-3-tittel">Mars</h2>' in html and html.count('<section class="minimaaned"') == 12

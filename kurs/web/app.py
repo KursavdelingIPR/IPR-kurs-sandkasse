@@ -1490,14 +1490,15 @@ def admin_kalender():
 
 
 def _vis_aarsplan(aar: int, skjema=None, status: int = 200, periodeskjema=None):
-    """Årsplanen: «Året» (tolv små månedskalendere, standard) eller «Uke for uke» (?vis=uker). ?omraade= viser
+    """Årsplanen: «Kurshjul» (kalenderen med fargede kursdager og «Uke for uke» ved siden av, standard; Camilla 15.10.2026),
+    «Måneder» (?vis=maaneder: tolv små månedskalendere med kursene som blokker) eller «Uke for uke» (?vis=uker). ?omraade= viser
     skoleferiene for ett område, ?ledig= er minste lengde på ledige perioder (dager). Passerte ledige perioder vises ikke."""
     idag = _idag()
     omraader = aarsplan.omraader(con())
     omraade = request.args.get("omraade") or ""
     if omraade not in omraader:
         omraade = ""
-    aarsvisning = "uker" if request.args.get("vis") == "uker" else "aar"
+    aarsvisning = {"uker": "uker", "maaneder": "aar"}.get(request.args.get("vis"), "hjul")
     min_dager = request.args.get("ledig", type=int)
     if min_dager not in (3, 5, 7, 14):
         min_dager = aarsplan.LEDIG_MIN_DAGER
@@ -1508,6 +1509,7 @@ def _vis_aarsplan(aar: int, skjema=None, status: int = 200, periodeskjema=None):
     return render_template(
         "admin_aarsplan.html", aar=aar, idag=idag, visning="aarsplan",
         maaneder=aarsplan.aarskalender(plan, idag) if aarsvisning == "aar" else None,
+        kurshjul=aarsplan.kurshjul(plan, idag) if aarsvisning == "hjul" else None,
         planer=aarsplan.planliste(plan), overlapp=aarsplan.overlapp_perioder(plan),
         ledige=kommende, ledige_passert=len(ledige) - len(kommende), ledige_uker=aarsplan.ledige_perioder(plan),
         min_dager=min_dager,
@@ -3961,6 +3963,32 @@ def _planlagt_faktura(kurs, p) -> str | None:
     return f"{dato.day:02d}.{dato.month:02d}.{dato.year}" if dato else None
 
 
+@app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/bekreftelse")
+@krever_admin
+def admin_deltaker_bekreftelse(kurs_id, paamelding_id):
+    """«Send påmeldingsbekreftelse» (Camilla 14.10.2026): sender den samme bekreftelsen på nytt til en påmeldt deltaker (sveiper.
+    send_bekreftelse_paa_nytt). Bare e-posten, ingen faktura. `skjemanokkel` (laget når siden vises) gjør at et dobbeltklikk sender én gang."""
+    _hent_kurs(kurs_id)
+    p = _hent_paamelding(kurs_id, paamelding_id)             # 404 når påmeldingen ikke hører til kurset
+    tilbake = redirect(url_for("admin_deltaker_kommunikasjon", kurs_id=kurs_id, paamelding_id=paamelding_id))   # fanen E-poster
+    skjemanokkel = request.form.get("skjemanokkel", "")
+    if p["status"] != "bekreftet" or not re.fullmatch(r"[0-9a-f]{16}", skjemanokkel):
+        flash("Påmeldingsbekreftelsen kan bare sendes til en påmeldt deltaker.", "feil")
+        return tilbake
+    try:
+        sendt = sveiper.send_bekreftelse_paa_nytt(Kjoring(con(), idag=_idag(), aktor=_aktor()), paamelding_id, skjemanokkel)
+    except Exception as e:  # noqa: BLE001 - malfeil, e-posttjenesten eller kopien: ingenting er sendt, eller utfallet er uklart
+        db.rull_tilbake_hvis_avbrutt(con())
+        flash(f"Påmeldingsbekreftelsen ble ikke sendt: {sikker_feiltekst(e)}", "feil")
+        return tilbake
+    if sendt:
+        flash(f"Påmeldingsbekreftelsen er sendt til {p['navn']} ({p['epost']}). Den står i listen under.", "ok")
+    else:
+        flash("Påmeldingsbekreftelsen er allerede sendt fra dette skjermbildet (for eksempel ved et dobbeltklikk), eller utfallet er "
+              "uklart. Se fanen E-poster.", "info")
+    return tilbake
+
+
 @app.post("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/faktura-naa")
 @krever_admin
 def admin_deltaker_faktura_naa(kurs_id, paamelding_id):
@@ -3995,7 +4023,8 @@ def admin_deltaker_kommunikasjon(kurs_id, paamelding_id):
     p = _hent_paamelding(kurs_id, paamelding_id)
     return render_template("admin_deltaker_kommunikasjon.html", kurs=kurs, p=p,
                            eposter=eposthistorikk.for_paamelding(con(), p), ikke_lagret=eposthistorikk.IKKE_LAGRET,
-                           fane="kommunikasjon")
+                           fane="kommunikasjon", bekreftelse_nokkel=secrets.token_hex(8),
+                           bekreftelse_sendt=db.allerede_sendt(con(), f"kurs:{kurs_id}", p["epost"], "bekreftelse"))
 
 
 @app.get("/admin/kurs/<int:kurs_id>/deltaker/<int:paamelding_id>/epost/<int:epost_id>")

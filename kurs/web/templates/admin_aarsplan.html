@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='sjekkliste.css') }}">{% endblock %}
 {% from "_periodefelt.html" import periodefelt with context %}
 {% block innhold %}
+{% set vis_param = {'hjul': none, 'aar': 'maaneder', 'uker': 'uker'}[aarsvisning] %}
 <h1>Årsplan {{ aar }}</h1>
 <p class="sub">Hele året måned for måned: kurs og samlinger, røde dager, skoleferier og egne perioder. Ledige perioder, kollisjoner
   og konflikter står under kalenderen. Ingenting her hindrer at kurs opprettes.</p>
@@ -14,12 +15,12 @@
 {% include "admin_aktivitet_faner.html" %}
 
 <div class="kalenderverktoy ikke-utskrift">
-  <a class="knapp sekundar liten" href="{{ url_for('admin_aarsplan', aar=aar - 1, vis=aarsvisning if aarsvisning != 'aar' else None, omraade=omraade or None) }}">« {{ aar - 1 }}</a>
-  <a class="knapp sekundar liten" href="{{ url_for('admin_aarsplan', aar=aar + 1, vis=aarsvisning if aarsvisning != 'aar' else None, omraade=omraade or None) }}">{{ aar + 1 }} »</a>
-  {% if aar != idag.year %}<a class="liten" href="{{ url_for('admin_aarsplan', vis=aarsvisning if aarsvisning != 'aar' else None, omraade=omraade or None) }}">I år</a>{% endif %}
+  <a class="knapp sekundar liten" href="{{ url_for('admin_aarsplan', aar=aar - 1, vis=vis_param, omraade=omraade or None) }}">« {{ aar - 1 }}</a>
+  <a class="knapp sekundar liten" href="{{ url_for('admin_aarsplan', aar=aar + 1, vis=vis_param, omraade=omraade or None) }}">{{ aar + 1 }} »</a>
+  {% if aar != idag.year %}<a class="liten" href="{{ url_for('admin_aarsplan', vis=vis_param, omraade=omraade or None) }}">I år</a>{% endif %}
   <span class="liten dempet">{{ antall_kurs }} kurs · {{ antall_kursdager }} kursdag{{ 'er' if antall_kursdager != 1 }}{% if antall_planlagte_kurs %} · {{ antall_planlagte_kurs }} {{ 'planlagt kurs' if antall_planlagte_kurs == 1 else 'planlagte kurs' }}{% endif %} · {{ antall_planer }} {{ 'planlagt aktivitet' if antall_planer == 1 else 'planlagte aktiviteter' }}</span>
   <form method="get" class="omraadevalg">
-    <input type="hidden" name="aar" value="{{ aar }}">{% if aarsvisning != 'aar' %}<input type="hidden" name="vis" value="{{ aarsvisning }}">{% endif %}
+    <input type="hidden" name="aar" value="{{ aar }}">{% if vis_param %}<input type="hidden" name="vis" value="{{ vis_param }}">{% endif %}
     <label for="f-omraade" class="liten">Skoleferier:</label>
     <select id="f-omraade" name="omraade" data-send-ved-endring>
       <option value="">Alle områder</option>
@@ -28,7 +29,8 @@
     <noscript><button class="liten sekundar">Vis</button></noscript>
   </form>
   <nav class="visningsvalg" aria-label="Visning">
-    <a href="{{ url_for('admin_aarsplan', aar=aar, omraade=omraade or None) }}"{{ ' aria-current="page"'|safe if aarsvisning == 'aar' }}>Året</a>
+    <a href="{{ url_for('admin_aarsplan', aar=aar, omraade=omraade or None) }}"{{ ' aria-current="page"'|safe if aarsvisning == 'hjul' }}>Kurshjul</a>
+    <a href="{{ url_for('admin_aarsplan', aar=aar, vis='maaneder', omraade=omraade or None) }}"{{ ' aria-current="page"'|safe if aarsvisning == 'aar' }}>Måneder</a>
     <a href="{{ url_for('admin_aarsplan', aar=aar, vis='uker', omraade=omraade or None) }}"{{ ' aria-current="page"'|safe if aarsvisning == 'uker' }}>Uke for uke</a>
   </nav>
   <button type="button" class="sekundar liten" data-skriv-ut>Skriv ut</button>
@@ -55,7 +57,66 @@
   <span><span class="prove idag">{{ idag.day }}</span> i dag</span>
 </p>
 
-{% if aarsvisning == 'aar' %}
+{% if aarsvisning == 'hjul' %}
+{% set hjulmaaneder, hjuluker = kurshjul %}
+{#- Kurshjulet (Camilla 15.10.2026): kalenderen til venstre med kursdagene i kursets farge (flere kurs samme dag: ruten delt på
+    skrå), «Uke for uke» til høyre med kursnavnene i samme farge. Boksen med kursene kommer når man holder over en dag. -#}
+{% macro kurslenke(k) -%}
+  {%- if k.plan_id %}{{ url_for('admin_kalender_planlagt', plan_id=k.plan_id) }}{% elif k.kurs_id %}{{ url_for('admin_kurs_deltakere', kurs_id=k.kurs_id) }}{% endif -%}
+{%- endmacro %}
+<div class="kurshjul">
+  <div class="hjulkalender">
+    {% for m in hjulmaaneder %}
+    <section class="hjulmaaned" aria-label="{{ m.navn }} {{ aar }}">
+      <h2>{{ m.navn }}</h2>
+      <table>
+        <thead><tr><th scope="col" class="ukenr">Uke</th>{% for n in ukedagnavn %}<th scope="col">{{ n[:2] }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for nr, dager in m.uker %}<tr><th scope="row" class="ukenr">{{ nr }}</th>
+          {% for d in dager %}{% if not d.i_maaneden %}<td class="tom"></td>{% else %}
+          <td class="{{ d.klasser }}"{% if d.bakgrunn %} style="{{ d.bakgrunn }}"{% endif %}{% if d.kurs or d.rod or d.ferie %} tabindex="0"{% endif %}>
+            <span class="dnr">{{ d.dato.day }}</span>
+            {%- if d.kurs|selectattr('samling_id', 'in', forfalte)|list %}<span class="forfalt-prikk" aria-hidden="true"></span>{% endif %}
+            {%- if d.kurs or d.rod or d.ferie %}
+            <div class="hjulinfo{{ ' venstre' if loop.index > 4 }}" role="tooltip">
+              <strong class="hjulinfo-dato">{{ ukedagnavn[d.dato.weekday()] }} {{ d.dato.day }}. {{ m.navn|lower }}</strong>
+              {% for k in d.kurs %}<div class="hjulinfo-kurs">
+                <span class="hjulprove" style="background:{{ k.fargeverdi }}" aria-hidden="true"></span>
+                <div><strong>{{ k.navn }}</strong>
+                  {% if k.samling %}<div>{{ k.samling }}</div>{% endif %}
+                  <div>{{ k.periode }}{% if k.sted %} · {{ k.sted }}{% endif %}</div>
+                  {% if k.kursholdere %}<div>Kursholdere: {{ k.kursholdere }}</div>{% endif %}
+                  {% if k.merknad %}<div class="dempet">{{ k.merknad }}</div>{% endif %}
+                  {% if k.samling_id and k.samling_id in forfalte %}<div class="feiltekst">Forfalt i sjekklisten</div>{% endif %}
+                </div></div>{% endfor %}
+              {% if d.rod %}<div class="hjulinfo-annet">Rød dag: {{ d.rod }}</div>{% endif %}
+              {% for f in d.ferie %}<div class="hjulinfo-annet">{{ f }}</div>{% endfor %}
+            </div>{% endif %}
+          </td>{% endif %}{% endfor %}
+        </tr>{% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endfor %}
+  </div>
+  <section class="hjuluker" aria-label="Uke for uke">
+    <h2>Uke for uke</h2>
+    <ol>
+      {% for u in hjuluker %}<li class="hjuluke{{ ' tom' if not u.kurs and not u.ferie }}">
+        <span class="hjuluke-nr">{{ u.tekst }}</span>
+        <div class="hjuluke-kurs">
+          {% for k in u.kurs %}{% set lenke = kurslenke(k) %}
+          {%- set innhold %}{{ k.navn }}{% if k.samling %}, {{ k.samling.split(' av ')[0] }}{% endif %} <span class="hjulperiode">{{ k.periode }}{% if k.sted %} · {{ k.sted }}{% endif %}</span>{% endset %}
+          {%- set tips %}{{ k.navn }}{% if k.samling %}, {{ k.samling }}{% endif %} · {{ k.periode }}{% if k.sted %} · {{ k.sted }}{% endif %}{% if k.merknad %} · {{ k.merknad }}{% endif %}{% endset %}
+          {% if lenke %}<a href="{{ lenke }}" class="hjulnavn {{ k.klasse }}" style="background:{{ k.fargeverdi }}" title="{{ tips }}">{{ innhold }}</a>
+          {%- else %}<span class="hjulnavn {{ k.klasse }}" style="background:{{ k.fargeverdi }}" title="{{ tips }}">{{ innhold }}</span>{% endif %}{% endfor %}
+          {% for f in u.ferie %}<span class="hjulferie">{{ f }}</span>{% endfor %}
+        </div>
+      </li>{% endfor %}
+    </ol>
+  </section>
+</div>
+{% elif aarsvisning == 'aar' %}
 <div class="aarskalender">
   {% for m in maaneder %}
   <section class="minimaaned" id="{{ m.anker }}" aria-labelledby="{{ m.anker }}-tittel">
@@ -114,7 +175,7 @@
   <section class="kort" id="ledige">
     <h2>Ledige perioder</h2>
     <form method="get" class="linjevalg ikke-utskrift">
-      <input type="hidden" name="aar" value="{{ aar }}">{% if aarsvisning != 'aar' %}<input type="hidden" name="vis" value="{{ aarsvisning }}">{% endif %}
+      <input type="hidden" name="aar" value="{{ aar }}">{% if vis_param %}<input type="hidden" name="vis" value="{{ vis_param }}">{% endif %}
       {% if omraade %}<input type="hidden" name="omraade" value="{{ omraade }}">{% endif %}
       <label for="f-ledig" class="liten">Dager uten kurs, planer og sperrer – minst</label>
       <select id="f-ledig" name="ledig" data-send-ved-endring>{% for n in (3, 5, 7, 14) %}<option value="{{ n }}" {{ 'selected' if n == min_dager }}>{{ n }} dager</option>{% endfor %}</select>

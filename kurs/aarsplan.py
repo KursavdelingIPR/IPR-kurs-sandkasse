@@ -782,6 +782,180 @@ def aarskalender(plan: Aarsplan, idag: date) -> list[Minimaaned]:
     return ut
 
 
+# ============================ kurshjulet (Camilla 15.10.2026) ============================
+# Som «Kurshjul»-arket i Excel: kalenderen til venstre med kursdagene fylt med kursets farge, og «Uke for uke» til høyre med
+# kursnavnene i samme farge. To eller flere kurs samme dag deler ruten på skrå. Kurs med annen arrangør (IPRO, «Oslo») er
+# svarte, som i Excel. Holder man over en dag, kommer en boks med kursene den dagen.
+
+EKSTERN_FARGE = "#1d1d1d"          # annen arrangør (IPRO): svart, som i kurshjulet
+PLAN_FARGE = "#c9d1d6"             # planlagt aktivitet uten kurs (nøytral)
+
+
+@dataclass(frozen=True)
+class Hjulkurs:
+    """Én sammenhengende del av en samling (eller en planlagt aktivitet) i kurshjulet."""
+    nokkel: tuple
+    navn: str
+    samling: str                    # «2. samling av 3» eller ""
+    fra: date
+    til: date
+    sted: str | None
+    farge: int | None
+    ekstern: bool
+    kurs_id: int | None
+    plan_id: int | None
+    samling_id: int | None
+    planlagt: bool                  # planlagt kurs eller aktivitet (ikke opprettet i systemet)
+    kursholdere: str | None = None
+    utkast: bool = False
+
+    @property
+    def periode(self) -> str:
+        return periode_tekst(self.fra, self.til)
+
+    @property
+    def fargeverdi(self) -> str:
+        """CSS-fargen: kursseriens sterke farge (static/kursfarger.css), svart for annen arrangør."""
+        if self.ekstern:
+            return EKSTERN_FARGE
+        return f"var(--kf-{self.farge})" if self.farge is not None else PLAN_FARGE
+
+    @property
+    def klasse(self) -> str:
+        return "ekstern" if self.ekstern else (f"kursfarge-{self.farge}" if self.farge is not None else "plan")
+
+    @property
+    def merknad(self) -> str:
+        if self.ekstern:
+            return "Annen arrangør (Oslo/IPRO): bare til orientering"
+        if self.kurs_id is None and self.plan_id is None:
+            return "Planlagt aktivitet"
+        if self.planlagt:
+            return "Planlagt kurs (ikke opprettet i systemet ennå)"
+        return "Utkast" if self.utkast else ""
+
+
+@dataclass
+class Hjuldag:
+    dato: date
+    i_maaneden: bool
+    helg: bool = False
+    idag: bool = False
+    rod: str | None = None
+    ferie: list = field(default_factory=list)       # navnene på skoleferier/perioder som dekker dagen
+    kurs: list = field(default_factory=list)        # [Hjulkurs]
+
+    @property
+    def bakgrunn(self) -> str:
+        """Fargen i ruten: én farge, eller ruten delt på skrå i like deler (to kurs = to trekanter)."""
+        farger = [k.fargeverdi for k in self.kurs]
+        if not farger:
+            return ""
+        if len(farger) == 1:
+            return f"background:{farger[0]}"
+        andel = 100 / len(farger)
+        deler = [f"{f} {i * andel:.2f}% {(i + 1) * andel:.2f}%" for i, f in enumerate(farger)]
+        return f"background:linear-gradient(135deg, {', '.join(deler)})"
+
+    @property
+    def klasser(self) -> str:
+        return " ".join(k for k, ja in (("helg", self.helg), ("idag", self.idag), ("rod", self.rod), ("ferie", self.ferie),
+                                        ("harkurs", self.kurs), ("flere", len(self.kurs) > 1)) if ja)
+
+
+@dataclass
+class Hjulmaaned:
+    maaned: int
+    uker: list                      # [(ukenr, [Hjuldag x 7])]
+
+    @property
+    def navn(self) -> str:
+        return MAANEDER[self.maaned - 1]
+
+
+@dataclass
+class Hjuluke:
+    fra_nr: int
+    til_nr: int
+    fra: date
+    til: date
+    kurs: list                      # [Hjulkurs] som berører uka
+    ferie: list                     # navnene på skoleferier/perioder og røde dager i uka
+
+    @property
+    def tekst(self) -> str:
+        return f"Uke {self.fra_nr}" if self.fra_nr == self.til_nr else f"Uke {self.fra_nr}–{self.til_nr}"
+
+
+def _hjulkurs(plan: Aarsplan) -> list[Hjulkurs]:
+    """Kursene (hver sammenhengende del av en samling) og de planlagte aktivitetene som Hjulkurs, sortert på dato."""
+    datoer: dict[tuple, list[date]] = {}
+    paa_dag: dict[tuple, Aktivitet] = {}
+    for d, akt in plan.per_dato.items():
+        for a in akt:
+            if a.type == "kurs":
+                datoer.setdefault(a.nokkel, []).append(d)
+                paa_dag[(a.nokkel, d)] = a
+    ut = []
+    for n, dager in datoer.items():
+        for fra, til in _lop(dager):
+            a = paa_dag[(n, fra)]
+            nr, antall = samling(plan, n, fra)
+            holdere = None
+            if a.plan_id is not None and a.samling_id is not None:
+                k = plan.planlagte.get(a.plan_id) or {}
+                holdere = next((s.get("kursholdere_tekst") for s in k.get("samlinger", []) if s["id"] == a.samling_id), None)
+            ut.append(Hjulkurs(n, a.tittel, f"{nr}. samling av {antall}" if antall > 1 else "", fra, til, a.sted, a.farge,
+                               a.ekstern, a.kurs_id, a.plan_id, a.samling_id, a.plan_id is not None, holdere,
+                               a.status == "utkast"))
+    for p in plan.planer:
+        if p["type"] == "plan":
+            ut.append(Hjulkurs(("aktivitet", p["id"]), p["tittel"], "", _periodedato(p, "fra_dato"),
+                               _periodedato(p, "til_dato"), p["sted"], None, False, None, None, None, True))
+    return sorted(ut, key=lambda k: (k.fra, k.ekstern, k.navn.casefold()))
+
+
+def kurshjul(plan: Aarsplan, idag: date) -> tuple[list[Hjulmaaned], list[Hjuluke]]:
+    """Kalenderen (tolv måneder, uker fra mandag) og «Uke for uke» for året. Uker uten kurs og ferie etter hverandre slås sammen
+    («Uke 25–33»), som i kurshjulet."""
+    alle = _hjulkurs(plan)
+    paa_dag: dict[date, list] = {}
+    for k in alle:
+        for d in _dager(k.fra, k.til):
+            paa_dag.setdefault(d, []).append(k)
+
+    def ferie(d: date) -> list:
+        return [periodenavn(p) for p in plan.perioder if _dekker(p, d)]
+
+    maaneder = []
+    for m in range(1, 13):
+        uker_ = []
+        for uke in calendar.Calendar(firstweekday=0).monthdatescalendar(plan.aar, m):
+            dager = []
+            for d in uke:
+                if d.month != m:
+                    dager.append(Hjuldag(d, False))
+                    continue
+                dager.append(Hjuldag(d, True, helg=d.weekday() >= 5, idag=d == idag, rod=plan.rode.get(d), ferie=ferie(d),
+                                     kurs=paa_dag.get(d, [])))
+            uker_.append((uke[0].isocalendar()[1], dager))
+        maaneder.append(Hjulmaaned(m, uker_))
+
+    rader: list[Hjuluke] = []
+    for nr in range(1, antall_uker(plan.aar) + 1):
+        fra = date.fromisocalendar(plan.aar, nr, 1)
+        til = fra + timedelta(days=6)
+        kurs = [k for k in alle if k.fra <= til and k.til >= fra]
+        navn = list(dict.fromkeys([n for d in _dager(fra, til) for n in ferie(d)]
+                                  + [plan.rode[d] for d in _dager(fra, til) if d in plan.rode]))
+        forrige = rader[-1] if rader else None
+        if not kurs and not navn and forrige and not forrige.kurs and not forrige.ferie:
+            forrige.til_nr, forrige.til = nr, til
+            continue
+        rader.append(Hjuluke(nr, nr, fra, til, kurs, navn))
+    return maaneder, rader
+
+
 def fargeforklaring(plan: Aarsplan) -> list[dict]:
     """Kursene med flere samlinger i året, med fargen og ALLE samlingene (også i andre år), så samme kurs er lett å finne
     igjen: {navn, farge, kurs_id, plan_id, samlinger: [«2. samling 18.–21. jan»]}. Kurs med annen arrangør er grå og

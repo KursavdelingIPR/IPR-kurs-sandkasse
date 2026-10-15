@@ -44,7 +44,7 @@ def _side(idag=date(2027, 3, 10), **params) -> str:
     k.post("/admin/logg-inn", data={"brukernavn": config.ADMIN_BRUKERNAVN, "passord": config.ADMIN_PASSORD})
     with k.session_transaction() as s:
         s["demo_dato"] = idag.isoformat()
-    r = k.get("/admin/aktiviteter/aarsplan", query_string=params)
+    r = k.get("/admin/aktiviteter/aarsplan", query_string={"vis": "maaneder", **params})   # den gamle «Året» (15.10.2026)
     assert r.status_code == 200
     return r.get_data(as_text=True)
 

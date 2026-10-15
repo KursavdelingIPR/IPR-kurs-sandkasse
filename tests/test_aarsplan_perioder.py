@@ -271,14 +271,14 @@ def test_aarssiden_har_filter_konflikter_ledige_og_perioder(con):
     _periode(con, "skoleferie", "Høstferie", "2027-10-04", "2027-10-08", omraade="Oslo", notat="Fra kommunens nettside")
     _periode(con, "sperre", "Intern ferie", "2027-07-05", "2027-07-30")
     _kurs(con, "S1", "Sommerkurs", ["2027-07-06"], type="fysisk")
-    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027").get_data(as_text=True)
+    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027&vis=maaneder").get_data(as_text=True)
     assert '<body class="bred">' in html and "/static/planlegging.css" in html
     assert '<option value="Oslo">Oslo</option>' in html and '<option value="Vestland">Vestland</option>' in html
     assert "Konflikter og merknader" in html and "Sperret: Intern ferie" in html
     assert "Skoleferie" in html and "Høstferie" in html and "Fra kommunens nettside" in html
     assert re.search(r'<span class="minidag [^"]*\bsperre\b[^"]*"', html)
     assert re.search(r'<span class="minidag [^"]*\bferie\b', html)
-    assert "Helt ledige uker:" in html and 'aria-current="page">Året</a>' in html
+    assert "Helt ledige uker:" in html and 'aria-current="page">Måneder</a>' in html
 
 
 def test_uke_for_uke_siden(con):
@@ -299,7 +299,7 @@ def test_ugyldige_valg_gir_standardvisning(con, sporring):
 
 def test_ukjent_omraade_viser_alle_skoleferier(con):
     _periode(con, "skoleferie", "Høstferie", "2027-10-04", "2027-10-08", omraade="Oslo")
-    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027&omraade=Mars").get_data(as_text=True)
+    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027&omraade=Mars&vis=maaneder").get_data(as_text=True)
     assert re.search(r'<span class="minidag [^"]*\bferie\b', html) and '<option value="" >Alle områder' not in html
     assert '<option value="Oslo">Oslo</option>' in html                      # ingen er valgt: «Alle områder»
 

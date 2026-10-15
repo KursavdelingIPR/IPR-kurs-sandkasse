@@ -119,6 +119,24 @@ def _en(k: Kjoring, p) -> None:
     k.con.execute("UPDATE paamelding SET sveiper_kjort=1 WHERE id=?", (p["id"],))
 
 
+def send_bekreftelse_paa_nytt(k: Kjoring, paamelding_id: int, skjemanokkel: str) -> bool:
+    """«Send påmeldingsbekreftelse» i deltakervinduet (Camilla 14.10.2026): den samme bekreftelsen som ved påmeldingen (kursets tekst,
+    samlingene deltakeren deltar på, fakturaplanen og kalenderfilen) sendes på nytt. Bare e-posten: ingen faktura, og
+    sveiper_kjort/statusen røres ikke. Egen nøkkel per visning av siden (skjemanokkel), så et dobbeltklikk sender én gang, mens et nytt
+    trykk senere sender igjen; den vanlige bekreftelsens nøkkel (kurs:<id>) brukes ikke, så morgenjobben påvirkes ikke.
+    True hvis e-posten ble sendt nå."""
+    p = k.con.execute(SQL_DELTAKER + " WHERE p.id=?", (paamelding_id,)).fetchone()     # samme rad som den vanlige bekreftelsen får
+    kurs = k.con.execute("SELECT * FROM kurs WHERE id=?", (p["kurs_id"],)).fetchone()
+    dager = db.paameldingens_kursdager(k.con, p)
+    sendt = k.send_en_gang(f"kurs:{p['kurs_id']}:bekreftelse-paa-nytt:{skjemanokkel}", p["epost"], "bekreftelse", "bekreftelse",
+                           paamelding_id=p["id"], kurs_id=p["kurs_id"], p=p, kurs=kurs, dager=dager,
+                           faktura_plan=_lag_plan(k, p, dager), vedlegg=kalender.vedlegg(kurs, dager))
+    if sendt:
+        db.logg(k.con, "bekreftelse_sendt_paa_nytt", {"paamelding_id": p["id"], "kurs_id": p["kurs_id"]}, aktor=k.aktor)
+        k.con.commit()
+    return sendt
+
+
 def _lag_plan(k: Kjoring, p, dager=None) -> "FakturaPlan":
     """Bygger FakturaPlan for en paamelding fra dens egne felt + den autoritative kursdaglisten (db.kursdager)."""
     if db.er_ekstradeltaker(p):        # ingen automatisk faktura for en ekstradeltaker (prisen er ikke kursets standardpris)
