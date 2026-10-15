@@ -26,6 +26,7 @@ from datetime import date, timedelta
 
 from . import db, lenker
 
+FRIST_DAGER = 7                  # fristen for å svare: én uke etter siste dag i kurset eller samlingen (Camilla 15.10.2026)
 DAGER_ETTER = 14                 # sendes bare for runder der siste dag var for høyst så mange dager siden
 MAKS_TEKST = 2000
 SKALA = (1, 2, 3, 4, 5, 6)
@@ -72,9 +73,21 @@ class Evalueringsfeil(ValueError):
 
 # ============================ når ============================
 
+# Kurs som får evalueringen etter HVER samling når ingen har valgt noe for kurset (Camilla 15.10.2026: «På Modulene
+# (spesialistutdanningen) skal de sendes ut etter hver enkelt samling. Samme med EFT 1-årig, EFST 1-årig og EFT påbygg»).
+# Andre kurs (engangskurs, veilederprogrammet: «kun siste dag») får den etter siste kursdag.
+_ETTER_HVER_SAMLING = re.compile(r"(?<![a-zæøå])modul(?![a-zæøå])|1-årig|1 årig|påbygg", re.IGNORECASE)
+
+
+def standard_modus(kurs) -> str:
+    """Når evalueringen sendes når ingen har valgt noe for kurset: etter hver samling for utdanningene, ellers etter siste dag."""
+    navn = kurs["navn"] if "navn" in kurs.keys() else ""
+    return "samling" if navn and _ETTER_HVER_SAMLING.search(navn) and "veileder" not in navn.lower() else "slutt"
+
+
 def modus(kurs) -> str:
     verdi = kurs["evaluering"] if "evaluering" in kurs.keys() else None
-    return verdi if verdi in ("samling", "av") else "slutt"
+    return verdi if verdi in MODUS else standard_modus(kurs)
 
 
 def er_paa(kurs) -> bool:
@@ -84,7 +97,7 @@ def er_paa(kurs) -> bool:
 def sett_modus(con, kurs_id: int, ny: str, *, aktor: str) -> None:
     if ny not in MODUS:
         raise Evalueringsfeil("Velg når evalueringen skal sendes.")
-    con.execute("UPDATE kurs SET evaluering=? WHERE id=?", (None if ny == "slutt" else ny, kurs_id))
+    con.execute("UPDATE kurs SET evaluering=? WHERE id=?", (ny, kurs_id))     # også «slutt»: et valg overstyrer standarden per kurstype
     db.logg(con, "kurs_evaluering_endret", {"kurs_id": kurs_id, "modus": ny}, aktor=aktor)
 
 
@@ -93,9 +106,10 @@ def runder(con, kurs) -> list[dict]:
     if modus(kurs) == "samling":
         samlinger = db.kursets_samlinger(con, kurs["id"])
         if samlinger:
-            return [{"samling_id": s["id"], "navn": s["tittel"], "fra": _dato(s["fra"]), "til": _dato(s["til"])} for s in samlinger]
+            return [{"samling_id": s["id"], "nr": s["nr"], "navn": s["tittel"], "fra": _dato(s["fra"]), "til": _dato(s["til"])}
+                    for s in samlinger]
     dager = [_dato(d["dato"]) for d in db.kursdager(con, kurs["id"])]
-    return [{"samling_id": None, "navn": "Hele kurset", "fra": min(dager) if dager else None, "til": max(dager) if dager else None}]
+    return [{"samling_id": None, "nr": 1, "navn": "Hele kurset", "fra": min(dager) if dager else None, "til": max(dager) if dager else None}]
 
 
 def _dato(verdi) -> date:
@@ -580,7 +594,8 @@ def kjor(k) -> None:
         if not er_paa(kurs) or oppsett(k.con, kurs)["stengt"]:
             continue
         mottakere = None
-        for runde in runder(k.con, kurs):
+        alle_runder = runder(k.con, kurs)
+        for runde in alle_runder:
             if runde["til"] is None or not (runde["til"] < idag <= runde["til"] + timedelta(days=DAGER_ETTER)):
                 continue
             if mottakere is None:
@@ -595,7 +610,20 @@ def kjor(k) -> None:
                 if _fikk_annen_runde(k.con, kurs["id"], runde["samling_id"], m["epost"]):
                     continue
                 k.send_en_gang(nokkel(kurs["id"], runde["samling_id"]), m["epost"], "evaluering", "evaluering", paamelding_id=m["id"],
-                               kurs_id=kurs["id"], d=m, kurs=kurs, evaluering_url=lenke(m["id"], runde["samling_id"]))
+                               kurs_id=kurs["id"], d=m, kurs=kurs, evaluering_url=lenke(m["id"], runde["samling_id"]),
+                               runde_tekst=runde_tekst(kurs, runde, len(alle_runder)), frist=frist(runde))
+
+
+def frist(runde) -> date:
+    """Fristen for å svare: én uke etter siste dag i kurset eller samlingen (Camilla 15.10.2026), kl. 12.00 (står i teksten)."""
+    return runde["til"] + timedelta(days=FRIST_DAGER)
+
+
+def runde_tekst(kurs, runde, antall: int) -> str:
+    """Hva evalueringen gjelder, som i e-postene hennes («EFT 1-årig sin 3. samling»): kursnavnet, med samlingen når det er flere."""
+    if runde["samling_id"] and antall > 1:
+        return f"{kurs['navn']} sin {runde['nr']}. samling"
+    return kurs["navn"]
 
 
 def _fikk_annen_runde(con, kurs_id: int, samling_id: int | None, epost: str) -> bool:

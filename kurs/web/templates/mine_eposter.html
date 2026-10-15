@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% set tema_ta = true %}{#- Terapiakademiet-drakten, som Mine kurs -#}
+{% import "_kursside_blokker.html" as bl %}
+{#- «Mine e-poster» (Camilla 15.10.2026): e-postene deltakeren har fått fra oss, nyeste først, med valg av kurs. Listen vises alltid; de første
+    ordene og selve innholdet bare når deltakeren er innlogget med e-post (`full`), ellers en knapp for å bekrefte e-posten (som Min konto).
+    Data: eposthistorikk.for_deltaker (bare sendte e-poster med lagret innhold, aldri de som venter i «Klar til sending»). -#}
+{% block tittel %}Mine e-poster – IPR Påmeldingssystem{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='min-side.css') }}">{% endblock %}
+{% block innhold %}
+{% include "_kursside_ikoner.html" %}
+<div class="ms-rot ms-ep-rot">
+  <a class="ms-ep-tilbake" href="{{ url_for('min_side') }}">← Mine kurs</a>
+  <h1>Mine e-poster</h1>
+  <p class="sub">Alt vi har sendt deg på e-post, nyeste først.{% if full %} Trykk på en e-post for å lese den.{% endif %}</p>
+
+  {% if not full and eposter %}
+  <div class="ms-bekreft ms-ep-bekreft">
+    <p>Av hensyn til personvernet ditt viser vi innholdet i e-postene først når du har bekreftet e-posten din.</p>
+    <form method="post" action="{{ url_for('bekreft_epost') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="neste" value="{{ request.full_path.rstrip('?') }}">
+      <button type="submit">Send meg en lenke på e-post</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if kurs|length > 1 %}
+  <nav class="ms-ep-filter" aria-label="Velg kurs">
+    <a href="{{ url_for('mine_eposter') }}"{{ ' aria-current="page"'|safe if not valgt }}>Alle ({{ antall }})</a>
+    {% for kode, navn in kurs %}<a href="{{ url_for('mine_eposter', kurs=kode) }}"{{ ' aria-current="page"'|safe if valgt == kode }}>{{ navn }}</a>{% endfor %}
+  </nav>
+  {% endif %}
+
+  {% if eposter %}
+  <ol class="ms-ep-liste">
+    {% for e in eposter %}<li>
+      <a class="ms-ep-epost" href="{{ url_for('min_epost', epost_id=e.id) }}">
+        <span class="ms-ep-ikon" aria-hidden="true">{{ bl.ikon('post') }}</span>
+        <span class="ms-ep-tekst">
+          <span class="ms-ep-topp"><strong class="ms-ep-emne">{{ e.emne }}</strong><span class="ms-ep-dato">{{ e.dato }}</span></span>
+          <span class="ms-ep-kurs">{{ e.kursnavn }}{% if e.antall_vedlegg %} · {{ bl.ikon('fil') }}{{ e.antall_vedlegg }} vedlegg{% endif %}</span>
+          {% if e.utdrag %}<span class="ms-ep-utdrag">{{ e.utdrag }}</span>{% endif %}
+        </span>
+      </a>
+    </li>{% endfor %}
+  </ol>
+  {% else %}
+  <p class="ms-ep-tom">Du har ikke fått noen e-poster fra oss ennå{% if valgt %} for dette kurset{% endif %}.</p>
+  {% endif %}
+</div>
+{% endblock %}

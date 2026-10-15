@@ -1083,8 +1083,55 @@ def min_side():
     antall_fakturaer = sum(len(x["fakturaer"]) for x in kursliste)
     ubetalt = sum(1 for x in kursliste for fak in x["fakturaer"] if fak["status"] in ("opprettet", "sendt"))
     return render_template("min_side.html", deltaker=deltaker, kursliste=kursliste, dokumenter=dokumenter, lop=lop, full=full,
+                           antall_eposter=eposthistorikk.antall_for_deltaker(con(), did),
                            antall_fakturaer=antall_fakturaer, antall_ubetalt=ubetalt,
                            antall_kursbevis=sum(1 for d in dokumenter if d["type"] == "kursbevis"))
+
+
+@app.get("/min-side/e-poster")
+@krever_deltaker
+def mine_eposter():
+    """«Mine e-poster» (Camilla 15.10.2026): e-postene deltakeren har fått fra oss, nyeste først, for alle kursene eller ett (?kurs=<kode>).
+    Listen (emne, dato, kurs) vises alltid; de første ordene, innholdet og vedleggene bare når deltakeren er innlogget med e-post, fordi en
+    e-post kan inneholde adresse og fakturaopplysninger, og den personlige lenken kan være videresendt."""
+    did = session["deltaker_id"]
+    full = _deltaker_full()
+    alle = eposthistorikk.for_deltaker(con(), did, med_utdrag=full)
+    kurs = list(dict.fromkeys((e.kurskode, e.kursnavn) for e in alle))
+    valgt = request.args.get("kurs") or ""
+    if valgt not in {k for k, _ in kurs}:
+        valgt = ""
+    eposter = [e for e in alle if not valgt or e.kurskode == valgt]
+    return render_template("mine_eposter.html", eposter=eposter, kurs=kurs, valgt=valgt, antall=len(alle), full=full)
+
+
+@app.get("/min-side/e-poster/<int:epost_id>")
+@krever_deltaker
+def min_epost(epost_id):
+    """Én e-post slik den ble sendt, i en låst ramme uten skript. Bare for deltakeren den gjelder, og bare innlogget med e-post."""
+    did = session["deltaker_id"]
+    treff = eposthistorikk.min_visning(con(), did, epost_id) or abort(404)
+    e, v = treff
+    if not _deltaker_full():
+        return render_template("min_epost.html", e=e, v=None, full=False)
+    return render_template("min_epost.html", e=e, v=v, full=True)
+
+
+@app.get("/min-side/e-poster/<int:epost_id>/vedlegg/<int:nr>")
+@krever_deltaker
+def min_epost_vedlegg(epost_id, nr):
+    """Et vedlegg i en av deltakerens egne e-poster (samme trygge visning som i administrasjonen). Bare innlogget med e-post."""
+    if not _deltaker_full():
+        abort(404)
+    sikkerhet.krev_kvote("kursside_fil", str(session["deltaker_id"]))
+    filnavn, mimetype, innhold = eposthistorikk.mitt_vedlegg(con(), session["deltaker_id"], epost_id, nr) or abort(404)
+    aapne = mimetype in eposthistorikk.KAN_AAPNES and not request.args.get("last_ned")
+    r = make_response(innhold)
+    r.headers["Content-Type"] = mimetype if aapne else "application/octet-stream"
+    r.headers["Content-Disposition"] = f"{'inline' if aapne else 'attachment'}; filename*=UTF-8''{quote(filnavn)}"
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    r.headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
+    return r
 
 
 def _har_tilgang_kurs(did: int, kurs_id: int) -> bool:
@@ -1490,31 +1537,20 @@ def admin_kalender():
 
 
 def _vis_aarsplan(aar: int, skjema=None, status: int = 200, periodeskjema=None):
-    """Årsplanen: «Kurshjul» (kalenderen med fargede kursdager og «Uke for uke» ved siden av, standard; Camilla 15.10.2026),
-    «Måneder» (?vis=maaneder: tolv små månedskalendere med kursene som blokker) eller «Uke for uke» (?vis=uker). ?omraade= viser
-    skoleferiene for ett område, ?ledig= er minste lengde på ledige perioder (dager). Passerte ledige perioder vises ikke."""
+    """Årsplanen som kurshjul: kalenderen med fargede kursdager og «Uke for uke» ved siden av (Camilla 15.10.2026; de gamle visningene
+    «Måneder» og «Uke for uke» og listen «Ledige perioder» er tatt bort samme dag). ?omraade= viser skoleferiene for ett område."""
     idag = _idag()
     omraader = aarsplan.omraader(con())
     omraade = request.args.get("omraade") or ""
     if omraade not in omraader:
         omraade = ""
-    aarsvisning = {"uker": "uker", "maaneder": "aar"}.get(request.args.get("vis"), "hjul")
-    min_dager = request.args.get("ledig", type=int)
-    if min_dager not in (3, 5, 7, 14):
-        min_dager = aarsplan.LEDIG_MIN_DAGER
     plan = aarsplan.hent(con(), aar, omraade)
-    ledige = aarsplan.ledige(plan, min_dager)
-    kommende = [p for p in ledige if p.til >= idag]
     kurs_i_systemet = [k for k in plan.kurs if k.get("plan_id") is None]
     return render_template(
         "admin_aarsplan.html", aar=aar, idag=idag, visning="aarsplan",
-        maaneder=aarsplan.aarskalender(plan, idag) if aarsvisning == "aar" else None,
-        kurshjul=aarsplan.kurshjul(plan, idag) if aarsvisning == "hjul" else None,
+        kurshjul=aarsplan.kurshjul(plan, idag),
         planer=aarsplan.planliste(plan), overlapp=aarsplan.overlapp_perioder(plan),
-        ledige=kommende, ledige_passert=len(ledige) - len(kommende), ledige_uker=aarsplan.ledige_perioder(plan),
-        min_dager=min_dager,
-        konflikter=aarsplan.konflikter(plan), uker=aarsplan.uker(plan, idag) if aarsvisning == "uker" else None,
-        aarsvisning=aarsvisning, ukedagnavn=aarsplan.UKEDAGER, omraader=omraader, omraade=omraade,
+        konflikter=aarsplan.konflikter(plan), ukedagnavn=aarsplan.UKEDAGER, omraader=omraader, omraade=omraade,
         perioder=aarsplan.perioder_i_aaret(con(), aar), periodetyper=aarsplan.PERIODETYPER, gjelder=aarsplan.GJELDER,
         antall_kurs=len(kurs_i_systemet), antall_kursdager=sum(len(k["datoer"]) for k in kurs_i_systemet),
         antall_planlagte_kurs=len(plan.kurs) - len(kurs_i_systemet),
@@ -1526,8 +1562,7 @@ def _vis_aarsplan(aar: int, skjema=None, status: int = 200, periodeskjema=None):
 @app.get("/admin/aktiviteter/aarsplan")
 @krever_admin
 def admin_aarsplan():
-    """Årsplan (kurshjul): alle kurs i året automatisk, pluss planlagte aktiviteter og notater, overlapp og ledige
-    perioder. Se kurs/aarsplan.py."""
+    """Årsplan (kurshjul): alle kurs i året automatisk, pluss planlagte aktiviteter og notater og kollisjoner. Se kurs/aarsplan.py."""
     aar = request.args.get("aar", type=int) or _idag().year
     if not aarsplan.FORSTE_AAR <= aar <= aarsplan.SISTE_AAR:
         aar = _idag().year

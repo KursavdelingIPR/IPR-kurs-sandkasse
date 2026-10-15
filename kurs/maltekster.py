@@ -79,6 +79,7 @@ KODER: dict[str, Kode] = {
     "beskrivelse": Kode("Hva som skal leveres", "vanlig"),
     "beskrivelse_liten": Kode("Hva som skal leveres (små bokstaver)", "fet"),
     "frist": Kode("Frist", "fet"),
+    "runde": Kode("Hva evalueringen gjelder (f.eks. «EFT 1-årig sin 3. samling»)", "fet"),
     "dager_igjen": Kode("Dager til frist", "vanlig"),
     "dager_igjen_tekst": Kode("Dager til frist, med riktig entall/flertall (f.eks. «1 dag» / «2 dager»)", "vanlig"),
     "prisnavn": Kode("Rabatten deltakeren valgte (f.eks. «studentpris»)", "vanlig"),
@@ -193,13 +194,17 @@ MALER: dict[str, Mal] = {
         {"emne": _emne("Emne", "Kursbevis: {kursnavn}", _P | {"kursnavn"}),
          "tekst": _hoved("Tekst", _D + "Takk for deltakelsen på {kursnavn}. Kursbeviset ditt ligger nå på {min_side}.",
                          _P | {"kursnavn"})}),
+    # Camilla 15.10.2026: som e-postene hun har sendt før, med frist én uke etter siste dag og «Med vennlig hilsen Kursavdelingen»
     "evaluering": Mal(
-        "Evaluering etter kurset", "Sendes dagen etter siste kursdag til alle med plass på kurset, med en personlig lenke til "
-        "et kort, anonymt spørreskjema.",
-        {"emne": _emne("Emne", "Hva syntes du om {kursnavn}?", _P | {"kursnavn"}),
-         "tekst": _hoved("Tekst", _D + "Takk for at du deltok på {kursnavn}. Vi blir glade om du bruker et par minutter på å "
-                                       "fortelle oss hva du syntes. Svarene er anonyme og hjelper oss å gjøre kursene bedre.",
-                         _P | {"kursnavn"})}),
+        "Evaluering etter kurset eller samlingen", "Sendes dagen etter siste kursdag (eller etter hver samling) til alle med plass, "
+        "med en personlig lenke til et kort, anonymt spørreskjema. {frist} er én uke etter siste dag i kurset eller samlingen.",
+        {"emne": _emne("Emne", "Evaluering: {runde}", _P | {"kursnavn", "runde"}),
+         "tekst": _hoved("Tekst", _D + "Under finner du lenke til evalueringsskjemaet for {runde}. Vi håper du har tid og mulighet "
+                                       "til å svare på undersøkelsen. Det tar ca. 5 minutter å svare, og undersøkelsen er anonym.",
+                         _P | {"kursnavn", "runde", "frist"}),
+         "avslutning": _tillegg("Etter lenken", "Frist for å svare på evalueringen er satt til {frist}, kl. 12.00." + "\n\n"
+                                + "Ha en fin dag!",
+                                _P | {"kursnavn", "runde", "frist"})}),
     "firmapaamelding_kvittering": Mal(
         "Kvittering bedriftspåmelding", "Sendes til kontaktpersonen når en bedrift har meldt på flere deltakere.",
         {"emne": _emne("Emne", "Bedriftspåmelding til {kursnavn} – kvittering",
@@ -679,9 +684,13 @@ def _kursbevis_klar_verdier(data) -> dict:
 
 
 def _evaluering_verdier(data) -> dict:
-    """KUN det registeret tillater: mottakerens navn og kursnavn. Lenken til spørreskjemaet er en LAAST systemblokk i malfilen
-    (personlig og signert, evaluering.lenke) - aldri en kode."""
-    return {**_person(data["d"]), "kursnavn": data["kurs"]["navn"]}
+    """KUN det registeret tillater: mottakerens navn, kursnavn, hva evalueringen gjelder ({runde}: kurset, eller «… sin 2. samling») og
+    fristen («17. september 2026», én uke etter siste dag). Lenken til spørreskjemaet er en LAAST systemblokk i malfilen (personlig og
+    signert, evaluering.lenke) - aldri en kode."""
+    from .deltakerside import dag_maaned_aar
+    frist = data.get("frist")
+    return {**_person(data["d"]), "kursnavn": data["kurs"]["navn"], "runde": data.get("runde_tekst") or data["kurs"]["navn"],
+            "frist": dag_maaned_aar(frist) if frist else "én uke etter siste kursdag"}
 
 
 def _firmapaamelding_kvittering_verdier(data) -> dict:

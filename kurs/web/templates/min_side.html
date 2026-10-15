@@ -74,6 +74,8 @@
   {% if full %}
   <aside class="ms-konto" aria-labelledby="ms-konto-h">
     <h2 id="ms-konto-h">Min konto</h2>
+    <a class="ms-kontokort" href="{{ url_for('mine_eposter') }}"><strong>E-poster fra oss</strong>
+      <span>{% if antall_eposter %}{{ antall_eposter }} e-post{{ 'er' if antall_eposter != 1 }}{% else %}Ingen e-poster ennå{% endif %}</span></a>
     <a class="ms-kontokort" href="#fakturaer"><strong>Fakturaer</strong>
       <span>{% if antall_fakturaer %}{{ antall_fakturaer }} faktura{{ 'er' if antall_fakturaer != 1 }}{% if antall_ubetalt %} · {{ antall_ubetalt }} ubetalt{% endif %}{% else %}Ingen fakturaer ennå{% endif %}</span></a>
     <a class="ms-kontokort" href="#dokumenter"><strong>Kursbevis og dokumenter</strong>
@@ -84,6 +86,8 @@
   {% else %}
   <aside class="ms-konto" aria-labelledby="ms-konto-h">
     <h2 id="ms-konto-h">Min konto</h2>
+    <a class="ms-kontokort" href="{{ url_for('mine_eposter') }}"><strong>E-poster fra oss</strong>
+      <span>{% if antall_eposter %}{{ antall_eposter }} e-post{{ 'er' if antall_eposter != 1 }}{% else %}Ingen e-poster ennå{% endif %}</span></a>
     <div class="ms-bekreft">
       <p>Fakturaer, kursbevis og timer vises først når du har bekreftet e-posten din.</p>
       <form method="post" action="{{ url_for('bekreft_epost') }}">

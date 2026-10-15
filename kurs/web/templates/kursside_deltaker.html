@@ -33,6 +33,8 @@
       {% if v.kurs.godkjent %}<li data-etikett="Godkjent">{{ bl.ikon('hake') }}<span>{{ v.kurs.godkjent }}</span></li>
       {% elif v.kurs.type_tekst %}<li data-etikett="Format">{{ bl.ikon('info') }}<span>{{ v.kurs.type_tekst }}</span></li>{% endif %}
     </ul>
+    {#- «Mine e-poster» for kurset: lett å finne øverst (Camilla 15.10.2026) -#}
+    {% if v.eposter_url %}<p class="dp-hero-eposter"><a class="dp-epostknapp" href="{{ v.eposter_url }}">{{ bl.ikon('post') }}Mine e-poster{% if v.antall_eposter %} ({{ v.antall_eposter }}){% endif %}</a></p>{% endif %}
     {% if v.pillene %}<div class="dp-hero-merker">{% for p in v.pillene %}<span class="dp-pille dp-pille-{{ p.stil }}">{% if p.stil == 'ok' %}{{ bl.ikon('hake') }}{% endif %}{{ p.tekst }}</span>{% endfor %}</div>{% endif %}
   </header>
 
@@ -103,7 +105,7 @@
       </nav>
       {% endif %}
 
-      {% if not forhandsvisning %}<p class="dp-konto">Faktura, kursbevis og timer finner du under <a href="{{ v.min_side_url }}">Mine kurs</a>.</p>{% endif %}
+      {% if not forhandsvisning %}<p class="dp-konto">Faktura, kursbevis og timer finner du under <a href="{{ v.min_side_url }}">Mine kurs</a>.{% if v.eposter_url %} E-postene fra oss finner du under <a href="{{ v.eposter_url }}">Mine e-poster</a>.{% endif %}</p>{% endif %}
     </aside>
 
     {% if v.meny %}

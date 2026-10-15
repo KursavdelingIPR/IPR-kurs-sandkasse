@@ -45,7 +45,11 @@ def eksempler(mal: str) -> list[tuple[str, dict]]:
     if mal == "kursbevis_klar":
         return [("", dict(navn="Ola Nordmann", fornavn="Ola", kurs=KURS))]
     if mal == "evaluering":
-        return [("", dict(d=DELTAKER, kurs=KURS, evaluering_url="/evaluering/eksempel"))]
+        from datetime import timedelta
+        siste = date.fromisoformat(str(KURS["dager"][-1])) if KURS.get("dager") else date(2027, 3, 11)
+        return [("Etter en samling", dict(d=DELTAKER, kurs=KURS, evaluering_url="/evaluering/eksempel",
+                                          runde_tekst=f"{KURS['navn']} sin 2. samling", frist=siste + timedelta(days=7))),
+                ("Etter kurset", dict(d=DELTAKER, kurs=KURS, evaluering_url="/evaluering/eksempel", frist=siste + timedelta(days=7)))]
     if mal == "firmapaamelding_kvittering":
         return [("", dict(kontakt={"navn": "Kari HR", "fornavn": "Kari", "firmanavn": "Eksempel AS"}, kurs=KURS,
                           kvittering_url="/kurs/EKS-1/gruppe/kvittering/eksempel-token",

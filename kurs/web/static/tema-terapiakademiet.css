@@ -381,3 +381,6 @@ body[data-tema="ta"].dp-forhandsvisning .ta-bunn { display:none; }
 }
 
 }
+/* «Mine e-poster»-knappen i drakten (Camilla 15.10.2026) */
+body[data-tema="ta"] .dp-epostknapp { border-radius:0; background:var(--ta-krem); color:var(--ta-plomme); border-color:var(--ta-plomme); }
+body[data-tema="ta"] .dp-epostknapp:hover, body[data-tema="ta"] .dp-epostknapp:focus-visible { background:var(--ta-plomme); color:#fff; }

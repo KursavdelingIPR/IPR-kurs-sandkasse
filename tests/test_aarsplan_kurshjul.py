@@ -38,14 +38,14 @@ def _side(params="aar=2031"):
     return r.get_data(as_text=True)
 
 
-def test_kurshjulet_er_standard_med_kalender_og_uke_for_uke(con):
+def test_kurshjulet_er_aarsplanen_med_kalender_og_uke_for_uke(con):
     db.opprett_kurs(con, kode="M1", navn="Modul 1", datoer=["2031-03-10", "2031-03-11"], sharepoint_mappe="Kurs/M1")
     con.commit()
     html = _side()
-    assert 'aria-current="page">Kurshjul</a>' in html and ">Måneder</a>" in html and ">Uke for uke</a>" in html
+    assert 'class="visningsvalg"' not in html and ">Måneder</a>" not in html          # bare kurshjulet (15.10.2026)
     assert html.count('<section class="hjulmaaned"') == 12 and '<section class="hjuluker"' in html
     assert re.search(r'<td class="harkurs" style="background:var\(--kf-\d\)" tabindex="0">\s*<span class="dnr">10</span>', html)
-    assert re.search(r'class="hjulnavn kursfarge-\d" style="background:var\(--kf-\d\)"[^>]*>Modul 1 <span class="hjulperiode">', html)
+    assert re.search(r'class="hjulnavn kursfarge-\d" style="background:var\(--kf-\d\)" title="Modul 1 · 10\.–11\. mar[^"]*">Modul 1</a>', html)   # kort navn, datoene i title
     assert "<strong>Modul 1</strong>" in html                                     # boksen ved dagen
 
 
@@ -70,7 +70,37 @@ def test_uker_uten_noe_slaas_sammen_og_samling_vises(con):
     assert forste.kurs[0].samling == "1. samling av 2" and forste.kurs[0].periode
 
 
-def test_gamle_visningen_finnes_under_maaneder(con):
-    html = _side("aar=2031&vis=maaneder")
-    assert html.count('<section class="minimaaned"') == 12 and 'aria-current="page">Måneder</a>' in html
-    assert 'href="/admin/aktiviteter/aarsplan?aar=2032&amp;vis=maaneder"' in html
+def test_gamle_visninger_finnes_ikke_lenger(con):
+    """«Måneder», «Uke for uke» og «Ledige perioder» er tatt bort (Camilla 15.10.2026): ?vis= og ?ledig= gir bare kurshjulet."""
+    for sporring in ("vis=maaneder", "vis=uker", "ledig=3"):
+        html = _side(f"aar=2031&{sporring}")
+        assert html.count('<section class="hjulmaaned"') == 12 and "minimaaned" not in html and "Ledige perioder" not in html
+
+
+def test_kursholdere_vises_ogsaa_for_kurs_i_systemet(con):
+    """Kurset i systemet har en skjult planlagt samling med kursholderne (sjekklistene, kurs/sjekklister.synk_kurs)."""
+    kid = db.opprett_kurs(con, kode="V1", navn="Valgfritt program", datoer=["2031-06-16", "2031-06-17"], sharepoint_mappe="Kurs/V1",
+                          status="aapen")
+    samling = con.execute("SELECT samling_id FROM kursdag WHERE kurs_id=? LIMIT 1", (kid,)).fetchone()[0]
+    pid = db.sett_inn(con, "INSERT INTO planlagt_kurs (navn, arrangor, status, farge, kilde, opprettet_av, kurs_id) VALUES (?,?,?,?,?,?,?)",
+                      ("Valgfritt program", "IPR", "planlagt", 0, "Kurs i systemet", "test", kid))
+    sid = db.sett_inn(con, "INSERT INTO planlagt_samling (planlagt_kurs_id, fra_dato, til_dato, kursholdere, kurs_samling_id) "
+                           "VALUES (?,?,?,?,?)", (pid, "2031-06-16", "2031-06-17", "Bente B.", samling))
+    con.commit()
+    plan = aarsplan.hent(con, 2031)
+    assert plan.kursholdere.get(sid) == "Bente B."
+    assert "Kursholdere: Bente B." in _side()
+
+
+def test_ferie_og_merknader_ligger_i_nedtrekk_og_uker_uten_kurs_slaas_sammen(con):
+    """Camilla 15.10.2026: ferier er ikke kurs, så de skal ikke ta plass i «Uke for uke»."""
+    v = aarsplan.valider_periode(MultiDict({"type": "skoleferie", "navn": "Sommerferie", "fra_dato": "2031-06-23",
+                                            "til_dato": "2031-08-15", "omraade": "Oslo", "gjelder": "alle", "notat": ""}))
+    aarsplan.opprett_periode(con, v, "admin:test")
+    _plan(con, "Høstkurs", {"fra_dato": "2031-09-01", "til_dato": "2031-09-02"})
+    _, uker = aarsplan.kurshjul(aarsplan.hent(con, 2031), date(2031, 1, 1))
+    sommer = next(u for u in uker if any("Sommerferie" in f for f in u.ferie))
+    assert not sommer.kurs and sommer.til_nr - sommer.fra_nr >= 7 and sommer.ferie.count("Skoleferie Oslo: Sommerferie") == 1
+    html = _side()
+    assert '<details class="hjulferie-valg">' in html and "Ingen kurs · Ferie og merknader (" in html
+    assert '<span class="hjulferie">' not in html

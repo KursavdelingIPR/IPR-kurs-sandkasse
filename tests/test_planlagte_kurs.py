@@ -276,13 +276,12 @@ def test_aarsplanen_teller_annen_arrangor_bare_ved_ekte_dobbeltbooking(con):
     _plan(con, "Vårt webinar", _samling(date(2031, 3, 4), sted="Online"))
     _plan(con, "Vårt Oslo-kurs", _samling(date(2031, 3, 6), sted="Oslo"))
     plan = aarsplan.hent(con, 2031)
-    dager = {d.dato.day: d for u in aarsplan.aarskalender(plan, date(2000, 1, 1))[2].uker for d in u.dager
-             if d.i_maaneden}
-    assert not dager[4].kollisjon and dager[4].opptatt == 1         # IPRO + vårt webinar: ingen dobbeltbooking
-    assert not dager[5].kollisjon and dager[5].opptatt == 0         # bare IPRO: dagen er ledig for oss
+    maaneder, _ = aarsplan.kurshjul(plan, date(2000, 1, 1))
+    dager = {d.dato.day: d for _, uke in maaneder[2].uker for d in uke if d.i_maaneden}
+    assert not dager[4].kollisjon and len(dager[4].kurs) == 2      # IPRO + vårt webinar: ingen dobbeltbooking (men begge vises)
+    assert not dager[5].kollisjon and [k.ekstern for k in dager[5].kurs] == [True]     # bare IPRO (svart)
     assert dager[6].kollisjon                                       # IPRO + vårt fysiske Oslo-kurs
     assert [o["tekst"] for o in aarsplan.overlapp_perioder(plan)] == ["6. mar"]
-    assert any(p.fra <= date(2031, 3, 5) <= p.til for p in aarsplan.ledige(plan, 1))       # IPRO alene sperrer ikke
 
 
 def test_oversikten_viser_ikke_planlagte_kurs_men_kalenderen_gjor(con):
@@ -339,14 +338,12 @@ def test_aarsplanen_viser_planlagte_som_kurs(con):
     assert (k.alvor, k.kurs["plan_id"]) == ("rod", rod)
     (f,) = [x for x in aarsplan.fargeforklaring(plan) if x["plan_id"] == pid]
     assert f["samlinger"] == ["1. samling 3.–5. mar", "2. samling 1.–3. sep"] and f["farge"] == _farge(con, pid)
-    mars = aarsplan.aarskalender(plan, date(2000, 1, 1))[2]
-    blokker = [b for u in mars.uker for bane in u.baner for b in bane if b.plan_id == pid]
-    assert blokker and blokker[0].tekst == "700 Årskurs Oslo 1/2" and blokker[0].klasser == "planlagt"
+    _, uker = aarsplan.kurshjul(plan, date(2000, 1, 1))
+    (aarskurs,) = [k for u in uker for k in u.kurs if k.plan_id == pid and k.fra == date(2031, 3, 3)]
+    assert (aarskurs.navn, aarskurs.samling, aarskurs.planlagt) == ("700 Årskurs Oslo", "1. samling av 2", True)
     t = _klient().get("/admin/aktiviteter/aarsplan?aar=2031").get_data(as_text=True)
     assert f'href="/admin/aktiviteter/planlagte-kurs/{pid}"' in t and "2 planlagte kurs" in t
-    assert "1 kurs · 1 kursdag" in t
-    uker = _klient().get("/admin/aktiviteter/aarsplan?aar=2031&vis=uker").get_data(as_text=True)
-    assert f'href="/admin/aktiviteter/planlagte-kurs/{pid}">700 Årskurs Oslo</a>, 1. samling av 2' in uker
+    assert "1 kurs · 1 kursdag" in t and "Planlagt kurs (ikke opprettet i systemet ennå)" in t
 
 
 # ============================ sidene ============================

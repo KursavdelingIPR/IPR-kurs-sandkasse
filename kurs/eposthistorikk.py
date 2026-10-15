@@ -177,3 +177,73 @@ def vedlegg(con, p, epost_id: int, nr: int) -> tuple[str, str, bytes] | None:
     if not r:
         return None
     return _trygt_filnavn(r["filnavn"]), r["mimetype"], base64.b64decode(r["innhold"])
+
+
+# ============================ «Mine e-poster» på Min side (Camilla 15.10.2026) ============================
+# Deltakeren ser e-postene vi har sendt for påmeldingene sine: bare de som faktisk er sendt (status «sendt»), aldri de som venter i
+# «Klar til sending» eller er stoppet, og bare de med lagret innhold. Listen (emne, dato, kurs) vises på alle innloggingsnivåer; selve
+# innholdet og vedleggene bare når deltakeren er innlogget med e-post (kan inneholde adresse og faktura), se app.py.
+
+_STIL_OG_SKRIPT = re.compile(r"<(style|script|head)\b.*?</\1\s*>", re.S | re.I)
+_TAGGER = re.compile(r"<[^>]+>")
+_MELLOMROM = re.compile(r"\s+")
+
+
+def utdrag(html: str, maks: int = 150) -> str:
+    """De første ordene i e-posten som ren tekst (til listen)."""
+    import html as htmlmodul
+    tekst = _MELLOMROM.sub(" ", htmlmodul.unescape(_TAGGER.sub(" ", _STIL_OG_SKRIPT.sub(" ", html or "")))).strip()
+    return tekst if len(tekst) <= maks else tekst[:maks].rsplit(" ", 1)[0] + " …"
+
+
+@dataclass
+class MinEpost:
+    id: int
+    emne: str
+    dato: str                           # «28.09.2026»
+    klokkeslett: str
+    kursnavn: str
+    kurskode: str
+    utdrag: str
+    antall_vedlegg: int
+    tidspunkt: str
+
+
+_MINE_SQL = """SELECT se.id, se.emne, se.html, se.sendt_ts, se.opprettet, se.paamelding_id, k.navn AS kursnavn, k.kode AS kurskode,
+                      (SELECT COUNT(*) FROM sendt_epost_vedlegg v WHERE v.sendt_epost_id=se.id AND v.innebygd_cid IS NULL) AS antall_vedlegg
+               FROM sendt_epost se JOIN paamelding p ON p.id=se.paamelding_id JOIN kurs k ON k.id=p.kurs_id
+               WHERE p.deltaker_id=? AND se.status='sendt'"""
+
+
+def for_deltaker(con, deltaker_id: int, *, med_utdrag: bool = True) -> list[MinEpost]:
+    """E-postene deltakeren har fått fra oss (alle kursene), nyeste først."""
+    ut = []
+    for r in con.execute(_MINE_SQL, (deltaker_id,)):
+        tid = norsk_tid.fra_utc(r["sendt_ts"] or r["opprettet"])
+        ut.append(MinEpost(r["id"], r["emne"], norsk_tid.dato(tid), norsk_tid.klokkeslett(tid), r["kursnavn"], r["kurskode"],
+                           utdrag(r["html"]) if med_utdrag else "", r["antall_vedlegg"], str(r["sendt_ts"] or r["opprettet"])))
+    return sorted(ut, key=lambda e: (e.tidspunkt, e.id), reverse=True)
+
+
+def antall_for_deltaker(con, deltaker_id: int, kurskode: str | None = None) -> int:
+    """Antall e-poster i «Mine e-poster» (alle kursene, eller ett)."""
+    sql = "SELECT COUNT(*) FROM (" + _MINE_SQL + (" AND k.kode=?" if kurskode else "") + ")"
+    return con.execute(sql, (deltaker_id, kurskode) if kurskode else (deltaker_id,)).fetchone()[0]
+
+
+def min_visning(con, deltaker_id: int, epost_id: int) -> tuple[MinEpost, Epostvisning] | None:
+    """Én av deltakerens egne e-poster (slik den ble sendt, med vedlegg), ellers None - også for en e-post som ikke er sendt."""
+    r = con.execute(_MINE_SQL + " AND se.id=?", (deltaker_id, epost_id)).fetchone()
+    if not r:
+        return None
+    v = visning(con, {"id": r["paamelding_id"]}, epost_id)
+    if not v:
+        return None
+    tid = norsk_tid.fra_utc(r["sendt_ts"] or r["opprettet"])
+    return MinEpost(r["id"], r["emne"], norsk_tid.dato(tid), norsk_tid.klokkeslett(tid), r["kursnavn"], r["kurskode"], "",
+                    r["antall_vedlegg"], str(r["sendt_ts"] or r["opprettet"])), v
+
+
+def mitt_vedlegg(con, deltaker_id: int, epost_id: int, nr: int) -> tuple[str, str, bytes] | None:
+    r = con.execute(_MINE_SQL + " AND se.id=?", (deltaker_id, epost_id)).fetchone()
+    return vedlegg(con, {"id": r["paamelding_id"]}, epost_id, nr) if r else None

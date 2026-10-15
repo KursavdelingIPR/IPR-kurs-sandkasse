@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% set tema_ta = true %}
+{% import "_kursside_blokker.html" as bl %}
+{#- Én e-post på Min side, slik den ble sendt (låst ramme uten skript, som i administrasjonen). `v` er None når deltakeren ikke er innlogget
+    med e-post: da vises bare emne og dato, og en knapp for å bekrefte e-posten. -#}
+{% block tittel %}{{ e.emne }} – Mine e-poster – IPR Påmeldingssystem{% endblock %}
+{% block hode %}<link rel="stylesheet" href="{{ url_for('static', filename='min-side.css') }}">{% endblock %}
+{% block innhold %}
+{% include "_kursside_ikoner.html" %}
+<div class="ms-rot ms-ep-rot">
+  <a class="ms-ep-tilbake" href="{{ url_for('mine_eposter') }}">← Mine e-poster</a>
+  <article class="ms-ep-les" aria-labelledby="ms-ep-emne">
+    <header class="ms-ep-les-topp">
+      <h1 id="ms-ep-emne">{{ e.emne }}</h1>
+      <p class="ms-ep-les-meta">{{ e.dato }} kl. {{ e.klokkeslett }} · {{ e.kursnavn }}</p>
+    </header>
+    {% if v %}
+      {% if v.vedlegg %}<ul class="ms-ep-vedlegg" aria-label="Vedlegg">
+        {% for f in v.vedlegg %}<li><a href="{{ url_for('min_epost_vedlegg', epost_id=e.id, nr=f.nr) }}" target="_blank" rel="noopener">{{ bl.ikon('fil') }}{{ f.filnavn }}</a>
+          <a class="ms-ep-last-ned" href="{{ url_for('min_epost_vedlegg', epost_id=e.id, nr=f.nr, last_ned=1) }}">Last ned</a></li>{% endfor %}
+      </ul>{% endif %}
+      <iframe class="epostramme ms-ep-ramme" sandbox srcdoc="{{ v.html }}" title="E-posten «{{ e.emne }}»"></iframe>
+    {% else %}
+    <div class="ms-bekreft ms-ep-bekreft">
+      <p>Av hensyn til personvernet ditt viser vi innholdet i e-posten først når du har bekreftet e-posten din.</p>
+      <form method="post" action="{{ url_for('bekreft_epost') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="neste" value="{{ request.path }}">
+        <button type="submit">Send meg en lenke på e-post</button>
+      </form>
+    </div>
+    {% endif %}
+  </article>
+</div>
+{% endblock %}

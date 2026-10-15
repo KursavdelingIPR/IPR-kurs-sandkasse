@@ -342,7 +342,8 @@ def test_ingen_sensitive_koder_finnes():
     # (09.10.2026: prisnavn, rabattpris og ordinaer_pris til rabatt_avklaring - kursets pris og rabattens navn, ikke personopplysninger)
     assert set(KODER) == {"fornavn", "navn", "kursnavn", "startdato", "dato", "dagnummer", "antall_dager", "firmanavn",
                           "antall_deltakere", "beskrivelse", "beskrivelse_liten", "frist", "dager_igjen",
-                          "dager_igjen_tekst", "min_side", "sporsmal_url", "prisnavn", "rabattpris", "ordinaer_pris"}
+                          "dager_igjen_tekst", "min_side", "sporsmal_url", "prisnavn", "rabattpris", "ordinaer_pris",
+                          "runde"}   # 15.10.2026: hva evalueringen gjelder (kursnavnet og samlingens nummer)
     for forbudt in ("allergi", "tilrettelegging", "epost", "telefon", "adresse", "fodsel", "personnummer", "passord",
                     "token", "zoom", "org_nr", "faktura"):
         assert not [k for k in KODER if forbudt in k], forbudt

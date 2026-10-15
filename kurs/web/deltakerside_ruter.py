@@ -13,7 +13,7 @@ hemmelighet (kurs.kode er gjettbar), og en skjult lenke er ikke tilgangskontroll
 from flask import abort, redirect, render_template, request, session, url_for
 
 from .. import deltakerside as deltakerside_modul   # modulen (logikk); endepunktet under heter også «deltakerside»
-from .. import minside, sidelager
+from .. import eposthistorikk, minside, sidelager
 from .. import sideinnhold as si
 from . import filrespons, sikkerhet
 
@@ -62,6 +62,8 @@ def installer(app, con, *, krever_deltaker, admin_okt_gyldig, idag, deltaker_ful
         v["person"] = minside.mine_opplysninger(con(), did, t.kurs["id"], full=deltaker_full())
         v["bekreft_url"] = url_for("bekreft_epost")
         v["oppmote_url"] = url_for("deltakerside_oppmote", kode=kode)
+        v["eposter_url"] = url_for("mine_eposter", kurs=kode)          # «Mine e-poster» for dette kurset (Camilla 15.10.2026)
+        v["antall_eposter"] = eposthistorikk.antall_for_deltaker(con(), did, kode)
         melding = hent_oppmote_melding()
         v["oppmote_melding"] = {"niva": melding["niva"], "tekst": melding["tekst"]} if melding and melding["kode"] == kode else None
         return render_template("kursside_deltaker.html", v=v, forhandsvisning=False)

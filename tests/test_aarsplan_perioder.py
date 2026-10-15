@@ -1,6 +1,6 @@
 """Årsplanen, utvidet (bestillingen 27.09.2026): røde dager, skoleferier per område, sperrede perioder og advarsler,
-konflikter, konkrete ledige perioder («8.–14. mar – 7 dager»), overlapp som perioder og uke for uke med kursene som
-blokker. Skoleferier er aldri faste, nasjonale datoer i koden - de legges inn av admin per område. Ingen periode hindrer
+konflikter og overlapp som perioder (visningene «Måneder», «Uke for uke» og «Ledige perioder» er tatt bort 15.10.2026: årsplanen er
+kurshjulet). Skoleferier er aldri faste, nasjonale datoer i koden - de legges inn av admin per område. Ingen periode hindrer
 at kurs opprettes."""
 import json
 import re
@@ -46,24 +46,10 @@ def _periode(con, type_, navn, fra, til=None, omraade=None, gjelder="alle", nota
     return pid
 
 
-def _maaned(plan, maaned, idag=date(2000, 1, 1)):
-    return aarsplan.aarskalender(plan, idag)[maaned - 1]
-
-
 def _dag(plan, maaned, dag, idag=date(2000, 1, 1)):
-    """Dagen i månedskalenderen (bare månedens egne datoer)"""
-    return next(d for u in _maaned(plan, maaned, idag).uker for d in u.dager if d.i_maaneden and d.dato.day == dag)
-
-
-def _blokker(plan, maaned):
-    """{(type, tekst, første dag, siste dag)} for blokkene i måneden (en blokk deles ved ukeskifte)"""
-    ut = set()
-    for u in _maaned(plan, maaned).uker:
-        mandag = u.dager[0].dato
-        for b in (b for bane in u.baner for b in bane):
-            ut.add((b.type, b.tekst, (mandag + timedelta(days=b.kolonne)).day,
-                    (mandag + timedelta(days=b.kolonne + b.lengde - 1)).day))
-    return ut
+    """Dagen i kurshjulets kalender (bare månedens egne datoer). Årsplanen er bare kurshjulet fra 15.10.2026."""
+    maaneder, _ = aarsplan.kurshjul(plan, idag)
+    return next(d for _, dager in maaneder[maaned - 1].uker for d in dager if d.i_maaneden and d.dato.day == dag)
 
 
 # ============================ røde dager ============================
@@ -71,7 +57,7 @@ def _blokker(plan, maaned):
 def test_roede_dager_regnes_ut_og_markeres_i_aaret(con):
     plan = aarsplan.hent(con, 2027)
     c = _dag(plan, 5, 17)
-    assert "rod" in c.klasser.split() and "Rød dag: Grunnlovsdag (17. mai) og 2. pinsedag" in c.tittel
+    assert "rod" in c.klasser.split() and "Grunnlovsdag (17. mai)" in c.rod and "2. pinsedag" in c.rod
     assert "rod" in _dag(plan, 5, 6).klasser.split()             # Kristi himmelfartsdag 2027
     assert "rod" not in _dag(plan, 5, 5).klasser.split()
     assert con.execute("SELECT COUNT(*) FROM kalenderperiode").fetchone()[0] == 0    # ingenting lagret
@@ -79,11 +65,10 @@ def test_roede_dager_regnes_ut_og_markeres_i_aaret(con):
 
 def test_kurs_paa_roed_dag_beholder_markeringen(con):
     kid = _kurs(con, "R1", "Kurs på 17. mai", ["2027-05-17"], type="fysisk")
-    plan = aarsplan.hent(con, 2027)
-    c = _dag(plan, 5, 17)
-    assert c.opptatt == 1 and "rod" in c.klasser.split()
-    (b,) = [b for u in _maaned(plan, 5).uker for bane in u.baner for b in bane]
-    assert (b.kurs_id, b.farge, b.tekst) == (kid, kursfarger.farge("Kurs på 17. mai"), "Kurs på 17. mai")
+    c = _dag(aarsplan.hent(con, 2027), 5, 17)
+    assert "rod" in c.klasser.split() and "harkurs" in c.klasser.split()
+    (k,) = c.kurs
+    assert (k.kurs_id, k.farge, k.navn) == (kid, kursfarger.farge("Kurs på 17. mai"), "Kurs på 17. mai")
 
 
 # ============================ perioder: validering ============================
@@ -124,7 +109,7 @@ def test_skoleferier_vises_per_omraade(con):
     _periode(con, "skoleferie", "Høstferie", "2027-10-11", "2027-10-15", omraade="Vestland")
     alle = aarsplan.hent(con, 2027)
     assert "ferie" in _dag(alle, 10, 5).klasser.split() and "ferie" in _dag(alle, 10, 12).klasser.split()
-    assert "Skoleferie Oslo: Høstferie" in _dag(alle, 10, 5).tittel
+    assert "Skoleferie Oslo: Høstferie" in _dag(alle, 10, 5).ferie
     oslo = aarsplan.hent(con, 2027, "oslo")
     assert "ferie" in _dag(oslo, 10, 5).klasser.split() and "ferie" not in _dag(oslo, 10, 12).klasser.split()
     assert aarsplan.omraader(con) == ["Oslo", "Vestland"]
@@ -170,44 +155,6 @@ def test_kurs_paa_roed_dag_er_en_merknad(con):
     assert (k.alvor, k.kurs["id"], k.datotekst, k.hva) == ("rod", kid, "6. mai", "Kristi himmelfartsdag")
 
 
-# ============================ ledige perioder ============================
-
-def test_konkrete_ledige_perioder_med_antall_dager(con):
-    _kurs(con, "L1", "Før", ["2027-03-07"])
-    _kurs(con, "L2", "Etter", ["2027-03-15"])
-    ledige = aarsplan.ledige(aarsplan.hent(con, 2027), 5)
-    mars = next(p for p in ledige if p.fra == date(2027, 3, 8))
-    assert (mars.tekst, mars.dager, mars.uker, mars.til) == ("8.–14. mar", 7, "uke 10", date(2027, 3, 14))
-    assert ledige[0].fra == date(2027, 1, 1) and ledige[-1].til == date(2027, 12, 31)
-    assert ledige[0].uker == "uke 53 (2026) – uke 9"             # 1. januar 2027 er i ISO-uke 53 i 2026
-
-
-def test_korte_luker_vises_bare_naar_man_ber_om_det(con):
-    _kurs(con, "L1", "A", ["2027-03-01"])
-    _kurs(con, "L2", "B", ["2027-03-05"])        # 2.-4. mars ledig: 3 dager
-    tre = [p for p in aarsplan.ledige(aarsplan.hent(con, 2027), 3) if p.fra == date(2027, 3, 2)]
-    assert len(tre) == 1 and tre[0].dager == 3
-    assert not [p for p in aarsplan.ledige(aarsplan.hent(con, 2027), 5) if p.fra == date(2027, 3, 2)]
-
-
-def test_sperre_opptar_datoene_men_advarsel_og_skoleferie_er_merknader(con):
-    _kurs(con, "L1", "A", ["2027-06-01"])
-    _kurs(con, "L2", "B", ["2027-06-30"])
-    _periode(con, "sperre", "Konferanse", "2027-06-14", "2027-06-18")
-    _periode(con, "advarsel", "Mange på ferie", "2027-06-21", "2027-06-29")
-    _periode(con, "skoleferie", "Sommerferie", "2027-06-19", "2027-06-29", omraade="Oslo")
-    juni = [p for p in aarsplan.ledige(aarsplan.hent(con, 2027), 3) if p.fra.month == 6]
-    assert [(p.fra.day, p.til.day) for p in juni] == [(2, 13), (19, 29)]
-    assert "Advarsel: Mange på ferie" in juni[1].merknader and "Skoleferie Oslo: Sommerferie" in juni[1].merknader
-
-
-def test_roede_dager_i_ledig_periode_staar_som_merknad(con):
-    ledige = aarsplan.ledige(aarsplan.hent(con, 2027), 5)
-    (hele,) = ledige
-    assert (hele.fra, hele.til, hele.dager) == (date(2027, 1, 1), date(2027, 12, 31), 365)
-    assert "17. mai: Grunnlovsdag (17. mai) og 2. pinsedag" in hele.merknader
-
-
 # ============================ overlapp ============================
 
 def test_overlapp_vises_som_perioder(con):
@@ -225,70 +172,21 @@ def test_overlapp_vises_som_perioder(con):
 
 # ============================ uke for uke ============================
 
-def test_uke_for_uke_viser_samlinger_som_blokker_over_ukeskifte(con):
-    kid = _kurs(con, "U1", "Grunnkurs", ["2027-10-29", "2027-10-30", "2027-10-31", "2027-11-01"], type="hybrid")
-    _kurs(con, "U2", "Samtidig", ["2027-10-29"], type="digital")
-    uker = aarsplan.uker(aarsplan.hent(con, 2027), date(2027, 10, 29))
-    assert len(uker) == 53 and (uker[0].mandag, uker[0].nr, uker[0].iso_aar) == (date(2026, 12, 28), 53, 2026)
-    assert (uker[-1].nr, uker[-1].iso_aar, uker[-1].sondag) == (52, 2027, date(2028, 1, 2))
-    u43, u44 = uker[43], uker[44]
-    assert (u43.nr, u43.tekst) == (43, "25.–31. okt")
-    assert [[(b.tittel, b.kolonne, b.lengde, b.fra_forrige, b.til_neste) for b in bane] for bane in u43.baner] == [
-        [("Grunnkurs", 4, 3, False, True)], [("Samtidig", 4, 1, False, False)]]
-    (b,), = u44.baner
-    assert (b.kurs_id, b.kolonne, b.lengde, b.fra_forrige, b.til_neste, b.kurstype) == (kid, 0, 1, True, False, "hybrid")
-    assert b.periode == "29. okt – 1. nov (4 dager)"
-    assert [d["idag"] for d in u43.dager] == [False] * 4 + [True, False, False]
-
-
-def test_uke_for_uke_har_merknader_og_ledige_uker(con):
-    _periode(con, "skoleferie", "Vinterferie", "2027-02-22", "2027-02-26", omraade="Oslo")
-    db.sett_inn(con, "INSERT INTO planlagt_aktivitet (type, tittel, fra_dato, til_dato) VALUES ('notat', ?, ?, ?)",
-                ("Søknadsfrist", "2027-02-24", "2027-02-24"))
-    con.commit()
-    uker = aarsplan.uker(aarsplan.hent(con, 2027), date(2000, 1, 1))
-    u8, u20 = uker[8], uker[20]
-    assert u8.ledig and ("skoleferie", "Skoleferie Oslo: Vinterferie (22.–26. feb)") in u8.merknader
-    assert ("notat", "Notat: Søknadsfrist") in u8.merknader
-    assert ("rod", "17. mai: Grunnlovsdag (17. mai) og 2. pinsedag") in u20.merknader
-
-
-def test_ukeblokker_bruker_ledig_linje_og_slutter_paa_sondag_uten_pil(con):
-    _kurs(con, "A", "A mandag-tirsdag", ["2027-03-01", "2027-03-02"])
-    _kurs(con, "B", "B onsdag", ["2027-03-03"])
-    _kurs(con, "C", "C mandag", ["2027-03-01"])
-    _kurs(con, "D", "D fredag-søndag", ["2027-03-05", "2027-03-06", "2027-03-07"])
-    uke9 = aarsplan.uker(aarsplan.hent(con, 2027), date(2000, 1, 1))[9]
-    assert [[b.tittel for b in bane] for bane in uke9.baner] == [["A mandag-tirsdag", "B onsdag", "D fredag-søndag"],
-                                                                 ["C mandag"]]
-    d = uke9.baner[0][-1]
-    assert (d.kolonne, d.lengde, d.fra_forrige, d.til_neste) == (4, 3, False, False)    # slutter søndag: ingen pil
-
 
 # ============================ sidene ============================
 
-def test_aarssiden_har_filter_konflikter_ledige_og_perioder(con):
+def test_aarssiden_har_filter_konflikter_og_perioder(con):
     _periode(con, "skoleferie", "Høstferie", "2027-10-04", "2027-10-08", omraade="Oslo", notat="Fra kommunens nettside")
     _periode(con, "sperre", "Intern ferie", "2027-07-05", "2027-07-30")
     _kurs(con, "S1", "Sommerkurs", ["2027-07-06"], type="fysisk")
-    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027&vis=maaneder").get_data(as_text=True)
+    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027").get_data(as_text=True)
     assert '<body class="bred">' in html and "/static/planlegging.css" in html
     assert '<option value="Oslo">Oslo</option>' in html and '<option value="Vestland">Vestland</option>' in html
     assert "Konflikter og merknader" in html and "Sperret: Intern ferie" in html
     assert "Skoleferie" in html and "Høstferie" in html and "Fra kommunens nettside" in html
-    assert re.search(r'<span class="minidag [^"]*\bsperre\b[^"]*"', html)
-    assert re.search(r'<span class="minidag [^"]*\bferie\b', html)
-    assert "Helt ledige uker:" in html and 'aria-current="page">Måneder</a>' in html
-
-
-def test_uke_for_uke_siden(con):
-    kid = _kurs(con, "U1", "Grunnkurs", ["2027-10-29", "2027-11-01"], type="fysisk")
-    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027&vis=uker").get_data(as_text=True)
-    assert html.count('<section class="ukerad') == 53 and 'aria-current="page">Uke for uke</a>' in html
-    assert "<strong>Uke 53 (2026)</strong>" in html
-    assert f'href="/admin/kurs/{kid}/deltakere">Grunnkurs</a>, 1. samling av 2' in html
-    assert 'class="aarskalender"' not in html
-    assert 'href="/admin/aktiviteter/aarsplan?aar=2028&amp;vis=uker"' in html       # neste år beholder visningen
+    assert re.search(r'<td class="(?:[^"]* )?sperre[ "]', html) and re.search(r'<td class="(?:[^"]* )?ferie[ "]', html)
+    # Bare kurshjulet (Camilla 15.10.2026): ingen «Måneder», «Uke for uke» eller «Ledige perioder»
+    assert "Ledige perioder" not in html and ">Måneder</a>" not in html and 'class="visningsvalg"' not in html
 
 
 @pytest.mark.parametrize("sporring", ["vis=tull", "omraade=Mars", "ledig=0", "ledig=abc", "omraade=<script>"])
@@ -299,8 +197,8 @@ def test_ugyldige_valg_gir_standardvisning(con, sporring):
 
 def test_ukjent_omraade_viser_alle_skoleferier(con):
     _periode(con, "skoleferie", "Høstferie", "2027-10-04", "2027-10-08", omraade="Oslo")
-    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027&omraade=Mars&vis=maaneder").get_data(as_text=True)
-    assert re.search(r'<span class="minidag [^"]*\bferie\b', html) and '<option value="" >Alle områder' not in html
+    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027&omraade=Mars").get_data(as_text=True)
+    assert re.search(r'<td class="(?:[^"]* )?ferie[ "]', html) and '<option value="" >Alle områder' not in html
     assert '<option value="Oslo">Oslo</option>' in html                      # ingen er valgt: «Alle områder»
 
 
@@ -352,26 +250,8 @@ def test_ingen_deltakerdata_i_aarsplanen(con):
     kid = _kurs(con, "P1", "Personvernkurs", ["2027-03-10"])
     db.meld_paa(con, kid, epost="skal.ikke.vises@example.no", fornavn="Skal Ikke", etternavn="Vises")
     con.commit()
-    for vis in ("", "&vis=uker"):
-        html = _admin().get(f"/admin/aktiviteter/aarsplan?aar=2027{vis}").get_data(as_text=True)
-        assert "skal.ikke.vises" not in html and "Skal Ikke Vises" not in html
-
-
-def test_uke_for_uke_er_en_liste_og_mobil_faar_en_kolonne(con):
-    """Som kurshjulet i Excel: «Uke 5 – Webinar: Skam i terapi · 3. feb», på alle skjermstørrelser."""
-    static = Path(aarsplan.__file__).parent / "web" / "static"
-    felles = "".join((static / "planlegging.css").read_text(encoding="utf-8").split("@media (max-width: 760px)")[1:])
-    assert ".ukerad { grid-template-columns:1fr;" in felles and ".aarsplankort { grid-template-columns:1fr; }" in felles
-    css = (static / "aarsplan.css").read_text(encoding="utf-8")
-    assert "@media (max-width: 760px) { .ukeliste .ukerad { grid-template-columns:1fr; } }" in css
-    kid = _kurs(con, "W1", "Webinar: Skam i terapi", ["2027-02-03"], type="digital")
-    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027&vis=uker").get_data(as_text=True)
-    uke5 = html.split('aria-label="Uke 5, 1.–7. feb"')[1].split("</section>")[0]
-    liste = uke5.split('<ul class="ukeaktiviteter">')[1].split("</ul>")[0]
-    assert f'<a href="/admin/kurs/{kid}/deltakere">Webinar: Skam i terapi</a>' in liste and "3. feb" in liste
-    assert f'<li class="kursfarge-{kursfarger.farge("Webinar: Skam i terapi")}">' in liste
-    uke6 = html.split('aria-label="Uke 6, 8.–14. feb"')[1].split("</section>")[0]
-    assert '<li class="ledig">Ingen kurs</li>' in uke6
+    html = _admin().get("/admin/aktiviteter/aarsplan?aar=2027").get_data(as_text=True)
+    assert "skal.ikke.vises" not in html and "Skal Ikke Vises" not in html
 
 
 # ============================ migrering ============================
@@ -388,14 +268,4 @@ def test_migreringen_lager_tabellen_og_kan_kjores_to_ganger(con):
     assert db.har_tabell(con, "kalenderperiode") and migreringer.kjor_manglende(con) == []
     migreringer.kontroller(con)
 
-
-def test_uke_for_uke_tar_med_dagene_i_kantukene(con):
-    """1. januar 2027 er i ISO-uke 53 i 2026, og kurs de dagene skal også vises."""
-    _kurs(con, "N1", "Romjulskurs", ["2026-12-30", "2026-12-31", "2027-01-02"])
-    uke = aarsplan.uker(aarsplan.hent(con, 2027), date(2000, 1, 1))[0]
-    (bane,) = uke.baner                                          # to samlinger: 30.-31. desember og lørdag 2. januar
-    assert [(x.fra, x.til, x.kolonne, x.lengde) for x in bane] == [(date(2026, 12, 30), date(2026, 12, 31), 2, 2),
-                                                                   (date(2027, 1, 2), date(2027, 1, 2), 5, 1)]
-    assert [d["i_aaret"] for d in uke.dager] == [False] * 4 + [True] * 3
-    assert ("rod", "1. jan: 1. nyttårsdag") in uke.merknader
 
