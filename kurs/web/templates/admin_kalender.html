@@ -69,11 +69,18 @@
 </article>
 {% endmacro %}
 {% block innhold %}
+{% if fane == 'webinarer' %}
+<h1>Webinarer</h1>
+<p class="sub">Webinarene i den rekkefølgen de kommer – neste øverst, med sjekklisten under hvert webinar (klikk på raden). Her står
+  planlagte kurs merket «Webinar» og kurs i systemet med «webinar» i navnet.
+  <a class="knapp liten" href="{{ url_for('admin_kalender_planlagt_ny', webinar=1) }}">Nytt webinar +</a></p>
+{% else %}
 <h1>Kurskalender</h1>
 <p class="sub">Kursene i den rekkefølgen de kommer – neste kurs øverst. Samme farge betyr samme kurs eller kursserie: alle
   samlingene i et kurs har samme farge. Kurs merket «Planlagt kurs» er fra kursplanen og er ikke opprettet i systemet ennå
   (fanen Planlagte kurs).</p>
-{% set visning = 'kalender' %}
+{% endif %}
+{% set visning = fane %}
 {% include "admin_aktivitet_faner.html" %}
 
 <input type="checkbox" id="vis-filtre" class="filterbryter"{{ ' checked' if sted or ansvarlig or status }}>

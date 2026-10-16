@@ -74,9 +74,10 @@ class Evalueringsfeil(ValueError):
 # ============================ når ============================
 
 # Kurs som får evalueringen etter HVER samling når ingen har valgt noe for kurset (Camilla 15.10.2026: «På Modulene
-# (spesialistutdanningen) skal de sendes ut etter hver enkelt samling. Samme med EFT 1-årig, EFST 1-årig og EFT påbygg»).
+# (spesialistutdanningen) skal de sendes ut etter hver enkelt samling. Samme med EFT 1-årig, EFST 1-årig og EFT påbygg»;
+# 15.10 kveld: «på valgfritt program skal evalueringen sendes etter hver samling»).
 # Andre kurs (engangskurs, veilederprogrammet: «kun siste dag») får den etter siste kursdag.
-_ETTER_HVER_SAMLING = re.compile(r"(?<![a-zæøå])modul(?![a-zæøå])|1-årig|1 årig|påbygg", re.IGNORECASE)
+_ETTER_HVER_SAMLING = re.compile(r"(?<![a-zæøå])modul(?![a-zæøå])|1-årig|1 årig|påbygg|valgfritt program", re.IGNORECASE)
 
 
 def standard_modus(kurs) -> str:

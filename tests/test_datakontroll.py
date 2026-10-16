@@ -277,11 +277,14 @@ def test_skjemaene_faar_samme_domeneliste(con):
     con.commit()
     side = webapp.app.test_client().get("/kurs/DK9").get_data(as_text=True)
     assert re.search(r'<input id="f-faktura_epost"[^>]*data-epost-sjekk=', side), betalt     # E-post for faktura
+    # også under «Bekreft e-post» (Camilla 15.10.2026)
+    assert re.search(r'<input id="f-epost_bekreft"[^>]*data-epost-sjekk=', side)
     assert "data-epost-sjekk=" in _klient().get(f"/admin/kurs/{kid}/deltaker/ny").get_data(as_text=True)
-    # bedriftspåmeldingen: kontaktpersonen og hver deltakerrad (også radene som legges til)
+    # bedriftspåmeldingen: kontaktpersonen, «Bekreft e-post» og hver deltakerrad (også radene som legges til)
     from pathlib import Path
     gruppe = (Path(config.__file__).resolve().parent / "web" / "templates" / "kurs_gruppe.html").read_text(encoding="utf-8")
-    assert gruppe.count('data-epost-sjekk="{{ EPOST_SJEKK }}"') == 3
+    assert gruppe.count('data-epost-sjekk="{{ EPOST_SJEKK }}"') == 4
+    assert re.search(r'id="f-kontakt_epost_bekreft"[^>]*data-epost-sjekk=', gruppe)
     # ikke i innlogging og innsjekk: der må adressen være nøyaktig den som er registrert (også med en skrivefeil)
     maler = Path(config.__file__).resolve().parent / "web" / "templates"
     for navn in ("logg_inn.html", "innsjekk.html"):

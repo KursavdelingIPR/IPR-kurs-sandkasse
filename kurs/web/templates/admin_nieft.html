@@ -1,0 +1,78 @@
+{% extends "admin_base.html" %}
+{% block tittel %}NIEFT-medlemmer{% endblock %}
+{% block innhold %}
+{#- NIEFT-medlemslisten (Camilla 15.10.2026, kurs/nieft.py): NIEFT-pris i påmeldingen krever e-posten personen er medlem med, og
+    godkjennes da automatisk. Listen er ekte persondata: hele listen vises aldri, bare søketreff. Lesetilgang kan se, men ikke endre. -#}
+<p class="liten"><a href="{{ url_for('admin_rabatter') }}">← Rabatter som venter</a></p>
+<h1>NIEFT-medlemmer</h1>
+{% if antall %}
+<p class="sub"><strong>{{ antall }} {{ 'e-postadresse' if antall == 1 else 'e-postadresser' }}</strong> står på listen. Velger noen NIEFT-pris med en e-post som ikke står her,
+  stoppes påmeldingen med beskjed om å bruke medlems-e-posten eller kontakte oss. Står e-posten her, er NIEFT-prisen godkjent med en gang.
+  Gjelder påmeldingsskjemaet og bedriftspåmeldingen; melder dere på selv, avgjør dere prisen som før.</p>
+{% else %}
+<p class="sub"><strong>Listen er tom.</strong> Til den er lastet opp, er alt som før: NIEFT-prisen kan velges med hvilken som helst
+  e-post, og må godkjennes for hånd under Rabatter som venter.</p>
+{% endif %}
+
+{% if ventende and admin_rolle != 'lese' %}
+<div class="kort">
+  <h2 style="margin-top:0">{{ ventende }} NIEFT-{{ 'rabatt' if ventende == 1 else 'rabatter' }} venter, og e-posten står på listen</h2>
+  <p class="liten dempet">De ble meldt på før listen var lastet opp (eller før e-posten kom på listen). Godkjenn dem alle på én gang:
+    fakturaen lages da med NIEFT-prisen, etter den vanlige fakturaplanen.</p>
+  <form method="post" action="{{ url_for('admin_nieft_godkjenn_ventende') }}" data-bekreft="Godkjenne {{ ventende }} NIEFT-{{ 'rabatt' if ventende == 1 else 'rabatter' }}?">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button>Godkjenn {{ ventende }} NIEFT-{{ 'rabatt' if ventende == 1 else 'rabatter' }}</button>
+  </form>
+</div>
+{% endif %}
+
+{% if admin_rolle != 'lese' %}
+<div class="kort">
+  <h2 style="margin-top:0">Last opp listen</h2>
+  <p class="liten dempet">Excel (.xlsx) eller CSV, maks {{ maks_mb }} MB. Alle e-postadresser i filen tas med, uansett kolonne.
+    <strong>Den nye listen erstatter hele den gamle.</strong> Last opp filen her selv: send den aldri i en chat eller e-post til Claude.</p>
+  <form method="post" action="{{ url_for('admin_nieft_last_opp') }}" enctype="multipart/form-data"
+        data-bekreft="{{ 'Erstatte hele NIEFT-listen med innholdet i filen?' if antall else 'Laste opp NIEFT-listen?' }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="f-liste">Fil med NIEFT-medlemmene</label>
+    <input id="f-liste" type="file" name="liste" accept=".xlsx,.csv,.txt,text/csv" required>
+    <p style="margin:12px 0 0"><button>Last opp</button></p>
+  </form>
+</div>
+
+<div class="kort">
+  <h2 style="margin-top:0">Legg til én e-postadresse</h2>
+  <form method="post" action="{{ url_for('admin_nieft_legg_til') }}" class="innebygd-rad">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="f-ny" class="skjul-visuelt">E-postadresse</label>
+    <input id="f-ny" type="email" name="epost" required maxlength="200" placeholder="navn@eksempel.no">
+    <button class="sekundar">Legg til</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="kort">
+  <h2 style="margin-top:0">Søk i listen</h2>
+  <form method="get" action="{{ url_for('admin_nieft') }}" class="innebygd-rad">
+    <label for="f-sok" class="skjul-visuelt">Søk etter e-postadresse</label>
+    <input id="f-sok" type="search" name="q" value="{{ sok }}" minlength="3" maxlength="200" placeholder="Minst 3 tegn av e-posten">
+    <button class="sekundar">Søk</button>
+  </form>
+  {% if sok %}
+    {% if treff %}
+    <ul class="liten" style="margin:12px 0 0; padding-left:18px">
+      {% for e in treff %}
+      <li>{{ e }}{% if admin_rolle != 'lese' %}
+        <form method="post" action="{{ url_for('admin_nieft_fjern') }}" style="display:inline; margin-left:8px" data-bekreft="Fjerne {{ e }} fra NIEFT-listen?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="epost" value="{{ e }}"><input type="hidden" name="q" value="{{ sok }}">
+          <button class="sekundar liten">Fjern</button>
+        </form>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% if treff | length >= 50 %}<p class="liten dempet">Viser de første 50 treffene. Skriv mer av e-posten for å finne færre.</p>{% endif %}
+    {% elif sok | length < 3 %}<p class="liten dempet">Skriv minst 3 tegn.</p>
+    {% else %}<p class="liten">Fant ingen e-postadresser med «{{ sok }}» på listen.</p>{% endif %}
+  {% endif %}
+</div>
+{% endblock %}

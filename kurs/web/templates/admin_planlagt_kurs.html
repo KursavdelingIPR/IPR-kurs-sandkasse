@@ -16,6 +16,7 @@
 {% else %}
 <p class="sub"><span class="merke planlagt">Planlagt kurs</span>
   {%- if kurs.ekstern %} <span class="merke gra">Annen arrangør: {{ kurs.arrangor }}</span>{% elif kurs.arrangor != 'IPR' %} <span class="merke gra">{{ kurs.arrangor }}</span>{% endif %}
+  {%- if kurs.webinar %} <a class="merke" href="{{ url_for('admin_webinarer') }}">Webinar</a>{% endif %}
   {%- if kurs.status == 'avlyst' %} <span class="merke gra">Avlyst</span>{% endif %}
   Fra kursplanen – ikke opprettet i påmeldingssystemet ennå. Vises i Kalender og Årsplan, men ikke på Oversikten, og har ingen
   påmelding, e-post eller faktura.</p>

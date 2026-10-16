@@ -532,6 +532,20 @@ def _m35_evaluering_deling(con) -> None:
             con.execute(f"ALTER TABLE evaluering_oppsett ADD COLUMN {navn} {pg_def if pg else sqlite_def}")
 
 
+def _m36_nieft_medlemmer(con) -> None:
+    """NIEFT-medlemslisten (Camilla 15.10.2026, kurs/nieft.py): tabellen nieft_medlem (bare e-postadressene). Bare en ny tabell -
+    ingen eksisterende tabell eller kolonne endres, og ingen rader legges inn (listen lastes opp av kursadministrasjonen)."""
+    _opprett_tabell_fra_skjema(con, "nieft_medlem")
+
+
+def _m37_webinarer(con) -> None:
+    """Fanen Webinarer i Kalender (Camilla 15.10.2026): kolonnen planlagt_kurs.webinar (0 for alle planlagte kurs som finnes = vises
+    ikke der). Ingen eksisterende kolonne endres."""
+    if not db.har_kolonne(con, "planlagt_kurs", "webinar"):
+        con.execute(f"ALTER TABLE planlagt_kurs ADD COLUMN webinar {'BIGINT' if db.er_postgres(con) else 'INTEGER'} NOT NULL DEFAULT 0 "
+                    "CHECK (webinar IN (0,1))")
+
+
 MIGRERINGER = [
     (1, "kursnummer", _m1_kursnummer),
     (2, "roller", _m2_roller),
@@ -568,6 +582,8 @@ MIGRERINGER = [
     (33, "kursmaltekster", _m33_kursmaltekster),
     (34, "ny_evaluering", _m34_ny_evaluering),
     (35, "evaluering_deling", _m35_evaluering_deling),
+    (36, "nieft_medlemmer", _m36_nieft_medlemmer),
+    (37, "webinarer", _m37_webinarer),
 ]
 KODEVERSJON = MIGRERINGER[-1][0]
 

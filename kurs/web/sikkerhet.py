@@ -113,7 +113,7 @@ GRENSER = {
 
 # Endepunkter der adressen kan inneholde søketekst (navn, e-post, telefon) eller en personlig nøkkel (lenken til Min side, /min/<lenke>).
 # Svarene sendes med Referrer-Policy: no-referrer, så ?q=... og lenken aldri følger med som Referer når man klikker seg videre.
-REFERRER_INGEN = frozenset({"admin_sok", "admin_sok_json", "min_side_lenke"})
+REFERRER_INGEN = frozenset({"admin_sok", "admin_sok_json", "min_side_lenke", "admin_nieft"})     # admin_nieft: ?q=<e-post> (NIEFT-listen)
 
 
 def klient_ip() -> str:

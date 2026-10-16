@@ -21,6 +21,8 @@
   </div>
   <label class="valg"><input type="checkbox" name="ekstern" value="1" {{ 'checked' if s.get('ekstern') in (1, '1', 'on', true) }}>
     Annen arrangør – vises grått i kalenderen (for eksempel IPRO)</label>
+  <label class="valg"><input type="checkbox" name="webinar" value="1" {{ 'checked' if s.get('webinar') in (1, '1', 'on', true) }}>
+    Webinar – vises også i fanen Webinarer</label>
   <fieldset class="fargevalg"><legend class="etikett">Farge <span class="dempet">(samme for alle samlingene)</span></legend>
     <label class="valg"><input type="radio" name="farge" value="auto" {{ 'checked' if s.get('farge') in (none, '', 'auto') }}> Velg ut fra datoene</label>
     {% for nr in farger %}<label class="fargealt kursfarge-{{ nr }}" title="Farge {{ nr + 1 }}"><input type="radio" name="farge" value="{{ nr }}"

@@ -37,6 +37,8 @@ def _eposter(con):
 @pytest.mark.parametrize("navn,forventet", [
     ("EFT spesialistutdanning - Modul 2 (kull 14)", "samling"), ("Modul 1 (kull 15)", "samling"), ("EFT 1-årig", "samling"),
     ("EFST 1-årig Bergen", "samling"), ("EFT Påbygging", "samling"), ("EFT 1 årig påbygg", "samling"),
+    ("Valgfritt program i humanistisk barne- og ungdomspsykologi – Bergen", "samling"),
+    ("Veiledning - Obligatorisk pakke (kull 14)", "slutt"),
     ("Veilederprogram – modul 1", "slutt"), ("Sinte barn og sinte voksne", "slutt"), ("Grunnkurs i EFT-C", "slutt"),
     ("Modulær terapi", "slutt")])
 def test_standard_for_naar_evalueringen_sendes(navn, forventet):

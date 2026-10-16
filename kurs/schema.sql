@@ -681,8 +681,9 @@ CREATE TABLE IF NOT EXISTS planlagt_kurs (
     kilde           TEXT,                           -- hvor kurset kom fra, f.eks. «Excel «Kommende kurs», rad 6, 45, 61»
     opprettet_av    TEXT,
     opprettet       TEXT NOT NULL DEFAULT (datetime('now')),
-    kurs_id         INTEGER REFERENCES kurs(id) ON DELETE SET NULL   -- migrering 23 (indeksen planlagt_kurs_kurs lages der): satt =
+    kurs_id         INTEGER REFERENCES kurs(id) ON DELETE SET NULL,  -- migrering 23 (indeksen planlagt_kurs_kurs lages der): satt =
                                                                       -- holder sjekklisten og rollene til dette kurset i systemet
+    webinar         INTEGER NOT NULL DEFAULT 0 CHECK (webinar IN (0,1))   -- migrering 37: 1 = vises i Kalender → Webinarer
 );
 
 -- Samlingene (eller datoene) i et planlagt kurs. Veiledningsdager i samlingen står i veiledningsdager.
@@ -904,6 +905,15 @@ CREATE TABLE IF NOT EXISTS rabatt_bevis (
     storrelse       INTEGER NOT NULL,
     innhold         TEXT NOT NULL,                  -- base64
     opprettet       TEXT NOT NULL                   -- UTC
+);
+
+-- NIEFT-medlemmenes e-postadresser (migrering 36, kurs/nieft.py, Camilla 15.10.2026): NIEFT-pris i påmeldingen krever e-posten
+-- personen er medlem med, og godkjennes da automatisk. Ingen rader = ingen liste ennå (NIEFT-prisen sjekkes for hånd som før).
+-- Bare e-posten (små bokstaver), ingen andre opplysninger. Listen lastes opp av kursadministrasjonen og er ekte persondata.
+CREATE TABLE IF NOT EXISTS nieft_medlem (
+    epost           TEXT PRIMARY KEY,               -- små bokstaver, uten mellomrom (nieft.normaliser)
+    opprettet       TEXT NOT NULL,                  -- UTC
+    av              TEXT NOT NULL                   -- 'admin:<brukernavn>'
 );
 
 -- Kursets egne tekster i e-postmalene (migrering 33, Camilla 09.10.2026: «veldig mange av kursene er forskjellige, med ulike tekster,

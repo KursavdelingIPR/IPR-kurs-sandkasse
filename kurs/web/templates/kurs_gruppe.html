@@ -14,7 +14,7 @@
     <div><label for="f-kontakt_etternavn">Kontaktperson – etternavn *</label><input id="f-kontakt_etternavn" name="kontakt_etternavn" required autocomplete="family-name" value="{{ f.kontakt_etternavn or '' }}"></div>
     <div><label for="f-kontakt_epost">Kontaktperson – e-post *</label><input id="f-kontakt_epost" name="kontakt_epost" type="email" required value="{{ f.kontakt_epost or '' }}" data-epost-sjekk="{{ EPOST_SJEKK }}"></div>
     <div><label for="f-kontakt_epost_bekreft">Bekreft e-post *</label><input id="f-kontakt_epost_bekreft" name="kontakt_epost_bekreft" type="email" required value="{{ f.kontakt_epost_bekreft or '' }}"
-      data-lik-som="f-kontakt_epost" data-lik-feil="E-postadressene er ikke like."></div>
+      data-lik-som="f-kontakt_epost" data-lik-feil="E-postadressene er ikke like." data-epost-sjekk="{{ EPOST_SJEKK }}"></div>
     <div><label for="f-kontakt_telefon">Kontaktperson – telefon</label><input id="f-kontakt_telefon" name="kontakt_telefon" value="{{ f.kontakt_telefon or '' }}"></div>
   </div>
   <div class="rad">
@@ -83,6 +83,8 @@
     </div>
   </template>
 
+  {% if rabatter | selectattr('kategori', 'equalto', 'nieft') | list %}<p class="liten" style="margin-top:18px"><strong>NIEFT-pris:</strong>
+    bruk e-posten deltakeren er registrert med som NIEFT-medlem. Vet dere ikke hvilken e-post det er, kontakt oss på {{ kontakt_epost }}.</p>{% endif %}
   {% if rabatter %}<label style="font-weight:normal; margin-top:18px"><input type="checkbox" name="rabatt_bekreftet" value="1"{{ ' checked' if f.rabatt_bekreftet }}>
     Deltakerne som har fått rabattpris, har rett på den, og IPR kan sjekke det (medlemskap i NIEFT eller hos Psyflix, studentbevis). Kreves bare når en deltaker har rabattpris.</label>{% endif %}
   <label style="font-weight:normal; margin-top:18px"><input type="checkbox" name="samtykke" required>

@@ -250,17 +250,29 @@ def les_valg(rabatter: list[Rabatt], form, filer) -> tuple[Valg, list[str]]:
     return Valg(kategori, bevis, org, epost), feil
 
 
-def paamelding_felter(valg: Valg, rabatter: list[Rabatt], *, av_admin: bool = False) -> dict:
+def paamelding_felter(valg: Valg, rabatter: list[Rabatt], *, av_admin: bool = False, nieft_medlem: bool = False) -> dict:
     """Feltene til db.meld_paa(paamelding=...). Ordinær pris: tomt (meld_paa nullstiller feltene). Velger en administrator
-    prisen, er den avgjort med en gang (ingen sjekk). Prosenten er kursets prosent nå, og står fast for påmeldingen."""
+    prisen, er den avgjort med en gang (ingen sjekk). Det samme gjelder NIEFT-pris når e-posten står på NIEFT-medlemslisten
+    (`nieft_medlem`, kurs/nieft.py): da logger kalleren avgjørelsen med logg_nieft_godkjent. Prosenten er kursets prosent nå, og
+    står fast for påmeldingen."""
     if not valg.kategori:
         return {}
     r = next((x for x in rabatter if x.kategori == valg.kategori), None)
     if r is None:
         raise Rabattfeil("Kurset gir ikke denne rabatten.")
-    status = (GODKJENT if av_admin else VENTER) if r.maa_godkjennes else None
+    avgjort = av_admin or (nieft_medlem and r.kategori == "nieft")
+    status = (GODKJENT if avgjort else VENTER) if r.maa_godkjennes else None
     return {"priskategori": r.kategori, "rabatt_prosent": r.prosent, "rabatt_status": status,
             "psyflix_org": valg.psyflix_org, "psyflix_epost": valg.psyflix_epost}
+
+
+NIEFT_AKTOR = "system:nieft-liste"
+
+
+def logg_nieft_godkjent(con, paamelding_id: int, kurs_id: int) -> None:
+    """NIEFT-prisen ble godkjent med en gang fordi e-posten står på NIEFT-medlemslisten (vises i Logger)."""
+    db.logg(con, "rabatt_godkjent", {"paamelding_id": paamelding_id, "kurs_id": kurs_id, "kategori": "nieft",
+                                     "automatisk": "nieft_liste"}, aktor=NIEFT_AKTOR)
 
 
 def lagre_bevis(con, paamelding_id: int, bevis: tuple[str, str, bytes]) -> None:

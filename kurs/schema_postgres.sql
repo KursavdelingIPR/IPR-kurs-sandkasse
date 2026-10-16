@@ -575,7 +575,8 @@ CREATE TABLE IF NOT EXISTS planlagt_kurs (
     kilde           TEXT,
     opprettet_av    TEXT,
     opprettet       TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
-    kurs_id         BIGINT REFERENCES kurs(id) ON DELETE SET NULL
+    kurs_id         BIGINT REFERENCES kurs(id) ON DELETE SET NULL,
+    webinar         BIGINT NOT NULL DEFAULT 0 CHECK (webinar IN (0,1))
 );
 
 CREATE TABLE IF NOT EXISTS planlagt_samling (
@@ -765,6 +766,12 @@ CREATE TABLE IF NOT EXISTS rabatt_bevis (
     storrelse       BIGINT NOT NULL,
     innhold         TEXT NOT NULL,
     opprettet       TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS nieft_medlem (
+    epost           TEXT PRIMARY KEY,
+    opprettet       TEXT NOT NULL,
+    av              TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS kurs_maltekst (

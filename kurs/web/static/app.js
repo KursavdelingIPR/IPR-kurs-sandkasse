@@ -1628,10 +1628,15 @@
     knapp.addEventListener("click", function () {
       var gammel = felt.value.trim();
       felt.value = riktig;
-      // «Bekreft e-post» følger med når den hadde den samme skrivefeilen
-      document.querySelectorAll('input[data-lik-som="' + felt.id + '"]').forEach(function (b) {
+      // E-post og «Bekreft e-post» følger hverandre (begge veier) når de hadde den samme skrivefeilen, og forslaget
+      // under det andre feltet oppdateres med en gang (Camilla 15.10.2026: forslaget også under «Bekreft e-post»)
+      var par = Array.prototype.slice.call(document.querySelectorAll('input[data-lik-som="' + felt.id + '"]'));
+      var forste = felt.getAttribute("data-lik-som") && document.getElementById(felt.getAttribute("data-lik-som"));
+      if (forste) { par.push(forste); }
+      par.forEach(function (b) {
         if (b.value.trim().toLowerCase() === gammel.toLowerCase()) { b.value = riktig; }
         b.dispatchEvent(new Event("input", { bubbles: true }));
+        if (b.matches("input[data-epost-sjekk]")) { vis(b); }
       });
       felt.dispatchEvent(new Event("input", { bubbles: true }));
       boks.remove();

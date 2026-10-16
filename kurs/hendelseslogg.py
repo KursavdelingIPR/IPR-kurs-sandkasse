@@ -139,6 +139,8 @@ class _Oppslag:
         if aktor == "admin":
             return "Administrator"
         type_, _, verdi = aktor.partition(":")
+        if type_ == "system":               # f.eks. 'system:nieft-liste' (NIEFT-prisen godkjent mot medlemslisten)
+            return "Systemet (automatisk)"
         if type_ == "admin":
             return self._admin.get(verdi.lower(), verdi)
         if type_ == "deltaker":
@@ -310,7 +312,8 @@ def _rabatt_info_bedt(d, o, h):
 _TEKSTER = {
     "paamelding": _paamelding,
     "status_endret": _status_endret,
-    "rabatt_godkjent": lambda d, o, h: [(f"{_rabattnavn(d)} godkjent", [])],
+    "rabatt_godkjent": lambda d, o, h: [(f"{_rabattnavn(d)} godkjent",
+                                         ["Automatisk: e-posten står på NIEFT-medlemslisten."] if d.get("automatisk") == "nieft_liste" else [])],
     "rabatt_avvist": lambda d, o, h: [(f"{_rabattnavn(d)} ikke godkjent – ordinær pris", [])],
     "rabatt_info_bedt": _rabatt_info_bedt,
     "ekstradeltaker_utvalg": _utvalg_endret,

@@ -8,6 +8,8 @@
 <p class="sub">Påmeldinger med rabattpris som må sjekkes. Fakturaen sendes når dere har trykket «Godkjent» (rabattprisen) eller
   «Ikke godkjent – ordinær pris». Kan rabatten ikke godkjennes, åpner du deltakeren og sender en e-post derfra: om mer informasjon,
   riktig informasjon eller ordinær pris.</p>
+<p class="liten"><a href="{{ url_for('admin_nieft') }}">NIEFT-medlemmer →</a>
+  <span class="dempet">{% if nieft_antall %}{{ nieft_antall }} {{ 'e-postadresse' if nieft_antall == 1 else 'e-postadresser' }} på listen: NIEFT-pris godkjennes automatisk for dem.{% else %}Listen er ikke lastet opp ennå.{% endif %}</span></p>
 
 {% if psyflix_tekst %}
 <div class="kort">
@@ -35,7 +37,10 @@
         {%- if r.p.priskategori == 'student' %}<br>
           {%- if r.p.har_bevis %}{% if admin_rolle != 'lese' %}<a href="{{ url_for('admin_rabatt_bevis', paamelding_id=r.p.id) }}" target="_blank" rel="noopener">Åpne studentbeviset</a>{% else %}<span class="dempet">Studentbeviset er lastet opp (bare kursadministrasjonen kan åpne det).</span>{% endif %}
           {%- else %}<strong>Studentbeviset mangler.</strong>{% endif %}
-        {%- elif r.p.priskategori == 'nieft' %}<br><span class="dempet">Sjekk e-posten mot medlemsoversikten (ellers navnet).</span>
+        {%- elif r.p.priskategori == 'nieft' %}<br>
+          {%- if not nieft_antall %}<span class="dempet">Sjekk e-posten mot medlemsoversikten (ellers navnet).</span>
+          {%- elif r.p.id in nieft_treff %}<span class="merke">Står på NIEFT-listen</span>
+          {%- else %}<span class="merke gul">Står ikke på NIEFT-listen</span> <span class="dempet">(sjekk navnet)</span>{% endif %}
         {%- elif r.p.priskategori == 'psyflix' %}<br><span class="dempet">{{ r.p.psyflix_org or 'Organisasjon ikke oppgitt' }}{% if r.p.psyflix_epost %} · {{ r.p.psyflix_epost }}{% endif %}</span>
           {%- if r.psyflix_aar %}<br><span class="merke gul">Har fått Psyflix-rabatt de siste 12 månedene</span>{% endif %}
         {%- endif %}

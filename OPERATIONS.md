@@ -104,7 +104,13 @@ Hva som skal følges med på, og hva man gjør når noe går galt. Utrulling: `D
   Fakturaen lages med en gang etter avgjørelsen, etter den vanlige fakturaplanen.
   - **Student:** studentbeviset lastes opp i skjemaet (bilde eller PDF, maks 15 MB og 12 000 piksler – vanlige mobilbilder går). Det
     slettes når rabatten er avgjort.
-  - **NIEFT:** deltakeren bruker e-posten fra NIEFT-innmeldingen; sjekk den mot medlemsoversikten (ellers navnet).
+  - **NIEFT:** deltakeren bruker e-posten fra NIEFT-innmeldingen. Uten medlemsliste: sjekk den mot medlemsoversikten (ellers navnet).
+    **Med medlemslisten** (Rabatter → **NIEFT-medlemmer**, Camilla 15.10.2026): last opp Excel eller CSV med alle medlemmene (alle
+    e-postadresser i filen tas med; den nye listen erstatter den gamle; last den opp selv, send den aldri til Claude). Da stoppes
+    påmeldingsskjemaet og bedriftspåmeldingen hvis NIEFT-pris velges med en e-post som ikke står på listen («bruk medlems-e-posten
+    eller kontakt oss»), og står e-posten der, er NIEFT-prisen **godkjent automatisk** (Logger: «Automatisk: e-posten står på
+    NIEFT-medlemslisten»). Administrator som melder på, stoppes ikke. Rabatter som ventet fra før, godkjennes med knappen øverst på
+    siden NIEFT-medlemmer. Siden viser aldri hele listen, bare søketreff.
   - **Psyflix:** deltakeren oppgir organisasjonen avtalen går gjennom, og samtykker til sjekken. **Kopier liste** på siden Rabatter som
     venter gir teksten til én e-post til Psyflix. Har personen fått Psyflix-rabatt hos IPR de siste 12 månedene, står det et varsel.
 - **Kan rabatten ikke godkjennes, får deltakeren alltid en e-post** (Camilla 09.10.2026). Ved rabatten i deltakervinduet velger du:

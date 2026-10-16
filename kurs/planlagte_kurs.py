@@ -32,7 +32,7 @@ LOKALER_I_BY = {"paleet": "oslo", "n58": "bergen", "n.58": "bergen", "chr. mich"
 _KONTROLLTEGN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _ISO_DATO = re.compile(r"\d{4}-\d{2}-\d{2}")
 _NORSK_DATO = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4})")
-_KURSFELT = ("prosjektnr", "navn", "arrangor", "ekstern", "status", "farge", "antall_samlinger", "notat", "sjekk")
+_KURSFELT = ("prosjektnr", "navn", "arrangor", "ekstern", "status", "farge", "antall_samlinger", "notat", "sjekk", "webinar")
 _SAMLINGSFELT = ("nr", "navn", "tema", "fra_dato", "til_dato", "veiledningsdager", "sted", "lokale", "kursholdere",
                  "veiledere", "notat", "sjekk")
 
@@ -117,6 +117,7 @@ def valider_kurs(skjema) -> dict:
         "antall_samlinger": _heltall(skjema.get("antall_samlinger"), "Antall samlinger", 1, MAKS_SAMLINGER),
         "notat": _tekst(skjema.get("notat"), "Notat", MAKS["notat"], flerlinjet=True),
         "sjekk": _tekst(skjema.get("sjekk"), "Må sjekkes", MAKS["sjekk"], flerlinjet=True),
+        "webinar": _avkrysset(skjema.get("webinar")),       # vises i Kalender → Webinarer (migrering 37)
     }
 
 
@@ -207,7 +208,7 @@ def opprett(con, kurs: dict, samlinger: list[dict], aktor: str, *, kilde: str | 
     farge = kurs.get("farge")
     if farge is None:
         farge = velg_farge(con, _perioder(samlinger))
-    verdier = {"arrangor": "IPR", "ekstern": 0, "status": "planlagt",
+    verdier = {"arrangor": "IPR", "ekstern": 0, "status": "planlagt", "webinar": 0,
                **{f: v for f, v in kurs.items() if v is not None}, "farge": farge}
     plan_id = db.sett_inn(
         con, f"INSERT INTO planlagt_kurs ({', '.join(_KURSFELT)}, kilde, opprettet_av) "
@@ -229,7 +230,7 @@ def oppdater_kurs(con, plan_id: int, v: dict, aktor: str) -> bool:
     if farge is None:
         rader = con.execute("SELECT fra_dato, til_dato FROM planlagt_samling WHERE planlagt_kurs_id=?", (plan_id,)).fetchall()
         farge = velg_farge(con, _perioder(rader), unntatt=plan_id) if rader else 0
-    verdier = {**v, "farge": farge}
+    verdier = {"webinar": 0, **v, "farge": farge}
     con.execute(f"UPDATE planlagt_kurs SET {', '.join(f + '=?' for f in _KURSFELT)} WHERE id=?",
                 (*(verdier.get(f) for f in _KURSFELT), plan_id))
     db.logg(con, "planlagt_kurs_endret", {"id": plan_id}, aktor=aktor)
@@ -363,7 +364,8 @@ def _kursrad(r) -> dict:
     return {"id": r["id"], "prosjektnr": r["prosjektnr"], "navn": r["navn"], "arrangor": r["arrangor"],
             "ekstern": bool(r["ekstern"]), "status": r["status"], "farge": r["farge"],
             "antall_samlinger": r["antall_samlinger"], "notat": r["notat"], "sjekk": r["sjekk"], "kilde": r["kilde"],
-            "visningsnavn": visningsnavn(r["prosjektnr"], r["navn"]), "kurs_id": r["kurs_id"]}
+            "visningsnavn": visningsnavn(r["prosjektnr"], r["navn"]), "kurs_id": r["kurs_id"],
+            "webinar": bool(r["webinar"])}
 
 
 def _samlingsrad(r) -> dict:
@@ -478,7 +480,7 @@ def samlinger_i_perioden(con, fra: date, til: date, *, sted: str = "", med_avlys
             ut.append({**s, "samling_id": s["id"], "plan_id": k["id"], "prosjektnr": k["prosjektnr"],
                        "kursnavn": k["navn"], "visningsnavn": k["visningsnavn"], "arrangor": k["arrangor"],
                        "ekstern": k["ekstern"], "status": k["status"], "farge": k["farge"], "antall": k["antall"],
-                       "kurs_sjekk": k["sjekk"], "kurs_id": k["kurs_id"]})
+                       "kurs_sjekk": k["sjekk"], "kurs_id": k["kurs_id"], "webinar": k["webinar"]})
     return sorted(ut, key=lambda s: (s["fra"], s["visningsnavn"].casefold(), s["plan_id"]))
 
 

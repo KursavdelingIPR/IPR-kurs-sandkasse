@@ -693,8 +693,8 @@ def test_resultatet_har_bare_forventede_felt_og_ingen_interne_data(con):
         "kursbevis_epost", "treff", "_sortering"}
     k = _innlogget(con)
     alt = repr(res) + _html(k, "/admin/sok?q=kari hansen") + _json(k, "kari hansen").get_data(as_text=True)
-    # Det tilfeldige CSRF-tokenet i skjemaene kan inneholde «QQ» av ren tilfeldighet (ca. 4 % av kjøringene): det er ikke data fra radene
-    alt = re.sub(r'(name="csrf_token" value|data-csrf|name="csrf-token" content)="[^"]*"', r'\1=""', alt)       # skjemafelt, data-attributt og meta
+    # Det tilfeldige CSRF-tokenet i skjemaene og CSP-nonce på skript-taggene kan inneholde «QQ» av ren tilfeldighet: det er ikke data fra radene
+    alt = re.sub(r'(name="csrf_token" value|data-csrf|name="csrf-token" content|nonce)="[^"]*"', r'\1=""', alt)  # skjemafelt, data-attributt, meta og nonce
     assert "QQ" not in alt.upper().replace("EKSEMPEL", "")
     tokens = [r[0] for r in con.execute("SELECT innsjekk_token FROM kursdag")]
     assert tokens and not any(t in alt for t in tokens)
@@ -748,7 +748,8 @@ def test_soekesidene_sender_ikke_referer_med_soeketeksten(con):
     """Klikker man et treff, sender nettleseren adressen til forrige side som Referer - med ?q=navn eller e-post."""
     _bygg(con)
     k = _innlogget(con)
-    assert sikkerhet.REFERRER_INGEN == {"admin_sok", "admin_sok_json", "min_side_lenke"}             # lenken til Min side (/min/<lenke>) er også en nøkkel i adressen
+    assert sikkerhet.REFERRER_INGEN == {"admin_sok", "admin_sok_json", "min_side_lenke",               # lenken til Min side (/min/<lenke>) er også en nøkkel i adressen
+                                        "admin_nieft"}                                                  # søket i NIEFT-listen (?q=<e-post>)
     for url in ("/admin/sok", "/admin/sok?q=kari", "/admin/sok?q=x"):
         assert k.get(url).headers["Referrer-Policy"] == "no-referrer", url
     r = _json(k, "kari")

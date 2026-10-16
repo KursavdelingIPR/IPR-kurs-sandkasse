@@ -91,7 +91,7 @@ def test_kursets_felt_leses_riktig():
                                                "ekstern": "1", "farge": "3", "antall_samlinger": "3",
                                                "notat": "Linje 1\nLinje 2", "sjekk": "  "}))
     assert v == {"prosjektnr": "999", "navn": "Modul 2 (kull 99)", "arrangor": "IPR", "ekstern": 1, "status": "planlagt",
-                 "farge": 3, "antall_samlinger": 3, "notat": "Linje 1\nLinje 2", "sjekk": None}
+                 "farge": 3, "antall_samlinger": 3, "notat": "Linje 1\nLinje 2", "sjekk": None, "webinar": 0}
     assert planlagte_kurs.valider_kurs(MultiDict({"navn": "X", "farge": "auto"}))["farge"] is None
     assert planlagte_kurs.valider_kurs(MultiDict({"navn": "X"}))["ekstern"] == 0
 

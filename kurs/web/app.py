@@ -29,7 +29,7 @@ from .. import (aarsplan, aktivitetsliste, behandling, booking, config, daglig, 
                 datakontroll, ekstrafelt, eposthistorikk, evaluering, firmaopplysninger, godkjenning, hendelseslogg, import_deltakere,
                 kursdatoer,
                 kursfarger,
-                kursbevisdesign, kursbevismal, kursokonomi,
+                kursbevisdesign, kursbevismal, kursokonomi, nieft,
                 kurskalender, kursholdere, lenker,
                 mal_eksempler, maltekster, migreringer, minside, okonomi, paameldingsside, planlagte_kurs, privatadresse,
                 rabatter, signaturer, sjekklister, skjemafelt, statustekster, sveiper, tema, vedlegg)
@@ -335,7 +335,8 @@ def _render_paameldingsside(kurs, dager, f, plasser_igjen, skjema, **ekstra):
     kurs_rabatter = rabatter.for_kurs(con(), kurs) if skjema.vis_fakturablokk else []
     return render_template("kurs.html", kurs=kurs, dager=dager, f=f, plasser_igjen=plasser_igjen, skjema=skjema,
                            side=paameldingsside.effektiv_side(kurs), offentlig_lenke=_offentlig_lenke(kurs),
-                           rabatter=kurs_rabatter, kontakt_epost=tema.kontakt_epost(kurs), **ekstra)
+                           rabatter=kurs_rabatter, kontakt_epost=tema.kontakt_epost(kurs),
+                           nieft_liste=any(r.kategori == "nieft" for r in kurs_rabatter) and nieft.har_liste(con()), **ekstra)
 
 
 def _rabattverdier(form) -> dict:
@@ -532,6 +533,12 @@ def kursside(kode):
             f.update(org_nr=oppslag.orgnr, org_navn=e.navn if e else "", org_adresse=e.adresse if e else "",
                      org_postnr=e.postnr if e else "", org_sted=e.poststed if e else "")
     registeret_svarte_ikke = oppslag is not None and oppslag.utfall == firmaopplysninger.UTILGJENGELIG
+    # NIEFT-pris krever e-posten personen er NIEFT-medlem med (kurs/nieft.py): ellers stoppes påmeldingen, og står den på listen,
+    # er prisen godkjent med en gang. Uten liste (ikke lastet opp ennå) er alt som før. Sjekkes først når alt annet er i orden, så
+    # skjemaet ikke kan brukes til å slå opp hvem som er medlem uten å melde seg på (gjennomgangen 16.10.2026).
+    nieft_medlem = rabattvalg.kategori == "nieft" and nieft.er_medlem(con(), f.get("epost"))
+    if not feil and nieft.stoppes(con(), rabattvalg.kategori, f.get("epost")):
+        feil.append(nieft.stopptekst(f["epost"], tema.kontakt_epost(kurs)))
     if feil:
         for x in feil:
             flash(x, "feil")
@@ -541,7 +548,7 @@ def kursside(kode):
     if org:
         paamelding |= {**firmaopplysninger.paamelding_felter(oppslag), "ehf": 1 if f.get("ehf") else 0}
         paamelding |= {k: f.get(k) or None for k in ("faktura_ref", "faktura_epost", "faktura_kommentar")}
-    paamelding |= rabatter.paamelding_felter(rabattvalg, kurs_rabatter)
+    paamelding |= rabatter.paamelding_felter(rabattvalg, kurs_rabatter, nieft_medlem=nieft_medlem)
     # Betaler deltakeren selv, kopierer db.meld_paa personens adresse til fakturaadressen. Betaler firma, brukes bare
     # firmaets adresse fra registeret - deltakerens private adresse lagres da bare paa personen.
     try:
@@ -560,6 +567,8 @@ def kursside(kode):
             )
             if rabattvalg.bevis:
                 rabatter.lagre_bevis(con(), pid, rabattvalg.bevis)
+            if nieft_medlem and paamelding.get("rabatt_status") == rabatter.GODKJENT:
+                rabatter.logg_nieft_godkjent(con(), pid, kurs["id"])
             if registeret_svarte_ikke:
                 firmaopplysninger.logg_ikke_hentet(con(), kurs["id"], pid)
     except db.Paameldingsfeil as e:
@@ -676,6 +685,7 @@ def kurs_gruppe(kode):
     tilgjengelige = {r.kategori for r in kurs_rabatter}
     studentbevis = request.files.getlist("deltaker_studentbevis")
     deltaker_rader = []
+    nieft_stopp = []        # vises først når alt annet er i orden (se under)
     for i, r in enumerate(rader_visning, start=1):
         fornavn, etternavn = r["fornavn"].strip(), r["etternavn"].strip()
         deltaker_epost = r["epost"].strip().lower()
@@ -692,6 +702,8 @@ def kurs_gruppe(kode):
         if kategori and kategori not in tilgjengelige:
             feil.append(f"Deltaker {i}: velg en av prisene i listen.")
             continue
+        if nieft.stoppes(con(), kategori, deltaker_epost):      # NIEFT-pris krever deltakerens medlems-e-post (kurs/nieft.py)
+            nieft_stopp.append(nieft.stopptekst(deltaker_epost, tema.kontakt_epost(kurs), deltaker=f"Deltaker {i}: "))
         bevis = None
         if kategori == "student":
             fil = studentbevis[i - 1] if i - 1 < len(studentbevis) else None
@@ -727,8 +739,12 @@ def kurs_gruppe(kode):
     # kontaktpersonen beskjed. Svarer ikke registeret, går påmeldingen gjennom med organisasjonsnummeret alene, merket
     # «Firmaopplysninger må kontrolleres», og fakturaene venter.
     oppslag = firmaopplysninger.slaa_opp(f["org_nr"])
-    if tekst := firmaopplysninger.avvisning(oppslag):
-        flash(tekst, "feil")
+    # NIEFT-stoppene (kurs/nieft.py) kommer først når alt annet er i orden, så skjemaet ikke kan brukes til å slå opp hvem som er
+    # medlem uten å melde på (gjennomgangen 16.10.2026)
+    avvist = firmaopplysninger.avvisning(oppslag)
+    if stopp := ([avvist] if avvist else nieft_stopp):
+        for tekst in stopp:
+            flash(tekst, "feil")
         return render_template("kurs_gruppe.html", kurs=kurs, f=f, deltakere=rader_visning or [{}],
                                maks_deltakere=MAKS_DELTAKERE_GRUPPE, rabatter=_gruppe_rabatter(kurs),
                                kontakt_epost=tema.kontakt_epost(kurs)), 400
@@ -770,6 +786,7 @@ def kurs_gruppe(kode):
 
     resultater = []  # (rad, paamelding_id|None, status|None, feilmelding|None)
     for rad in deltaker_rader:
+        nieft_medlem = rad["priskategori"] == "nieft" and nieft.er_medlem(con(), rad["epost"])
         try:
             with db.transaksjon(con()):
                 pid, status = db.meld_paa(
@@ -782,10 +799,12 @@ def kurs_gruppe(kode):
                                 # Psyflix: avtalen går gjennom firmaet som melder på; medlemmet sjekkes på deltakerens e-post
                                 **rabatter.paamelding_felter(rabatter.Valg(
                                     rad["priskategori"], psyflix_org=(firma_felter["org_navn"] or None)
-                                    if rad["priskategori"] == "psyflix" else None), kurs_rabatter)},
+                                    if rad["priskategori"] == "psyflix" else None), kurs_rabatter, nieft_medlem=nieft_medlem)},
                     idag=_idag())
                 if rad["bevis"]:
                     rabatter.lagre_bevis(con(), pid, rad["bevis"])
+                if nieft_medlem and any(r.kategori == "nieft" and r.maa_godkjennes for r in kurs_rabatter):
+                    rabatter.logg_nieft_godkjent(con(), pid, kurs["id"])
                 if oppslag.utfall == firmaopplysninger.UTILGJENGELIG:
                     firmaopplysninger.logg_ikke_hentet(con(), kurs["id"], pid)
             resultater.append((rad, pid, status, None))
@@ -1445,6 +1464,18 @@ def admin_aktiviteter():
 @app.get("/admin/aktiviteter/kalender")
 @krever_admin
 def admin_kalender():
+    return _kalenderside("admin_kalender")
+
+
+@app.get("/admin/aktiviteter/webinarer")
+@krever_admin
+def admin_webinarer():
+    """Fanen Webinarer (Camilla 15.10.2026: «samme oppsett som det er under kalender»): kalendersiden med bare webinarene -
+    planlagte kurs merket «Webinar» og kurs i systemet med «webinar» i navnet (kurskalender.er_webinar), med sjekklistene."""
+    return _kalenderside("admin_webinarer", kun_webinarer=True)
+
+
+def _kalenderside(endepunkt: str, *, kun_webinarer: bool = False):
     """Kurskalenderen: kursoversikt (standard - kursene kronologisk per måned, neste kurs først), måned eller uke.
     Uten ?visning= gir ?aar= og ?maned= månedsvisningen (lenkene fra før). Se kurs/kurskalender.py."""
     idag = _idag()
@@ -1472,10 +1503,10 @@ def admin_kalender():
     if sted not in kurskalender.STEDER:
         sted = ""
     filtre = dict(ansvarlig=ansvarlig or None, status=status or None, sted=sted or None)
-    utvalg = dict(ansvarlig=ansvarlig, status=status, sted=sted, med_planlagte=True)
+    utvalg = dict(ansvarlig=ansvarlig, status=status, sted=sted, med_planlagte=True, kun_webinarer=kun_webinarer)
 
     def lenke(visning_, **kw):
-        return url_for("admin_kalender", visning=None if visning_ in ("maned", "oversikt") else visning_, **kw,
+        return url_for(endepunkt, visning=None if visning_ in ("maned", "oversikt") else visning_, **kw,
                        **filtre)
 
     forste = date(aar, maned, 1)
@@ -1513,11 +1544,11 @@ def admin_kalender():
 
     def apne_lenke(samling_id: int, lukk: bool = False) -> str:
         """Pila på raden uten JavaScript: siden med sjekklisten åpen (eller lukket), tilbake til raden (#sk-<samling>)."""
-        lenke = _tilbake(her, None if lukk else samling_id, url_for("admin_kalender"))
+        lenke = _tilbake(her, None if lukk else samling_id, url_for(endepunkt))
         return f"{lenke}#sk-{samling_id}" if lukk else lenke
 
     return render_template(
-        "admin_kalender.html", kalendervisning=visning, uker=uker, ukedager=ukedager, oversikt=oversikt,
+        "admin_kalender.html", fane="webinarer" if kun_webinarer else "kalender", kalendervisning=visning, uker=uker, ukedager=ukedager, oversikt=oversikt,
         apen=request.args.get("apen", type=int), her=her, apne_lenke=apne_lenke,
         maanedsrader=maanedsrader, idag=idag, aar=aar,
         maned=maned, dato=dato, tittel=tittel, ukedagnavn=kurskalender.UKEDAGER,
@@ -1528,8 +1559,8 @@ def admin_kalender():
         visningslenker={"oversikt": lenke("oversikt"),
                         "maned": lenke("maned", aar=aar, maned=maned),
                         "uke": lenke("uke", dato=dato.isoformat())},
-        nullstill_lenke=(url_for("admin_kalender") if visning == "oversikt" else
-                         url_for("admin_kalender", visning=None if visning == "maned" else visning, aar=aar,
+        nullstill_lenke=(url_for(endepunkt) if visning == "oversikt" else
+                         url_for(endepunkt, visning=None if visning == "maned" else visning, aar=aar,
                                  maned=maned, dato=dato.isoformat() if visning == "uke" else None)),
         ansvarlig=ansvarlig, status=status, sted=sted, admins=admins, kurs_statusverdier=KURS_STATUSVERDIER,
         antall_hendelser=len(hendelser), fargeforklaring=fargeforklaring,
@@ -1724,7 +1755,11 @@ def admin_kalender_planlagt_ny():
             return render_template("admin_planlagt_kurs_ny.html", skjema=request.form, **_planlagt_maler()), 400
         flash("Det planlagte kurset er lagt inn i kalenderen. Legg til flere samlinger under.", "ok")
         return redirect(url_for("admin_kalender_planlagt", plan_id=plan_id))
-    return render_template("admin_planlagt_kurs_ny.html", skjema={}, **_planlagt_maler())
+    skjema = {}
+    if request.args.get("webinar"):         # «Nytt webinar +» i fanen Webinarer: avkrysset, online og malen «Webinar» hvis den finnes
+        mal = next((m for m in sjekklister.maler(con()) if m["navn"].casefold() == "webinar"), None)
+        skjema = {"webinar": "1", "s-sted": "Online", **({"sjekkliste_mal": mal["id"]} if mal else {})}
+    return render_template("admin_planlagt_kurs_ny.html", skjema=skjema, **_planlagt_maler())
 
 
 def _planlagt_side(kurs, *, skjema=None, nyskjema=None, samlingsskjema=None, status=200):
@@ -6389,7 +6424,86 @@ def _rediger_kontekst(mal: str, feil_felt: str | None = None, feil_tekst: str | 
 def admin_rabatter():
     """Rabatter som venter på godkjenning, per kurs (kurs/rabatter.py), med listen til e-posten til Psyflix."""
     grupper = rabatter.ventende(con(), _idag())
-    return render_template("admin_rabatter.html", grupper=grupper, psyflix_tekst=rabatter.psyflix_tekst(grupper))
+    nieft_ider = [r["p"]["id"] for g in grupper for r in g["rader"] if r["p"]["priskategori"] == "nieft"]
+    return render_template("admin_rabatter.html", grupper=grupper, psyflix_tekst=rabatter.psyflix_tekst(grupper),
+                           nieft_antall=nieft.antall(con()), nieft_treff=nieft.paa_listen(con(), nieft_ider))
+
+
+# NIEFT-medlemslisten (Camilla 15.10.2026, kurs/nieft.py). Listen er ekte persondata: hele listen vises aldri, bare søketreff.
+
+@app.get("/admin/rabatter/nieft")
+@krever_admin
+def admin_nieft():
+    sok = (request.args.get("q") or "").strip()[:200]
+    return render_template("admin_nieft.html", antall=nieft.antall(con()), sok=sok, treff=nieft.sok(con(), sok),
+                           ventende=len(nieft.ventende_paa_listen(con())), maks_mb=nieft.MAKS_MB)
+
+
+@app.post("/admin/rabatter/nieft/last-opp")
+@krever_admin
+def admin_nieft_last_opp():
+    fil = request.files.get("liste")
+    try:
+        if not fil or not fil.filename:
+            raise nieft.Nieftfeil("Velg filen med listen.")
+        lesing = nieft.les_fil(fil.filename, fil.read(nieft.MAKS_MB * 1024 * 1024 + 1))
+        r = nieft.erstatt(con(), lesing.adresser, aktor=_aktor())
+    except nieft.Nieftfeil as e:
+        con().rollback()
+        flash(str(e), "feil")
+    else:
+        con().commit()
+        flash(f"NIEFT-listen er lastet opp: {r['antall']} e-postadresser ({r['nye']} nye, {r['fjernet']} fjernet).", "ok")
+        if lesing.avvist:
+            flash(f"{lesing.avvist} {'adresse' if lesing.avvist == 1 else 'adresser'} i filen kunne ikke leses (f.eks. med æ, ø eller å, "
+                  "eller skrevet feil) og er ikke med. Legg dem til én og én hvis de skal med.", "feil")
+    return redirect(url_for("admin_nieft"))
+
+
+@app.post("/admin/rabatter/nieft/legg-til")
+@krever_admin
+def admin_nieft_legg_til():
+    epost_ = request.form.get("epost") or ""
+    try:
+        ny = nieft.legg_til(con(), epost_, aktor=_aktor())
+    except nieft.Nieftfeil as e:
+        flash(str(e), "feil")
+        return redirect(url_for("admin_nieft"))
+    con().commit()
+    flash(f"{nieft.normaliser(epost_)} er lagt til." if ny else f"{nieft.normaliser(epost_)} står allerede på listen.", "ok")
+    return redirect(url_for("admin_nieft", q=nieft.normaliser(epost_)))
+
+
+@app.post("/admin/rabatter/nieft/fjern")
+@krever_admin
+def admin_nieft_fjern():
+    epost_ = request.form.get("epost") or ""
+    if nieft.fjern(con(), epost_, aktor=_aktor()):
+        con().commit()
+        flash(f"{nieft.normaliser(epost_)} er fjernet fra listen.", "ok")
+    else:
+        flash("Adressen står ikke på listen.", "feil")
+    return redirect(url_for("admin_nieft", q=request.form.get("q") or None))
+
+
+@app.post("/admin/rabatter/nieft/godkjenn-ventende")
+@krever_admin
+def admin_nieft_godkjenn_ventende():
+    """NIEFT-rabatter som ventet da listen ble lastet opp, og der e-posten står på listen: godkjennes som om noen trykket «Godkjent»
+    på hver (fakturaen lages etter den vanlige fakturaplanen)."""
+    godkjent = []
+    for v in nieft.ventende_paa_listen(con()):
+        try:
+            rabatter.godkjenn(con(), v["paamelding_id"], aktor=_aktor())
+        except rabatter.Rabattfeil:
+            continue                    # avgjort av noen andre i mellomtiden
+        godkjent.append(v)
+    con().commit()
+    for v in godkjent:
+        if v["status"] == "bekreftet":
+            _fakturaplan_videre(v["paamelding_id"])
+    flash(f"{len(godkjent)} NIEFT-rabatter er godkjent." if godkjent else "Ingen NIEFT-rabatter å godkjenne.", "ok")
+    return redirect(url_for("admin_nieft"))
 
 
 @app.post("/admin/rabatter/<int:paamelding_id>")

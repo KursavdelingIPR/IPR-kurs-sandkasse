@@ -144,7 +144,7 @@
   <div class="pm-rad">
     <label class="pm-etikett" for="f-epost_bekreft">Bekreft e-post <span class="pm-krav">(krav)</span></label>
     <div class="pm-felt"><input id="f-epost_bekreft" name="epost_bekreft" type="email" required autocomplete="email" value="{{ f.epost_bekreft }}"
-      data-lik-som="f-epost" data-lik-feil="E-postadressene er ikke like."></div>
+      data-lik-som="f-epost" data-lik-feil="E-postadressene er ikke like." data-epost-sjekk="{{ EPOST_SJEKK }}"></div>
   </div>
   {#- Deltakerens private adresse: alltid med og alltid krav (også når arbeidsgiver betaler). Betaler deltakeren selv,
       faktureres denne adressen. -#}
@@ -185,7 +185,10 @@
     </div>
     {%- elif r.kategori == 'nieft' %}
     <div class="pm-rad"><span class="pm-etikett" aria-hidden="true"></span>
-      <div class="pm-felt"><p class="pm-tekst">Bruk e-posten du er registrert med som NIEFT-medlem.{% if r.maa_godkjennes %} Vi sjekker medlemskapet før fakturaen sendes.{% endif %}</p></div>
+      {#- Med NIEFT-medlemslisten (kurs/nieft.py) sjekkes e-posten når skjemaet sendes, og påmeldingen stoppes hvis den ikke står der -#}
+      <div class="pm-felt"><p class="pm-tekst">{% if nieft_liste %}<strong>Bruk e-posten du er registrert med som NIEFT-medlem.</strong> Vi sjekker den mot
+        medlemslisten når du melder deg på. Vet du ikke hvilken e-post medlemskapet er registrert med, kontakt oss på {{ kontakt_epost }}.
+        {%- else %}Bruk e-posten du er registrert med som NIEFT-medlem.{% if r.maa_godkjennes %} Vi sjekker medlemskapet før fakturaen sendes.{% endif %}{% endif %}</p></div>
     </div>
     {%- elif r.kategori == 'psyflix' %}
     <div class="pm-rad">

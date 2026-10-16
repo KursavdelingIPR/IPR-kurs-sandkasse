@@ -69,6 +69,7 @@ class Hendelse:
     sjekk_plan_id: int | None = None    # planlagt kurs som holder sjekklisten: plan_id, eller det skjulte for et kurs i systemet
     kurs_samling_id: int | None = None  # samlingen i kurset (kurs i systemet)
     booking: dict = field(default_factory=dict)   # {type: rad} fra booking.for_samlinger, satt av sjekklister.legg_paa
+    webinar: bool = False               # vises i Kalender → Webinarer (er_webinar)
 
     @property
     def planlagt(self) -> bool:
@@ -279,7 +280,7 @@ def _planlagte(con, fra: date, til: date, *, ansvarlig: int, status: str, sted: 
             nr=s["nr_vist"] if nummerert else 1, antall=s["antall"] if nummerert else 1, samling_navn=s["navn"],
             plan_id=s["plan_id"], fast_farge=s["farge"], ekstern=s["ekstern"], arrangor=s["arrangor"], tema=s["tema"],
             lokale=s["lokale"], kursholdere=s["kursholdere_tekst"], veiledningsdager=s["veiledningsdager"],
-            sjekk=s["sjekk"] or s["kurs_sjekk"], samling_id=s["samling_id"], sjekk_plan_id=s["plan_id"]))
+            sjekk=s["sjekk"] or s["kurs_sjekk"], samling_id=s["samling_id"], sjekk_plan_id=s["plan_id"], webinar=bool(s["webinar"])))
     return ut
 
 
@@ -288,19 +289,33 @@ def _knytt_til_sjekklister(con, hendelser: list[Hendelse]) -> None:
     sids = [h.kurs_samling_id for h in hendelser if h.kurs_samling_id is not None]
     if not sids:
         return
-    lenker = {r["kurs_samling_id"]: (r["plan_id"], r["id"], r["kursholdere"]) for r in con.execute(
-        f"""SELECT ps.kurs_samling_id, ps.id, ps.kursholdere, pk.id AS plan_id FROM planlagt_samling ps
+    lenker = {r["kurs_samling_id"]: (r["plan_id"], r["id"], r["kursholdere"], r["webinar"]) for r in con.execute(
+        f"""SELECT ps.kurs_samling_id, ps.id, ps.kursholdere, pk.id AS plan_id, pk.webinar FROM planlagt_samling ps
             JOIN planlagt_kurs pk ON pk.id=ps.planlagt_kurs_id
             WHERE pk.kurs_id IS NOT NULL AND ps.kurs_samling_id IN ({','.join('?' * len(sids))})""", tuple(sids))}
     roller = planlagte_kurs.roller_per_samling(con, [v[1] for v in lenker.values()])
     for h in hendelser:
         if h.kurs_samling_id in lenker:
-            h.sjekk_plan_id, h.samling_id, fritekst = lenker[h.kurs_samling_id]
+            h.sjekk_plan_id, h.samling_id, fritekst, webinar = lenker[h.kurs_samling_id]
+            h.webinar = h.webinar or bool(webinar)
             h.kursholdere = planlagte_kurs.rolletekst(roller.get(h.samling_id, []), veiledere=False, fritekst=fritekst)
 
 
+def er_webinar(navn: str | None) -> bool:
+    """Et kurs i systemet hører til fanen Webinarer når navnet sier det («… (gratis webinar)»). Planlagte kurs krysses av selv
+    (planlagt_kurs.webinar), og et kurs i systemet kan også være med via det skjulte planlagte kurset som holder sjekklisten."""
+    return "webinar" in (navn or "").casefold()
+
+
 def hent(con, fra: date, til: date, *, ansvarlig: int = 0, status: str = "", sted: str = "",
-         med_planlagte: bool = False) -> list[Hendelse]:
+         med_planlagte: bool = False, kun_webinarer: bool = False) -> list[Hendelse]:
+    """Som _hent; kun_webinarer=True gir bare webinarene (Kalender → Webinarer, Camilla 15.10.2026)."""
+    ut = _hent(con, fra, til, ansvarlig=ansvarlig, status=status, sted=sted, med_planlagte=med_planlagte)
+    return [h for h in ut if h.webinar] if kun_webinarer else ut
+
+
+def _hent(con, fra: date, til: date, *, ansvarlig: int = 0, status: str = "", sted: str = "",
+          med_planlagte: bool = False) -> list[Hendelse]:
     """Hendelsene (samlingene) som har minst én dag fra og med `fra` til og med `til`, sortert på dato og navn.
     Samlingene nummereres ut fra ALLE kursets samlinger, så «Samling 2 av 3» stemmer også når bare én av dem vises.
     med_planlagte=True tar med de planlagte kursene (bare kalendersiden)."""
@@ -357,7 +372,7 @@ def hent(con, fra: date, til: date, *, ansvarlig: int = 0, status: str = "", ste
                                    nr=nr, antall=len(samlinger), kode=k["kode"], kapasitet=k["kapasitet"],
                                    bekreftet=k["bekreftet"] or 0, ekstradeltakere=ekstra,
                                    spesialistlop=k["spesialistlop"],
-                                   samling_navn=f["samling_navn"], kurs_samling_id=sid))
+                                   samling_navn=f["samling_navn"], kurs_samling_id=sid, webinar=er_webinar(k["navn"])))
     _knytt_til_sjekklister(con, ut)
     return sorted(ut + planlagte, key=lambda h: (h.fra, h.navn.casefold(), h.nokkel))
 

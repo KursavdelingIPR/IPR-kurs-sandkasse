@@ -48,6 +48,9 @@ måneder, men da må de sende en e-post til kurs@ipr.no» - «eller post@terapia
 laget på nytt (inne i pytest, med HPR). Eneste forskjeller: blokken «Betalingsvilkår» (div#betalingsvilkar) i alle scenarier med fakturadel,
 og « – 89 kr i fakturagebyr per faktura» etter valget «Delt opp» der deltakeren velger. Hjelpeteksten på de faste feltene (samme dag) gir
 ingen forskjell uten egen tekst. Ingen statuskoder er endret.
+
+15.10.2026 (Camilla: «Mente du …?» skal komme i alle e-postfeltene i påmeldingen) ble bildet laget på nytt (inne i pytest, med HPR).
+Eneste forskjell, i de samme 14 scenariene: «Bekreft e-post» har også fått attributtet `data-epost-sjekk`. Ingen statuskoder er endret.
 """
 import json
 from datetime import date
